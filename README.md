@@ -18,10 +18,11 @@ ai-manju-project/
 │       ├── cmd/server/       # 入口文件
 │       ├── internal/         # 内部包
 │       │   ├── handler/      # HTTP 处理器
-│       │   ├── service/      # 业务逻辑
 │       │   ├── repository/   # 数据访问
+│       │   ├── response/     # 统一响应
+│       │   ├── router/       # 路由注册
 │       │   └── model/        # 数据模型
-│       └── pkg/              # 公共包
+│       └── _legacy-nest/     # 旧 NestJS 代码归档，不作为当前主线
 │
 ├── packages/
 │   ├── types/                # 共享类型定义
@@ -46,7 +47,7 @@ pnpm install
 **后端**:
 ```bash
 cd apps/api
-go mod download
+go mod tidy
 ```
 
 ### 启动开发环境
@@ -57,13 +58,13 @@ go mod download
 pnpm dev:web
 
 # 终端 2: 启动后端
-cd apps/api && go run cmd/server/main.go
+pnpm dev:api
 ```
 
-**方式 2: 使用 Turborepo (推荐)**
+**方式 2: 分目录启动后端**
 ```bash
-# TODO: 配置 turbo 支持 Go
-pnpm dev
+cd apps/api
+go run ./cmd/server
 ```
 
 ---
@@ -81,10 +82,9 @@ pnpm dev
 ### 后端 (apps/api) - 端口 3101
 - **Go 1.23**
 - Gin (HTTP 框架)
-- GORM (ORM)
-- PostgreSQL (主数据库)
-- Redis + Asynq (任务队列)
-- gorilla/websocket (实时通信)
+- GORM + PostgreSQL 可选持久化
+- 默认内存 Project / Canvas Snapshot API MVP
+- Redis + Asynq、WebSocket 为后续阶段接入目标
 
 ---
 
@@ -97,9 +97,10 @@ pnpm dev
 - API 服务器：http://localhost:3101
 - 健康检查：http://localhost:3101/health
 
-### 数据库
-- PostgreSQL：5432
-- Redis：6379
+### 后端存储
+- 当前阶段使用进程内内存存储，重启后数据会丢失。
+- 可通过 `STORAGE_DRIVER=postgres` 切换 PostgreSQL 持久化。
+- Redis 仍是后续阶段目标，不是当前已接入能力。
 
 ---
 
@@ -114,11 +115,7 @@ NEXT_PUBLIC_API_URL=http://localhost:3101
 ```env
 PORT=3101
 FRONTEND_URL=http://localhost:3100
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_NAME=ai_manju
+STORAGE_DRIVER=memory
 ```
 
 ---
@@ -146,11 +143,10 @@ docker-compose up
 
 ## 🎯 Phase 1 进度
 
-✅ Monorepo 架构搭建  
-✅ 前端画布核心功能复刻  
-✅ Go 后端基础架构  
-⏳ API 接口开发  
-⏳ 数据库设计  
-⏳ 实时协作功能
-
+- ✅ Monorepo 架构搭建
+- ✅ 前端画布核心功能复刻
+- ✅ Go 后端基础架构
+- ✅ 最小 Project / Canvas Snapshot API
+- ⏳ 数据库设计
+- ⏳ 实时协作功能
 
