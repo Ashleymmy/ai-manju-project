@@ -83,7 +83,7 @@ go run ./cmd/server
 - **Go 1.23**
 - Gin (HTTP 框架)
 - GORM + PostgreSQL 可选持久化
-- 默认内存 Project / Canvas Snapshot API MVP
+- Beta 账号、Project / Snapshot 用户隔离、管理端模型 Provider 和文本代理
 - Redis + Asynq、WebSocket 为后续阶段接入目标
 
 ---
@@ -97,9 +97,15 @@ go run ./cmd/server
 - API 服务器：http://localhost:3101
 - 健康检查：http://localhost:3101/health
 
-### 后端存储
-- 当前阶段使用进程内内存存储，重启后数据会丢失。
-- 可通过 `STORAGE_DRIVER=postgres` 切换 PostgreSQL 持久化。
+- API 服务器：http://localhost:3101
+- 健康检查：http://localhost:3101/health
+
+### 后端 Beta 能力
+- `POST /api/auth/login` 使用 HttpOnly Cookie `ai_manju_session`。
+- `/api/projects/*` 需要登录，并按当前用户隔离数据。
+- `/api/admin/*` 仅允许 `super_admin`。
+- `/api/ai/models`、`/api/ai/text` 和 `/api/ai/images/generations` 通过后端代理使用管理员配置的 OpenAI-compatible 模型服务。
+- Beta 推荐 `STORAGE_DRIVER=postgres`；memory 模式仅用于本地快速开发和测试。
 - Redis 仍是后续阶段目标，不是当前已接入能力。
 
 ---
@@ -114,8 +120,25 @@ NEXT_PUBLIC_API_URL=http://localhost:3101
 ### 后端 (apps/api/.env)
 ```env
 PORT=3101
-FRONTEND_URL=http://localhost:3100
-STORAGE_DRIVER=memory
+HOST=0.0.0.0
+FRONTEND_URLS=http://localhost:3100,http://127.0.0.1:3100
+STORAGE_DRIVER=postgres
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=<strong-password>
+ADMIN_DISPLAY_NAME=Super Admin
+APP_SECRET=<at-least-32-random-characters>
+
+# PostgreSQL 模式：
+# STORAGE_DRIVER=postgres
+# DATABASE_URL=postgres://postgres:postgres@localhost:55432/ai_manju?sslmode=disable
+```
+
+后端联调 smoke：
+
+```powershell
+cd apps/api
+.\scripts\smoke-project.ps1 -Username admin -Password <strong-password>
+.\scripts\smoke-auth-admin.ps1 -AdminUsername admin -AdminPassword <strong-password>
 ```
 
 ---
@@ -124,8 +147,12 @@ STORAGE_DRIVER=memory
 
 ### Docker Compose
 ```bash
-docker-compose up
+cp .env.example .env
+# Edit .env and set strong secrets first.
+docker compose up --build
 ```
+
+当前 compose 提供 `api + postgres`，敏感配置从 `.env` 读取。局域网访问时，前端 `NEXT_PUBLIC_API_URL` 应配置为宿主机 LAN API 地址，例如 `http://192.168.1.50:3101`；后端 `FRONTEND_URLS` 需包含对应前端 Origin。
 
 ### 分别部署
 - **前端**: Vercel / Netlify
