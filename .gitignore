@@ -24,6 +24,7 @@ yarn-error.log*
 pnpm-debug.log*
 .codex-logs/
 apps/web/test-results/
+apps/api/start-api-3101.local.ps1
 
 # Local env files
 .env*.local
