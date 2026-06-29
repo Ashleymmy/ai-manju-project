@@ -1,0 +1,67 @@
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /health                   --> github.com/ai-manju/api/internal/router.NewWithConfig.func2 (6 handlers)
+[GIN-debug] GET    /api/ping                 --> github.com/ai-manju/api/internal/router.NewWithConfig.func3 (6 handlers)
+[GIN-debug] POST   /api/auth/register        --> github.com/ai-manju/api/internal/handler.(*AuthHandler).Register-fm (6 handlers)
+[GIN-debug] POST   /api/auth/login           --> github.com/ai-manju/api/internal/handler.(*AuthHandler).Login-fm (6 handlers)
+[GIN-debug] GET    /api/auth/me              --> github.com/ai-manju/api/internal/handler.(*AuthHandler).Me-fm (7 handlers)
+[GIN-debug] POST   /api/auth/logout          --> github.com/ai-manju/api/internal/handler.(*AuthHandler).Logout-fm (7 handlers)
+[GIN-debug] GET    /api/admin/users          --> github.com/ai-manju/api/internal/handler.(*AuthHandler).ListUsers-fm (7 handlers)
+[GIN-debug] POST   /api/admin/users          --> github.com/ai-manju/api/internal/handler.(*AuthHandler).CreateUser-fm (7 handlers)
+[GIN-debug] PUT    /api/admin/users/:id      --> github.com/ai-manju/api/internal/handler.(*AuthHandler).UpdateUser-fm (7 handlers)
+[GIN-debug] GET    /api/admin/model-provider --> github.com/ai-manju/api/internal/handler.(*ModelProviderHandler).Get-fm (7 handlers)
+[GIN-debug] PUT    /api/admin/model-provider --> github.com/ai-manju/api/internal/handler.(*ModelProviderHandler).Put-fm (7 handlers)
+[GIN-debug] POST   /api/admin/model-provider/test --> github.com/ai-manju/api/internal/handler.(*ModelProviderHandler).Test-fm (7 handlers)
+[GIN-debug] POST   /api/admin/model-provider/models --> github.com/ai-manju/api/internal/handler.(*ModelProviderHandler).Models-fm (7 handlers)
+[GIN-debug] GET    /api/ai/models            --> github.com/ai-manju/api/internal/handler.(*AIHandler).Models-fm (7 handlers)
+[GIN-debug] POST   /api/ai/text              --> github.com/ai-manju/api/internal/handler.(*AIHandler).Text-fm (7 handlers)
+[GIN-debug] POST   /api/ai/images/generations --> github.com/ai-manju/api/internal/handler.(*AIHandler).ImageGenerations-fm (7 handlers)
+[GIN-debug] POST   /api/ai/image/generations --> github.com/ai-manju/api/internal/handler.(*AIHandler).ImageGenerations-fm (7 handlers)
+[GIN-debug] POST   /api/ai/images/edits      --> github.com/ai-manju/api/internal/handler.(*AIHandler).ImageEdits-fm (7 handlers)
+[GIN-debug] POST   /api/ai/image/edits       --> github.com/ai-manju/api/internal/handler.(*AIHandler).ImageEdits-fm (7 handlers)
+[GIN-debug] POST   /api/ai/videos            --> github.com/ai-manju/api/internal/handler.(*AIHandler).VideoTaskCreate-fm (7 handlers)
+[GIN-debug] GET    /api/ai/videos/:id        --> github.com/ai-manju/api/internal/handler.(*AIHandler).VideoTaskGet-fm (7 handlers)
+[GIN-debug] GET    /api/ai/videos/:id/content --> github.com/ai-manju/api/internal/handler.(*AIHandler).VideoTaskContent-fm (7 handlers)
+[GIN-debug] POST   /api/ai/contents/generations/tasks --> github.com/ai-manju/api/internal/handler.(*AIHandler).SeedanceTaskCreate-fm (7 handlers)
+[GIN-debug] GET    /api/ai/contents/generations/tasks/:id --> github.com/ai-manju/api/internal/handler.(*AIHandler).SeedanceTaskGet-fm (7 handlers)
+[GIN-debug] POST   /api/ai/audio/speech      --> github.com/ai-manju/api/internal/handler.(*AIHandler).AudioSpeech-fm (7 handlers)
+[GIN-debug] GET    /api/projects             --> github.com/ai-manju/api/internal/handler.(*ProjectHandler).GetProjects-fm (7 handlers)
+[GIN-debug] POST   /api/projects             --> github.com/ai-manju/api/internal/handler.(*ProjectHandler).CreateProject-fm (7 handlers)
+[GIN-debug] GET    /api/projects/:id         --> github.com/ai-manju/api/internal/handler.(*ProjectHandler).GetProject-fm (7 handlers)
+[GIN-debug] PUT    /api/projects/:id         --> github.com/ai-manju/api/internal/handler.(*ProjectHandler).UpdateProject-fm (7 handlers)
+[GIN-debug] DELETE /api/projects/:id         --> github.com/ai-manju/api/internal/handler.(*ProjectHandler).DeleteProject-fm (7 handlers)
+[GIN-debug] GET    /api/projects/:id/snapshot --> github.com/ai-manju/api/internal/handler.(*ProjectHandler).GetCanvasSnapshot-fm (7 handlers)
+[GIN-debug] PUT    /api/projects/:id/snapshot --> github.com/ai-manju/api/internal/handler.(*ProjectHandler).UpdateCanvasSnapshot-fm (7 handlers)
+[GIN-debug] GET    /api/assets               --> github.com/ai-manju/api/internal/handler.(*AssetHandler).List-fm (7 handlers)
+[GIN-debug] POST   /api/assets               --> github.com/ai-manju/api/internal/handler.(*AssetHandler).Upload-fm (7 handlers)
+[GIN-debug] GET    /api/assets/:id/content   --> github.com/ai-manju/api/internal/handler.(*AssetHandler).Content-fm (7 handlers)
+[GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
+Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
+[GIN-debug] Listening and serving HTTP on 127.0.0.1:3131
+[GIN] 2026/06/28 - 23:03:01 | 200 |       192.5µs |       127.0.0.1 | GET      "/health"
+[GIN] 2026/06/28 - 23:04:09 | 200 |     56.2602ms |       127.0.0.1 | POST     "/api/auth/login"
+[GIN] 2026/06/28 - 23:04:09 | 200 |            0s |       127.0.0.1 | GET      "/api/auth/me"
+[GIN] 2026/06/28 - 23:04:09 | 201 |    107.9438ms |       127.0.0.1 | POST     "/api/auth/register"
+[GIN] 2026/06/28 - 23:04:09 | 201 |            0s |       127.0.0.1 | POST     "/api/projects"
+[GIN] 2026/06/28 - 23:04:09 | 200 |            0s |       127.0.0.1 | PUT      "/api/projects/proj_4aa412e201fc13d2/snapshot"
+[GIN] 2026/06/28 - 23:04:09 | 200 |            0s |       127.0.0.1 | GET      "/api/projects/proj_4aa412e201fc13d2/snapshot"
+[GIN] 2026/06/28 - 23:07:24 | 200 |     54.0648ms |       127.0.0.1 | POST     "/api/auth/login"
+[GIN] 2026/06/28 - 23:07:24 | 200 |            0s |       127.0.0.1 | GET      "/api/auth/me"
+[GIN] 2026/06/28 - 23:07:24 | 201 |     108.512ms |       127.0.0.1 | POST     "/api/auth/register"
+[GIN] 2026/06/28 - 23:07:24 | 201 |            0s |       127.0.0.1 | POST     "/api/projects"
+[GIN] 2026/06/28 - 23:07:24 | 200 |           1ms |       127.0.0.1 | PUT      "/api/projects/proj_bf285433f46c52dd/snapshot"
+[GIN] 2026/06/28 - 23:07:24 | 200 |            0s |       127.0.0.1 | GET      "/api/projects/proj_bf285433f46c52dd/snapshot"
+[GIN] 2026/06/28 - 23:07:56 | 200 |     54.2011ms |       127.0.0.1 | POST     "/api/auth/login"
+[GIN] 2026/06/28 - 23:07:56 | 200 |            0s |       127.0.0.1 | GET      "/api/auth/me"
+[GIN] 2026/06/28 - 23:07:57 | 201 |    106.7025ms |       127.0.0.1 | POST     "/api/auth/register"
+[GIN] 2026/06/28 - 23:07:57 | 201 |            0s |       127.0.0.1 | POST     "/api/projects"
+[GIN] 2026/06/28 - 23:07:57 | 200 |            0s |       127.0.0.1 | PUT      "/api/projects/proj_2749d3810cb7f887/snapshot"
+[GIN] 2026/06/28 - 23:07:57 | 200 |            0s |       127.0.0.1 | GET      "/api/projects/proj_2749d3810cb7f887/snapshot"
+[GIN] 2026/06/28 - 23:07:57 | 201 |     38.7954ms |       127.0.0.1 | POST     "/api/assets"
+[GIN] 2026/06/28 - 23:07:57 | 200 |            0s |       127.0.0.1 | GET      "/api/assets/asset_12b19a4add60125e5fcb6762/content"
+[GIN] 2026/06/28 - 23:07:57 | 200 |            0s |       127.0.0.1 | POST     "/api/auth/logout"
+[GIN] 2026/06/28 - 23:07:57 | 401 |            0s |       127.0.0.1 | GET      "/api/auth/me"

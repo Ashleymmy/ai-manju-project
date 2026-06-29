@@ -1,0 +1,5 @@
+2026/06/29 19:12:40 No .env file found
+2026/06/29 19:12:40 WARNING: weak or missing security configuration detected: set strong APP_SECRET and ADMIN_PASSWORD before team Beta/production use
+2026/06/29 19:12:41 API listening on 0.0.0.0:3101
+2026/06/29 19:12:41 Local: http://localhost:3101
+2026/06/29 19:12:41 LAN:   http://<host-lan-ip>:3101

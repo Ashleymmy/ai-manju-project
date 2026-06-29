@@ -1,0 +1,13 @@
+
+> @ai-manju/web@0.1.0 dev F:\cavans原型\ai-manju-project\apps\web
+> next dev -p 3100
+
+▲ Next.js 16.2.3 (Turbopack)
+- Local:         http://localhost:3100
+- Network:       http://198.18.0.1:3100
+✓ Ready in 796ms
+
+ GET /login 200 in 2.4s (next.js: 496ms, application-code: 1872ms)
+ GET / 200 in 671ms (next.js: 113ms, application-code: 557ms)
+ GET / 200 in 309ms (next.js: 8ms, application-code: 301ms)
+ GET /login?next=%2F 200 in 44ms (next.js: 9ms, application-code: 35ms)
