@@ -10,6 +10,9 @@ node_modules
 **/.next-dev.log
 **/tsconfig.tsbuildinfo
 **/test-results
+apps/api/data
+apps/api/server.exe
+apps/api/*.local.ps1
 
 *.log
 tmp-*.pid
