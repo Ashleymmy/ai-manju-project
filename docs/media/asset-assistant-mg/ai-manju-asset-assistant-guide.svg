@@ -1,0 +1,523 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-labelledby="title description">
+  <title id="title">AI-Manju 漫剧资产助手操作演示</title>
+  <desc id="description">48 秒循环动画，演示从上传剧本、AI 分析与改稿、提示词确认、批量生图到资产归档的完整流程。</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#050714"/>
+      <stop offset="0.48" stop-color="#110a23"/>
+      <stop offset="1" stop-color="#07101f"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#B84DFF"/>
+      <stop offset="0.52" stop-color="#FF4F8C"/>
+      <stop offset="1" stop-color="#4F8CFF"/>
+    </linearGradient>
+    <linearGradient id="brandSoft" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#B84DFF" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#4F8CFF" stop-opacity="0.08"/>
+    </linearGradient>
+    <linearGradient id="success" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38D996"/>
+      <stop offset="1" stop-color="#6BE35F"/>
+    </linearGradient>
+    <linearGradient id="thumbCharacter" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7B42D8"/>
+      <stop offset="0.55" stop-color="#C65EC7"/>
+      <stop offset="1" stop-color="#F2A06A"/>
+    </linearGradient>
+    <linearGradient id="thumbScene" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#173B5C"/>
+      <stop offset="0.55" stop-color="#2C7F87"/>
+      <stop offset="1" stop-color="#E5A85A"/>
+    </linearGradient>
+    <linearGradient id="thumbProp" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#432D70"/>
+      <stop offset="0.55" stop-color="#A84586"/>
+      <stop offset="1" stop-color="#F4BD5E"/>
+    </linearGradient>
+    <radialGradient id="orb" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#FF4F8C" stop-opacity="0.85"/>
+      <stop offset="0.42" stop-color="#B84DFF" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#4F8CFF" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" fill="none" stroke="#FFFFFF" stroke-opacity="0.035"/>
+    </pattern>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="9" stdDeviation="12" flood-color="#000000" flood-opacity="0.32"/>
+    </filter>
+    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="appClip"><rect x="74" y="112" width="1772" height="820" rx="30"/></clipPath>
+
+    <symbol id="i-spark" viewBox="0 0 24 24">
+      <path d="M12 2l1.7 5.2L19 9l-5.3 1.8L12 16l-1.7-5.2L5 9l5.3-1.8L12 2zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z" fill="currentColor"/>
+    </symbol>
+    <symbol id="i-file" viewBox="0 0 24 24">
+      <path d="M6 2h8l4 4v16H6z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M14 2v5h5M9 12h6M9 16h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-check" viewBox="0 0 24 24">
+      <path d="M5 12.5l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24">
+      <path d="M3 6h7l2 2h9v11H3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-image" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="9" r="2" fill="currentColor"/><path d="M5 18l5-5 3 3 2-2 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24">
+      <path d="M4 4h16v12H9l-5 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 9h8M8 12h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor"/></symbol>
+    <symbol id="cursor" viewBox="0 0 34 42">
+      <path d="M4 2l24 24-11 1 6 11-6 3-6-12-7 8z" fill="#FFFFFF" stroke="#171224" stroke-width="2.2" stroke-linejoin="round"/>
+    </symbol>
+  </defs>
+
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    text { font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+    .muted { fill: #AFA6C3; }
+    .dim { fill: #756C86; }
+    .white { fill: #F9F5FF; }
+    .brandText { fill: url(#brand); }
+    .panel { fill: #121021; fill-opacity: .94; stroke: #FFFFFF; stroke-opacity: .10; }
+    .panelSoft { fill: #171429; fill-opacity: .78; stroke: #FFFFFF; stroke-opacity: .09; }
+    .line { stroke: #FFFFFF; stroke-opacity: .10; }
+    .tag { fill: #B84DFF; fill-opacity: .15; stroke: #B84DFF; stroke-opacity: .4; }
+    .successTag { fill: #6BE35F; fill-opacity: .12; stroke: #6BE35F; stroke-opacity: .35; }
+    .button { fill: url(#brand); }
+    .scene { opacity: 0; animation: sceneFade 48s linear infinite both; }
+    .s1 { animation-delay: 0s; }
+    .s2 { animation-delay: 8s; }
+    .s3 { animation-delay: 16s; }
+    .s4 { animation-delay: 24s; }
+    .s5 { animation-delay: 32s; }
+    .s6 { animation-delay: 40s; }
+    .floatA { animation: floatA 4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+    .floatB { animation: floatB 5s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+    .pulse { animation: pulse 1.5s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+    .spark { animation: sparkle 1.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+    .intro1 { animation: introCard 8s ease infinite; transform-box: fill-box; transform-origin: center; }
+    .intro2 { animation: introCard 8s .16s ease infinite; transform-box: fill-box; transform-origin: center; }
+    .intro3 { animation: introCard 8s .32s ease infinite; transform-box: fill-box; transform-origin: center; }
+    .intro4 { animation: introCard 8s .48s ease infinite; transform-box: fill-box; transform-origin: center; }
+    .intro5 { animation: introCard 8s .64s ease infinite; transform-box: fill-box; transform-origin: center; }
+    .cursor2 { animation: cursorUpload 8s ease-in-out infinite; }
+    .cursor3 { animation: cursorRevision 8s ease-in-out infinite; }
+    .cursor4 { animation: cursorPrompt 8s ease-in-out infinite; }
+    .cursor5 { animation: cursorBatch 8s ease-in-out infinite; }
+    .cursor6 { animation: cursorArchive 8s ease-in-out infinite; }
+    .analysisFill { animation: analysisFill 8s ease-in-out infinite; }
+    .revisionGlow { animation: revisionGlow 8s ease-in-out infinite; }
+    .diffReveal { animation: diffReveal 8s ease-in-out infinite; }
+    .approvedStamp { animation: approvedStamp 8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+    .batchFill { animation: batchFill 8s ease-in-out infinite; }
+    .queueDot { animation: queueDot 1.2s ease-in-out infinite; }
+    .queueDot:nth-of-type(2) { animation-delay: .18s; }
+    .queueDot:nth-of-type(3) { animation-delay: .36s; }
+    .assetCardA { animation: assetIn 8s .1s ease infinite; transform-box: fill-box; transform-origin: center; }
+    .assetCardB { animation: assetIn 8s .3s ease infinite; transform-box: fill-box; transform-origin: center; }
+    .assetCardC { animation: assetIn 8s .5s ease infinite; transform-box: fill-box; transform-origin: center; }
+    .timelineFill { animation: timeline 48s linear infinite; }
+    .paused * { animation-play-state: paused !important; }
+
+    @keyframes sceneFade {
+      0% { opacity: 0; }
+      .85%, 15.75% { opacity: 1; }
+      16.666%, 100% { opacity: 0; }
+    }
+    @keyframes floatA { 0%,100%{translate:0 0;rotate:-2deg} 50%{translate:0 -14px;rotate:2deg} }
+    @keyframes floatB { 0%,100%{translate:0 0;rotate:2deg} 50%{translate:0 12px;rotate:-2deg} }
+    @keyframes pulse { 0%,100%{scale:1;opacity:.72} 50%{scale:1.12;opacity:1} }
+    @keyframes sparkle { 0%,100%{scale:.7;rotate:0deg;opacity:.25} 50%{scale:1.18;rotate:18deg;opacity:1} }
+    @keyframes introCard { 0%,8%{opacity:0;translate:0 22px;scale:.96} 14%,78%{opacity:1;translate:0 0;scale:1} 88%,100%{opacity:0;translate:0 -10px;scale:.98} }
+    @keyframes cursorUpload { 0%,12%{transform:translate(945px,450px)} 28%,42%{transform:translate(965px,634px)} 49%{transform:translate(965px,634px) scale(.82)} 57%,100%{transform:translate(965px,634px)} }
+    @keyframes cursorRevision { 0%,15%{transform:translate(1470px,660px)} 34%,46%{transform:translate(1492px,707px)} 52%{transform:translate(1492px,707px) scale(.82)} 61%,72%{transform:translate(1590px,802px)} 78%{transform:translate(1590px,802px) scale(.82)} 88%,100%{transform:translate(1590px,802px)} }
+    @keyframes cursorPrompt { 0%,16%{transform:translate(1218px,420px)} 32%,43%{transform:translate(1568px,610px)} 49%{transform:translate(1568px,610px) scale(.82)} 58%,70%{transform:translate(725px,794px)} 76%{transform:translate(725px,794px) scale(.82)} 86%,100%{transform:translate(725px,794px)} }
+    @keyframes cursorBatch { 0%,17%{transform:translate(1470px,712px)} 34%,48%{transform:translate(1585px,790px)} 54%{transform:translate(1585px,790px) scale(.82)} 64%,100%{transform:translate(1585px,790px)} }
+    @keyframes cursorArchive { 0%,18%{transform:translate(1320px,710px)} 36%,48%{transform:translate(1200px,785px)} 54%{transform:translate(1200px,785px) scale(.82)} 63%,100%{transform:translate(1200px,785px)} }
+    @keyframes analysisFill { 0%,42%{width:0} 76%,100%{width:414px} }
+    @keyframes revisionGlow { 0%,42%{opacity:.15} 55%,100%{opacity:1} }
+    @keyframes diffReveal { 0%,45%{opacity:0;translate:0 12px} 58%,100%{opacity:1;translate:0 0} }
+    @keyframes approvedStamp { 0%,50%{opacity:0;scale:.6;rotate:-12deg} 63%,100%{opacity:1;scale:1;rotate:-4deg} }
+    @keyframes batchFill { 0%,36%{width:0} 72%,100%{width:670px} }
+    @keyframes queueDot { 0%,100%{opacity:.25;transform:translateY(0)} 50%{opacity:1;transform:translateY(-4px)} }
+    @keyframes assetIn { 0%,20%{opacity:0;translate:0 22px;scale:.94} 38%,100%{opacity:1;translate:0 0;scale:1} }
+    @keyframes timeline { 0%{width:0} 100%{width:1740px} }
+  </style>
+
+  <!-- Persistent stage -->
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#grid)"/>
+  <circle cx="1700" cy="160" r="290" fill="url(#orb)" opacity=".48"/>
+  <circle cx="160" cy="980" r="260" fill="url(#orb)" opacity=".2"/>
+
+  <g transform="translate(66 38)">
+    <rect width="52" height="52" rx="16" fill="url(#brand)"/>
+    <use href="#i-spark" x="13" y="13" width="26" height="26" color="#FFFFFF"/>
+    <text x="70" y="24" class="white" font-size="24" font-weight="800">AI-Manju</text>
+    <text x="70" y="48" class="muted" font-size="14" letter-spacing="2">AI 漫剧工坊</text>
+  </g>
+  <g transform="translate(1598 48)">
+    <rect width="256" height="38" rx="19" fill="#FFFFFF" fill-opacity=".055" stroke="#FFFFFF" stroke-opacity=".1"/>
+    <circle cx="22" cy="19" r="5" fill="#6BE35F" class="pulse"/>
+    <text x="38" y="25" class="muted" font-size="14">漫剧资产助手 · 操作演示</text>
+  </g>
+
+  <rect x="66" y="105" width="1788" height="838" rx="34" fill="#0B0B18" fill-opacity=".8" stroke="#FFFFFF" stroke-opacity=".11" filter="url(#shadow)"/>
+  <rect x="74" y="112" width="1772" height="820" rx="30" fill="#090A17"/>
+
+  <!-- Scene 1 · Intro -->
+  <g class="scene s1" clip-path="url(#appClip)">
+    <circle cx="1500" cy="455" r="330" fill="url(#orb)" opacity=".75"/>
+    <g transform="translate(1170 220)">
+      <circle cx="310" cy="250" r="182" fill="none" stroke="#B84DFF" stroke-opacity=".25" stroke-width="2" stroke-dasharray="9 14" class="floatA"/>
+      <circle cx="310" cy="250" r="124" fill="#B84DFF" fill-opacity=".08" stroke="#FF4F8C" stroke-opacity=".42"/>
+      <rect x="242" y="180" width="136" height="142" rx="28" fill="#171429" stroke="#FFFFFF" stroke-opacity=".16" filter="url(#softShadow)"/>
+      <use href="#i-file" x="280" y="210" width="60" height="60" color="#F9F5FF"/>
+      <use href="#i-spark" x="330" y="276" width="34" height="34" color="#FFB33D" class="spark"/>
+      <g class="floatA" transform="translate(52 38)">
+        <rect width="130" height="100" rx="20" fill="#171429" stroke="#4F8CFF" stroke-opacity=".45"/>
+        <use href="#i-chat" x="41" y="22" width="48" height="48" color="#6CB5FF"/>
+        <text x="65" y="84" text-anchor="middle" class="muted" font-size="13">AI 改稿</text>
+      </g>
+      <g class="floatB" transform="translate(470 80)">
+        <rect width="130" height="100" rx="20" fill="#171429" stroke="#FF4F8C" stroke-opacity=".45"/>
+        <use href="#i-image" x="41" y="19" width="48" height="48" color="#FF7BAB"/>
+        <text x="65" y="84" text-anchor="middle" class="muted" font-size="13">批量生图</text>
+      </g>
+      <g class="floatB" transform="translate(85 390)">
+        <rect width="130" height="100" rx="20" fill="#171429" stroke="#6BE35F" stroke-opacity=".45"/>
+        <use href="#i-check" x="41" y="18" width="48" height="48" color="#6BE35F"/>
+        <text x="65" y="84" text-anchor="middle" class="muted" font-size="13">批量审核</text>
+      </g>
+      <g class="floatA" transform="translate(458 402)">
+        <rect width="130" height="100" rx="20" fill="#171429" stroke="#FFB33D" stroke-opacity=".45"/>
+        <use href="#i-folder" x="41" y="18" width="48" height="48" color="#FFCB70"/>
+        <text x="65" y="84" text-anchor="middle" class="muted" font-size="13">自动归档</text>
+      </g>
+    </g>
+
+    <g transform="translate(150 225)">
+      <rect width="174" height="38" rx="19" class="tag"/>
+      <text x="87" y="25" text-anchor="middle" fill="#D9B4FF" font-size="14" font-weight="700">v0.3-beta 新功能</text>
+      <text y="113" class="white" font-size="68" font-weight="900">漫剧资产助手</text>
+      <text y="172" class="brandText" font-size="42" font-weight="800">从剧本到可用资产，一条后台生产链路</text>
+      <text y="226" class="muted" font-size="22">剧本分析 · 版本改稿 · 提示词确认 · 批量生图 · 自动归档</text>
+    </g>
+
+    <g transform="translate(150 598)">
+      <g class="intro1">
+        <rect width="190" height="118" rx="22" class="panelSoft"/>
+        <circle cx="34" cy="32" r="17" fill="#B84DFF"/><text x="34" y="38" text-anchor="middle" fill="#FFF" font-size="15" font-weight="800">1</text>
+        <text x="24" y="78" class="white" font-size="19" font-weight="700">上传剧本</text><text x="24" y="101" class="muted" font-size="13">选择文本模型</text>
+      </g>
+      <g class="intro2" transform="translate(210)">
+        <rect width="190" height="118" rx="22" class="panelSoft"/>
+        <circle cx="34" cy="32" r="17" fill="#A556F7"/><text x="34" y="38" text-anchor="middle" fill="#FFF" font-size="15" font-weight="800">2</text>
+        <text x="24" y="78" class="white" font-size="19" font-weight="700">AI 分析改稿</text><text x="24" y="101" class="muted" font-size="13">版本比较与回退</text>
+      </g>
+      <g class="intro3" transform="translate(420)">
+        <rect width="190" height="118" rx="22" class="panelSoft"/>
+        <circle cx="34" cy="32" r="17" fill="#D755BA"/><text x="34" y="38" text-anchor="middle" fill="#FFF" font-size="15" font-weight="800">3</text>
+        <text x="24" y="78" class="white" font-size="19" font-weight="700">确认提示词</text><text x="24" y="101" class="muted" font-size="13">定向优化与批审</text>
+      </g>
+      <g class="intro4" transform="translate(630)">
+        <rect width="190" height="118" rx="22" class="panelSoft"/>
+        <circle cx="34" cy="32" r="17" fill="#F1559B"/><text x="34" y="38" text-anchor="middle" fill="#FFF" font-size="15" font-weight="800">4</text>
+        <text x="24" y="78" class="white" font-size="19" font-weight="700">后台批量生图</text><text x="24" y="101" class="muted" font-size="13">关页不中断</text>
+      </g>
+      <g class="intro5" transform="translate(840)">
+        <rect width="190" height="118" rx="22" class="panelSoft"/>
+        <circle cx="34" cy="32" r="17" fill="#4F8CFF"/><text x="34" y="38" text-anchor="middle" fill="#FFF" font-size="15" font-weight="800">5</text>
+        <text x="24" y="78" class="white" font-size="19" font-weight="700">进入资产库</text><text x="24" y="101" class="muted" font-size="13">继续画布创作</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Scene 2 · Upload and analyze -->
+  <g class="scene s2" clip-path="url(#appClip)">
+    <rect x="74" y="112" width="242" height="820" fill="#0D0C1A"/>
+    <rect x="316" y="112" width="1530" height="72" fill="#0E0D1B"/>
+    <g transform="translate(102 145)"><use href="#i-spark" width="28" height="28" color="#C88BFF"/><text x="40" y="22" class="white" font-size="18" font-weight="800">AI 漫剧工坊</text></g>
+    <g transform="translate(94 228)"><rect width="198" height="48" rx="14" fill="#B84DFF" fill-opacity=".18"/><use href="#i-file" x="16" y="12" width="24" height="24" color="#D9B4FF"/><text x="52" y="31" fill="#E8D5FF" font-size="15" font-weight="700">漫剧资产助手</text></g>
+    <g transform="translate(94 294)" class="muted" font-size="15"><text y="18">画布工作区</text><text y="66">生图工作台</text><text y="114">资产库</text><text y="162">渲染队列</text></g>
+    <text x="354" y="157" class="white" font-size="20" font-weight="800">漫剧资产助手</text><text x="1665" y="157" class="muted" font-size="14">个人空间 ▾</text>
+
+    <g filter="url(#softShadow)">
+      <rect x="390" y="218" width="1380" height="632" rx="26" class="panel"/>
+      <text x="436" y="270" class="white" font-size="26" font-weight="800">新建漫剧资产项目</text>
+      <g transform="translate(436 296)">
+        <rect width="170" height="34" rx="17" fill="#B84DFF" fill-opacity=".18"/><text x="85" y="22" text-anchor="middle" fill="#DDBAFF" font-size="13">01 上传与分析</text>
+        <rect x="186" width="170" height="34" rx="17" fill="#FFFFFF" fill-opacity=".045"/><text x="271" y="22" text-anchor="middle" class="dim" font-size="13">02 确认候选</text>
+        <rect x="372" width="170" height="34" rx="17" fill="#FFFFFF" fill-opacity=".045"/><text x="457" y="22" text-anchor="middle" class="dim" font-size="13">03 创建项目</text>
+      </g>
+      <text x="436" y="383" class="muted" font-size="14">项目名称</text>
+      <rect x="436" y="400" width="650" height="52" rx="13" fill="#0E0D1B" stroke="#FFFFFF" stroke-opacity=".12"/>
+      <text x="458" y="433" class="white" font-size="16">《山海纪》第一集资产</text>
+      <text x="436" y="491" class="muted" font-size="14">上传剧本</text>
+      <rect x="436" y="510" width="650" height="176" rx="18" fill="#B84DFF" fill-opacity=".055" stroke="#B84DFF" stroke-opacity=".42" stroke-width="2" stroke-dasharray="8 8"/>
+      <use href="#i-file" x="715" y="545" width="56" height="56" color="#D6A8FF"/>
+      <text x="761" y="628" text-anchor="middle" class="white" font-size="17" font-weight="700">episode-01.txt</text>
+      <text x="761" y="654" text-anchor="middle" class="muted" font-size="13">已读取 28,416 字 · 点击可重新选择</text>
+      <text x="1130" y="383" class="muted" font-size="14">本次剧本分析模型</text>
+      <rect x="1130" y="400" width="582" height="52" rx="13" fill="#0E0D1B" stroke="#FFFFFF" stroke-opacity=".12"/>
+      <circle cx="1155" cy="426" r="7" fill="#6BE35F"/><text x="1175" y="433" class="white" font-size="15">文本模型 · GPT-Compatible / Story-Plus</text><text x="1682" y="433" class="muted" font-size="16">⌄</text>
+      <rect x="1130" y="482" width="582" height="128" rx="18" class="panelSoft"/>
+      <text x="1156" y="516" class="white" font-size="15" font-weight="700">分析将识别</text>
+      <g transform="translate(1156 537)" font-size="13"><rect width="88" height="32" rx="16" class="tag"/><text x="44" y="21" text-anchor="middle" fill="#DDBAFF">人物</text><rect x="100" width="88" height="32" rx="16" fill="#4F8CFF" fill-opacity=".13"/><text x="144" y="21" text-anchor="middle" fill="#9FC0FF">场景</text><rect x="200" width="88" height="32" rx="16" fill="#FFB33D" fill-opacity=".12"/><text x="244" y="21" text-anchor="middle" fill="#FFD38A">道具</text><rect x="300" width="88" height="32" rx="16" fill="#FF4F8C" fill-opacity=".12"/><text x="344" y="21" text-anchor="middle" fill="#FF9DC0">UI</text></g>
+      <text x="1156" y="594" class="muted" font-size="13">确认前不会创建正式项目或写入资产库</text>
+      <rect x="1130" y="634" width="582" height="74" rx="16" fill="#0C0B18" stroke="#FFFFFF" stroke-opacity=".08"/>
+      <rect x="1153" y="660" width="414" height="8" rx="4" fill="#FFFFFF" fill-opacity=".08"/>
+      <rect x="1153" y="660" height="8" rx="4" fill="url(#brand)" class="analysisFill"/>
+      <g transform="translate(1153 680)" font-size="11" class="muted"><text>提取文字</text><text x="112">提交模型</text><text x="225">等待分析</text><text x="338">整理候选</text></g>
+      <rect x="1437" y="746" width="275" height="58" rx="16" class="button"/>
+      <use href="#i-spark" x="1470" y="762" width="25" height="25" color="#FFFFFF"/><text x="1588" y="782" text-anchor="middle" fill="#FFFFFF" font-size="17" font-weight="800">分析并预览</text>
+    </g>
+    <g class="cursor2"><use href="#cursor" width="34" height="42"/></g>
+  </g>
+
+  <!-- Scene 3 · Revision workspace -->
+  <g class="scene s3" clip-path="url(#appClip)">
+    <rect x="74" y="112" width="1772" height="820" fill="#0A0A17"/>
+    <g transform="translate(112 142)"><use href="#i-spark" width="31" height="31" color="#C88BFF"/><text x="45" y="24" class="white" font-size="20" font-weight="800">剧本分析版本工作台</text><rect x="304" y="1" width="96" height="30" rx="15" class="successTag"/><text x="352" y="21" text-anchor="middle" fill="#8AF07E" font-size="12">已解析 18 项</text></g>
+    <text x="1710" y="166" text-anchor="end" class="muted" font-size="13">确认前不会创建正式项目 · 会话保留 7 天</text>
+    <line x1="110" y1="195" x2="1810" y2="195" class="line"/>
+
+    <g transform="translate(110 228)">
+      <rect width="358" height="624" rx="22" class="panel"/>
+      <text x="28" y="42" class="white" font-size="17" font-weight="800">版本历史</text>
+      <g transform="translate(28 72)">
+        <rect width="302" height="116" rx="17" fill="#FFFFFF" fill-opacity=".045" stroke="#FFFFFF" stroke-opacity=".09"/>
+        <circle cx="30" cy="32" r="17" fill="#6E657E"/><text x="30" y="37" text-anchor="middle" fill="#FFF" font-size="12" font-weight="700">v1</text>
+        <text x="60" y="35" class="white" font-size="15" font-weight="700">首轮分析</text><text x="24" y="70" class="muted" font-size="13">人物 8 · 场景 6 · 道具 4</text><text x="24" y="96" class="dim" font-size="12">Story-Plus · 14:32</text>
+      </g>
+      <line x1="58" y1="188" x2="58" y2="231" stroke="#B84DFF" stroke-width="2" stroke-dasharray="5 5"/>
+      <g transform="translate(28 231)" class="revisionGlow">
+        <rect width="302" height="128" rx="17" fill="#B84DFF" fill-opacity=".13" stroke="#B84DFF" stroke-opacity=".65"/>
+        <circle cx="30" cy="32" r="17" fill="url(#brand)"/><text x="30" y="37" text-anchor="middle" fill="#FFF" font-size="12" font-weight="700">v2</text>
+        <text x="60" y="35" class="white" font-size="15" font-weight="700">AI 改稿</text><rect x="223" y="18" width="58" height="25" rx="12" class="successTag"/><text x="252" y="35" text-anchor="middle" fill="#8AF07E" font-size="11">当前</text>
+        <text x="24" y="72" class="muted" font-size="13">人物 8 · 场景 7 · 道具 5</text><text x="24" y="99" class="dim" font-size="12">父版本 v1 · Narrative-Pro</text>
+      </g>
+      <g transform="translate(28 390)" class="diffReveal">
+        <text y="18" class="muted" font-size="13">相对 v1 的变化</text>
+        <g transform="translate(0 34)"><rect width="88" height="34" rx="17" class="successTag"/><text x="44" y="22" text-anchor="middle" fill="#8AF07E" font-size="12">新增 2</text><rect x="98" width="88" height="34" rx="17" fill="#4F8CFF" fill-opacity=".12"/><text x="142" y="22" text-anchor="middle" fill="#9FC0FF" font-size="12">修改 6</text><rect x="196" width="88" height="34" rx="17" fill="#FF5367" fill-opacity=".12"/><text x="240" y="22" text-anchor="middle" fill="#FF91A0" font-size="12">删除 0</text></g>
+        <rect y="88" width="302" height="90" rx="14" fill="#0E0D1B"/>
+        <text x="18" y="119" fill="#8AF07E" font-size="12">＋ 云岚古城 · 夜景版本</text><text x="18" y="145" fill="#9FC0FF" font-size="12">↻ 女主服饰统一为靛蓝银纹</text><text x="18" y="169" class="muted" font-size="11">更多 5 项变更…</text>
+      </g>
+    </g>
+
+    <g transform="translate(494 228)">
+      <rect width="1316" height="624" rx="22" class="panel"/>
+      <text x="30" y="42" class="white" font-size="17" font-weight="800">用自然语言继续改稿</text>
+      <rect x="30" y="68" width="1256" height="112" rx="18" fill="#0D0C1A" stroke="#B84DFF" stroke-opacity=".35"/>
+      <use href="#i-chat" x="54" y="93" width="30" height="30" color="#C88BFF"/>
+      <text x="102" y="108" class="white" font-size="15" font-weight="700">本轮优化方向</text>
+      <text x="102" y="138" class="muted" font-size="15">强化主角服饰层次；新增夜景场景版本；整体统一东方奇幻的冷暖对比。</text>
+      <rect x="1046" y="124" width="214" height="34" rx="17" fill="#FFFFFF" fill-opacity=".055"/><text x="1153" y="146" text-anchor="middle" class="muted" font-size="12">Narrative-Pro ▾</text>
+
+      <g transform="translate(30 207)">
+        <rect width="600" height="260" rx="18" class="panelSoft"/>
+        <text x="24" y="38" class="muted" font-size="13">v1 原版本</text>
+        <rect x="24" y="58" width="552" height="76" rx="13" fill="#FFFFFF" fill-opacity=".035"/>
+        <text x="43" y="86" class="white" font-size="14">沈雾 · 女主</text><text x="43" y="112" class="muted" font-size="12">青衣剑客，性格冷静，佩长剑。</text>
+        <rect x="24" y="148" width="552" height="82" rx="13" fill="#FFFFFF" fill-opacity=".035"/>
+        <text x="43" y="177" class="white" font-size="14">云岚古城</text><text x="43" y="203" class="muted" font-size="12">山间古城，石阶与木楼。</text>
+      </g>
+      <g transform="translate(656 207)" class="diffReveal">
+        <rect width="600" height="260" rx="18" fill="#B84DFF" fill-opacity=".07" stroke="#B84DFF" stroke-opacity=".32"/>
+        <text x="24" y="38" fill="#DDBAFF" font-size="13">v2 AI 改稿候选</text>
+        <rect x="24" y="58" width="552" height="76" rx="13" fill="#6BE35F" fill-opacity=".06"/>
+        <text x="43" y="86" class="white" font-size="14">沈雾 · 女主</text><text x="43" y="112" fill="#98EFA0" font-size="12">靛蓝窄袖劲装，银纹护肩与分层腰封，佩长剑。</text>
+        <rect x="24" y="148" width="552" height="82" rx="13" fill="#6BE35F" fill-opacity=".06"/>
+        <text x="43" y="177" class="white" font-size="14">云岚古城 · 夜</text><text x="43" y="203" fill="#98EFA0" font-size="12">月色冷调，檐下暖灯，湿润石阶形成冷暖对比。</text>
+      </g>
+      <g transform="translate(30 496)">
+        <rect width="322" height="62" rx="16" fill="#FFFFFF" fill-opacity=".055"/><text x="161" y="39" text-anchor="middle" class="white" font-size="15" font-weight="700">保存当前人工版本</text>
+        <rect x="858" width="190" height="62" rx="16" fill="#FFFFFF" fill-opacity=".055"/><text x="953" y="39" text-anchor="middle" class="white" font-size="15">继续 AI 改稿</text>
+        <rect x="1064" width="192" height="62" rx="16" class="button"/><use href="#i-check" x="1089" y="19" width="24" height="24" color="#FFF"/><text x="1175" y="39" text-anchor="middle" fill="#FFF" font-size="15" font-weight="800">确认 v2</text>
+      </g>
+    </g>
+    <g class="cursor3"><use href="#cursor" width="34" height="42"/></g>
+  </g>
+
+  <!-- Scene 4 · Prompt confirmation -->
+  <g class="scene s4" clip-path="url(#appClip)">
+    <rect x="74" y="112" width="1772" height="820" fill="#0A0A17"/>
+    <g transform="translate(112 140)"><text y="24" class="white" font-size="24" font-weight="850">资产与前置提示词</text><text x="252" y="24" class="muted" font-size="14">《山海纪》第一集资产 · 18 项</text></g>
+    <g transform="translate(112 190)">
+      <rect width="1050" height="655" rx="22" class="panel"/>
+      <g transform="translate(26 25)"><rect width="340" height="44" rx="13" fill="#0D0C1A" stroke="#FFFFFF" stroke-opacity=".1"/><text x="20" y="28" class="dim" font-size="13">搜索名称、设定或提示词</text><rect x="612" width="128" height="44" rx="13" fill="#FFFFFF" fill-opacity=".055"/><text x="676" y="28" text-anchor="middle" class="white" font-size="13">批量模板处理</text><rect x="752" width="128" height="44" rx="13" fill="#B84DFF" fill-opacity=".14"/><text x="816" y="28" text-anchor="middle" fill="#DDBAFF" font-size="13">批量 AI 优化</text><rect x="892" width="132" height="44" rx="13" class="button"/><text x="958" y="28" text-anchor="middle" fill="#FFF" font-size="13" font-weight="700">批量审核通过</text></g>
+      <line x1="0" y1="90" x2="1050" y2="90" class="line"/>
+      <g transform="translate(26 114)" class="muted" font-size="12"><text x="12">✓</text><text x="52">资产</text><text x="330">分类</text><text x="450">状态</text><text x="590">批准提示词</text><text x="920">操作</text></g>
+      <line x1="26" y1="148" x2="1024" y2="148" class="line"/>
+      <g transform="translate(26 166)">
+        <rect width="998" height="108" rx="15" fill="#B84DFF" fill-opacity=".065" stroke="#B84DFF" stroke-opacity=".2"/>
+        <rect x="12" y="43" width="20" height="20" rx="5" fill="url(#brand)"/><use href="#i-check" x="13" y="44" width="18" height="18" color="#FFF"/>
+        <circle cx="79" cy="54" r="30" fill="url(#thumbCharacter)"/><circle cx="79" cy="47" r="12" fill="#FFE2D1" fill-opacity=".85"/><path d="M58 74q21-24 42 0" fill="#20172C"/>
+        <text x="126" y="47" class="white" font-size="15" font-weight="700">沈雾</text><text x="126" y="71" class="muted" font-size="12">CHAR-001 · 女主</text>
+        <rect x="320" y="39" width="74" height="28" rx="14" class="tag"/><text x="357" y="58" text-anchor="middle" fill="#DDBAFF" font-size="12">人物</text>
+        <rect x="436" y="39" width="108" height="28" rx="14" class="successTag"/><text x="490" y="58" text-anchor="middle" fill="#8AF07E" font-size="12">已确认</text>
+        <text x="580" y="43" class="white" font-size="12">东方奇幻女性剑客，靛蓝银纹劲装…</text><text x="580" y="67" class="muted" font-size="11">模型：Image-Pro · 2K · auto</text>
+        <text x="918" y="59" fill="#CFA0FF" font-size="12">处理提示词</text>
+      </g>
+      <g transform="translate(26 290)">
+        <rect width="998" height="108" rx="15" fill="#FFFFFF" fill-opacity=".025"/>
+        <rect x="12" y="43" width="20" height="20" rx="5" fill="url(#brand)"/><use href="#i-check" x="13" y="44" width="18" height="18" color="#FFF"/>
+        <circle cx="79" cy="54" r="30" fill="url(#thumbScene)"/><path d="M53 69l18-23 13 13 10-10 12 20z" fill="#C7E9DE" fill-opacity=".72"/>
+        <text x="126" y="47" class="white" font-size="15" font-weight="700">云岚古城 · 夜</text><text x="126" y="71" class="muted" font-size="12">ENV-003 · 主场景</text>
+        <rect x="320" y="39" width="74" height="28" rx="14" fill="#4F8CFF" fill-opacity=".14"/><text x="357" y="58" text-anchor="middle" fill="#9FC0FF" font-size="12">场景</text>
+        <rect x="436" y="39" width="108" height="28" rx="14" fill="#FFB33D" fill-opacity=".12"/><text x="490" y="58" text-anchor="middle" fill="#FFD38A" font-size="12">待确认</text>
+        <text x="580" y="43" class="white" font-size="12">月色冷调，檐下暖灯，湿润石阶…</text><text x="580" y="67" class="muted" font-size="11">AI 候选已生成 · 等待人工采用</text>
+        <text x="918" y="59" fill="#CFA0FF" font-size="12">处理提示词</text>
+      </g>
+      <g transform="translate(26 414)">
+        <rect width="998" height="108" rx="15" fill="#FFFFFF" fill-opacity=".025"/>
+        <rect x="12" y="43" width="20" height="20" rx="5" fill="url(#brand)"/><use href="#i-check" x="13" y="44" width="18" height="18" color="#FFF"/>
+        <circle cx="79" cy="54" r="30" fill="url(#thumbProp)"/><path d="M68 37h22l7 39H61z" fill="#FFD78C" fill-opacity=".83"/><path d="M72 30h14v12H72z" fill="#EEE3FF"/>
+        <text x="126" y="47" class="white" font-size="15" font-weight="700">玄纹长剑</text><text x="126" y="71" class="muted" font-size="12">PROP-007 · 武器</text>
+        <rect x="320" y="39" width="74" height="28" rx="14" fill="#FFB33D" fill-opacity=".13"/><text x="357" y="58" text-anchor="middle" fill="#FFD38A" font-size="12">道具</text>
+        <rect x="436" y="39" width="108" height="28" rx="14" class="successTag"/><text x="490" y="58" text-anchor="middle" fill="#8AF07E" font-size="12">已确认</text>
+        <text x="580" y="43" class="white" font-size="12">细长玄铁剑，剑格银纹，轻微旧化…</text><text x="580" y="67" class="muted" font-size="11">模型：Image-Pro · 2K · auto</text>
+        <text x="918" y="59" fill="#CFA0FF" font-size="12">处理提示词</text>
+      </g>
+      <g transform="translate(26 552)"><rect width="998" height="74" rx="16" fill="#0C0B18"/><text x="24" y="31" class="muted" font-size="12">已选 3 项 · 2 项通过预检 · 1 项等待确认</text><rect x="764" y="16" width="210" height="44" rx="13" class="button"/><text x="869" y="44" text-anchor="middle" fill="#FFF" font-size="14" font-weight="800">批量审核当前草稿</text></g>
+    </g>
+
+    <g transform="translate(1192 190)">
+      <rect width="618" height="655" rx="22" class="panel"/>
+      <g transform="translate(26 27)"><use href="#i-spark" width="25" height="25" color="#D8AEFF"/><text x="36" y="20" class="white" font-size="17" font-weight="800">定向优化提示词</text></g>
+      <text x="26" y="90" class="muted" font-size="13">优化方向（必填）</text>
+      <rect x="26" y="108" width="566" height="82" rx="15" fill="#0D0C1A" stroke="#B84DFF" stroke-opacity=".4"/>
+      <text x="44" y="139" class="white" font-size="14">突出夜景冷暖对比，强化环境纵深，</text><text x="44" y="166" class="white" font-size="14">不要增加现代元素。</text>
+      <g transform="translate(26 206)" font-size="12"><rect width="118" height="30" rx="15" class="tag"/><text x="59" y="20" text-anchor="middle" fill="#DDBAFF">统一美术风格</text><rect x="128" width="96" height="30" rx="15" fill="#FFFFFF" fill-opacity=".05"/><text x="176" y="20" text-anchor="middle" class="muted">加强细节</text><rect x="234" width="106" height="30" rx="15" fill="#FFFFFF" fill-opacity=".05"/><text x="287" y="20" text-anchor="middle" class="muted">去除歧义</text></g>
+      <text x="26" y="278" class="muted" font-size="13">原始提示词</text>
+      <rect x="26" y="294" width="566" height="72" rx="13" fill="#FFFFFF" fill-opacity=".035"/><text x="44" y="324" class="muted" font-size="12">山间古城夜景，有木楼、石阶和灯笼，</text><text x="44" y="347" class="muted" font-size="12">东方奇幻氛围。</text>
+      <text x="26" y="405" fill="#DDBAFF" font-size="13">AI 优化候选</text>
+      <rect x="26" y="421" width="566" height="112" rx="13" fill="#B84DFF" fill-opacity=".065" stroke="#B84DFF" stroke-opacity=".26"/><text x="44" y="452" class="white" font-size="12">东方奇幻古城夜景，全景构图，湿润石阶向纵深延伸；</text><text x="44" y="477" class="white" font-size="12">青蓝月色覆盖瓦檐，檐下暖灯形成冷暖对比；</text><text x="44" y="502" class="white" font-size="12">木构楼阁层次清晰，无现代元素，无文字水印。</text>
+      <rect x="26" y="564" width="180" height="58" rx="15" fill="#FFFFFF" fill-opacity=".055"/><text x="116" y="600" text-anchor="middle" class="white" font-size="14">重新优化</text>
+      <rect x="220" y="564" width="372" height="58" rx="15" class="button"/><use href="#i-check" x="286" y="581" width="24" height="24" color="#FFF"/><text x="421" y="600" text-anchor="middle" fill="#FFF" font-size="15" font-weight="800">采用并确认</text>
+      <g class="approvedStamp" transform="translate(420 354)"><rect width="142" height="48" rx="12" fill="#6BE35F" fill-opacity=".12" stroke="#6BE35F"/><text x="71" y="31" text-anchor="middle" fill="#8AF07E" font-size="16" font-weight="900">已批准 ✓</text></g>
+    </g>
+    <g class="cursor4"><use href="#cursor" width="34" height="42"/></g>
+  </g>
+
+  <!-- Scene 5 · Batch preflight and progress -->
+  <g class="scene s5" clip-path="url(#appClip)">
+    <rect x="74" y="112" width="1772" height="820" fill="#0A0A17"/>
+    <g transform="translate(112 140)"><text y="24" class="white" font-size="24" font-weight="850">批量生图预检</text><rect x="190" y="1" width="126" height="30" rx="15" class="successTag"/><text x="253" y="21" text-anchor="middle" fill="#8AF07E" font-size="12">6 项可生成</text><text x="1590" y="24" class="muted" font-size="13">参数与批准提示词将在创建时冻结</text></g>
+    <g transform="translate(112 192)">
+      <rect width="1110" height="650" rx="22" class="panel"/>
+      <g transform="translate(26 24)"><rect width="1058" height="68" rx="16" fill="#B84DFF" fill-opacity=".07" stroke="#B84DFF" stroke-opacity=".2"/><use href="#i-check" x="22" y="21" width="26" height="26" color="#8AF07E"/><text x="60" y="31" class="white" font-size="14" font-weight="700">预检通过</text><text x="60" y="51" class="muted" font-size="12">全部已批准，无阻塞项；共创建 6 个独立图片 Job</text><text x="1018" y="42" text-anchor="end" fill="#DDBAFF" font-size="13">费用按当前模型渠道计费</text></g>
+      <g transform="translate(26 120)" class="muted" font-size="12"><text x="12">✓</text><text x="50">资产</text><text x="360">生成配置</text><text x="650">归档路径</text><text x="930">状态</text></g>
+      <line x1="26" y1="151" x2="1084" y2="151" class="line"/>
+      <g transform="translate(26 171)">
+        <rect width="1058" height="82" rx="14" fill="#FFFFFF" fill-opacity=".025"/><rect x="12" y="30" width="20" height="20" rx="5" fill="url(#brand)"/><use href="#i-check" x="13" y="31" width="18" height="18" color="#FFF"/><circle cx="72" cy="41" r="24" fill="url(#thumbCharacter)"/><text x="110" y="37" class="white" font-size="14" font-weight="700">沈雾</text><text x="110" y="59" class="muted" font-size="11">人物</text><text x="360" y="37" class="white" font-size="12">Image-Pro · 2K · auto</text><text x="360" y="58" class="muted" font-size="11">高质量 · 1 张候选</text><text x="650" y="47" class="muted" font-size="12">漫剧资产助手 / 山海纪 / 人物</text><rect x="936" y="26" width="92" height="28" rx="14" class="successTag"/><text x="982" y="45" text-anchor="middle" fill="#8AF07E" font-size="11">可生成</text>
+      </g>
+      <g transform="translate(26 265)">
+        <rect width="1058" height="82" rx="14" fill="#FFFFFF" fill-opacity=".025"/><rect x="12" y="30" width="20" height="20" rx="5" fill="url(#brand)"/><use href="#i-check" x="13" y="31" width="18" height="18" color="#FFF"/><circle cx="72" cy="41" r="24" fill="url(#thumbScene)"/><text x="110" y="37" class="white" font-size="14" font-weight="700">云岚古城 · 夜</text><text x="110" y="59" class="muted" font-size="11">场景</text><text x="360" y="37" class="white" font-size="12">Image-Pro · 4K · 16:9</text><text x="360" y="58" class="muted" font-size="11">高质量 · 1 张候选</text><text x="650" y="47" class="muted" font-size="12">漫剧资产助手 / 山海纪 / 场景</text><rect x="936" y="26" width="92" height="28" rx="14" class="successTag"/><text x="982" y="45" text-anchor="middle" fill="#8AF07E" font-size="11">可生成</text>
+      </g>
+      <g transform="translate(26 359)">
+        <rect width="1058" height="82" rx="14" fill="#FFFFFF" fill-opacity=".025"/><rect x="12" y="30" width="20" height="20" rx="5" fill="url(#brand)"/><use href="#i-check" x="13" y="31" width="18" height="18" color="#FFF"/><circle cx="72" cy="41" r="24" fill="url(#thumbProp)"/><text x="110" y="37" class="white" font-size="14" font-weight="700">玄纹长剑</text><text x="110" y="59" class="muted" font-size="11">道具</text><text x="360" y="37" class="white" font-size="12">Image-Pro · 2K · auto</text><text x="360" y="58" class="muted" font-size="11">高质量 · 1 张候选</text><text x="650" y="47" class="muted" font-size="12">漫剧资产助手 / 山海纪 / 道具</text><rect x="936" y="26" width="92" height="28" rx="14" class="successTag"/><text x="982" y="45" text-anchor="middle" fill="#8AF07E" font-size="11">可生成</text>
+      </g>
+      <g transform="translate(26 474)"><rect width="1058" height="142" rx="17" fill="#0C0B18"/><text x="24" y="34" class="white" font-size="14" font-weight="700">创建后可关闭页面</text><text x="24" y="58" class="muted" font-size="12">批次在服务端持续运行，并同步到渲染队列；单项失败不会阻塞其余任务。</text><rect x="24" y="86" width="730" height="10" rx="5" fill="#FFFFFF" fill-opacity=".08"/><rect x="24" y="86" height="10" rx="5" fill="url(#success)" class="batchFill"/><g transform="translate(780 73)"><circle cx="12" cy="18" r="5" fill="#C88BFF" class="queueDot"/><circle cx="34" cy="18" r="5" fill="#C88BFF" class="queueDot"/><circle cx="56" cy="18" r="5" fill="#C88BFF" class="queueDot"/><text x="80" y="23" class="muted" font-size="12">后台队列运行中</text></g><text x="24" y="120" class="muted" font-size="11">成功 4 · 运行 1 · 等待 1 · 失败 0</text></g>
+    </g>
+
+    <g transform="translate(1252 192)">
+      <rect width="558" height="650" rx="22" class="panel"/>
+      <text x="26" y="45" class="white" font-size="17" font-weight="800">批次默认配置</text>
+      <text x="26" y="90" class="muted" font-size="13">图片模型</text><rect x="26" y="106" width="506" height="48" rx="13" fill="#0D0C1A" stroke="#FFFFFF" stroke-opacity=".1"/><text x="44" y="136" class="white" font-size="13">Image-Pro / quality-v2</text><text x="507" y="136" text-anchor="end" class="muted" font-size="13">⌄</text>
+      <g transform="translate(26 180)"><text y="16" class="muted" font-size="13">尺寸</text><rect y="32" width="242" height="48" rx="13" fill="#0D0C1A" stroke="#FFFFFF" stroke-opacity=".1"/><text x="18" y="62" class="white" font-size="13">auto 自适应</text><text x="218" y="62" text-anchor="end" class="muted">⌄</text><text x="264" y="16" class="muted" font-size="13">质量</text><rect x="264" y="32" width="242" height="48" rx="13" fill="#0D0C1A" stroke="#FFFFFF" stroke-opacity=".1"/><text x="282" y="62" class="white" font-size="13">高质量</text><text x="482" y="62" text-anchor="end" class="muted">⌄</text></g>
+      <text x="26" y="303" class="muted" font-size="13">归档位置</text><rect x="26" y="319" width="506" height="48" rx="13" fill="#0D0C1A" stroke="#FFFFFF" stroke-opacity=".1"/><use href="#i-folder" x="42" y="332" width="22" height="22" color="#FFD38A"/><text x="77" y="349" class="white" font-size="13">按项目自动归档</text><text x="507" y="349" text-anchor="end" class="muted">⌄</text>
+      <rect x="26" y="392" width="506" height="110" rx="16" fill="#B84DFF" fill-opacity=".06"/><text x="48" y="426" class="muted" font-size="12">预计任务数</text><text x="48" y="474" class="white" font-size="36" font-weight="900">6</text><text x="91" y="474" class="muted" font-size="13">个独立 Job</text><text x="330" y="429" class="muted" font-size="12">并发</text><text x="330" y="473" class="white" font-size="26" font-weight="800">2</text><text x="350" y="473" class="muted" font-size="12">路</text>
+      <rect x="26" y="525" width="506" height="78" rx="17" class="button"/><use href="#i-play" x="148" y="549" width="28" height="28" color="#FFF"/><text x="297" y="575" text-anchor="middle" fill="#FFF" font-size="18" font-weight="850">确认并创建批次</text>
+    </g>
+    <g class="cursor5"><use href="#cursor" width="34" height="42"/></g>
+  </g>
+
+  <!-- Scene 6 · Archive and continue -->
+  <g class="scene s6" clip-path="url(#appClip)">
+    <rect x="74" y="112" width="1772" height="820" fill="#090A17"/>
+    <g transform="translate(112 140)"><text y="25" class="white" font-size="25" font-weight="850">资产库</text><text x="92" y="24" class="muted" font-size="14">生成结果已自动归档，并保留项目 / 批次 / Job 来源</text><rect x="1485" y="-2" width="205" height="38" rx="19" class="successTag"/><use href="#i-check" x="1505" y="7" width="20" height="20" color="#8AF07E"/><text x="1595" y="23" text-anchor="middle" fill="#8AF07E" font-size="13" font-weight="700">批次完成 · 6/6</text></g>
+
+    <g transform="translate(112 199)">
+      <rect width="320" height="640" rx="22" class="panel"/>
+      <text x="24" y="42" class="white" font-size="16" font-weight="800">资产目录</text>
+      <g transform="translate(22 72)" font-size="13">
+        <g><use href="#i-folder" width="22" height="22" color="#FFD38A"/><text x="34" y="17" class="white">系统归档</text></g>
+        <g transform="translate(22 43)"><use href="#i-folder" width="22" height="22" color="#FFD38A"/><text x="34" y="17" class="white">漫剧资产助手</text></g>
+        <g transform="translate(44 86)"><use href="#i-folder" width="22" height="22" color="#FFD38A"/><text x="34" y="17" class="white" font-weight="700">山海纪</text></g>
+        <g transform="translate(66 129)"><rect x="-12" y="-9" width="220" height="40" rx="12" fill="#B84DFF" fill-opacity=".14"/><use href="#i-folder" width="22" height="22" color="#DDBAFF"/><text x="34" y="17" fill="#E8D5FF">人物</text><text x="185" y="17" text-anchor="end" class="muted">3</text></g>
+        <g transform="translate(66 174)"><use href="#i-folder" width="22" height="22" color="#9FC0FF"/><text x="34" y="17" class="muted">场景</text><text x="185" y="17" text-anchor="end" class="muted">2</text></g>
+        <g transform="translate(66 217)"><use href="#i-folder" width="22" height="22" color="#FFD38A"/><text x="34" y="17" class="muted">道具</text><text x="185" y="17" text-anchor="end" class="muted">1</text></g>
+      </g>
+      <line x1="22" y1="340" x2="298" y2="340" class="line"/>
+      <text x="24" y="378" class="muted" font-size="12">快速筛选</text>
+      <g transform="translate(22 398)" font-size="12"><rect width="112" height="34" rx="17" class="tag"/><text x="56" y="22" text-anchor="middle" fill="#DDBAFF">来源：漫剧批次</text><rect x="122" width="90" height="34" rx="17" fill="#FFFFFF" fill-opacity=".05"/><text x="167" y="22" text-anchor="middle" class="muted">已归档</text></g>
+      <rect x="22" y="464" width="276" height="128" rx="16" fill="#0C0B18"/>
+      <text x="42" y="498" class="white" font-size="13" font-weight="700">来源血缘完整</text><text x="42" y="526" class="muted" font-size="11">项目：山海纪</text><text x="42" y="550" class="muted" font-size="11">批次：BATCH-0718</text><text x="42" y="574" class="muted" font-size="11">版本：v001</text>
+    </g>
+
+    <g transform="translate(458 199)">
+      <rect width="1352" height="640" rx="22" class="panel"/>
+      <g transform="translate(26 24)"><text y="25" class="white" font-size="17" font-weight="800">人物</text><text x="70" y="25" class="muted" font-size="12">3 项</text><rect x="798" width="250" height="44" rx="13" fill="#0D0C1A" stroke="#FFFFFF" stroke-opacity=".1"/><text x="816" y="28" class="dim" font-size="12">搜索资产名称或标签</text><rect x="1062" width="118" height="44" rx="13" fill="#FFFFFF" fill-opacity=".055"/><text x="1121" y="28" text-anchor="middle" class="white" font-size="12">批量导出</text><rect x="1192" width="108" height="44" rx="13" fill="#FFFFFF" fill-opacity=".055"/><text x="1246" y="28" text-anchor="middle" class="white" font-size="12">批量操作</text></g>
+      <g transform="translate(26 92)">
+        <g class="assetCardA">
+          <rect width="402" height="432" rx="20" class="panelSoft"/>
+          <rect x="14" y="14" width="374" height="254" rx="15" fill="url(#thumbCharacter)"/>
+          <circle cx="201" cy="112" r="51" fill="#FFE2D1" fill-opacity=".9"/><path d="M119 251q24-98 82-91 58-7 82 91" fill="#1C263B"/><path d="M146 225l55-55 55 55" fill="#425B8D"/><path d="M164 104q37-72 74 0v24h-74z" fill="#171224"/>
+          <rect x="28" y="28" width="62" height="28" rx="14" fill="#0A0A17" fill-opacity=".72"/><text x="59" y="47" text-anchor="middle" fill="#FFF" font-size="11">v001</text>
+          <text x="22" y="306" class="white" font-size="18" font-weight="800">沈雾 · 角色立绘</text><text x="22" y="334" class="muted" font-size="12">人物 · 漫剧批次 · 已归档待审核</text>
+          <g transform="translate(22 352)" font-size="11"><rect width="76" height="28" rx="14" class="tag"/><text x="38" y="19" text-anchor="middle" fill="#DDBAFF">东方奇幻</text><rect x="86" width="62" height="28" rx="14" fill="#FFFFFF" fill-opacity=".05"/><text x="117" y="19" text-anchor="middle" class="muted">女主</text></g>
+          <rect x="22" y="394" width="170" height="38" rx="12" class="button"/><text x="107" y="419" text-anchor="middle" fill="#FFF" font-size="12" font-weight="700">添加到画布</text><rect x="204" y="394" width="176" height="38" rx="12" fill="#FFFFFF" fill-opacity=".06"/><text x="292" y="419" text-anchor="middle" class="white" font-size="12">生图工作台编辑</text>
+        </g>
+        <g class="assetCardB" transform="translate(424)">
+          <rect width="402" height="432" rx="20" class="panelSoft"/>
+          <rect x="14" y="14" width="374" height="254" rx="15" fill="url(#thumbCharacter)"/>
+          <circle cx="201" cy="112" r="51" fill="#F8D2BD" fill-opacity=".9"/><path d="M119 251q24-98 82-91 58-7 82 91" fill="#4A2039"/><path d="M146 225l55-55 55 55" fill="#8C3E6F"/><path d="M160 111q41-79 82 0v19h-82z" fill="#28172E"/>
+          <rect x="28" y="28" width="62" height="28" rx="14" fill="#0A0A17" fill-opacity=".72"/><text x="59" y="47" text-anchor="middle" fill="#FFF" font-size="11">v001</text>
+          <text x="22" y="306" class="white" font-size="18" font-weight="800">赤翎 · 角色立绘</text><text x="22" y="334" class="muted" font-size="12">人物 · 漫剧批次 · 已归档待审核</text>
+          <g transform="translate(22 352)" font-size="11"><rect width="76" height="28" rx="14" class="tag"/><text x="38" y="19" text-anchor="middle" fill="#DDBAFF">东方奇幻</text><rect x="86" width="62" height="28" rx="14" fill="#FFFFFF" fill-opacity=".05"/><text x="117" y="19" text-anchor="middle" class="muted">配角</text></g>
+          <rect x="22" y="394" width="170" height="38" rx="12" class="button"/><text x="107" y="419" text-anchor="middle" fill="#FFF" font-size="12" font-weight="700">添加到画布</text><rect x="204" y="394" width="176" height="38" rx="12" fill="#FFFFFF" fill-opacity=".06"/><text x="292" y="419" text-anchor="middle" class="white" font-size="12">生图工作台编辑</text>
+        </g>
+        <g class="assetCardC" transform="translate(848)">
+          <rect width="402" height="432" rx="20" class="panelSoft"/>
+          <rect x="14" y="14" width="374" height="254" rx="15" fill="url(#thumbCharacter)"/>
+          <circle cx="201" cy="112" r="51" fill="#E9C5B8" fill-opacity=".9"/><path d="M119 251q24-98 82-91 58-7 82 91" fill="#26374D"/><path d="M146 225l55-55 55 55" fill="#526779"/><path d="M158 112q43-74 86 0v17h-86z" fill="#D6D0CF"/>
+          <rect x="28" y="28" width="62" height="28" rx="14" fill="#0A0A17" fill-opacity=".72"/><text x="59" y="47" text-anchor="middle" fill="#FFF" font-size="11">v001</text>
+          <text x="22" y="306" class="white" font-size="18" font-weight="800">玄岳 · 角色立绘</text><text x="22" y="334" class="muted" font-size="12">人物 · 漫剧批次 · 已归档待审核</text>
+          <g transform="translate(22 352)" font-size="11"><rect width="76" height="28" rx="14" class="tag"/><text x="38" y="19" text-anchor="middle" fill="#DDBAFF">东方奇幻</text><rect x="86" width="62" height="28" rx="14" fill="#FFFFFF" fill-opacity=".05"/><text x="117" y="19" text-anchor="middle" class="muted">长老</text></g>
+          <rect x="22" y="394" width="170" height="38" rx="12" class="button"/><text x="107" y="419" text-anchor="middle" fill="#FFF" font-size="12" font-weight="700">添加到画布</text><rect x="204" y="394" width="176" height="38" rx="12" fill="#FFFFFF" fill-opacity=".06"/><text x="292" y="419" text-anchor="middle" class="white" font-size="12">生图工作台编辑</text>
+        </g>
+      </g>
+      <g transform="translate(26 552)"><rect width="1250" height="62" rx="17" fill="#6BE35F" fill-opacity=".07" stroke="#6BE35F" stroke-opacity=".2"/><use href="#i-check" x="22" y="19" width="24" height="24" color="#8AF07E"/><text x="60" y="29" class="white" font-size="13" font-weight="700">结果可继续用于画布、关键帧工作区和生图工作台</text><text x="60" y="49" class="muted" font-size="11">已有引用保持可追踪；新版本按 v002、v003 递增，不覆盖旧图。</text><rect x="1040" y="12" width="188" height="38" rx="12" class="button"/><text x="1134" y="37" text-anchor="middle" fill="#FFF" font-size="12" font-weight="700">进入画布继续创作</text></g>
+    </g>
+    <g class="cursor6"><use href="#cursor" width="34" height="42"/></g>
+  </g>
+
+  <!-- Captions and timeline -->
+  <g transform="translate(66 966)">
+    <rect width="1788" height="76" rx="22" fill="#0C0B18" stroke="#FFFFFF" stroke-opacity=".09"/>
+    <rect x="24" y="17" width="1740" height="3" rx="2" fill="#FFFFFF" fill-opacity=".09"/>
+    <rect x="24" y="17" height="3" rx="2" fill="url(#brand)" class="timelineFill"/>
+    <g transform="translate(24 40)" font-size="12">
+      <text class="white" font-weight="700">01 概览</text><text x="288" class="muted">02 上传与分析</text><text x="590" class="muted">03 AI 改稿</text><text x="870" class="muted">04 提示词确认</text><text x="1170" class="muted">05 批量生图</text><text x="1460" class="muted">06 自动归档</text>
+    </g>
+  </g>
+
+  <g class="scene s1"><g transform="translate(684 870)"><rect width="552" height="46" rx="23" fill="#080712" fill-opacity=".88" stroke="#FFFFFF" stroke-opacity=".1"/><text x="276" y="29" text-anchor="middle" class="white" font-size="15" font-weight="700">一条链路完成资产拆解、审核、生成与归档</text></g></g>
+  <g class="scene s2"><g transform="translate(640 870)"><rect width="640" height="46" rx="23" fill="#080712" fill-opacity=".88" stroke="#FFFFFF" stroke-opacity=".1"/><text x="320" y="29" text-anchor="middle" class="white" font-size="15" font-weight="700">上传剧本并选择文本模型，先分析预览，不立即写入资产</text></g></g>
+  <g class="scene s3"><g transform="translate(650 870)"><rect width="620" height="46" rx="23" fill="#080712" fill-opacity=".88" stroke="#FFFFFF" stroke-opacity=".1"/><text x="310" y="29" text-anchor="middle" class="white" font-size="15" font-weight="700">不满意就继续对话改稿，版本可比较、回退和分叉</text></g></g>
+  <g class="scene s4"><g transform="translate(630 870)"><rect width="660" height="46" rx="23" fill="#080712" fill-opacity=".88" stroke="#FFFFFF" stroke-opacity=".1"/><text x="330" y="29" text-anchor="middle" class="white" font-size="15" font-weight="700">填写优化方向后生成候选，只有人工确认才进入批准提示词</text></g></g>
+  <g class="scene s5"><g transform="translate(620 870)"><rect width="680" height="46" rx="23" fill="#080712" fill-opacity=".88" stroke="#FFFFFF" stroke-opacity=".1"/><text x="340" y="29" text-anchor="middle" class="white" font-size="15" font-weight="700">预检模型、尺寸、质量和归档目录；创建后关页也会继续运行</text></g></g>
+  <g class="scene s6"><g transform="translate(642 870)"><rect width="636" height="46" rx="23" fill="#080712" fill-opacity=".88" stroke="#FFFFFF" stroke-opacity=".1"/><text x="318" y="29" text-anchor="middle" class="white" font-size="15" font-weight="700">生成结果自动进入项目目录，可继续添加到画布或工作台</text></g></g>
+</svg>

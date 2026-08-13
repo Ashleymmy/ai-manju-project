@@ -1,0 +1,27 @@
+# Production capacity override. Keep worker replicas controlled by the
+# `docker compose ... --scale worker=N` rollout command, not in this file.
+services:
+  postgres:
+    command:
+      - postgres
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-100}
+
+  redis:
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-1gb}
+      - --maxmemory-policy
+      - noeviction
+      - --maxclients
+      - ${REDIS_MAXCLIENTS:-1000}
+    volumes:
+      - ai-manju-redis-data:/data
+
+volumes:
+  ai-manju-redis-data:

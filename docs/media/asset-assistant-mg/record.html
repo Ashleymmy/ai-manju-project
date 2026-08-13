@@ -1,0 +1,98 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI-Manju 动画导出器</title>
+  <style>
+    html, body { margin: 0; min-height: 100%; background: #050714; color: #f8f2ff; font-family: "Microsoft YaHei", sans-serif; }
+    body { display: grid; place-items: center; }
+    canvas { display: block; width: min(100vw, 1920px); aspect-ratio: 16 / 9; background: #050714; }
+    #status { position: fixed; left: 18px; bottom: 16px; padding: 8px 12px; border-radius: 10px; background: rgba(5,7,20,.82); font-size: 13px; }
+    img { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" width="1920" height="1080"></canvas>
+  <img id="source" alt="" />
+  <div id="status">正在初始化矢量动画…</div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const durationSeconds = Math.max(1, Number(params.get("duration") || 48));
+    const fps = Math.max(12, Math.min(60, Number(params.get("fps") || 30)));
+    const canvas = document.querySelector("#canvas");
+    const context = canvas.getContext("2d", { alpha: false });
+    const source = document.querySelector("#source");
+    const status = document.querySelector("#status");
+    const candidates = [
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8",
+      "video/webm",
+      "video/mp4;codecs=avc1.42E01E"
+    ];
+    const mimeType = candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
+    if (!mimeType) throw new Error("当前浏览器不支持 MediaRecorder 视频编码");
+    const extension = mimeType.startsWith("video/mp4") ? "mp4" : "webm";
+    window.__capture = { durationSeconds, fps, mimeType, extension, state: "loading" };
+
+    source.addEventListener("error", () => {
+      window.__capture.state = "error";
+      status.textContent = "SVG 加载失败";
+    });
+
+    source.addEventListener("load", () => {
+      context.fillStyle = "#050714";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(source, 0, 0, canvas.width, canvas.height);
+
+      const stream = canvas.captureStream(fps);
+      const chunks = [];
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 12_000_000
+      });
+      let startedAt = 0;
+      let stopped = false;
+
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      });
+      recorder.addEventListener("stop", () => {
+        const blob = new Blob(chunks, { type: mimeType });
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = `ai-manju-asset-assistant-guide.${extension}`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        stream.getTracks().forEach((track) => track.stop());
+        window.__capture.state = "downloaded";
+        window.__capture.bytes = blob.size;
+        status.textContent = `导出完成 · ${(blob.size / 1024 / 1024).toFixed(1)} MB`;
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+      });
+
+      function frame(now) {
+        if (!startedAt) startedAt = now;
+        const elapsed = (now - startedAt) / 1000;
+        context.drawImage(source, 0, 0, canvas.width, canvas.height);
+        status.textContent = `正在导出 ${elapsed.toFixed(1)} / ${durationSeconds.toFixed(1)} 秒 · ${mimeType}`;
+        window.__capture.elapsed = elapsed;
+        if (elapsed < durationSeconds) {
+          requestAnimationFrame(frame);
+        } else if (!stopped) {
+          stopped = true;
+          recorder.stop();
+        }
+      }
+
+      recorder.start(1000);
+      window.__capture.state = "recording";
+      requestAnimationFrame(frame);
+    }, { once: true });
+
+    source.src = `./ai-manju-asset-assistant-guide.svg?capture=${Date.now()}`;
+  </script>
+</body>
+</html>
