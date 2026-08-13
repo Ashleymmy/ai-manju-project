@@ -8,10 +8,16 @@
     "dev:api": "cd apps/api && go run ./cmd/server",
     "build:api": "cd apps/api && go build ./cmd/server",
     "build": "turbo run build",
+    "e2e": "node scripts/e2e-compose.mjs",
+    "e2e:headed": "node scripts/e2e-compose.mjs --headed",
+    "e2e:ci": "node scripts/e2e-compose.mjs --ci",
+    "smoke:real-provider": "node scripts/real-provider-smoke.mjs",
     "lint": "turbo run lint",
     "clean": "turbo run clean && rm -rf node_modules"
   },
   "devDependencies": {
+    "@types/react": "19.1.12",
+    "@types/react-dom": "19.1.9",
     "turbo": "^2.3.3",
     "typescript": "^5"
   },

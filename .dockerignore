@@ -1,6 +1,12 @@
 .git
 .agents
 .claude
+.cache
+.codex-backups
+.codex-logs
+.packaging-work
+.pnpm-store
+.turbo
 
 node_modules
 **/node_modules
@@ -24,3 +30,6 @@ apps/api/tmp
 dist
 build
 coverage
+artifacts
+deploy/updates
+tmp-sync-web-copy

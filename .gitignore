@@ -5,6 +5,8 @@ node_modules
 
 # Testing
 coverage
+__pycache__/
+*.py[cod]
 
 # Next.js
 .next/
@@ -22,8 +24,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+tmp-*.log
 .codex-logs/
 apps/web/test-results/
+apps/web/playwright-report/
 apps/api/start-api-3101.local.ps1
 
 # Local env files
