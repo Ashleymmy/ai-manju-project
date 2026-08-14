@@ -160,12 +160,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: apps/web/Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL in .env}
-        NEXT_PUBLIC_PROJECT_STORAGE: ${NEXT_PUBLIC_PROJECT_STORAGE:-server}
-        NEXT_PUBLIC_ALLOW_PUBLIC_SIGNUP: ${NEXT_PUBLIC_ALLOW_PUBLIC_SIGNUP:-false}
-        NEXT_PUBLIC_DIRECTOR_DESK_URL: ${NEXT_PUBLIC_DIRECTOR_DESK_URL:-/director-desk/index.html}
+      dockerfile: ai-manhua-studio/Dockerfile
     depends_on:
       api:
         condition: service_healthy
@@ -174,7 +169,6 @@ services:
     environment:
       PORT: 3100
       HOSTNAME: 0.0.0.0
-    command: ["node", "apps/web/server.js"]
     ports:
       - "${WEB_HOST_PORT:-3100}:3100"
     healthcheck:
