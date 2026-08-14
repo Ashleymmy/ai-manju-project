@@ -19,7 +19,7 @@ export type ApiRequestOptions = Omit<RequestInit, "body" | "headers"> & {
   timeoutMs?: number;
 };
 
-const TOKEN_KEY = "ai-manju:token";
+const TOKEN_KEY = "ai-manju:auth_token";
 const TOKEN_STORE_KEY = "ai-manju:token-store";
 const defaultTimeoutMs = 15_000;
 

@@ -44,6 +44,7 @@ import {
 import { useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 import { AssetLibraryView, ComicAssetsView, DirectorView, ImageWorkbenchView, PromptLibraryView, TagLibraryView } from "./FeatureViews";
 import { AdminView, SettingsView } from "./SystemViews";
 
@@ -168,6 +169,8 @@ function NavGroup({ title, items, currentPath }: { title: string; items: NavItem
 }
 
 function SideRail({ currentPath, collapsed, onCollapse }: { currentPath: string; collapsed: boolean; onCollapse: () => void }) {
+  const [, navigate] = useLocation();
+  const { user, logout } = useAuth();
   return (
     <aside className={`side-rail ${collapsed ? "is-collapsed" : ""}`}>
       <div className="side-head">
@@ -187,9 +190,9 @@ function SideRail({ currentPath, collapsed, onCollapse }: { currentPath: string;
           <div className="meter"><span style={{ width: "61%" }} /></div>
           <small>217 / 360 次图像任务</small>
         </div>
-        <button className="user-card" onClick={() => toast.info("账户面板将在正式接入认证服务后启用") }>
-          <span className="avatar">林</span>
-          <span className="user-meta"><b>林叙</b><small>独立导演</small></span>
+        <button className="user-card" onClick={() => logout().then(() => navigate("/login"))}>
+          <span className="avatar">{(user?.display_name ?? user?.username ?? "?").at(0)?.toUpperCase() ?? "?"}</span>
+          <span className="user-meta"><b>{user?.display_name ?? user?.username ?? "—"}</b><small>{user?.role === "super_admin" ? "超级管理员" : "创作成员"}</small></span>
           <MoreHorizontal size={16} />
         </button>
       </div>
