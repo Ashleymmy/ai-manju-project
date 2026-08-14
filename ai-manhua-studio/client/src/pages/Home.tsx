@@ -41,10 +41,12 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { getCollection, getJobs, getProjects, type CanvasProject, type Job } from "@/services/api";
+import { useWorkspaceDashboardData, type WorkspaceData } from "@/hooks/useWorkspaceDashboardData";
 import { AssetLibraryView, ComicAssetsView, DirectorView, ImageWorkbenchView, PromptLibraryView, TagLibraryView } from "./FeatureViews";
 import { AdminView, SettingsView } from "./SystemViews";
 
@@ -220,13 +222,16 @@ function PageIntro({ path, action }: { path: string; action?: React.ReactNode })
   return <div className="page-intro"><div><p className="eyebrow">{copy.code}</p><h1>{copy.title}</h1><p>{copy.subtitle}</p></div>{action}</div>;
 }
 
-function StatStrip() {
+function StatStrip({ data }: { data?: WorkspaceData }) {
+  const jobCount = data?.jobs.total;
+  const assetCount = data?.assets.total;
+  const projectCount = data?.projects.total;
   return (
     <section className="stat-strip">
-      <div><span>进行中任务</span><strong>02</strong><small>1 图像 · 1 批量生成</small></div>
+      <div><span>进行中任务</span><strong>{jobCount != null ? String(jobCount).padStart(2, "0") : "—"}</strong><small>图像与批量生成</small></div>
       <div><span>本周关键帧</span><strong>48</strong><small className="positive">+12 较上周</small></div>
-      <div><span>可调用资产</span><strong>248</strong><small>16 个新归档</small></div>
-      <div><span>当前项目</span><strong>06</strong><small>2 个等待审片</small></div>
+      <div><span>可调用资产</span><strong>{assetCount ?? "—"}</strong><small>16 个新归档</small></div>
+      <div><span>当前项目</span><strong>{projectCount != null ? String(projectCount).padStart(2, "0") : "—"}</strong><small>2 个等待审片</small></div>
     </section>
   );
 }
@@ -247,10 +252,11 @@ function Timeline() {
 
 function Dashboard() {
   const [, navigate] = useLocation();
+  const { data } = useWorkspaceDashboardData();
   return (
     <div className="page-content dashboard-page">
       <PageIntro path="/" action={<button className="outline-button" onClick={() => navigate("/projects")}>打开项目归档 <ArrowUpRight size={16} /></button>} />
-      <StatStrip />
+      <StatStrip data={data} />
       <div className="desk-layout">
         <section className="spotlight-card">
           <img src={heroUrl} alt="抽象的分镜创作桌面" />
@@ -272,7 +278,28 @@ function ProjectCard({ title, code, chapter, image, state, color, time }: (typeo
 }
 
 function Projects() {
-  return <div className="page-content"><PageIntro path="/projects" action={<button className="create-button" onClick={() => toast.success("已建立一个空白项目草稿") }><Plus size={17} /> 新建项目</button>} /><div className="filter-line"><div className="segmented"><button className="selected">最近修改</button><button>进行中</button><button>已归档</button></div><button className="outline-button small"><SlidersHorizontal size={16} /> 筛选与排序</button></div><div className="project-grid">{[...projectCards, ...projectCards].map((project, index) => <ProjectCard key={`${project.code}-${index}`} {...project} />)}</div></div>;
+  const [apiProjects, setApiProjects] = useState<CanvasProject[] | null>(null);
+
+  useEffect(() => {
+    getProjects("personal").then((res) => {
+      const raw: CanvasProject[] = Array.isArray(res) ? res : (res as { items: CanvasProject[] }).items;
+      setApiProjects(raw);
+    }).catch(() => undefined);
+  }, []);
+
+  const displayProjects: typeof projectCards = apiProjects
+    ? apiProjects.map((proj, i) => ({
+        title: proj.title,
+        code: `PRJ-${proj.id.slice(-4).toUpperCase()}`,
+        chapter: new Date(proj.updated_at).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }) + " 更新",
+        image: "",
+        state: "进行中",
+        color: (["blue", "red", "sand"] as const)[i % 3],
+        time: new Date(proj.updated_at).toLocaleDateString("zh-CN", { month: "long", day: "numeric" }),
+      }))
+    : projectCards;
+
+  return <div className="page-content"><PageIntro path="/projects" action={<button className="create-button" onClick={() => toast.success("已建立一个空白项目草稿") }><Plus size={17} /> 新建项目</button>} /><div className="filter-line"><div className="segmented"><button className="selected">最近修改</button><button>进行中</button><button>已归档</button></div><button className="outline-button small"><SlidersHorizontal size={16} /> 筛选与排序</button></div><div className="project-grid">{displayProjects.map((project, index) => <ProjectCard key={`${project.code}-${index}`} {...project} />)}</div></div>;
 }
 
 function CanvasNode({ id, label, title, image, selected, onSelect, className }: { id: string; label: string; title: string; image?: string; selected: boolean; onSelect: () => void; className: string }) {
@@ -295,8 +322,34 @@ function Canvas() {
 function Queue() {
   const [filter, setFilter] = useState<JobState | "all">("all");
   const [paused, setPaused] = useState<string[]>([]);
-  const visible = jobs.filter((job) => filter === "all" || job.state === filter);
-  const tabs: Array<[JobState | "all", string]> = [["all", "全部 04"], ["running", "执行中 01"], ["queued", "等待 01"], ["succeeded", "完成 01"], ["failed", "异常 01"]];
+  const [apiJobs, setApiJobs] = useState<typeof jobs | null>(null);
+
+  useEffect(() => {
+    getJobs({ pageSize: 50 }).then((res) => {
+      const raw: Job[] = Array.isArray(res) ? res : (res as { items: Job[] }).items;
+      setApiJobs(raw.map((j) => ({
+        id: j.id,
+        name: j.name ?? j.type,
+        type: j.type.toUpperCase().replace(/_/g, " "),
+        state: j.state,
+        progress: j.progress ?? 0,
+        updated: j.updated_at
+          ? new Date(j.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+          : "—",
+      })));
+    }).catch(() => undefined);
+  }, []);
+
+  const displayJobs = apiJobs ?? jobs;
+  const visible = displayJobs.filter((job) => filter === "all" || job.state === filter);
+  const count = (state: JobState) => displayJobs.filter((j) => j.state === state).length;
+  const tabs: Array<[JobState | "all", string]> = [
+    ["all", `全部 ${String(displayJobs.length).padStart(2, "0")}`],
+    ["running", `执行中 ${String(count("running")).padStart(2, "0")}`],
+    ["queued", `等待 ${String(count("queued")).padStart(2, "0")}`],
+    ["succeeded", `完成 ${String(count("succeeded")).padStart(2, "0")}`],
+    ["failed", `异常 ${String(count("failed")).padStart(2, "0")}`],
+  ];
   return <div className="page-content"><PageIntro path="/queue" action={<div className="queue-health"><i />SSE 流已连接</div>} /><div className="queue-layout"><section className="queue-card"><div className="queue-tabs">{tabs.map(([key, label]) => <button className={filter === key ? "active" : ""} key={key} onClick={() => setFilter(key)}>{label}</button>)}</div><div className="job-list">{visible.map((job) => <div className="job-row" key={job.id}><div className={`job-icon ${job.state}`}><Film size={18} /></div><div className="job-copy"><div><b>{job.name}</b><span>{job.type} · {job.id}</span></div>{job.state === "running" && <div className="job-progress"><i style={{ width: `${job.progress}%` }} /></div>}</div><div className="job-state"><span className={`status-chip ${job.state}`}>{job.state === "running" ? "生成中" : job.state === "queued" ? "队列中" : job.state === "succeeded" ? "已完成" : "异常"}</span><small>{job.updated}</small></div><button className="icon-button subtle" onClick={() => { if (job.state === "running") { setPaused((now) => now.includes(job.id) ? now.filter((id) => id !== job.id) : [...now, job.id]); toast.message(paused.includes(job.id) ? "已恢复本任务" : "已暂停本任务"); } else toast.info("任务操作将在服务接入后启用"); }}>{paused.includes(job.id) ? <Play size={16} /> : job.state === "running" ? <Pause size={16} /> : <MoreHorizontal size={16} />}</button></div>)}</div></section><aside className="queue-aside"><p className="eyebrow">STATUS MACHINE</p><h3>让每次等待<br />都看得见。</h3><div className="state-machine"><span className="done">queued</span><i /><span className="active">running</span><i /><span>succeeded</span></div><p>当前队列先尝试 SSE 推送；8 秒未响应时自动降级为 3 秒轮询。</p><code>{apiContract.queue.list}</code></aside></div></div>;
 }
 
