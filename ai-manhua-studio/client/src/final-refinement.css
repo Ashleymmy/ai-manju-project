@@ -1,0 +1,6 @@
+/* Style reminder: 影印分镜室 — final cascade layer, intentionally loaded after all base theme rules. */
+@import "./print-refinement.css";
+
+.timeline-flow::before { top: 39px; left: 5px; }
+.timeline-time { padding-left: 0; }
+.timeline-entry { grid-template-columns: 13px minmax(0, 1fr) auto; }

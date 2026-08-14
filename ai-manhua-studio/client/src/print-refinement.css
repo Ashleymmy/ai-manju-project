@@ -1,0 +1,27 @@
+/* Style reminder: 影印分镜室 — this refinement turns every major surface into a printed, indexed director's desk. */
+
+.brand-symbol { position: relative; display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 auto; background: #e9513e; clip-path: polygon(0 0, 100% 0, 100% 72%, 72% 100%, 0 100%); }
+.brand-symbol::before { content: ""; position: absolute; inset: 4px; z-index: 1; border: 1px solid rgba(255,247,234,.68); clip-path: polygon(0 0, 100% 0, 100% 72%, 72% 100%, 0 100%); }
+.brand-symbol i { position: absolute; right: 3px; bottom: 3px; z-index: 3; width: 6px; height: 6px; border-radius: 50%; background: #67a2ff; box-shadow: 0 0 0 1px #152022; }
+.brand-mark { position: relative; z-index: 2; width: 29px; height: 29px; object-fit: contain; filter: grayscale(1) contrast(1.6) brightness(2.2); mix-blend-mode: multiply; }
+.top-brand-area { display: flex; align-items: center; gap: 20px; }.top-brand-area > .brand-lockup { padding-right: 20px; border-right: 1px solid var(--line); }.top-brand-area .brand-type strong { font-size: 13px; }.top-brand-area .brand-symbol { width: 30px; height: 30px; }.top-brand-area .brand-mark { width: 25px; height: 25px; }
+
+.create-button, .vermilion-button { border-radius: 0; clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 7px 100%, 0 calc(100% - 7px)); }
+.outline-button { border-radius: 0; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%); }
+.page-content { background-image: linear-gradient(90deg, transparent 0, transparent 2.4%, rgba(236,231,215,.05) 2.4%, rgba(236,231,215,.05) calc(2.4% + 1px), transparent calc(2.4% + 1px)); }
+
+.spotlight-card { clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%); }
+.spotlight-card::before { content: ""; position: absolute; z-index: 2; top: 18px; right: 18px; width: 32px; height: 32px; background: linear-gradient(#f0ede2,#f0ede2) center/1px 100% no-repeat, linear-gradient(90deg,#f0ede2,#f0ede2) center/100% 1px no-repeat; opacity: .58; }
+.spotlight-copy, .spotlight-meta { z-index: 3; }
+
+.timeline-flow::before { top: 39px; left: 5px; }.timeline-time { padding-left: 0; }.timeline-entry { grid-template-columns: 13px minmax(0, 1fr) auto; }
+
+.project-card { position: relative; clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%); }
+.project-card::before { content: "SHEET / PROJECT"; position: absolute; z-index: 4; top: 0; right: 14px; padding: 4px 7px; background: var(--red); color: #fff9f2; font: 7px "IBM Plex Mono", monospace; letter-spacing: .07em; }
+.asset-card { position: relative; clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%); }
+.asset-card::before { content: "A"; position: absolute; z-index: 3; right: 7px; top: 6px; display: grid; place-items: center; width: 16px; height: 16px; background: #e9513e; color: #fff; font: 8px "IBM Plex Mono", monospace; }
+.asset-card > div::after { content: ""; position: absolute; inset: 0; opacity: .17; background-image: radial-gradient(rgba(255,255,255,.8) .55px, transparent .6px); background-size: 5px 5px; mix-blend-mode: screen; }.asset-card img { filter: saturate(.85) contrast(1.08); }
+
+.queue-card, .queue-aside, .tool-surface { clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%); }.tool-steps > div:first-child { position: relative; }.tool-steps > div:first-child::before { content: "REG. 01"; position: absolute; right: 34px; color: #73817c; font: 8px "IBM Plex Mono", monospace; }
+
+@media (max-width: 760px) { .top-brand-area > .brand-lockup { display: none; }.top-brand-area { gap: 0; } }
