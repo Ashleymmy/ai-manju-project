@@ -45,10 +45,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import { getCollection, getJobs, getProjects, type CanvasProject, type Job } from "@/services/api";
+import { createJob, getCollection, getJob, getJobs, getProject, getProjects, type CanvasProject, type Job } from "@/services/api";
 import { useWorkspaceDashboardData, type WorkspaceData } from "@/hooks/useWorkspaceDashboardData";
 import { AssetLibraryView, ComicAssetsView, DirectorView, ImageWorkbenchView, PromptLibraryView, TagLibraryView } from "./FeatureViews";
 import { AdminView, SettingsView } from "./SystemViews";
+import AgentPanel from "@/components/AgentPanel";
 
 const logoUrl = "/logo.png";
 const heroUrl = "";
@@ -217,8 +218,16 @@ function TopBar({ path }: { path: string }) {
   );
 }
 
-function PageIntro({ path, action }: { path: string; action?: React.ReactNode }) {
-  const copy = pageTitles[path] ?? pageTitles["/"];
+function PageIntro({
+  path,
+  action,
+  overrides,
+}: {
+  path: string;
+  action?: React.ReactNode;
+  overrides?: Partial<{ code: string; title: string; subtitle: string }>;
+}) {
+  const copy = { ...(pageTitles[path] ?? pageTitles["/"]), ...overrides };
   return <div className="page-intro"><div><p className="eyebrow">{copy.code}</p><h1>{copy.title}</h1><p>{copy.subtitle}</p></div>{action}</div>;
 }
 
@@ -307,17 +316,161 @@ function CanvasNode({ id, label, title, image, selected, onSelect, className }: 
 }
 
 function Canvas() {
+  const [location] = useLocation();
+  const projectId = location.startsWith("/canvas/") ? location.slice("/canvas/".length).split("?")[0] : "";
   const [selected, setSelected] = useState("frame");
   const [zoom, setZoom] = useState(82);
   const [mode, setMode] = useState("选择");
   const [inspectorOpen, setInspectorOpen] = useState(() => window.innerWidth > 760);
+  const [agentOpen, setAgentOpen] = useState(false);
+  const [projectTitle, setProjectTitle] = useState<string | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeJobState, setActiveJobState] = useState<JobState | null>(null);
+  const [activeJobProgress, setActiveJobProgress] = useState(0);
+
   const nodes = useMemo(() => [
     { id: "N-01", label: "提示词", title: "雨夜，狭长街道，手持镜头…", className: "node-prompt", image: undefined },
     { id: "N-02", label: "参考构图", title: "", className: "node-ref", image: cityUrl },
     { id: "N-03", label: "关键帧", title: "", className: "node-frame", image: roomUrl },
   ], []);
-  return <div className="canvas-page"><div className="canvas-heading"><PageIntro path="/canvas" /><div className="canvas-head-actions"><button className="outline-button small" onClick={() => toast.success("快照已记录：14:26:38") }><Check size={15} /> 已保存</button><button className={`outline-button small inspector-trigger ${inspectorOpen ? "is-active" : ""}`} onClick={() => setInspectorOpen((value) => !value)}><PanelRight size={15} /> 检查器</button><button className="vermilion-button" onClick={() => toast.message("已提交图像生成任务：JOB-8F13") }><WandSparkles size={16} /> 生成关键帧</button></div></div><div className={`canvas-workspace ${inspectorOpen ? "inspector-open" : ""}`}><section className="canvas-stage"><div className="canvas-top-tools"><div className="tool-cluster"><button className={mode === "选择" ? "active" : ""} onClick={() => setMode("选择")}><MousePointer2 size={16} /></button><button className={mode === "添加" ? "active" : ""} onClick={() => setMode("添加")}><Plus size={16} /></button><button className={mode === "连接" ? "active" : ""} onClick={() => setMode("连接")}><Aperture size={16} /></button></div><span>{mode}模式</span><div className="canvas-title-chip"><i /> 场景 08 · 雨夜巷口</div></div><div className="canvas-grid"><div className="registration-cross cross-one" /><div className="registration-cross cross-two" />{nodes.map((node) => <CanvasNode key={node.id} {...node} selected={selected === node.id || (node.id === "N-03" && selected === "frame")} onSelect={() => setSelected(node.id)} />)}<svg className="node-lines" viewBox="0 0 1000 580" preserveAspectRatio="none" aria-hidden="true"><path d="M265 245 C 370 245, 370 190, 455 190" /><path d="M630 190 C 735 190, 720 285, 785 285" /></svg></div><div className="canvas-bottom-tools"><button onClick={() => setZoom(Math.max(40, zoom - 10))}>−</button><b>{zoom}%</b><button onClick={() => setZoom(Math.min(150, zoom + 10))}>+</button><span /><button onClick={() => setZoom(82)}><Maximize2 size={15} /> 适配</button></div></section><aside className="inspector-panel"><div className="inspector-head"><div><p className="eyebrow">INSPECTOR</p><h3>{selected === "N-01" ? "提示词节点" : selected === "N-02" ? "参考构图" : "关键帧 · 04"}</h3></div><button className="icon-button subtle" onClick={() => setInspectorOpen(false)} aria-label="关闭检查器"><X size={16} /></button></div><div className="mini-preview"><img src={selected === "N-02" ? cityUrl : roomUrl} alt="" /><span className="status-chip blue">已连接</span></div><div className="inspector-block"><span className="field-label">画面描述</span><p className="prompt-copy">狭长、潮湿的城市巷道，一名人物站在红色招牌下，镜头缓慢推近，雨水形成细密的前景层。</p></div><div className="inspector-block"><span className="field-label">生成参数</span><div className="parameter-row"><span>模型</span><b>G-IMAGE / HIGH</b></div><div className="parameter-row"><span>画幅</span><b>1:1 · 1024</b></div><div className="parameter-row"><span>参考图</span><b>01 份</b></div></div><button className="full-outline" onClick={() => toast.info("参数编辑面板为原型占位，实际将调用 POST /api/jobs") }>编辑参数 <ChevronRight size={16} /></button></aside></div></div>;
+
+  useEffect(() => {
+    if (!projectId) return;
+    getProject(projectId).then((proj) => setProjectTitle(proj.title)).catch(() => undefined);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!activeJobId || activeJobState === "succeeded" || activeJobState === "failed" || activeJobState === "canceled") return;
+    const timer = setInterval(() => {
+      getJob(activeJobId).then((job) => {
+        setActiveJobState(job.state);
+        setActiveJobProgress(job.progress ?? 0);
+        if (job.state === "succeeded") toast.success("关键帧生成完成");
+        if (job.state === "failed") toast.error("生成任务失败，请重试");
+      }).catch(() => undefined);
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [activeJobId, activeJobState]);
+
+  const submitJob = async () => {
+    try {
+      const job = await createJob({
+        type: "image_gen",
+        ...(projectId ? { project_id: projectId } : {}),
+        params: { prompt: "雨夜，狭长街道，潮湿沥青反射红色招牌" },
+      });
+      setActiveJobId(job.id);
+      setActiveJobState(job.state);
+      setActiveJobProgress(0);
+      toast.message(`已提交生成任务：${job.id}`);
+    } catch {
+      toast.error("提交生成任务失败");
+    }
+  };
+
+  const jobRunning = activeJobState === "running" || activeJobState === "queued";
+  const titleOverrides = projectTitle
+    ? { title: projectTitle, code: `CANVAS / ${projectId ? projectId.slice(-6).toUpperCase() : "NEW"}` }
+    : undefined;
+
+  return (
+    <div className="canvas-page">
+      <div className="canvas-heading">
+        <PageIntro path="/canvas" overrides={titleOverrides} />
+        <div className="canvas-head-actions">
+          <button className="outline-button small" onClick={() => toast.success("快照已记录：" + new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }))}>
+            <Check size={15} /> 已保存
+          </button>
+          <button className={`outline-button small inspector-trigger ${inspectorOpen ? "is-active" : ""}`} onClick={() => setInspectorOpen((v) => !v)}>
+            <PanelRight size={15} /> 检查器
+          </button>
+          <button className={`outline-button small ${agentOpen ? "is-active" : ""}`} onClick={() => setAgentOpen((v) => !v)}>
+            <Terminal size={15} /> Agent
+          </button>
+          <button className="vermilion-button" onClick={() => void submitJob()} disabled={jobRunning}>
+            <WandSparkles size={16} /> {jobRunning ? `生成中 ${activeJobProgress}%` : "生成关键帧"}
+          </button>
+        </div>
+      </div>
+      <div className={`canvas-workspace ${inspectorOpen ? "inspector-open" : ""} ${agentOpen ? "agent-open" : ""}`}>
+        <section className="canvas-stage">
+          <div className="canvas-top-tools">
+            <div className="tool-cluster">
+              <button className={mode === "选择" ? "active" : ""} onClick={() => setMode("选择")}><MousePointer2 size={16} /></button>
+              <button className={mode === "添加" ? "active" : ""} onClick={() => setMode("添加")}><Plus size={16} /></button>
+              <button className={mode === "连接" ? "active" : ""} onClick={() => setMode("连接")}><Aperture size={16} /></button>
+            </div>
+            <span>{mode}模式</span>
+            <div className="canvas-title-chip"><i /> {projectTitle ?? "场景 08 · 雨夜巷口"}</div>
+          </div>
+          <div className="canvas-grid">
+            <div className="registration-cross cross-one" />
+            <div className="registration-cross cross-two" />
+            {nodes.map((node) => (
+              <CanvasNode
+                key={node.id} {...node}
+                selected={selected === node.id || (node.id === "N-03" && selected === "frame")}
+                onSelect={() => setSelected(node.id)}
+              />
+            ))}
+            <svg className="node-lines" viewBox="0 0 1000 580" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M265 245 C 370 245, 370 190, 455 190" />
+              <path d="M630 190 C 735 190, 720 285, 785 285" />
+            </svg>
+          </div>
+          <div className="canvas-bottom-tools">
+            <button onClick={() => setZoom(Math.max(40, zoom - 10))}>−</button>
+            <b>{zoom}%</b>
+            <button onClick={() => setZoom(Math.min(150, zoom + 10))}>+</button>
+            <span />
+            <button onClick={() => setZoom(82)}><Maximize2 size={15} /> 适配</button>
+          </div>
+        </section>
+        <aside className="inspector-panel">
+          <div className="inspector-head">
+            <div>
+              <p className="eyebrow">INSPECTOR</p>
+              <h3>{selected === "N-01" ? "提示词节点" : selected === "N-02" ? "参考构图" : "关键帧 · 04"}</h3>
+            </div>
+            <button className="icon-button subtle" onClick={() => setInspectorOpen(false)} aria-label="关闭检查器"><X size={16} /></button>
+          </div>
+          <div className="mini-preview">
+            <img src={selected === "N-02" ? cityUrl : roomUrl} alt="" />
+            <span className="status-chip blue">已连接</span>
+          </div>
+          {activeJobId && (
+            <div className="inspector-block">
+              <span className="field-label">活跃任务</span>
+              <div className="parameter-row"><span>任务 ID</span><b style={{ fontFamily: "IBM Plex Mono", fontSize: 11 }}>{activeJobId.slice(-8)}</b></div>
+              <div className="parameter-row">
+                <span>状态</span>
+                <span className={`status-chip ${activeJobState ?? ""}`}>
+                  {activeJobState === "running" ? `生成中 ${activeJobProgress}%` : activeJobState === "queued" ? "队列中" : activeJobState === "succeeded" ? "已完成" : activeJobState === "failed" ? "失败" : activeJobState ?? "—"}
+                </span>
+              </div>
+              {jobRunning && <div className="job-progress" style={{ marginTop: 6 }}><i style={{ width: `${activeJobProgress}%` }} /></div>}
+            </div>
+          )}
+          <div className="inspector-block">
+            <span className="field-label">画面描述</span>
+            <p className="prompt-copy">狭长、潮湿的城市巷道，一名人物站在红色招牌下，镜头缓慢推近，雨水形成细密的前景层。</p>
+          </div>
+          <div className="inspector-block">
+            <span className="field-label">生成参数</span>
+            <div className="parameter-row"><span>模型</span><b>G-IMAGE / HIGH</b></div>
+            <div className="parameter-row"><span>画幅</span><b>1:1 · 1024</b></div>
+            <div className="parameter-row"><span>参考图</span><b>01 份</b></div>
+          </div>
+          <button className="full-outline" onClick={() => toast.info("参数编辑面板为原型占位，实际将调用 POST /api/jobs")}>
+            编辑参数 <ChevronRight size={16} />
+          </button>
+        </aside>
+        <AgentPanel projectId={projectId} open={agentOpen} onClose={() => setAgentOpen(false)} />
+      </div>
+    </div>
+  );
 }
+
 
 function Queue() {
   const [filter, setFilter] = useState<JobState | "all">("all");
