@@ -4,6 +4,7 @@
 .cache
 .codex-backups
 .codex-logs
+.codex
 .packaging-work
 .pnpm-store
 .turbo
@@ -13,6 +14,7 @@ node_modules
 
 .next
 **/.next
+**/.next-*
 **/.next-dev.log
 **/tsconfig.tsbuildinfo
 **/test-results
@@ -25,6 +27,9 @@ tmp-*.pid
 tmp-*.log
 
 apps/web/design-prototypes
+apps/web/src/components/v2
+apps/web/src/app/**/v2-*
+apps/web/src/app/v2-*
 apps/api/tmp
 
 dist

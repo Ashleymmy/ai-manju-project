@@ -10,6 +10,8 @@
 [GIN-debug] POST   /api/auth/login           --> github.com/ai-manju/api/internal/handler.(*AuthHandler).Login-fm (6 handlers)
 [GIN-debug] GET    /api/auth/me              --> github.com/ai-manju/api/internal/handler.(*AuthHandler).Me-fm (7 handlers)
 [GIN-debug] POST   /api/auth/logout          --> github.com/ai-manju/api/internal/handler.(*AuthHandler).Logout-fm (7 handlers)
+[GIN-debug] GET    /api/user/preferences     --> github.com/ai-manju/api/internal/handler.(*UserPreferenceHandler).Get-fm (7 handlers)
+[GIN-debug] PUT    /api/user/preferences     --> github.com/ai-manju/api/internal/handler.(*UserPreferenceHandler).Put-fm (7 handlers)
 [GIN-debug] GET    /api/admin/users          --> github.com/ai-manju/api/internal/handler.(*AuthHandler).ListUsers-fm (7 handlers)
 [GIN-debug] POST   /api/admin/users          --> github.com/ai-manju/api/internal/handler.(*AuthHandler).CreateUser-fm (7 handlers)
 [GIN-debug] PUT    /api/admin/users/:id      --> github.com/ai-manju/api/internal/handler.(*AuthHandler).UpdateUser-fm (7 handlers)
@@ -18,6 +20,10 @@
 [GIN-debug] POST   /api/admin/model-provider/test --> github.com/ai-manju/api/internal/handler.(*ModelProviderHandler).Test-fm (7 handlers)
 [GIN-debug] POST   /api/admin/model-provider/models --> github.com/ai-manju/api/internal/handler.(*ModelProviderHandler).Models-fm (7 handlers)
 [GIN-debug] GET    /api/admin/monitoring     --> github.com/ai-manju/api/internal/handler.(*AdminMonitoringHandler).Get-fm (7 handlers)
+[GIN-debug] GET    /api/admin/announcements  --> github.com/ai-manju/api/internal/handler.(*AnnouncementHandler).AdminList-fm (7 handlers)
+[GIN-debug] POST   /api/admin/announcements  --> github.com/ai-manju/api/internal/handler.(*AnnouncementHandler).AdminCreate-fm (7 handlers)
+[GIN-debug] POST   /api/admin/announcements/:id/republish --> github.com/ai-manju/api/internal/handler.(*AnnouncementHandler).AdminRepublish-fm (7 handlers)
+[GIN-debug] POST   /api/admin/announcements/:id/revoke --> github.com/ai-manju/api/internal/handler.(*AnnouncementHandler).AdminRevoke-fm (7 handlers)
 [GIN-debug] GET    /api/ai/models            --> github.com/ai-manju/api/internal/handler.(*AIHandler).Models-fm (7 handlers)
 [GIN-debug] POST   /api/ai/text              --> github.com/ai-manju/api/internal/handler.(*AIHandler).Text-fm (7 handlers)
 [GIN-debug] POST   /api/ai/images/generations --> github.com/ai-manju/api/internal/handler.(*AIHandler).ImageGenerations-fm (7 handlers)
@@ -41,13 +47,9 @@
 [GIN-debug] POST   /api/assets               --> github.com/ai-manju/api/internal/handler.(*AssetHandler).Upload-fm (7 handlers)
 [GIN-debug] GET    /api/assets/:id/content   --> github.com/ai-manju/api/internal/handler.(*AssetHandler).Content-fm (7 handlers)
 [GIN-debug] DELETE /api/assets/:id           --> github.com/ai-manju/api/internal/handler.(*AssetHandler).Delete-fm (7 handlers)
+[GIN-debug] GET    /api/announcements/current --> github.com/ai-manju/api/internal/handler.(*AnnouncementHandler).Current-fm (7 handlers)
+[GIN-debug] POST   /api/announcements/:id/read --> github.com/ai-manju/api/internal/handler.(*AnnouncementHandler).MarkRead-fm (7 handlers)
+[GIN-debug] GET    /api/announcements/stream --> github.com/ai-manju/api/internal/handler.(*AnnouncementHandler).Stream-fm (7 handlers)
 [GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
 Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
 [GIN-debug] Listening and serving HTTP on 0.0.0.0:3101
-[GIN] 2026/06/29 - 19:13:17 | 200 |       294.4µs |             ::1 | GET      "/health"
-[GIN] 2026/06/29 - 19:13:41 | 200 |     14.3964ms |             ::1 | GET      "/api/auth/me"
-[GIN] 2026/06/29 - 19:13:41 | 204 |            0s |             ::1 | OPTIONS  "/api/ai/models"
-[GIN] 2026/06/29 - 19:13:41 | 204 |            0s |             ::1 | OPTIONS  "/api/ai/models"
-[GIN] 2026/06/29 - 19:13:42 | 200 |    948.4179ms |             ::1 | GET      "/api/ai/models"
-[GIN] 2026/06/29 - 19:13:43 | 200 |    397.2469ms |             ::1 | GET      "/api/ai/models"
-[GIN] 2026/06/29 - 19:13:52 | 401 |            0s |             ::1 | GET      "/api/auth/me"
