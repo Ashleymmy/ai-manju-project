@@ -3,6 +3,7 @@
  */
 import { type JobState } from "@/lib/api-contract";
 import {
+  ArrowDownToLine,
   ArrowUpRight,
   Box,
   ChevronRight,
@@ -18,27 +19,49 @@ import {
   MousePointer2,
   PanelRight,
   Pause,
+  Pencil,
   Plus,
   RadioTower,
   Search,
   Settings2,
-  SlidersHorizontal,
   Tag,
   Terminal,
+  Trash2,
   WandSparkles,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import { cancelJob, createProject, getJobs, getProjects, publicApiError, type CanvasProject, type Job } from "@/services/api";
+import {
+  announcementStreamUrl,
+  cancelJob,
+  createProject,
+  deleteProject,
+  fetchCurrentAnnouncement,
+  getJobs,
+  getProjects,
+  getProjectSnapshot,
+  listComicBatches,
+  listComicProjects,
+  markAnnouncementRead,
+  publicApiError,
+  updateProject,
+  type CanvasProject,
+  type Job,
+  type SystemAnnouncement,
+  type WorkspaceScope,
+} from "@/services/api";
 import { useWorkspaceDashboardData, type WorkspaceData } from "@/hooks/useWorkspaceDashboardData";
+import { createZip } from "@/lib/zip";
 import { AssetLibraryView, ComicAssetsView, ImageWorkbenchView, ProfileView, PromptLibraryView, TagLibraryView } from "./RealFeatureViews";
 import { SettingsView } from "./SystemViews";
 import CanvasWorkspaceView from "./CanvasWorkspaceView";
 import DirectorDeskView from "./DirectorDeskView";
 import AdminWorkspaceView from "./AdminWorkspaceView";
+import VideoWorkspaceView from "./VideoWorkspaceView";
 import AgentPanel from "@/components/AgentPanel";
+import ReleaseNotesDialog from "@/components/ReleaseNotesDialog";
 
 const logoUrl = "/logo.png";
 const heroUrl = "";
@@ -56,6 +79,7 @@ const creationNav: NavItem[] = [
 
 const libraryNav: NavItem[] = [
   { label: "关键帧生成", href: "/image", icon: WandSparkles },
+  { label: "视频生成", href: "/video", icon: Film },
   { label: "资产库", href: "/assets", icon: Library },
   { label: "标签库", href: "/tags", icon: Tag },
   { label: "提示词库", href: "/prompts", icon: Terminal },
@@ -110,6 +134,7 @@ const pageTitles: Record<string, { code: string; title: string; subtitle: string
   "/director": { code: "DIRECTOR / BETA", title: "3D 导演台", subtitle: "用可控机位先排布构图，再将镜头交还给生成流程。" },
   "/comic-assets": { code: "ASSET ASSIST / 05", title: "漫剧资产助手", subtitle: "从剧本中提取角色、场景和关键道具，并一次性组织批量生成。" },
   "/image": { code: "KEYFRAME / NEW", title: "关键帧生成", subtitle: "把描述、参考图和模型参数收束为一帧可继续工作的画面。" },
+  "/video": { code: "VIDEO / MOTION", title: "视频生成", subtitle: "连接真实视频模型、任务轮询与结果下载，不再回退到占位工作面。" },
   "/assets": { code: "LIBRARY / 248", title: "资产库", subtitle: "角色、环境、道具与参考素材都能追溯来处和使用位置。" },
   "/tags": { code: "TAXONOMY / 36", title: "标签库", subtitle: "用语义层级把镜头语言、情绪和视觉资产编织到一起。" },
   "/prompts": { code: "PROMPTS / 18", title: "提示词库", subtitle: "把反复有效的表达方式变成下一次创作的可调用片段。" },
@@ -198,6 +223,162 @@ function TopBar({ path, runningJobs }: { path: string; runningJobs?: number }) {
         <button className="create-button" onClick={() => void createAndOpenProject(navigate)}><Plus size={17} /> 新建画布</button>
       </div>
     </header>
+  );
+}
+
+function AnnouncementBanner() {
+  const [announcement, setAnnouncement] = useState<SystemAnnouncement | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [streamState, setStreamState] = useState<"connecting" | "connected" | "reconnecting">("connecting");
+  const streamRef = useRef<EventSource | null>(null);
+  const retryTimerRef = useRef<number | null>(null);
+
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
+
+  const closeStream = useCallback(() => {
+    streamRef.current?.close();
+    streamRef.current = null;
+  }, []);
+
+  const loadCurrentAnnouncement = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const current = await fetchCurrentAnnouncement();
+      setAnnouncement(current);
+      setError("");
+      return current;
+    } catch (error_) {
+      setError(publicApiError(error_, "读取系统公告失败"));
+      return null;
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, []);
+
+  const connectStream = useCallback(() => {
+    clearRetryTimer();
+    closeStream();
+    setStreamState("connecting");
+    const source = new EventSource(announcementStreamUrl());
+    streamRef.current = source;
+
+    const refresh = () => {
+      void loadCurrentAnnouncement(true);
+    };
+
+    source.onopen = () => {
+      setStreamState("connected");
+      setError("");
+      refresh();
+    };
+    source.addEventListener("announcement.published", refresh);
+    source.addEventListener("announcement.revoked", refresh);
+    source.addEventListener("heartbeat", () => undefined);
+    source.onerror = () => {
+      setStreamState("reconnecting");
+      setError("系统公告流已断开，正在重连…");
+      closeStream();
+      clearRetryTimer();
+      refresh();
+      retryTimerRef.current = window.setTimeout(connectStream, 3500);
+    };
+  }, [clearRetryTimer, closeStream, loadCurrentAnnouncement]);
+
+  useEffect(() => {
+    void loadCurrentAnnouncement(false);
+    connectStream();
+    return () => {
+      clearRetryTimer();
+      closeStream();
+    };
+  }, [clearRetryTimer, closeStream, connectStream, loadCurrentAnnouncement]);
+
+  const markRead = async () => {
+    if (!announcement || busy) return;
+    setBusy(true);
+    try {
+      await markAnnouncementRead(announcement.id);
+      setAnnouncement(null);
+      setError("");
+      toast.success("公告已标记为已读");
+    } catch (error_) {
+      toast.error(publicApiError(error_, "标记公告已读失败"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const retry = () => {
+    void loadCurrentAnnouncement(false);
+    connectStream();
+  };
+
+  if (!loading && !error && !announcement) return null;
+
+  return (
+    <section
+      style={{
+        maxWidth: 1480,
+        margin: "18px auto 0",
+        padding: "0 clamp(16px, 2.5vw, 38px)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          gap: 14,
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          padding: "14px 16px",
+          border: "1px solid var(--line)",
+          background: "rgba(25,31,32,.92)",
+          boxShadow: "0 16px 30px rgba(0,0,0,.12)",
+          backdropFilter: "blur(12px)",
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ minWidth: 0, flex: "1 1 360px" }}>
+          <p className="eyebrow">SYSTEM ANNOUNCEMENT</p>
+          <h3 style={{ margin: 0, color: "#f2efe5", fontSize: 15, letterSpacing: "-.04em" }}>
+            {loading ? "正在读取系统公告…" : announcement?.title || "系统公告暂时不可用"}
+          </h3>
+          <p style={{ margin: "8px 0 0", color: "#919a96", fontSize: 12, lineHeight: 1.65 }}>
+            {loading
+              ? "正在同步当前未读公告与实时发布流。"
+              : announcement
+                ? announcement.content
+                : error || "当前没有未读公告。"}
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {announcement && (
+            <span className={`status-chip ${announcement.kind === "maintenance" ? "sand" : "blue"}`}>
+              {announcement.kind}
+            </span>
+          )}
+          <span className={`status-chip ${streamState === "connected" ? "running" : streamState === "reconnecting" ? "sand" : "blue"}`}>
+            {loading ? "loading" : streamState}
+          </span>
+          {announcement && (
+            <button className="outline-button small" onClick={() => void markRead()} disabled={busy}>
+              已读
+            </button>
+          )}
+          {!announcement && error && (
+            <button className="outline-button small" onClick={retry} disabled={busy}>
+              重试
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -301,63 +482,188 @@ function Dashboard() {
   );
 }
 
-function ProjectCard({ id, title, code, chapter, image, state, color, time }: ProjectCardData) {
+function ProjectCard({ id, title, code, chapter, image, state, color, time, scope }: ProjectCardData & { scope?: WorkspaceScope }) {
   const [, navigate] = useLocation();
-  return <button className="project-card" onClick={() => id ? navigate(`/canvas/${encodeURIComponent(id)}`) : navigate("/projects")}><div className="project-visual">{image ? <img src={image} alt="" /> : <div className="abstract-canvas" aria-hidden="true"><span className="abstract-card one" /><span className="abstract-card two" /></div>}<span className={`state-ribbon ${color}`}>{state}</span><span className="project-code">{code}</span></div><div className="project-info"><div><h3>{title}</h3><p>{chapter}</p></div><span>{time}</span></div></button>;
+  const href = id ? `/canvas/${encodeURIComponent(id)}${scope && scope !== "personal" ? `?scope=${encodeURIComponent(scope)}` : ""}` : "/projects";
+  return <button className="project-card" onClick={() => navigate(href)}><div className="project-visual">{image ? <img src={image} alt="" /> : <div className="abstract-canvas" aria-hidden="true"><span className="abstract-card one" /><span className="abstract-card two" /></div>}<span className={`state-ribbon ${color}`}>{state}</span><span className="project-code">{code}</span></div><div className="project-info"><div><h3>{title}</h3><p>{chapter}</p></div><span>{time}</span></div></button>;
 }
 
 function Projects() {
   const [, navigate] = useLocation();
+  const [scope, setScope] = useState<WorkspaceScope>("personal");
   const [apiProjects, setApiProjects] = useState<CanvasProject[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    getProjects("personal").then((res) => {
+    setLoading(true);
+    getProjects(scope).then((res) => {
       const raw: CanvasProject[] = Array.isArray(res) ? res : (res as { items: CanvasProject[] }).items;
-      setApiProjects(raw);
+      setApiProjects(raw || []);
+      setSelectedIds((ids) => ids.filter((id) => (raw || []).some((project) => project.id === id)));
     }).catch((error) => {
       setApiProjects([]);
       toast.error(publicApiError(error, "读取项目列表失败"));
     }).finally(() => setLoading(false));
-  }, []);
+  }, [refreshKey, scope]);
+
+  const refresh = () => setRefreshKey((value) => value + 1);
+  const toggleSelected = (id: string) => setSelectedIds((ids) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]);
+
+  const renameProject = async (project: CanvasProject) => {
+    const title = window.prompt("项目名称", project.title)?.trim();
+    if (!title || title === project.title) return;
+    try {
+      await updateProject(project.id, { title, scope });
+      toast.success("项目已重命名");
+      refresh();
+    } catch (error) {
+      toast.error(publicApiError(error, "重命名项目失败"));
+    }
+  };
+
+  const deleteProjects = async (ids: string[]) => {
+    if (!ids.length) return;
+    if (!window.confirm(`删除 ${ids.length} 个画布项目及其快照？此操作不可恢复。`)) return;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        await deleteProject(id, scope);
+      } catch {
+        failed += 1;
+      }
+    }
+    setSelectedIds([]);
+    toast[failed ? "warning" : "success"](failed ? `删除完成，${failed} 个失败` : `已删除 ${ids.length} 个项目`);
+    refresh();
+  };
+
+  const exportProjects = async (ids: string[]) => {
+    if (!ids.length || exporting) return;
+    setExporting(true);
+    try {
+      const files: Array<{ name: string; data: BlobPart }> = [];
+      for (const id of ids) {
+        const project = apiProjects.find((item) => item.id === id);
+        if (!project) continue;
+        const snapshot = await getProjectSnapshot(id, scope).catch(() => null);
+        files.push({
+          name: `${project.title.replace(/[^\w一-龥.-]/g, "_") || id}.json`,
+          data: JSON.stringify({ project, snapshot: snapshot?.data ?? null, exportedAt: new Date().toISOString() }, null, 2),
+        });
+      }
+      if (!files.length) throw new Error("没有可导出的项目");
+      const zip = await createZip(files);
+      const url = URL.createObjectURL(zip);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `画布项目-${new Date().toISOString().slice(0, 10)}.zip`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      toast.success(`已导出 ${files.length} 个项目`);
+    } catch (error) {
+      toast.error(publicApiError(error, "导出项目失败"));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const displayProjects: ProjectCardData[] = apiProjects.map(projectToCard);
 
-  return <div className="page-content"><PageIntro path="/projects" action={<button className="create-button" onClick={() => void createAndOpenProject(navigate)}><Plus size={17} /> 新建项目</button>} /><div className="filter-line"><div className="segmented"><button className="selected">最近修改</button><button>进行中</button><button>已归档</button></div><button className="outline-button small"><SlidersHorizontal size={16} /> 筛选与排序</button></div><div className="project-grid">{loading ? <div className="empty-output"><FolderKanban size={27} /><p>正在读取项目…</p></div> : displayProjects.length ? displayProjects.map((project, index) => <ProjectCard key={`${project.id || project.code}-${index}`} {...project} />) : <div className="empty-output"><FolderKanban size={27} /><p>还没有画布项目<br />点击“新建项目”开始。</p></div>}</div></div>;
+  return <div className="page-content"><PageIntro path="/projects" action={<button className="create-button" onClick={() => void createAndOpenProject(navigate)}><Plus size={17} /> 新建项目</button>} />
+    <div className="filter-line">
+      <div className="segmented">{(["personal", "team"] as const).map((item) => <button key={item} className={scope === item ? "selected" : ""} onClick={() => { setScope(item); setSelectedIds([]); }}>{item === "personal" ? "个人空间" : "团队空间"}</button>)}</div>
+      <div className="project-bulk-bar">
+        <span>已选 {selectedIds.length} 项</span>
+        <button className="outline-button small" disabled={!selectedIds.length} onClick={() => void deleteProjects(selectedIds)}><Trash2 size={14} /> 删除选中</button>
+        <button className="outline-button small" disabled={!selectedIds.length || exporting} onClick={() => void exportProjects(selectedIds)}><ArrowDownToLine size={14} /> {exporting ? "导出中…" : "导出选中"}</button>
+        <button className="outline-button small" disabled={!apiProjects.length} onClick={() => void deleteProjects(apiProjects.map((project) => project.id))}>删除全部</button>
+      </div>
+    </div>
+    <div className="project-grid">{loading ? <div className="empty-output"><FolderKanban size={27} /><p>正在读取项目…</p></div> : displayProjects.length ? displayProjects.map((project, index) => <div className="project-card-wrap" key={`${project.id || project.code}-${index}`}><label className="project-check" onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={project.id ? selectedIds.includes(project.id) : false} onChange={() => project.id && toggleSelected(project.id)} /></label><div className="project-card-tools"><button title="重命名" onClick={() => { const source = apiProjects.find((item) => item.id === project.id); if (source) void renameProject(source); }}><Pencil size={13} /></button><button title="删除" onClick={() => project.id && void deleteProjects([project.id])}><Trash2 size={13} /></button></div><ProjectCard {...project} scope={scope} /></div>) : <div className="empty-output"><FolderKanban size={27} /><p>还没有画布项目<br />点击“新建项目”开始。</p></div>}</div></div>;
 }
 
 
 
-type QueueJobRow = { id: string; name: string; type: string; state: JobState; scope: string; progress: number; updated: string };
+type QueueJobRow = { id: string; name: string; type: string; state: JobState; scope: string; progress: number; updated: string; kind: "job" | "comic" };
+
+const comicBatchStateMap: Record<string, JobState> = {
+  queued: "queued",
+  running: "running",
+  paused: "queued",
+  stopping: "running",
+  succeeded: "succeeded",
+  partial_failed: "failed",
+  canceled: "canceled",
+};
 
 function Queue() {
+  const [, navigate] = useLocation();
+  const [scope, setScope] = useState<WorkspaceScope>("personal");
   const [filter, setFilter] = useState<JobState | "all">("all");
   const [apiJobs, setApiJobs] = useState<QueueJobRow[] | null>(null);
+  const [comicRows, setComicRows] = useState<QueueJobRow[]>([]);
 
   const refresh = useCallback(() => {
-    void getJobs({ limit: 50 }).then((res) => {
+    void getJobs({ limit: 50, scope }).then((res) => {
       const raw: Job[] = Array.isArray(res) ? res : res.items;
       setApiJobs(raw.map((j) => ({
         id: j.id,
         name: j.name ?? j.type,
         type: j.type.toUpperCase().replace(/\./g, " / ").replace(/_/g, " "),
         state: j.status,
-        scope: (j as { scope?: string }).scope ?? "personal",
+        scope: (j as { scope?: string }).scope ?? scope,
         progress: j.progress ?? 0,
         updated: j.updated_at
           ? new Date(j.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
           : "—",
+        kind: "job" as const,
       })));
     }).catch(() => setApiJobs([]));
-  }, []);
+  }, [scope]);
+
+  const refreshComicBatches = useCallback(() => {
+    void listComicProjects(scope).then(async (projects) => {
+      const batchLists = await Promise.allSettled(projects.slice(0, 12).map(async (project) => {
+        const batches = await listComicBatches(project.id, scope);
+        return batches.map((batch) => ({ project, batch }));
+      }));
+      const rows = batchLists
+        .flatMap((result) => result.status === "fulfilled" ? result.value : [])
+        .sort((a, b) => new Date(b.batch.updated_at || b.batch.created_at).getTime() - new Date(a.batch.updated_at || a.batch.created_at).getTime())
+        .slice(0, 20)
+        .map(({ project, batch }): QueueJobRow => ({
+          id: batch.id,
+          name: `${project.title} · 漫剧批量`,
+          type: "COMIC / BATCH",
+          state: comicBatchStateMap[batch.status] || "queued",
+          scope,
+          progress: batch.total ? Math.round(((batch.succeeded + batch.failed + batch.canceled) / batch.total) * 100) : 0,
+          updated: batch.updated_at
+            ? new Date(batch.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+            : "—",
+          kind: "comic",
+        }));
+      setComicRows(rows);
+    }).catch(() => setComicRows([]));
+  }, [scope]);
 
   useEffect(() => {
+    setApiJobs(null);
+    setComicRows([]);
     refresh();
+    refreshComicBatches();
     const timer = window.setInterval(refresh, 3_000);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
+    const comicTimer = window.setInterval(refreshComicBatches, 10_000);
+    return () => {
+      window.clearInterval(timer);
+      window.clearInterval(comicTimer);
+    };
+  }, [refresh, refreshComicBatches]);
 
-  const displayJobs = apiJobs ?? [];
+  const displayJobs = [...(apiJobs ?? []), ...comicRows];
   const visible = displayJobs.filter((job) => filter === "all" || job.state === filter);
   const count = (state: JobState) => displayJobs.filter((j) => j.state === state).length;
   const tabs: Array<[JobState | "all", string]> = [
@@ -367,7 +673,7 @@ function Queue() {
     ["succeeded", `完成 ${String(count("succeeded")).padStart(2, "0")}`],
     ["failed", `异常 ${String(count("failed")).padStart(2, "0")}`],
   ];
-  return <div className="page-content"><PageIntro path="/queue" action={<div className="queue-health"><i />实时轮询已连接</div>} /><div className="queue-layout"><section className="queue-card"><div className="queue-tabs">{tabs.map(([key, label]) => <button className={filter === key ? "active" : ""} key={key} onClick={() => setFilter(key)}>{label}</button>)}</div><div className="job-list">{visible.map((job) => <div className="job-row" key={job.id}><div className={`job-icon ${job.state}`}><Film size={18} /></div><div className="job-copy"><div><b>{job.name}</b><span>{job.type} · {job.id}</span></div>{(job.state === "running" || job.state === "queued") && <div className="job-progress"><i style={{ width: `${job.progress}%` }} /></div>}</div><div className="job-state"><span className={`status-chip ${job.state}`}>{job.state === "running" ? "生成中" : job.state === "queued" ? "队列中" : job.state === "succeeded" ? "已完成" : job.state === "canceled" ? "已取消" : "异常"}</span><small>{job.updated}</small></div>{(job.state === "running" || job.state === "queued") ? <button className="icon-button subtle" title="取消任务" onClick={() => void cancelQueueJob(job.id, job.scope, refresh)}><Pause size={16} /></button> : <button className="icon-button subtle" disabled><MoreHorizontal size={16} /></button>}</div>)}</div>{!visible.length && <div className="empty-output"><RadioTower size={27} /><p>当前筛选没有任务。</p></div>}</section><aside className="queue-aside"><p className="eyebrow">STATUS MACHINE</p><h3>让每次等待<br />都看得见。</h3><div className="state-machine"><span className="done">queued</span><i /><span className="active">running</span><i /><span>succeeded</span></div><p>队列状态来自服务端 Job；页面刷新后会重新读取，不依赖本地假数据。</p><code>GET /api/jobs?limit=50</code></aside></div></div>;
+  return <div className="page-content"><PageIntro path="/queue" action={<div className="queue-actions"><div className="scope-switch">{(["personal", "team"] as const).map((item) => <button key={item} className={scope === item ? "active" : ""} onClick={() => setScope(item)}>{item === "personal" ? "个人空间" : "团队空间"}</button>)}</div><div className="queue-health"><i />实时轮询已连接</div></div>} /><div className="queue-layout"><section className="queue-card"><div className="queue-tabs">{tabs.map(([key, label]) => <button className={filter === key ? "active" : ""} key={key} onClick={() => setFilter(key)}>{label}</button>)}</div><div className="job-list">{visible.map((job) => <div className="job-row" key={`${job.kind}-${job.id}`}><div className={`job-icon ${job.state}`}>{job.kind === "comic" ? <Clapperboard size={18} /> : <Film size={18} />}</div><div className="job-copy"><div><b>{job.name}</b><span>{job.type} · {job.id}</span></div>{(job.state === "running" || job.state === "queued") && <div className="job-progress"><i style={{ width: `${job.progress}%` }} /></div>}</div><div className="job-state"><span className={`status-chip ${job.state}`}>{job.state === "running" ? "生成中" : job.state === "queued" ? "队列中" : job.state === "succeeded" ? "已完成" : job.state === "canceled" ? "已取消" : "异常"}</span><small>{job.updated}</small></div>{job.kind === "comic" ? <button className="icon-button subtle" title="打开漫剧资产助手" onClick={() => navigate("/comic-assets")}><ArrowUpRight size={16} /></button> : (job.state === "running" || job.state === "queued") ? <button className="icon-button subtle" title="取消任务" onClick={() => void cancelQueueJob(job.id, job.scope, refresh)}><Pause size={16} /></button> : <button className="icon-button subtle" disabled><MoreHorizontal size={16} /></button>}</div>)}</div>{!visible.length && <div className="empty-output"><RadioTower size={27} /><p>当前筛选没有任务。</p></div>}</section><aside className="queue-aside"><p className="eyebrow">STATUS MACHINE</p><h3>让每次等待<br />都看得见。</h3><div className="state-machine"><span className="done">queued</span><i /><span className="active">running</span><i /><span>succeeded</span></div><p>队列状态来自服务端 Job 与漫剧批次，随个人 / 团队空间切换；页面刷新后会重新读取，不依赖本地假数据。</p><code>GET /api/jobs?limit=50&scope={scope}</code></aside></div></div>;
 }
 
 async function cancelQueueJob(id: string, scope: string, refresh: () => void) {
@@ -406,12 +712,19 @@ function GenericTool({ path }: { path: string }) {
   );
 }
 
+function normalizeShellPath(locationPath: string) {
+  if (locationPath.startsWith("/canvas/")) return "/canvas";
+  if (locationPath === "/admin" || locationPath.startsWith("/admin/")) return "/admin";
+  return pageTitles[locationPath] ? locationPath : locationPath;
+}
+
 export default function Home() {
   const [location] = useLocation();
   const [collapsed, setCollapsed] = useState(() => new URLSearchParams(window.location.search).get("rail") === "collapsed");
   const { data: shellData } = useWorkspaceDashboardData();
   const locationPath = location.split("?")[0];
-  const path = locationPath.startsWith("/canvas/") ? "/canvas" : pageTitles[locationPath] ? locationPath : "/";
+  const isCanvasRoute = locationPath === "/canvas" || locationPath.startsWith("/canvas/");
+  const path = normalizeShellPath(locationPath);
   const renderPage = () => {
     if (path === "/") return <Dashboard />;
     if (path === "/projects") return <Projects />;
@@ -419,6 +732,7 @@ export default function Home() {
     if (path === "/director") return <DirectorDeskView />;
     if (path === "/comic-assets") return <ComicAssetsView />;
     if (path === "/image") return <ImageWorkbenchView />;
+    if (path === "/video") return <VideoWorkspaceView />;
     if (path === "/queue") return <Queue />;
     if (path === "/assets") return <AssetLibraryView />;
     if (path === "/tags") return <TagLibraryView />;
@@ -428,5 +742,8 @@ export default function Home() {
     if (path === "/admin") return <AdminWorkspaceView />;
     return <GenericTool path={path} />;
   };
-  return <div className={`studio-app ${collapsed ? "rail-collapsed" : ""} ${path === "/canvas" ? "canvas-focus" : ""}`}><SideRail currentPath={path} collapsed={collapsed} onCollapse={() => setCollapsed((value) => !value)} data={shellData} /><main className="main-stage"><TopBar path={path} runningJobs={shellData.jobs.total} />{renderPage()}</main></div>;
+  if (isCanvasRoute) {
+    return <div className="studio-app canvas-focus canvas-focus-direct"><main className="main-stage"><CanvasWorkspaceView /></main></div>;
+  }
+  return <div className={`studio-app ${collapsed ? "rail-collapsed" : ""}`}><SideRail currentPath={path} collapsed={collapsed} onCollapse={() => setCollapsed((value) => !value)} data={shellData} /><main className="main-stage"><TopBar path={path} runningJobs={shellData.jobs.total} /><AnnouncementBanner />{renderPage()}</main><ReleaseNotesDialog /></div>;
 }

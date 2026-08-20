@@ -3,8 +3,8 @@
   "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
   "compilerOptions": {
     "incremental": true,
-    "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",
     "noEmit": true,
+    "target": "ES2022",
     "module": "ESNext",
     "strict": true,
     "lib": ["esnext", "dom", "dom.iterable"],
@@ -16,6 +16,7 @@
     "baseUrl": ".",
     "types": ["node", "vite/client"],
     "paths": {
+      "@ai-manju/canvas-agent-protocol": ["../packages/canvas-agent-protocol/src/index.ts"],
       "@/*": ["./client/src/*"],
       "@shared/*": ["./shared/*"]
     }

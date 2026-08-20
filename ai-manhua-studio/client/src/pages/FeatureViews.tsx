@@ -33,8 +33,38 @@ import {
   Upload,
   WandSparkles,
 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+  createTag,
+  createTagAlias,
+  deleteTag,
+  deleteTagAlias,
+  fetchImageModels,
+  generateImages,
+  getAssetContentObjectUrl,
+  getAssetFolders,
+  getAssetLibrary,
+  getPreferences,
+  getTrashedAssetLibrary,
+  imageModelLabel,
+  listAllTags,
+  publicApiError,
+  restoreAssets,
+  trashAssets,
+  updateAssetUserState,
+  updatePreferences,
+  updateTag,
+  uploadAsset,
+  type Asset,
+  type AssetFolder,
+  type GeneratedImage,
+  type ImageModelCatalog,
+  type PromptPreset,
+  type SemanticTag,
+} from "@/services/api";
+
+export { ComicAssetsView } from "./ComicAssetsView";
 
 const cityUrl = "";
 const desertUrl = "";
@@ -52,7 +82,7 @@ export function DirectorView() {
 
 const candidates = [{ name: "阮澄", type: "主角 · character", image: desertUrl, tag: "待审" }, { name: "雨幕收容所", type: "核心场景 · environment", image: cityUrl, tag: "已识别" }, { name: "避雨亭", type: "关键道具 · prop", image: roomUrl, tag: "待审" }];
 
-export function ComicAssetsView() {
+function LegacyComicAssetsView() {
   const [stage, setStage] = useState(1);
   const [selected, setSelected] = useState<string[]>(["阮澄", "雨幕收容所"]);
   const toggle = (name: string) => setSelected((items) => items.includes(name) ? items.filter((item) => item !== name) : [...items, name]);
@@ -60,49 +90,342 @@ export function ComicAssetsView() {
 }
 
 export function ImageWorkbenchView() {
-  const [model, setModel] = useState("G-IMAGE / HIGH");
-  const [result, setResult] = useState(false);
-  return <div className="feature-page image-page"><SurfaceTitle eyebrow="KEYFRAME / NEW" title="关键帧生成" description="在一张可继续编辑的画面里落下镜头、氛围与人物关系。" actions={<button className="outline-button small" onClick={() => toast.info("本次会话将在当前项目下保存为草稿")}>保存草稿</button>} /><div className="image-workbench"><section className="image-composer"><div className="composer-tabs"><button className="active">文生图</button><button>图生图</button><button>批量变体</button></div><label className="prompt-editor"><span>SHOT PROMPT</span><textarea defaultValue="雨夜，狭长街道，潮湿沥青反射红色招牌；人物在画面右侧停留，低机位缓慢推近，电影级冷暖对比。" /><small>0 / 800 · 使用 / 插入提示词片段</small></label><div className="reference-strip"><div className="reference-card"><img src={cityUrl} alt="" /><span>构图参考</span><button onClick={() => toast.message("参考图已移除")}>×</button></div><button className="add-reference" onClick={() => toast.success("参考图上传槽已打开") }><Upload size={17} /> 添加参考图</button></div><div className="composer-options"><label>模型<div className="option-select">{model}<ChevronRight size={15} /></div><select value={model} onChange={(event) => setModel(event.target.value)} aria-label="选择模型"><option>G-IMAGE / HIGH</option><option>G-IMAGE / FAST</option><option>SEEDANCE / STYLE</option></select></label><label>画幅<div className="ratio-buttons"><button className="active">1:1</button><button>16:9</button><button>9:16</button></div></label><label>数量<div className="counter"><button>−</button><b>04</b><button>+</button></div></label></div><button className="vermilion-button generate-frame" onClick={() => { setResult(true); toast.success("关键帧生成任务已创建 · JOB-8F13"); }}><WandSparkles size={17} /> 生成关键帧</button></section><aside className="generation-output"><div className="output-heading"><div><p className="eyebrow">RESULTS / {result ? "04" : "00"}</p><h3>{result ? "本次落点" : "等待落点"}</h3></div><button className="icon-button subtle"><SlidersHorizontal size={17} /></button></div>{result ? <div className="result-grid">{[cityUrl, roomUrl, cityUrl, desertUrl].map((image, index) => <button key={`${image}-${index}`} className={index === 0 ? "result-card selected" : "result-card"} onClick={() => toast.message(`已选中变体 ${index + 1}`)}><img src={image} alt="生成结果" /><span>V-{String(index + 1).padStart(2, "0")}</span>{index === 0 && <i><Check size={14} /></i>}</button>)}</div> : <div className="empty-output"><ImageIcon size={27} /><p>生成结果会在这里形成<br />可回到画布继续编辑的节点。</p></div>}<div className="output-foot"><button onClick={() => toast.info("选中结果将送入画布节点") }><Layers3 size={15} /> 送入画布</button><button onClick={() => toast.info("选中结果将归档到资产库") }><Clapperboard size={15} /> 归档资产</button></div></aside></div></div>;
-}
+  const [model, setModel] = useState("");
+  const [modelCatalog, setModelCatalog] = useState<ImageModelCatalog | null>(null);
+  const [size, setSize] = useState<"auto" | "1:1" | "16:9" | "9:16">("auto");
+  const [count, setCount] = useState(1);
+  const [prompt, setPrompt] = useState(() => sessionStorage.getItem("ai-manju:image-prompt") || "雨夜，狭长街道，潮湿沥青反射红色招牌；人物在画面右侧停留，低机位缓慢推近，电影级冷暖对比。");
+  const [result, setResult] = useState<GeneratedImage[]>([]);
+  const [selectedResult, setSelectedResult] = useState(0);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobProgress, setJobProgress] = useState(0);
+  const [generating, setGenerating] = useState(false);
 
-const libraryAssets = [
-  { id: "AST-208", title: "雨夜巷口", type: "environment", image: cityUrl, source: "canvas / PRJ-034" },
-  { id: "AST-207", title: "旅人轮廓", type: "character", image: desertUrl, source: "comic batch / B-2408" },
-  { id: "AST-201", title: "旧屋桌面", type: "prop", image: roomUrl, source: "image workbench" },
-  { id: "AST-196", title: "密度参考", type: "reference", image: cityUrl, source: "manual upload" },
-  { id: "AST-188", title: "白沙光比", type: "environment", image: desertUrl, source: "canvas / PRJ-031" },
-  { id: "AST-182", title: "蓝调室内", type: "environment", image: roomUrl, source: "image workbench" },
-];
+  useEffect(() => {
+    sessionStorage.removeItem("ai-manju:image-prompt");
+    fetchImageModels()
+      .then((catalog) => {
+        setModelCatalog(catalog);
+        setModel(catalog.defaultModel);
+      })
+      .catch((error) => toast.error(publicApiError(error, "读取图像模型失败")));
+  }, []);
+
+  const selectedImage = useMemo(() => result[selectedResult] || result[0], [result, selectedResult]);
+
+  const generate = async () => {
+    if (generating) return;
+    setGenerating(true);
+    setResult([]);
+    setSelectedResult(0);
+    setJobProgress(0);
+    try {
+      const generated = await generateImages({
+        model,
+        prompt,
+        size,
+        quality: "auto",
+        count,
+        sourceType: "image_workbench",
+      }, {
+        onAccepted: (job) => {
+          setJobId(job.job_id || job.id || null);
+          toast.message("已提交图像任务：" + (job.job_id || job.id || "—"));
+        },
+        onProgress: (job) => {
+          setJobId(job.id);
+          setJobProgress(job.progress ?? 0);
+        },
+      });
+      setJobId(generated.job.id);
+      setJobProgress(100);
+      setResult(generated.images);
+      toast.success("生成完成，共 " + generated.images.length + " 张");
+    } catch (error) {
+      toast.error(publicApiError(error, "图像生成失败"));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return <div className="feature-page image-page"><SurfaceTitle eyebrow="KEYFRAME / NEW" title="关键帧生成" description="在一张可继续编辑的画面里落下镜头、氛围与人物关系。" actions={<button className="outline-button small" onClick={() => toast.info("草稿会在接入项目快照后保存")}>保存草稿</button>} /><div className="image-workbench"><section className="image-composer"><div className="composer-tabs"><button className="active">文生图</button><button onClick={() => toast.info("图生图将使用 /api/ai/image/edits")}>图生图</button><button onClick={() => toast.info("批量变体会复用当前提示词")}>批量变体</button></div><label className="prompt-editor"><span>SHOT PROMPT</span><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} maxLength={800} /><small>{prompt.length} / 800 · 使用 / 插入提示词片段</small></label><div className="reference-strip"><div className="reference-card"><img src={cityUrl} alt="" /><span>构图参考（可选）</span><button onClick={() => toast.message("参考图槽位已清空")}>×</button></div><button className="add-reference" onClick={() => toast.info("请使用图生图模式上传参考图")}><Upload size={17} /> 添加参考图</button></div><div className="composer-options"><label>模型<div className="option-select">{model ? imageModelLabel(model, modelCatalog || undefined) : "读取中…"}<ChevronRight size={15} /></div><select value={model} onChange={(event) => setModel(event.target.value)} aria-label="选择图像模型" disabled={!modelCatalog?.models.length}>{modelCatalog?.models.map((item) => <option value={item} key={item}>{imageModelLabel(item, modelCatalog)}</option>)}</select></label><label>画幅<div className="ratio-buttons">{(["auto", "1:1", "16:9", "9:16"] as const).map((ratio) => <button key={ratio} className={size === ratio ? "active" : ""} onClick={() => setSize(ratio)}>{ratio === "auto" ? "AUTO" : ratio}</button>)}</div></label><label>数量<div className="counter"><button onClick={() => setCount((value) => Math.max(1, value - 1))}>−</button><b>{String(count).padStart(2, "0")}</b><button onClick={() => setCount((value) => Math.min(15, value + 1))}>+</button></div></label></div>{generating && <div className="job-progress" aria-label="图像生成进度"><i style={{ width: String(jobProgress) + "%" }} /></div>}<button className="vermilion-button generate-frame" onClick={() => void generate()} disabled={generating || !prompt.trim()}><WandSparkles size={17} /> {generating ? "生成中 " + jobProgress + "%" : "生成关键帧"}</button></section><aside className="generation-output"><div className="output-heading"><div><p className="eyebrow">RESULTS / {String(result.length).padStart(2, "0")}</p><h3>{generating ? "任务执行中" : result.length ? "本次落点" : "等待落点"}</h3>{jobId && <small>JOB · {jobId}</small>}</div><button className="icon-button subtle" onClick={() => selectedImage && window.open(selectedImage.src, "_blank")} disabled={!selectedImage}><SlidersHorizontal size={17} /></button></div>{result.length ? <div className="result-grid">{result.map((image, index) => <button key={image.id} className={index === selectedResult ? "result-card selected" : "result-card"} onClick={() => setSelectedResult(index)}><img src={image.src} alt={image.name || "生成结果"} /><span>V-{String(index + 1).padStart(2, "0")}</span>{index === selectedResult && <i><Check size={14} /></i>}</button>)}</div> : <div className="empty-output"><ImageIcon size={27} /><p>{generating ? "服务端正在生成并归档图片" : <>生成结果会在这里形成<br />可回到画布继续编辑的节点。</>}</p></div>}<div className="output-foot"><button onClick={() => selectedImage ? toast.success("已选结果，可从画布节点继续使用") : toast.info("请先生成并选择结果")}><Layers3 size={15} /> 送入画布</button><button onClick={() => selectedImage?.assetId ? toast.success("资产 " + selectedImage.assetId + " 已归档") : toast.info("结果完成后会由 Worker 自动归档")}><Clapperboard size={15} /> 归档资产</button></div></aside></div></div>;
+}
 
 export function AssetLibraryView() {
-  const [selected, setSelected] = useState(libraryAssets[0]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [folders, setFolders] = useState<AssetFolder[]>([]);
+  const [selectedId, setSelectedId] = useState("");
   const [detailTab, setDetailTab] = useState("详情");
   const [smartView, setSmartView] = useState("全部资产");
-  return <div className="feature-page asset-library-page"><SurfaceTitle eyebrow="LIBRARY / 248" title="资产库" description="角色、环境、道具与参考素材都能追溯来处、关系和使用位置。" actions={<><button className="outline-button small" onClick={() => toast.info("已切换到批量选择模式") }><ListTree size={15} /> 批量操作</button><button className="vermilion-button" onClick={() => toast.success("上传队列已打开") }><Upload size={16} /> 导入资产</button></>} /><div className="library-workspace"><aside className="library-tree"><p className="field-label">SMART VIEWS</p>{[["全部资产", "248"], ["已收藏", "32"], ["未使用", "17"], ["回收站", "06"]].map(([label, count]) => <button className={smartView === label ? "selected" : ""} onClick={() => setSmartView(label)} key={label}><span>{label === "回收站" ? <Trash2 size={15} /> : label === "已收藏" ? <Sparkles size={15} /> : <Archive size={15} />}{label}</span><b>{count}</b></button>)}<hr /><p className="field-label">FOLDERS</p>{["EP.01 / 雨幕收容所", "角色设定", "场景氛围", "待归档"].map((label, index) => <button className="folder-row" key={label} onClick={() => toast.message(`已筛选文件夹：${label}`)}><FolderOpen size={15} /><span>{label}</span>{index < 3 && <ChevronRight size={14} />}</button>)}<button className="new-folder" onClick={() => toast.success("已创建空白文件夹") }><Plus size={14} /> 新建文件夹</button></aside><section className="asset-browser"><div className="asset-browser-top"><div><button className="breadcrumb">个人素材 <ChevronRight size={13} /></button><h2>{smartView}</h2></div><div><button className="icon-button subtle" onClick={() => toast.message("网格密度已切换") }><SlidersHorizontal size={16} /></button><button className="outline-button small" onClick={() => toast.info("筛选器包含类别、来源、标签与日期")}>筛选与排序</button></div></div><div className="asset-thumb-grid">{libraryAssets.map((asset) => <button className={selected.id === asset.id ? "library-asset selected" : "library-asset"} key={asset.id} onClick={() => setSelected(asset)}><img src={asset.image} alt="" /><span className="asset-category">{asset.type}</span><i>{asset.id}</i><div><b>{asset.title}</b><small>{asset.source}</small></div></button>)}</div></section><aside className="asset-detail"><div className="detail-head"><div><p className="eyebrow">ASSET / {selected.id}</p><h3>{selected.title}</h3></div><button className="icon-button subtle" onClick={() => toast.info("更多资产操作") }><ArrowUpRight size={16} /></button></div><img className="detail-image" src={selected.image} alt="" /><div className="detail-tabs">{["详情", "血缘", "使用"].map((tab) => <button className={detailTab === tab ? "active" : ""} onClick={() => setDetailTab(tab)} key={tab}>{tab}</button>)}</div>{detailTab === "详情" ? <div className="asset-metadata"><div><span>分类</span><b>{selected.type}</b></div><div><span>来源</span><b>{selected.source}</b></div><div><span>规格</span><b>1024 × 1024</b></div><div><span>标签</span><b>雨夜 · 低机位 · 电影感</b></div></div> : detailTab === "血缘" ? <div className="lineage-flow"><span>提示词</span><i /><span>关键帧</span><i /><strong>{selected.title}</strong><i /><span>场景 08</span></div> : <div className="usage-list"><div><b>《雨幕收容所》</b><small>场景 08 · 节点 N-02</small></div><div><b>关键帧生成</b><small>参考图 · 2 次调用</small></div></div>}<div className="asset-detail-actions"><button onClick={() => toast.success("已标记为收藏") }><Sparkles size={15} /> 收藏</button><button onClick={() => toast.info("已加入导出清单") }><Archive size={15} /> 导出</button></div></aside></div></div>;
-}
+  const [keyword, setKeyword] = useState("");
+  const [debouncedKeyword, setDebouncedKeyword] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
 
-const tagGroups = [
-  { name: "镜头语言", children: ["低机位", "推镜", "广角"] },
-  { name: "情绪", children: ["压迫", "静谧", "疏离"] },
-  { name: "环境", children: ["雨夜", "室内", "荒漠"] },
-];
+  const selected = assets.find((asset) => asset.id === selectedId) || assets[0];
+  const smartViewKey: "favorite" | "unused" | "" = smartView === "已收藏" ? "favorite" : smartView === "未使用" ? "unused" : "";
+
+  const refresh = useCallback(() => setRefreshKey((value) => value + 1), []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedKeyword(keyword), 250);
+    return () => window.clearTimeout(timer);
+  }, [keyword]);
+
+  useEffect(() => {
+    getAssetFolders().then(setFolders).catch((error) => toast.error(publicApiError(error, "读取资产目录失败")));
+  }, [refreshKey]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    const query = { keyword: debouncedKeyword.trim() || undefined, smartView: smartViewKey, page, pageSize: 30, sort: "created_at_desc" as const };
+    const task = smartView === "回收站" ? getTrashedAssetLibrary("personal", query, controller.signal) : getAssetLibrary("personal", query, controller.signal);
+    task.then((result) => {
+      setAssets(result.items || []);
+      setTotal(result.total || 0);
+      setSelectedId((current) => result.items.some((item) => item.id === current) ? current : result.items[0]?.id || "");
+    }).catch((error) => {
+      if (!controller.signal.aborted) toast.error(publicApiError(error, "读取资产库失败"));
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [debouncedKeyword, page, refreshKey, smartView, smartViewKey]);
+
+  useEffect(() => {
+    let disposed = false;
+    const urls: Record<string, string> = {};
+    Promise.all(assets.filter((asset) => asset.type === "image").map(async (asset) => {
+      try {
+        const url = await getAssetContentObjectUrl(asset.id, "personal", 320);
+        if (disposed) URL.revokeObjectURL(url);
+        else urls[asset.id] = url;
+      } catch {
+        // 单个缩略图失败不阻塞资产列表。
+      }
+    })).then(() => {
+      if (!disposed) setPreviewUrls(urls);
+    });
+    return () => {
+      disposed = true;
+      Object.values(urls).forEach(URL.revokeObjectURL);
+    };
+  }, [assets]);
+
+  const handleFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (!list.length || uploading) return;
+    setUploading(true);
+    let succeeded = 0;
+    for (const file of list) {
+      try {
+        await uploadAsset(file, { name: file.name, source_type: "manual_upload" });
+        succeeded += 1;
+      } catch (error) {
+        toast.error(`${file.name}：${publicApiError(error, "上传失败")}`);
+      }
+    }
+    setUploading(false);
+    if (succeeded) {
+      toast.success(`已上传 ${succeeded} 个资产`);
+      refresh();
+    }
+  };
+
+  const toggleFavorite = async () => {
+    if (!selected) return;
+    const reaction = selected.user_state?.reaction === "favorite" ? "none" : "favorite";
+    try {
+      const userState = await updateAssetUserState(selected.id, { reaction });
+      setAssets((items) => items.map((item) => item.id === selected.id ? { ...item, user_state: userState } : item));
+      toast.success(reaction === "favorite" ? "已收藏" : "已取消收藏");
+    } catch (error) {
+      toast.error(publicApiError(error, "更新收藏状态失败"));
+    }
+  };
+
+  const removeOrRestore = async () => {
+    if (!selected) return;
+    try {
+      if (smartView === "回收站") {
+        await restoreAssets([selected.id]);
+        toast.success("资产已恢复");
+      } else {
+        if (!window.confirm(`将“${selected.name}”移入 30 天回收站？`)) return;
+        await trashAssets([selected.id]);
+        toast.success("资产已移入回收站");
+      }
+      refresh();
+    } catch (error) {
+      toast.error(publicApiError(error, "资产操作失败"));
+    }
+  };
+
+  const downloadSelected = async () => {
+    if (!selected) return;
+    try {
+      const url = await getAssetContentObjectUrl(selected.id);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = selected.name;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch (error) {
+      toast.error(publicApiError(error, "下载资产失败"));
+    }
+  };
+
+  return <div className="feature-page asset-library-page">
+    <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => event.target.files && void handleFiles(event.target.files)} />
+    <SurfaceTitle eyebrow={`LIBRARY / ${total}`} title="资产库" description="角色、环境、道具与参考素材都能追溯来处、关系和使用位置。" actions={<><button className="outline-button small" onClick={() => toast.info("批量选择将在下一阶段接入") }><ListTree size={15} /> 批量操作</button><button className="vermilion-button" disabled={uploading} onClick={() => fileInputRef.current?.click()}><Upload size={16} /> {uploading ? "上传中…" : "导入资产"}</button></>} />
+    <div className="library-workspace">
+      <aside className="library-tree"><p className="field-label">SMART VIEWS</p>{["全部资产", "已收藏", "未使用", "回收站"].map((label) => <button className={smartView === label ? "selected" : ""} onClick={() => { setSmartView(label); setPage(1); }} key={label}><span>{label === "回收站" ? <Trash2 size={15} /> : label === "已收藏" ? <Sparkles size={15} /> : <Archive size={15} />}{label}</span></button>)}<hr /><p className="field-label">FOLDERS</p>{folders.map((folder) => <button className="folder-row" key={folder.id} onClick={() => toast.info(`目录筛选即将接入：${folder.name}`)}><FolderOpen size={15} /><span>{folder.name}</span><b>{folder.descendant_asset_count ?? folder.asset_count}</b></button>)}</aside>
+      <section className="asset-browser" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void handleFiles(event.dataTransfer.files); }}><div className="asset-browser-top"><div><button className="breadcrumb">个人素材 <ChevronRight size={13} /></button><h2>{smartView}</h2></div><div className="tag-search"><Search size={15} /><input value={keyword} onChange={(event) => { setKeyword(event.target.value); setPage(1); }} placeholder="搜索资产名称、来源或标签" /></div></div>{loading ? <div className="empty-output"><p>正在读取资产…</p></div> : assets.length ? <div className="asset-thumb-grid">{assets.map((asset) => <button className={selected?.id === asset.id ? "library-asset selected" : "library-asset"} key={asset.id} onClick={() => setSelectedId(asset.id)}>{previewUrls[asset.id] ? <img src={previewUrls[asset.id]} alt={asset.name} /> : <div className="empty-output"><ImageIcon size={22} /></div>}<span className="asset-category">{asset.category || asset.type}</span><i>{asset.id.slice(-8)}</i><div><b>{asset.name}</b><small>{asset.source_type || "unknown"}</small></div></button>)}</div> : <div className="empty-output"><Archive size={26} /><p>当前筛选下没有资产<br />可直接把文件拖入此区域上传。</p></div>}<div className="batch-actions"><button className="outline-button small" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button><span>{page} / {Math.max(1, Math.ceil(total / 30))}</span><button className="outline-button small" disabled={page * 30 >= total} onClick={() => setPage((value) => value + 1)}>下一页</button></div></section>
+      <aside className="asset-detail">{selected ? <><div className="detail-head"><div><p className="eyebrow">ASSET / {selected.id.slice(-8)}</p><h3>{selected.name}</h3></div><button className="icon-button subtle" onClick={() => void removeOrRestore()}>{smartView === "回收站" ? <Archive size={16} /> : <Trash2 size={16} />}</button></div>{previewUrls[selected.id] ? <img className="detail-image" src={previewUrls[selected.id]} alt={selected.name} /> : <div className="empty-output"><ImageIcon size={28} /></div>}<div className="detail-tabs">{["详情", "血缘", "使用"].map((tab) => <button className={detailTab === tab ? "active" : ""} onClick={() => setDetailTab(tab)} key={tab}>{tab}</button>)}</div>{detailTab === "详情" ? <div className="asset-metadata"><div><span>分类</span><b>{selected.category || selected.type}</b></div><div><span>来源</span><b>{selected.source_type || "unknown"}</b></div><div><span>大小</span><b>{selected.size ? `${(selected.size / 1024 / 1024).toFixed(2)} MB` : "—"}</b></div><div><span>标签</span><b>{selected.tags?.join(" · ") || "未绑定"}</b></div></div> : detailTab === "血缘" ? <div className="lineage-flow"><span>{selected.source_type || "来源未知"}</span><i /><strong>{selected.name}</strong></div> : <div className="usage-list"><div><b>生成调用</b><small>{selected.usage_stats?.generation_use_count || 0} 次</small></div><div><b>有效引用</b><small>{selected.usage_stats?.active_reference_count || 0} 处</small></div></div>}<div className="asset-detail-actions"><button onClick={() => void toggleFavorite()}><Sparkles size={15} /> {selected.user_state?.reaction === "favorite" ? "取消收藏" : "收藏"}</button><button onClick={() => void downloadSelected()}><Archive size={15} /> 下载</button></div></> : <div className="empty-output"><p>选择一项资产查看详情</p></div>}</aside>
+    </div>
+  </div>;
+}
 
 export function TagLibraryView() {
-  const [tag, setTag] = useState("雨夜");
+  const [tags, setTags] = useState<SemanticTag[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [query, setQuery] = useState("");
   const [alias, setAlias] = useState("");
-  const currentGroup = tagGroups.find((group) => group.children.includes(tag))?.name ?? "环境";
-  return <div className="feature-page tag-page"><SurfaceTitle eyebrow="TAXONOMY / 36" title="标签库" description="让构图、情绪与资产在统一的语义索引里互相找到。" actions={<button className="vermilion-button" onClick={() => toast.success("已创建一个新的根标签") }><Plus size={16} /> 新建标签</button>} /><div className="tag-workspace"><aside className="tag-tree"><div className="tag-search"><Search size={15} /><input placeholder="检索标签" /></div><p className="field-label">TAG TREE</p>{tagGroups.map((group) => <div className="tag-group" key={group.name}><b><ChevronRight size={13} />{group.name}</b>{group.children.map((child) => <button className={tag === child ? "selected" : ""} onClick={() => setTag(child)} key={child}><Hash size={13} />{child}<span>{child === "雨夜" ? "18" : child === "压迫" ? "12" : "06"}</span></button>)}</div>)}</aside><section className="tag-editor"><div className="tag-editor-head"><div><p className="eyebrow">{currentGroup} / SEMANTIC TAG</p><h2>#{tag}</h2></div><div><button className="outline-button small" onClick={() => toast.info("标签移动面板已打开")}>移动标签</button><button className="icon-button subtle" onClick={() => toast.message("标签删除需二次确认") }><Trash2 size={16} /></button></div></div><div className="tag-description"><span className="field-label">描述</span><textarea defaultValue={`${tag}：用于描述潮湿、低照度且具有反射质感的叙事环境。`} /></div><div className="tag-settings"><label>继承模式<div className="tag-select">自动继承 <ChevronRight size={14} /></div></label><label>作用范围<div className="tag-select">资产 + 提示词 <ChevronRight size={14} /></div></label></div><section className="aliases"><div><span className="field-label">别名</span><small>搜索时会一并匹配</small></div><div className="alias-list"><span>rainy night <button>×</button></span><span>wet alley <button>×</button></span></div><div className="alias-create"><input value={alias} onChange={(event) => setAlias(event.target.value)} placeholder="添加别名" /><button onClick={() => { if (alias.trim()) { toast.success(`已添加别名：${alias}`); setAlias(""); } }}>添加</button></div></section><button className="vermilion-button save-tag" onClick={() => toast.success("标签结构已保存") }><Check size={16} /> 保存标签</button></section><aside className="tag-relations"><p className="eyebrow">CONNECTIONS</p><div><b>18</b><span>关联资产</span><button onClick={() => toast.info("已筛选出使用该标签的资产")}>查看资产 <ArrowUpRight size={14} /></button></div><div><b>06</b><span>提示词模板</span><button onClick={() => toast.info("已筛选出使用该标签的提示词")}>查看提示词 <ArrowUpRight size={14} /></button></div><section><p className="field-label">常用共现</p>{["低机位", "红色招牌", "潮湿地面"].map((item) => <button onClick={() => setTag(item === "低机位" ? item : tag)} key={item}><Tag size={13} />{item}<span>× {item === "低机位" ? "12" : "08"}</span></button>)}</section></aside></div></div>;
+  const [draftName, setDraftName] = useState("");
+  const [draftDescription, setDraftDescription] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const reload = useCallback(async (preferredId?: string) => {
+    setLoading(true);
+    try {
+      const items = await listAllTags("personal");
+      setTags(items);
+      setSelectedId((current) => preferredId || (items.some((item) => item.id === current) ? current : items[0]?.id || ""));
+    } catch (error) {
+      toast.error(publicApiError(error, "读取标签库失败"));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void reload(); }, [reload]);
+
+  const current = tags.find((tag) => tag.id === selectedId);
+  useEffect(() => {
+    setDraftName(current?.name || "");
+    setDraftDescription(current?.description || "");
+  }, [current?.description, current?.id, current?.name]);
+
+  const visibleTags = tags.filter((tag) => !query.trim() || tag.name.toLowerCase().includes(query.trim().toLowerCase()) || tag.aliases?.some((item) => item.alias.toLowerCase().includes(query.trim().toLowerCase())));
+  const roots = visibleTags.filter((tag) => !tag.parent_id || !tags.some((parent) => parent.id === tag.parent_id));
+
+  const addRoot = async () => {
+    const name = window.prompt("新标签名称");
+    if (!name?.trim()) return;
+    try {
+      const created = await createTag("personal", { name: name.trim(), asset_enabled: true, prompt_enabled: true, inherit_mode: "auto", scope_type: "user" });
+      toast.success("标签已创建");
+      await reload(created.id);
+    } catch (error) {
+      toast.error(publicApiError(error, "创建标签失败"));
+    }
+  };
+
+  const saveCurrent = async () => {
+    if (!current || !draftName.trim()) return;
+    try {
+      const saved = await updateTag("personal", current.id, { name: draftName.trim(), description: draftDescription.trim(), asset_enabled: current.asset_enabled, prompt_enabled: current.prompt_enabled, inherit_mode: current.inherit_mode, status: current.status, sort_order: current.sort_order });
+      setTags((items) => items.map((item) => item.id === saved.id ? saved : item));
+      toast.success("标签已保存");
+    } catch (error) {
+      toast.error(publicApiError(error, "保存标签失败"));
+    }
+  };
+
+  const archiveCurrent = async () => {
+    if (!current || !window.confirm(`删除“${current.name}”及其可归档子标签？`)) return;
+    try {
+      await deleteTag("personal", current.id);
+      toast.success("标签已删除");
+      await reload();
+    } catch (error) {
+      toast.error(publicApiError(error, "删除标签失败"));
+    }
+  };
+
+  const addAlias = async () => {
+    if (!current || !alias.trim()) return;
+    try {
+      await createTagAlias("personal", current.id, alias.trim());
+      setAlias("");
+      await reload(current.id);
+    } catch (error) {
+      toast.error(publicApiError(error, "添加别名失败"));
+    }
+  };
+
+  return <div className="feature-page tag-page"><SurfaceTitle eyebrow={`TAXONOMY / ${tags.length}`} title="标签库" description="让构图、情绪与资产在统一的语义索引里互相找到。" actions={<button className="vermilion-button" onClick={() => void addRoot()}><Plus size={16} /> 新建标签</button>} /><div className="tag-workspace"><aside className="tag-tree"><div className="tag-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="检索标签" /></div><p className="field-label">TAG TREE</p>{loading ? <small>读取中…</small> : roots.map((root) => <div className="tag-group" key={root.id}><button className={selectedId === root.id ? "selected" : ""} onClick={() => setSelectedId(root.id)}><ChevronRight size={13} />{root.name}<span>{root.asset_count || 0}</span></button>{visibleTags.filter((tag) => tag.parent_id === root.id).map((child) => <button className={selectedId === child.id ? "selected" : ""} onClick={() => setSelectedId(child.id)} key={child.id}><Hash size={13} />{child.name}<span>{child.asset_count || 0}</span></button>)}</div>)}</aside><section className="tag-editor">{current ? <><div className="tag-editor-head"><div><p className="eyebrow">{current.scope_type} / SEMANTIC TAG</p><h2>#{current.name}</h2></div><button className="icon-button subtle" onClick={() => void archiveCurrent()} disabled={!current.editable}><Trash2 size={16} /></button></div><div className="tag-description"><span className="field-label">名称</span><input value={draftName} onChange={(event) => setDraftName(event.target.value)} disabled={!current.editable} /><span className="field-label">描述</span><textarea value={draftDescription} onChange={(event) => setDraftDescription(event.target.value)} disabled={!current.editable} /></div><div className="tag-settings"><label>继承模式<div className="tag-select">{current.inherit_mode} <ChevronRight size={14} /></div></label><label>作用范围<div className="tag-select">{current.asset_enabled && current.prompt_enabled ? "资产 + 提示词" : current.asset_enabled ? "资产" : "提示词"} <ChevronRight size={14} /></div></label></div><section className="aliases"><div><span className="field-label">别名</span><small>搜索时会一并匹配</small></div><div className="alias-list">{current.aliases?.map((item) => <span key={item.id}>{item.alias}<button onClick={async () => { await deleteTagAlias("personal", current.id, item.id); await reload(current.id); }}>×</button></span>)}</div><div className="alias-create"><input value={alias} onChange={(event) => setAlias(event.target.value)} placeholder="添加别名" /><button onClick={() => void addAlias()}>添加</button></div></section><button className="vermilion-button save-tag" disabled={!current.editable} onClick={() => void saveCurrent()}><Check size={16} /> 保存标签</button></> : <div className="empty-output"><p>当前没有可编辑标签</p></div>}</section><aside className="tag-relations"><p className="eyebrow">CONNECTIONS</p><div><b>{current?.asset_count || 0}</b><span>关联资产</span><button onClick={() => toast.info("可在资产库使用此标签筛选")}>查看资产 <ArrowUpRight size={14} /></button></div><div><b>{current?.prompt_count || 0}</b><span>提示词模板</span><button onClick={() => toast.info("可在提示词库使用此标签筛选")}>查看提示词 <ArrowUpRight size={14} /></button></div></aside></div></div>;
 }
 
-const promptTemplates = [
-  { name: "雨夜巷口 · 电影场景", category: "环境", tags: ["雨夜", "低机位"], prompt: "雨夜，狭长街道，潮湿沥青反射红色招牌，低机位推近，电影级冷暖对比。" },
-  { name: "荒漠旅人 · 角色定场", category: "角色", tags: ["荒漠", "疏离"], prompt: "白沙风暴边缘的旅人剪影，宽幅留白，衣料具有磨损质感，叙事感强。" },
-  { name: "旧屋桌面 · 记忆道具", category: "道具", tags: ["室内", "静谧"], prompt: "旧屋的深夜桌面，蓝色电视雪花与暖色台灯交错，散落的手稿和磁带。" },
-];
-
 export function PromptLibraryView() {
-  const [active, setActive] = useState(promptTemplates[0]);
+  const [presets, setPresets] = useState<PromptPreset[]>([]);
+  const [activeId, setActiveId] = useState("");
   const [query, setQuery] = useState("");
-  const visible = promptTemplates.filter((item) => item.name.includes(query) || item.tags.some((tag) => tag.includes(query)));
-  return <div className="feature-page prompt-page"><SurfaceTitle eyebrow="PROMPTS / 18" title="提示词库" description="把反复有效的视觉语言变成下一次镜头的可调用片段。" actions={<button className="vermilion-button" onClick={() => toast.success("已创建空白提示词预设") }><Plus size={16} /> 新建预设</button>} /><div className="prompt-workspace"><aside className="prompt-filters"><div className="tag-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="关键词、标签或镜头" /></div><p className="field-label">CATEGORIES</p>{[["全部模板", "18"], ["环境", "06"], ["角色", "04"], ["道具", "03"], ["镜头语言", "05"]].map(([name, count]) => <button className={name === "全部模板" ? "selected" : ""} key={name}><span>{name}</span><b>{count}</b></button>)}<hr /><p className="field-label">常用标签</p>{["雨夜", "低机位", "日系色彩", "手持镜头", "电影感"].map((tag) => <button className="tag-filter" onClick={() => setQuery(tag)} key={tag}>#{tag}</button>)}</aside><section className="template-list"><div className="template-list-head"><span>匹配到 {visible.length} 条视觉片段</span><button onClick={() => toast.info("排序方式：最近使用")}>最近使用 <ChevronRight size={14} /></button></div>{visible.map((item) => <button className={active.name === item.name ? "template-card selected" : "template-card"} onClick={() => setActive(item)} key={item.name}><div><span>{item.category}</span><b>{item.name}</b><p>{item.prompt}</p></div><div className="template-card-tags">{item.tags.map((tag) => <i key={tag}>#{tag}</i>)}</div></button>)}</section><aside className="prompt-preview"><div><p className="eyebrow">PRESET PREVIEW</p><h3>{active.name}</h3></div><div className="preview-tags">{active.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div><textarea value={active.prompt} onChange={(event) => setActive({ ...active, prompt: event.target.value })} /><small>这个片段会在插入时保留标签语义。</small><button className="vermilion-button" onClick={() => toast.success("提示词已插入关键帧生成器") }><WandSparkles size={16} /> 送入关键帧</button><button className="full-outline" onClick={() => toast.info("提示词已复制到剪贴板") }><FileText size={15} /> 复制完整提示词</button></aside></div></div>;
+  const [loading, setLoading] = useState(true);
+  const active = presets.find((item) => item.id === activeId) || presets[0];
+  const visible = presets.filter((item) => !query.trim() || item.priority === query || item.title.includes(query) || item.prompt.includes(query) || item.tags.some((tag) => tag.includes(query)));
+  const commonTags = Array.from(new Set(presets.flatMap((item) => item.tags))).slice(0, 8);
+
+  const loadPresets = useCallback(async () => {
+    setLoading(true);
+    try {
+      const preferences = await getPreferences();
+      const items = preferences.canvas?.promptPresets || [];
+      setPresets(items);
+      setActiveId((current) => items.some((item) => item.id === current) ? current : items[0]?.id || "");
+    } catch (error) {
+      toast.error(publicApiError(error, "读取个人提示词失败"));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadPresets(); }, [loadPresets]);
+
+  const persist = async (next: PromptPreset[], success: string) => {
+    try {
+      const preferences = await updatePreferences({ canvas: { promptPresets: next } });
+      const saved = preferences.canvas?.promptPresets || next;
+      setPresets(saved);
+      toast.success(success);
+    } catch (error) {
+      toast.error(publicApiError(error, "保存提示词失败"));
+    }
+  };
+
+  const createPreset = async () => {
+    const now = new Date().toISOString();
+    const created: PromptPreset = { id: crypto.randomUUID(), title: "未命名提示词", prompt: "请在此填写提示词内容。", tags: [], priority: "normal", sort_order: presets.length, createdAt: now, updatedAt: now };
+    const next = [...presets, created];
+    setActiveId(created.id);
+    await persist(next, "已创建提示词预设");
+  };
+
+  const patchActive = (patch: Partial<PromptPreset>) => {
+    if (!active) return;
+    setPresets((items) => items.map((item) => item.id === active.id ? { ...item, ...patch } : item));
+  };
+
+  const saveActive = async () => {
+    if (!active) return;
+    await persist(presets.map((item) => item.id === active.id ? { ...item, updatedAt: new Date().toISOString() } : item), "提示词已保存");
+  };
+
+  return <div className="feature-page prompt-page"><SurfaceTitle eyebrow={`PROMPTS / ${presets.length}`} title="个人提示词库" description="把反复有效的视觉语言变成下一次镜头的可调用片段。" actions={<button className="vermilion-button" onClick={() => void createPreset()}><Plus size={16} /> 新建预设</button>} /><div className="prompt-workspace"><aside className="prompt-filters"><div className="tag-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="关键词、标签或镜头" /></div><p className="field-label">PRIORITY</p>{[["置顶", "pinned"], ["高", "high"], ["普通", "normal"], ["低", "low"]].map(([name, key]) => <button onClick={() => setQuery(key)} key={key}><span>{name}</span><b>{presets.filter((item) => item.priority === key).length}</b></button>)}<hr /><p className="field-label">常用标签</p>{commonTags.map((tag) => <button className="tag-filter" onClick={() => setQuery(tag)} key={tag}>#{tag}</button>)}</aside><section className="template-list"><div className="template-list-head"><span>{loading ? "读取中…" : `匹配到 ${visible.length} 条视觉片段`}</span></div>{visible.map((item) => <button className={active?.id === item.id ? "template-card selected" : "template-card"} onClick={() => setActiveId(item.id)} key={item.id}><div><span>{item.priority}</span><b>{item.title}</b><p>{item.prompt || "尚未填写提示词"}</p></div><div className="template-card-tags">{item.tags.map((tag) => <i key={tag}>#{tag}</i>)}</div></button>)}</section><aside className="prompt-preview">{active ? <><div><p className="eyebrow">PRESET PREVIEW</p><input value={active.title} onChange={(event) => patchActive({ title: event.target.value })} /></div><div className="preview-tags">{active.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div><textarea value={active.prompt} onChange={(event) => patchActive({ prompt: event.target.value })} /><input value={active.tags.join(", ")} onChange={(event) => patchActive({ tags: event.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean) })} placeholder="标签，以逗号分隔" /><select value={active.priority} onChange={(event) => patchActive({ priority: event.target.value as PromptPreset["priority"] })}><option value="pinned">置顶</option><option value="high">高</option><option value="normal">普通</option><option value="low">低</option></select><button className="vermilion-button" onClick={() => void saveActive()}><Check size={16} /> 保存预设</button><button className="full-outline" onClick={() => { sessionStorage.setItem("ai-manju:image-prompt", active.prompt); window.location.assign("/image"); }}><WandSparkles size={16} /> 送入关键帧</button><button className="full-outline" onClick={async () => { await navigator.clipboard.writeText(active.prompt); toast.success("提示词已复制"); }}><FileText size={15} /> 复制完整提示词</button><button className="full-outline" onClick={() => { if (window.confirm(`删除“${active.title}”？`)) void persist(presets.filter((item) => item.id !== active.id), "提示词已删除"); }}><Trash2 size={15} /> 删除预设</button></> : <div className="empty-output"><p>暂无个人提示词预设</p></div>}</aside></div></div>;
 }

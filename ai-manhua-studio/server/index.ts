@@ -2,6 +2,8 @@ import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { createReadStream, statSync, existsSync } from "node:fs";
 import { join, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promptListPayload } from "./prompts";
+import { proxyWebdavRequest, readNodeRequestBody } from "./webdav-proxy";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
@@ -56,7 +58,55 @@ function serveFile(
 
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   const url = new URL(req.url ?? "/", "http://localhost");
-  const pathname = decodeURIComponent(url.pathname).replace(/\.\./g, "");
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(url.pathname).replace(/\.\./g, "");
+  } catch {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Bad request");
+    return;
+  }
+
+  // System prompt library aggregation (same-origin, mirrors legacy Next.js /api/prompts)
+  if (pathname === "/api/prompts") {
+    promptListPayload(url.searchParams)
+      .then((payload) => {
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+        res.end(JSON.stringify(payload));
+      })
+      .catch((error) => {
+        res.writeHead(502, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ items: [], tags: [], categories: [], total: 0, error: String(error) }));
+      });
+    return;
+  }
+
+  // WebDAV same-origin proxy (mirrors legacy Next.js /webdav-proxy route)
+  if (pathname === "/webdav-proxy") {
+    if (req.method?.toUpperCase() !== "POST") {
+      res.writeHead(405, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Method not allowed");
+      return;
+    }
+    proxyWebdavRequest({
+      header: (name) => {
+        const value = req.headers[name];
+        return Array.isArray(value) ? value[0] : value;
+      },
+      body: () => readNodeRequestBody(req),
+    })
+      .then((result) => {
+        res.writeHead(result.status, result.headers);
+        if (result.text !== undefined) res.end(result.text);
+        else if (result.body) res.end(new Uint8Array(result.body));
+        else res.end();
+      })
+      .catch((error) => {
+        res.writeHead(502, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end(String(error));
+      });
+    return;
+  }
 
   // Try exact file match
   const candidate = join(STATIC_DIR, pathname);

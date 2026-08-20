@@ -60,7 +60,10 @@ export function apiUrl(path: string, query?: ApiRequestOptions["query"]) {
 export async function request<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   const { body, headers = {}, query, timeoutMs = defaultTimeoutMs, signal, ...init } = options;
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  const effectiveTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 0;
+  const timer = effectiveTimeoutMs > 0
+    ? window.setTimeout(() => controller.abort(), effectiveTimeoutMs)
+    : undefined;
   const onExternalAbort = () => controller.abort();
   signal?.addEventListener("abort", onExternalAbort, { once: true });
   const id = requestId();
@@ -100,7 +103,7 @@ export async function request<T>(path: string, options: ApiRequestOptions = {}):
     const message = error instanceof DOMException && error.name === "AbortError" ? "请求超时或已取消" : "无法连接 API 服务";
     throw new ApiError(message, 0, id, error);
   } finally {
-    window.clearTimeout(timer);
+    if (timer !== undefined) window.clearTimeout(timer);
     signal?.removeEventListener("abort", onExternalAbort);
   }
 }

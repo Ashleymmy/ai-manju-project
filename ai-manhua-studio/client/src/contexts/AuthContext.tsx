@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { getCurrentUser, logout as logoutApi, type AuthUser } from "@/services/api";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { clearStoredAuthSession, getCurrentUser, logout as logoutApi, type AuthUser } from "@/services/api";
 
 type AuthContextValue = {
   user: AuthUser | null;
@@ -13,26 +13,58 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const refreshSeqRef = useRef(0);
+  const refreshControllerRef = useRef<AbortController | null>(null);
 
   const refreshUser = useCallback(async () => {
+    const seq = ++refreshSeqRef.current;
+    refreshControllerRef.current?.abort();
+    const controller = new AbortController();
+    refreshControllerRef.current = controller;
+    setLoading(true);
     try {
-      const u = await getCurrentUser();
+      const u = await getCurrentUser({ signal: controller.signal });
+      if (seq !== refreshSeqRef.current) return;
       setUser(u);
     } catch {
+      if (seq !== refreshSeqRef.current) return;
+      clearStoredAuthSession();
       setUser(null);
+    } finally {
+      if (seq === refreshSeqRef.current) {
+        refreshControllerRef.current = null;
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    refreshUser().finally(() => setLoading(false));
-    const handleUnauthorized = () => setUser(null);
+    void refreshUser();
+    const handleUnauthorized = () => {
+      refreshSeqRef.current += 1;
+      refreshControllerRef.current?.abort();
+      refreshControllerRef.current = null;
+      clearStoredAuthSession();
+      setUser(null);
+      setLoading(false);
+    };
     window.addEventListener("ai-manju:auth-unauthorized", handleUnauthorized);
-    return () => window.removeEventListener("ai-manju:auth-unauthorized", handleUnauthorized);
+    return () => {
+      refreshSeqRef.current += 1;
+      refreshControllerRef.current?.abort();
+      refreshControllerRef.current = null;
+      window.removeEventListener("ai-manju:auth-unauthorized", handleUnauthorized);
+    };
   }, [refreshUser]);
 
   const logout = useCallback(async () => {
+    refreshSeqRef.current += 1;
+    refreshControllerRef.current?.abort();
+    refreshControllerRef.current = null;
     await logoutApi().catch(() => undefined);
+    clearStoredAuthSession();
     setUser(null);
+    setLoading(false);
   }, []);
 
   return (

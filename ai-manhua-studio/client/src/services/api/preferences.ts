@@ -1,7 +1,69 @@
 import { request } from "./request";
 
-export type UserPreferences = { generation?: Record<string, unknown>; canvas?: { middleButtonLockHint?: boolean; backgroundMode?: "lines" | "dots" | "blank"; wheelZoomRequiresCtrl?: boolean; promptPresets?: unknown[] } };
+export type PromptPresetPriority = "pinned" | "high" | "normal" | "low";
+export type PromptPreset = {
+  id: string;
+  title: string;
+  prompt: string;
+  tags: string[];
+  priority: PromptPresetPriority;
+  sort_order: number;
+  createdAt: string;
+  updatedAt: string;
+};
 
-export function getPreferences() { return request<UserPreferences>("/api/user/preferences"); }
-export function updatePreferences(preferences: UserPreferences) { return request<UserPreferences>("/api/user/preferences", { method: "PUT", body: preferences }); }
-export function getModels() { return request<unknown>("/api/ai/models"); }
+/**
+ * 字段名必须与后端 sanitizeGeneration 白名单一致（apps/api/internal/handler/user_preference.go），
+ * 白名单外的键会被服务端静默丢弃。
+ */
+export type UserGenerationPreferences = {
+  imageModel?: string;
+  videoModel?: string;
+  textModel?: string;
+  audioModel?: string;
+  quality?: string;
+  size?: string;
+  count?: string;
+  canvasImageCount?: string;
+  videoSeconds?: string;
+  vquality?: string;
+  videoGenerateAudio?: string;
+  videoWatermark?: string;
+  audioVoice?: string;
+  audioFormat?: string;
+  audioSpeed?: string;
+  audioInstructions?: string;
+  systemPrompt?: string;
+};
+
+export type UserShortcutPreferences = Record<string, string[]>;
+
+export type UserPreferences = {
+  generation?: UserGenerationPreferences;
+  shortcuts?: UserShortcutPreferences;
+  canvas?: {
+    middleButtonLockHint?: boolean;
+    backgroundMode?: "lines" | "dots" | "blank";
+    wheelZoomRequiresCtrl?: boolean;
+    promptPresets?: PromptPreset[];
+  };
+  updated_at?: string;
+};
+
+export type UserPreferencesPayload = {
+  generation?: Partial<UserGenerationPreferences>;
+  shortcuts?: UserShortcutPreferences;
+  canvas?: Partial<NonNullable<UserPreferences["canvas"]>>;
+};
+
+export function getPreferences() {
+  return request<UserPreferences>("/api/user/preferences");
+}
+
+export function updatePreferences(preferences: UserPreferencesPayload) {
+  return request<UserPreferences>("/api/user/preferences", { method: "PUT", body: preferences });
+}
+
+export function getModels() {
+  return request<unknown>("/api/ai/models");
+}

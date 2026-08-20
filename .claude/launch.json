@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "studio-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "ai-manhua-studio", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "web-dev",
+      "url": "http://localhost:3200",
+      "port": 3200
+    }
+  ]
+}
