@@ -149,7 +149,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--red); outline-o
 
 .spin { animation: studio-spin .85s linear infinite; }
 @keyframes studio-spin { to { transform: rotate(360deg); } }
-.real-canvas-workspace { grid-template-columns: minmax(0,1fr) 320px; }
+.real-canvas-workspace { grid-template-columns: minmax(0,1fr); }
 .real-canvas-stage { min-height: 690px; position: relative; overflow: hidden; background-color: #101617; }
 .real-canvas-stage.canvas-background-dots { background-image: radial-gradient(rgba(125,211,252,.34) .7px,transparent .8px); background-position: var(--canvas-grid-x) calc(var(--canvas-grid-y) + 52px); background-size: max(8px,var(--canvas-grid-size)) max(8px,var(--canvas-grid-size)); }
 .real-canvas-stage.canvas-background-lines { background-image: linear-gradient(rgba(125,211,252,.11) 1px,transparent 1px),linear-gradient(90deg,rgba(125,211,252,.11) 1px,transparent 1px); background-position: var(--canvas-grid-x) calc(var(--canvas-grid-y) + 52px); background-size: max(8px,var(--canvas-grid-size)) max(8px,var(--canvas-grid-size)); }

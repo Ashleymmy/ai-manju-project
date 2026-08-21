@@ -1399,3 +1399,67 @@
     display: none;
   }
 }
+
+/* ---- Canvas: 节点下方浮动检查器（桌面端；分组与移动端保持原布局） ---- */
+@media (min-width: 761px) {
+  .canvas-focus .inspector-panel.inspector-floating {
+    top: auto;
+    right: auto;
+    bottom: auto;
+    height: auto;
+    max-height: min(560px, calc(100% - 76px));
+    transform: none;
+  }
+
+  .canvas-focus .canvas-workspace:not(.inspector-open) .inspector-panel.inspector-floating {
+    transform: none;
+  }
+}
+
+.inspector-compact-params {
+  padding-bottom: 14px;
+}
+
+.inspector-primary-action {
+  display: flex;
+}
+
+.inspector-primary-action .full-outline {
+  margin-top: 0;
+  border-color: rgba(233, 81, 62, 0.45);
+  color: #ffd9d2;
+}
+
+.inspector-primary-action .full-outline:hover {
+  background: rgba(233, 81, 62, 0.14);
+}
+
+.inspector-icon-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.inspector-icon-row button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 28px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: #c9cdc5;
+  cursor: pointer;
+}
+
+.inspector-icon-row button:hover {
+  border-color: rgba(239, 235, 222, 0.34);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.inspector-icon-row button.active {
+  border-color: rgba(233, 81, 62, 0.55);
+  background: rgba(233, 81, 62, 0.12);
+  color: #fff5ed;
+}
