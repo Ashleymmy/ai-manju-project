@@ -1304,3 +1304,98 @@
   font-size: 12px;
   line-height: 1.7;
 }
+
+/* ---- Canvas: 单行顶栏、icon 按钮、更多菜单与工具条分隔 ---- */
+.canvas-focus .canvas-heading {
+  gap: 12px;
+}
+
+.canvas-focus .canvas-head-actions {
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.canvas-head-actions .canvas-icon-button {
+  width: 31px;
+  min-width: 31px;
+  padding: 0;
+  justify-content: center;
+}
+
+.canvas-head-actions .project-switcher {
+  max-width: 150px;
+  min-width: 96px;
+}
+
+.canvas-more-menu {
+  min-width: 180px;
+  padding: 6px;
+  border: 1px solid rgba(239, 235, 222, 0.16);
+  border-radius: 6px;
+  background: #1c2223;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  color: #d6d7d1;
+}
+
+.canvas-more-menu [data-slot="dropdown-menu-item"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.canvas-more-menu [data-slot="dropdown-menu-item"]:hover,
+.canvas-more-menu [data-slot="dropdown-menu-item"]:focus {
+  background: rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
+.canvas-more-menu [data-slot="dropdown-menu-item"][data-disabled] {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+
+.canvas-more-menu .canvas-more-danger {
+  color: #ff8b78;
+}
+
+.canvas-more-menu .canvas-more-danger:hover,
+.canvas-more-menu .canvas-more-danger:focus {
+  background: rgba(233, 81, 62, 0.14);
+  color: #ffb1a3;
+}
+
+.canvas-more-menu [data-slot="dropdown-menu-separator"] {
+  height: 1px;
+  margin: 5px 8px;
+  background: var(--line);
+}
+
+.tool-cluster .tool-divider {
+  align-self: center;
+  width: 1px;
+  height: 17px;
+  margin: 0 4px;
+  background: var(--line);
+  flex: 0 0 auto;
+}
+
+@media (max-width: 760px) {
+  .canvas-focus .canvas-head-actions .outline-button.canvas-icon-button.canvas-more-trigger {
+    display: inline-flex;
+    width: 33px;
+    min-height: 31px;
+    padding: 0;
+  }
+  .canvas-focus .canvas-head-actions .canvas-icon-button:not(.canvas-more-trigger),
+  .canvas-focus .canvas-head-actions .project-switcher,
+  .canvas-focus .canvas-head-actions .mini-scope {
+    display: none;
+  }
+}

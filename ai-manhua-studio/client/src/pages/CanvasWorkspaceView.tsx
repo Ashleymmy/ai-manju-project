@@ -18,6 +18,7 @@ import {
   FolderOpen,
   Grid2X2,
   GalleryHorizontalEnd,
+  GitMerge,
   Home,
   Image as ImageIcon,
   Images,
@@ -30,6 +31,7 @@ import {
   Minimize2,
   Music2,
   MousePointer2,
+  MoreHorizontal,
   PenLine,
   PanelRight,
   Plus,
@@ -65,6 +67,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -6507,20 +6516,8 @@ export default function CanvasWorkspaceView() {
             <option value="">切换画布…</option>
             {projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
           </select>
-          <button className="outline-button small" onClick={() => fileInputRef.current?.click()} disabled={uploading || projectActionDisabled}><Upload size={15} /> {uploading ? "上传中" : "拖入/上传图片"}</button>
-          <button className="outline-button small" onClick={openAssetPicker} disabled={projectActionDisabled}><FolderOpen size={15} /> 资产库</button>
-          <button className="outline-button small" onClick={() => addNode("text")} disabled={projectActionDisabled}><Plus size={15} /> 文本</button>
-          <button className="outline-button small" onClick={() => addNode("config")} disabled={projectActionDisabled}><Plus size={15} /> 配置</button>
-          <button className="outline-button small" onClick={() => void duplicateSelectedNode()} disabled={!selectedNode || projectActionDisabled}><Copy size={15} /> 复制节点</button>
-          <button className="outline-button small" onClick={() => void exportImageNodes()} disabled={exporting || projectActionDisabled}><Archive size={15} /> {exporting ? "导出中" : "导出图片节点"}</button>
-          <button className="outline-button small" onClick={() => void exportCurrentCanvasProject()} disabled={projectArchiveBusy || projectActionDisabled}><Download size={15} /> {projectArchiveBusy ? "处理中" : "导出完整项目"}</button>
-          <button className="outline-button small" onClick={() => projectArchiveInputRef.current?.click()} disabled={projectArchiveBusy || projectActionDisabled}><Upload size={15} /> 导入完整项目</button>
-          <button className="outline-button small" onClick={() => void exportSelectedCanvasFragment()} disabled={!selectedNodeIds.size || fragmentBusy || projectActionDisabled}><Download size={15} /> {fragmentBusy ? "处理中" : "导出选区包"}</button>
-          <button className="outline-button small" onClick={() => fragmentInputRef.current?.click()} disabled={fragmentBusy || projectActionDisabled}><Upload size={15} /> 导入选区包</button>
-          <button className="outline-button small" onClick={() => { setDeleteProjectError(""); setDeleteProjectOpen(true); }} disabled={projectActionDisabled}><Trash2 size={15} /> 删除画布</button>
-          <button className="outline-button small" onClick={() => { setClearCanvasError(""); setClearCanvasOpen(true); }} disabled={projectActionDisabled || clearCanvasBusy || (!nodes.length && !edges.length && !groups.length)}><Trash2 size={15} /> 清空画布</button>
-          <button className="outline-button small" onClick={() => void undoCanvas()} disabled={!canUndo || projectActionDisabled}><Undo2 size={15} /> 撤销</button>
-          <button className="outline-button small" onClick={() => void redoCanvas()} disabled={!canRedo || projectActionDisabled}><Redo2 size={15} /> 重做</button>
+          <button className="outline-button small canvas-icon-button" title="撤销" aria-label="撤销" onClick={() => void undoCanvas()} disabled={!canUndo || projectActionDisabled}><Undo2 size={15} /></button>
+          <button className="outline-button small canvas-icon-button" title="重做" aria-label="重做" onClick={() => void redoCanvas()} disabled={!canRedo || projectActionDisabled}><Redo2 size={15} /></button>
           <button
             className="outline-button small"
             onClick={() => void persistSnapshot()}
@@ -6531,6 +6528,24 @@ export default function CanvasWorkspaceView() {
           </button>
           <button className={`outline-button small inspector-trigger ${inspectorOpen ? "is-active" : ""}`} onClick={() => setInspectorOpen((value) => !value)} disabled={projectActionDisabled}><PanelRight size={15} /> 检查器</button>
           <button className={`outline-button small ${agentOpen ? "is-active" : ""}`} onClick={() => setAgentOpen((value) => !value)} disabled={projectActionDisabled}><Sparkles size={15} /> Agent</button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="outline-button small canvas-icon-button canvas-more-trigger" title="更多操作" aria-label="更多操作" disabled={projectActionDisabled}><MoreHorizontal size={16} /></button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="canvas-more-menu" align="end" sideOffset={8}>
+              <DropdownMenuItem disabled={!selectedNode || projectActionDisabled} onSelect={() => void duplicateSelectedNode()}><Copy size={14} /> 复制节点</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem disabled={exporting || projectActionDisabled} onSelect={() => void exportImageNodes()}><Archive size={14} /> 导出图片节点</DropdownMenuItem>
+              <DropdownMenuItem disabled={projectArchiveBusy || projectActionDisabled} onSelect={() => void exportCurrentCanvasProject()}><Download size={14} /> 导出完整项目</DropdownMenuItem>
+              <DropdownMenuItem disabled={projectArchiveBusy || projectActionDisabled} onSelect={() => projectArchiveInputRef.current?.click()}><Upload size={14} /> 导入完整项目</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem disabled={!selectedNodeIds.size || fragmentBusy || projectActionDisabled} onSelect={() => void exportSelectedCanvasFragment()}><Download size={14} /> 导出选区包</DropdownMenuItem>
+              <DropdownMenuItem disabled={fragmentBusy || projectActionDisabled} onSelect={() => fragmentInputRef.current?.click()}><Upload size={14} /> 导入选区包</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="canvas-more-danger" disabled={projectActionDisabled} onSelect={() => { setDeleteProjectError(""); setDeleteProjectOpen(true); }}><Trash2 size={14} /> 删除画布</DropdownMenuItem>
+              <DropdownMenuItem className="canvas-more-danger" disabled={projectActionDisabled || clearCanvasBusy || (!nodes.length && !edges.length && !groups.length)} onSelect={() => { setClearCanvasError(""); setClearCanvasOpen(true); }}><Eraser size={14} /> 清空画布</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <button
             className="vermilion-button"
             onClick={() => void generateFromNode()}
@@ -6557,31 +6572,36 @@ export default function CanvasWorkspaceView() {
           <div className="canvas-top-tools" data-canvas-ui data-canvas-no-zoom>
             <div className="tool-cluster">
               <button title="选择" disabled={projectActionDisabled}><MousePointer2 size={16} /></button>
-              <button title="撤销" onClick={() => void undoCanvas()} disabled={!canUndo || projectActionDisabled}><Undo2 size={16} /></button>
-              <button title="重做" onClick={() => void redoCanvas()} disabled={!canRedo || projectActionDisabled}><Redo2 size={16} /></button>
+              <i className="tool-divider" />
               <button title="添加文本" onClick={() => addNode("text")} disabled={projectActionDisabled}><Type size={16} /></button>
               <button title="添加图片" onClick={() => addNode("image")} disabled={projectActionDisabled}><ImageIcon size={16} /></button>
               <button title="添加视频" onClick={() => addNode("video")} disabled={projectActionDisabled}><Film size={16} /></button>
               <button title="添加音频" onClick={() => addNode("audio")} disabled={projectActionDisabled}><Music2 size={16} /></button>
               <button title="添加配置" onClick={() => addNode("config")} disabled={projectActionDisabled}><SlidersHorizontal size={16} /></button>
+              <button title="添加导演台" onClick={() => addNode("director")} disabled={projectActionDisabled}><Camera size={16} /></button>
+              <i className="tool-divider" />
               <button title="上传素材" onClick={() => fileInputRef.current?.click()} disabled={uploading || projectActionDisabled}><Upload size={16} /></button>
               <button title="从资产库插入" onClick={openAssetPicker} disabled={projectActionDisabled}><FolderOpen size={16} /></button>
-              <button title="添加导演台" onClick={() => addNode("director")} disabled={projectActionDisabled}><Camera size={16} /></button>
-              <button title="导入画布选区包" onClick={() => fragmentInputRef.current?.click()} disabled={fragmentBusy || projectActionDisabled}><Upload size={16} /></button>
-              {selectedNodeIds.size ? <button title="导出选中节点" onClick={() => void exportSelectedCanvasFragment()} disabled={fragmentBusy || projectActionDisabled}><Download size={16} /></button> : null}
-              {selectedNodeIds.size ? <button title="删除选中节点" onClick={() => removeNodes(selectedNodeIdsRef.current)} disabled={projectActionDisabled}><Trash2 size={16} /></button> : null}
+              <i className="tool-divider" />
               <button title={connectFrom ? "选择目标节点完成连接" : "从当前节点开始连接"} className={connectFrom ? "active" : ""} onClick={() => selectedNode && activateConnectionMode(selectedNode.id)} disabled={projectActionDisabled}><Link2 size={16} /></button>
               <button title="将所选节点创建为分组" onClick={createGroupFromSelected} disabled={projectActionDisabled || selectedNodeIds.size < 2}><Boxes size={16} /></button>
-              <button title="将所选节点连接到新配置或已有配置" onClick={() => setConnectSelectionOpen(true)} disabled={projectActionDisabled || selectedNodeIds.size < 2}><Link2 size={16} /></button>
+              <button title="将所选节点连接到新配置或已有配置" onClick={() => setConnectSelectionOpen(true)} disabled={projectActionDisabled || selectedNodeIds.size < 2}><GitMerge size={16} /></button>
               <button title="按顺序执行当前分组中的可生成节点" onClick={() => selectedGroupId && void runCanvasGroupGeneration(selectedGroupId)} disabled={projectActionDisabled || !selectedGroupId || Boolean(runningGroupId)}>{runningGroupId === selectedGroupId ? <Loader2 className="spin" size={16} /> : <WandSparkles size={16} />}</button>
               <button title="解散当前分组（保留节点）" onClick={() => selectedGroupId && ungroupCanvasGroup(selectedGroupId)} disabled={projectActionDisabled || !selectedGroupId}><Ungroup size={16} /></button>
+              {selectedNodeIds.size ? (
+                <>
+                  <i className="tool-divider" />
+                  <button title="导出选中节点" onClick={() => void exportSelectedCanvasFragment()} disabled={fragmentBusy || projectActionDisabled}><Download size={16} /></button>
+                  <button title="删除选中节点" onClick={() => removeNodes(selectedNodeIdsRef.current)} disabled={projectActionDisabled}><Trash2 size={16} /></button>
+                </>
+              ) : null}
+              <i className="tool-divider" />
               <span className="canvas-background-segments" aria-label="画布背景模式">
                 <button title="点阵背景" className={backgroundMode === "dots" ? "active" : ""} onClick={() => setBackgroundMode("dots")} disabled={projectActionDisabled}><MapIcon size={15} /></button>
                 <button title="网格背景" className={backgroundMode === "lines" ? "active" : ""} onClick={() => setBackgroundMode("lines")} disabled={projectActionDisabled}><Grid2X2 size={15} /></button>
                 <button title="空白背景" className={backgroundMode === "blank" ? "active" : ""} onClick={() => setBackgroundMode("blank")} disabled={projectActionDisabled}><Square size={14} /></button>
               </span>
               <button title="显示或隐藏图片信息" className={showImageInfo ? "active" : ""} onClick={() => setShowImageInfo((value) => !value)} disabled={projectActionDisabled}><Eye size={16} /></button>
-              <button title="清空画布" onClick={() => { setClearCanvasError(""); setClearCanvasOpen(true); }} disabled={projectActionDisabled || clearCanvasBusy || (!nodes.length && !edges.length && !groups.length)}><Eraser size={16} /></button>
             </div>
             <span>{switching ? "正在保存并切换画布…" : projectScopePending ? "正在确认项目工作区…" : connectFrom ? "连接模式：请选择目标节点" : "真实快照模式"}</span>
             <div className="canvas-title-chip" data-sync-status={syncStatus} title={syncStatusTitle}>
