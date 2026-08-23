@@ -1699,3 +1699,189 @@ textarea.node-card-prompt {
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
 }
+
+/* ---- Canvas: 节点就地交互（批次/标题改名/生图/加载错误态/悬停条） ---- */
+
+/* 批次根节点叠影 */
+.real-canvas-node.batch-root::before,
+.real-canvas-node.batch-root::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  background: rgba(20, 28, 31, 0.86);
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
+}
+
+.real-canvas-node.batch-root::before { transform: translate(14px, 9px) rotate(3.5deg); }
+.real-canvas-node.batch-root::after { transform: translate(28px, 18px) rotate(7deg); opacity: 0.55; }
+
+.canvas-batch-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid rgba(125, 211, 252, 0.32);
+  background: rgba(18, 26, 29, 0.92);
+  color: #8ec8df;
+  cursor: pointer;
+  font: 10px "IBM Plex Mono", monospace;
+  backdrop-filter: blur(6px);
+}
+
+.canvas-batch-badge svg { transition: transform 0.18s ease; }
+.canvas-batch-badge.open svg { transform: rotate(90deg); }
+
+.canvas-batch-primary {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid rgba(125, 211, 252, 0.32);
+  background: rgba(18, 26, 29, 0.92);
+  color: #c9e8f5;
+  cursor: pointer;
+  font-size: 10px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  backdrop-filter: blur(6px);
+}
+
+.real-canvas-node:hover .canvas-batch-primary { opacity: 1; }
+
+/* 节点标题就地编辑 */
+.node-bar b { cursor: text; }
+.node-title-input {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid rgba(125, 211, 252, 0.5);
+  background: rgba(9, 14, 16, 0.9);
+  color: #e6f4fb;
+  font: 10px "IBM Plex Mono", monospace;
+  outline: none;
+}
+
+/* 文本节点生图按钮 */
+.node-text-generate {
+  position: absolute;
+  top: 34px;
+  right: 6px;
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid rgba(233, 81, 62, 0.5);
+  background: rgba(24, 14, 12, 0.88);
+  color: #ffb1a3;
+  cursor: pointer;
+  font-size: 10px;
+  backdrop-filter: blur(6px);
+}
+
+.node-text-generate:hover { background: rgba(233, 81, 62, 0.22); }
+
+/* 加载覆盖层 */
+.node-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(10, 14, 16, 0.55);
+  color: #9fd7ec;
+  pointer-events: none;
+}
+
+.node-loading-overlay b {
+  font: 10px "IBM Plex Mono", monospace;
+  letter-spacing: 0.18em;
+}
+
+/* 错误就地重试 */
+.node-error-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 10px;
+}
+
+.node-error-box p {
+  flex: 1;
+  margin: 0;
+  color: #fca5a5;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.node-error-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 9px;
+  flex-shrink: 0;
+  border: 1px solid rgba(252, 165, 165, 0.4);
+  border-radius: 12px;
+  background: rgba(60, 20, 20, 0.5);
+  color: #fca5a5;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.node-error-retry:hover { background: rgba(252, 165, 165, 0.16); }
+
+/* 悬停工具条：移到节点上方、带文字标签 */
+.node-hover-toolbar {
+  top: -8px;
+  right: auto;
+  bottom: auto;
+  left: 50%;
+  transform: translate(-50%, -100%);
+  gap: 2px;
+  padding: 3px;
+  white-space: nowrap;
+}
+
+.node-hover-toolbar button {
+  width: auto;
+  height: 26px;
+  gap: 4px;
+  padding: 0 7px;
+  font-size: 10px;
+}
+
+.node-hover-toolbar button span { line-height: 1; }
+.node-hover-toolbar button.danger { color: #ff8b78; }
+.node-hover-toolbar button.danger:hover { background: rgba(233, 81, 62, 0.16); }
+
+/* ---- Canvas: 连接锚点平时隐藏，悬停/选中/连线中显示 ---- */
+.canvas-connection-handle {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.real-canvas-node:hover .canvas-connection-handle,
+.real-canvas-node.selected .canvas-connection-handle,
+.real-canvas-workspace.connecting .canvas-connection-handle {
+  opacity: 1;
+  pointer-events: auto;
+}

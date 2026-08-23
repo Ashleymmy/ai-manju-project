@@ -15,6 +15,7 @@ type Props = Omit<ComponentProps<"textarea">, "onChange" | "value"> & {
   references: CanvasMentionReference[];
   onChange: (value: string) => void;
   onMentionQueryChange?: (query: string) => void;
+  onSubmit?: () => void;
   containerClassName?: string;
 };
 
@@ -26,6 +27,7 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
   containerClassName,
   className,
   onKeyDown,
+  onSubmit,
   ...props
 }, forwardedRef) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -110,6 +112,11 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
           if (mention && event.key === "Escape") {
             event.preventDefault();
             closeMention();
+            return;
+          }
+          if (!mention && event.key === "Enter" && !event.shiftKey && onSubmit) {
+            event.preventDefault();
+            onSubmit();
             return;
           }
           onKeyDown?.(event);
