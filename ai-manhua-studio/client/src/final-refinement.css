@@ -1416,53 +1416,6 @@
   }
 }
 
-.inspector-compact-params {
-  padding-bottom: 14px;
-}
-
-.inspector-primary-action {
-  display: flex;
-}
-
-.inspector-primary-action .full-outline {
-  margin-top: 0;
-  border-color: rgba(233, 81, 62, 0.45);
-  color: #ffd9d2;
-}
-
-.inspector-primary-action .full-outline:hover {
-  background: rgba(233, 81, 62, 0.14);
-}
-
-.inspector-icon-row {
-  display: flex;
-  gap: 6px;
-  margin-top: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--line);
-}
-
-.inspector-icon-row button {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 28px;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: #c9cdc5;
-  cursor: pointer;
-}
-
-.inspector-icon-row button:hover {
-  border-color: rgba(239, 235, 222, 0.34);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.inspector-icon-row button.active {
-  border-color: rgba(233, 81, 62, 0.55);
-  background: rgba(233, 81, 62, 0.12);
-  color: #fff5ed;
-}
 
 /* ---- Canvas: 节点卡片式浮动面板（内容区 + chip 行 + 弹出小卡片） ---- */
 .node-card-body {
@@ -1884,4 +1837,78 @@ textarea.node-card-prompt {
 .real-canvas-workspace.connecting .canvas-connection-handle {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* ---- Canvas: 节点浮动面板排版还原（对齐旧版圆角卡片密度） ---- */
+.canvas-focus .inspector-panel.inspector-floating {
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(22, 27, 28, 0.97);
+}
+
+.inspector-floating .inspector-head {
+  align-items: center;
+  padding-bottom: 2px;
+}
+
+.inspector-floating .inspector-head .eyebrow {
+  margin-bottom: 2px;
+  font-size: 8px;
+}
+
+.inspector-floating .inspector-head h3 {
+  font-size: 14px;
+}
+
+.inspector-floating .node-card-body {
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 0;
+}
+
+.inspector-floating .node-card-body .canvas-mention-editor > textarea,
+.inspector-floating textarea.node-card-text {
+  min-height: 92px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: #222a2b;
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+.inspector-floating .node-card-body .canvas-mention-editor > textarea:focus {
+  border-color: rgba(233, 81, 62, 0.55);
+  outline: none;
+}
+
+.inspector-floating textarea.node-card-text {
+  min-height: 64px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.inspector-floating .node-card-preview {
+  border-radius: 10px;
+}
+
+.inspector-floating .node-card-tools {
+  padding-top: 2px;
+}
+
+.inspector-floating .node-card-chips {
+  padding-top: 8px;
+}
+
+.inspector-floating .node-chip {
+  min-height: 28px;
+  font-size: 11px;
+}
+
+.inspector-floating .node-send-button {
+  min-height: 32px;
+}
+
+.inspector-floating .node-card-ops {
+  margin-top: 8px;
+  padding-top: 8px;
 }
