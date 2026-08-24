@@ -1210,9 +1210,11 @@ export default function CanvasWorkspaceView() {
     const nodeRight = nodeLeft + selectedNode.width * scale;
     const nodeBottom = nodeTop + selectedNode.height * scale;
     if (nodeRight < 0 || nodeBottom < CANVAS_STAGE_OFFSET || nodeLeft > stageBounds.width || nodeTop > stageBounds.height) return undefined;
-    // 面板比节点略宽（参考旧版 500px 面板宽于节点的布局），屏宽换算后收敛在 340–520；用户拖宽过则以拖宽值为准。
+    // 面板做成长矩形（宽于节点约 200px，收敛在 560–720），chips/操作行单行不折行；用户拖宽过则以拖宽值为准。
     const savedWidth = numberValue(selectedNode.metadata?.promptPanelWidth);
-    const width = savedWidth ? Math.min(560, Math.max(340, savedWidth)) : Math.min(520, Math.max(340, Math.round(selectedNode.width * scale) + 64));
+    const computedWidth = Math.round(selectedNode.width * scale) + 200;
+    let width = savedWidth ? Math.min(720, Math.max(340, savedWidth)) : Math.min(720, Math.max(560, computedWidth));
+    width = Math.min(width, Math.max(340, stageBounds.width - 24));
     const nodeCenterX = panX + (selectedNode.x + selectedNode.width / 2) * scale;
     // 实测面板高度做钳制，避免估算偏差把面板顶回盖住节点；始终锚在节点正下方。
     const measuredHeight = Math.max(160, panelHeight);
