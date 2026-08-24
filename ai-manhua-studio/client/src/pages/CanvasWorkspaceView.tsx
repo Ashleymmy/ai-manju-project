@@ -1172,8 +1172,8 @@ export default function CanvasWorkspaceView() {
   const selectedPanelStyle = useMemo<CSSProperties | undefined>(() => {
     if (!selectedNode) return undefined;
     const scale = Math.max(0.05, zoom / 100);
-    // 面板比节点略宽（参考旧版 500px 面板宽于节点的布局），屏宽换算后收敛在 380–560。
-    const width = Math.min(560, Math.max(380, Math.round(selectedNode.width * scale) + 80));
+    // 面板比节点略宽（参考旧版 500px 面板宽于节点的布局），屏宽换算后收敛在 340–520。
+    const width = Math.min(520, Math.max(340, Math.round(selectedNode.width * scale) + 64));
     const estimatedHeight = 300;
     const nodeCenterX = panX + (selectedNode.x + selectedNode.width / 2) * scale;
     // .real-canvas-grid 相对 stage 有 CANVAS_STAGE_OFFSET 的 top 偏移，需一并计入。
@@ -7267,9 +7267,6 @@ export default function CanvasWorkspaceView() {
                   onSubmit={() => void generateFromNode(selectedNode.id)}
                   onChange={(value) => updateNodePrompt(selectedNode.id, value)}
                 />
-                {selectedGeneratedText ? (
-                  <textarea className="prompt-copy node-card-text" value={canvasTextDisplayValue(selectedNode)} onChange={(event) => updateNodeTextContent(selectedNode.id, event.target.value)} placeholder="文本内容" />
-                ) : null}
                 {editableNodeKind(selectedNode.kind) && visiblePromptPresets.length ? (
                   <div className="canvas-preset-strip">
                     {visiblePromptPresets.map((preset) => (
