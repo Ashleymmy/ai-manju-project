@@ -2151,3 +2151,15 @@ textarea.node-card-prompt {
   border-radius: 10px;
   font: 12px/1.75 "Noto Sans SC", sans-serif;
 }
+
+/* ---- Canvas: 修重影——覆盖层后的输入框文字强制透明（覆盖层负责显示文字） ---- */
+.canvas-mention-editor > .canvas-mention-overlay + textarea {
+  color: transparent;
+  caret-color: #ef5a45;
+}
+
+/* ---- Canvas: 点阵背景改近黑 ---- */
+.real-canvas-stage.canvas-background-dots {
+  background-color: #0a0c0d;
+  background-image: radial-gradient(rgba(230, 226, 209, 0.09) 1px, transparent 1.1px);
+}

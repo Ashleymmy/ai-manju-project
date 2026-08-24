@@ -826,7 +826,7 @@ export default function CanvasWorkspaceView() {
   const [zoom, setZoom] = useState(90);
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
-  const [backgroundMode, setBackgroundMode] = useState<CanvasBackgroundMode>("lines");
+  const [backgroundMode, setBackgroundMode] = useState<CanvasBackgroundMode>("dots");
   const [showImageInfo, setShowImageInfo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1940,7 +1940,7 @@ export default function CanvasWorkspaceView() {
         const nextNodes = resetInterruptedCanvasGenerations(parsed ? parsed.nodes || [] : starterNodes());
         const nextEdges = parsed?.edges || [];
         const nextGroups = normalizeCanvasGroups(parsed?.groups || [], nextNodes);
-        const nextBackgroundMode = parsed?.backgroundMode || "lines";
+        const nextBackgroundMode = parsed?.backgroundMode || "dots";
         const nextShowImageInfo = parsed?.showImageInfo || false;
         const nextViewport = { zoom: parsed?.zoom || 90, panX: parsed?.panX || 0, panY: parsed?.panY || 0 };
         const firstVisibleNode = nextNodes.find((node) => !isHiddenCanvasBatchChild(node, nextNodes));
