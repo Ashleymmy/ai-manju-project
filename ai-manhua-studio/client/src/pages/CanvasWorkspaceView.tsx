@@ -6,6 +6,7 @@ import {
   Boxes,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Copy,
   Camera,
@@ -7956,6 +7957,21 @@ export default function CanvasWorkspaceView() {
               <div className="preview-detail-main">
                 <div className="canvas-image-preview-stage">
                   {imagePreviewSrc ? <img src={imagePreviewSrc} alt={imagePreviewNode.title || "画布图片"} /> : null}
+                  {imagePreviewSiblings.length > 1 ? (
+                    <div className="preview-detail-pager">
+                      <button type="button" title="上一张" onClick={() => {
+                        const ids = imagePreviewSiblings.map((item) => item.id);
+                        const index = ids.indexOf(imagePreviewNodeId);
+                        setImagePreviewNodeId(ids[(index - 1 + ids.length) % ids.length]);
+                      }}><ChevronLeft size={14} /></button>
+                      <b>{imagePreviewSiblings.findIndex((item) => item.id === imagePreviewNodeId) + 1} / {imagePreviewSiblings.length}</b>
+                      <button type="button" title="下一张" onClick={() => {
+                        const ids = imagePreviewSiblings.map((item) => item.id);
+                        const index = ids.indexOf(imagePreviewNodeId);
+                        setImagePreviewNodeId(ids[(index + 1) % ids.length]);
+                      }}><ChevronRight size={14} /></button>
+                    </div>
+                  ) : null}
                 </div>
                 {imagePreviewSiblings.length > 1 ? (
                   <div className="preview-detail-thumbs">

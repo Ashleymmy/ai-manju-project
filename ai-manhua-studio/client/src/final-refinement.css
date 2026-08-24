@@ -2385,3 +2385,71 @@ textarea.node-card-prompt {
   margin-top: auto;
   flex-wrap: wrap;
 }
+
+/* ---- Canvas: 大图预览铺满全屏 ---- */
+.canvas-image-preview-dialog {
+  width: calc(100vw - 48px);
+  max-width: calc(100vw - 48px);
+  height: calc(100dvh - 48px);
+  max-height: calc(100dvh - 48px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.canvas-image-preview-dialog .preview-detail-layout {
+  flex: 1;
+  min-height: 0;
+}
+
+.canvas-image-preview-dialog .canvas-image-preview-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+}
+
+.canvas-image-preview-dialog .canvas-image-preview-stage img {
+  max-height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.preview-detail-pager {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(10, 12, 13, 0.82);
+  backdrop-filter: blur(8px);
+}
+
+.preview-detail-pager button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #cfd6d0;
+  cursor: pointer;
+}
+
+.preview-detail-pager button:hover { background: rgba(255, 255, 255, 0.08); }
+.preview-detail-pager button:disabled { opacity: 0.35; cursor: default; }
+
+.preview-detail-pager b {
+  min-width: 34px;
+  text-align: center;
+  color: #cfd6d0;
+  font: 10px "IBM Plex Mono", monospace;
+}
