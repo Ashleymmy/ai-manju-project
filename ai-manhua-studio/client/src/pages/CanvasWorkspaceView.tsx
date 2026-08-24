@@ -18,6 +18,11 @@ import {
   FlipHorizontal,
   FlipVertical,
   FolderOpen,
+  Palette,
+  Zap,
+  BadgeCheck,
+  BookMarked,
+  Bot,
   Grid2X2,
   GalleryHorizontalEnd,
   GitMerge,
@@ -890,6 +895,7 @@ export default function CanvasWorkspaceView() {
   const [editingInlineNodeId, setEditingInlineNodeId] = useState("");
   const [titleEditingNodeId, setTitleEditingNodeId] = useState("");
   const [titleDraft, setTitleDraft] = useState("");
+  const [promptOptimizing, setPromptOptimizing] = useState(false);
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
   const [connectionTargetId, setConnectionTargetId] = useState("");
   const [connectionPreviewPoint, setConnectionPreviewPoint] = useState<{ x: number; y: number } | null>(null);
@@ -912,6 +918,8 @@ export default function CanvasWorkspaceView() {
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replaceImageInputRef = useRef<HTMLInputElement>(null);
+  const replaceMediaInputRef = useRef<HTMLInputElement>(null);
+  const replaceMediaNodeIdRef = useRef("");
   const fragmentInputRef = useRef<HTMLInputElement>(null);
   const projectArchiveInputRef = useRef<HTMLInputElement>(null);
   const assetCatalogAbortRef = useRef<AbortController | null>(null);
@@ -1202,8 +1210,9 @@ export default function CanvasWorkspaceView() {
     const nodeRight = nodeLeft + selectedNode.width * scale;
     const nodeBottom = nodeTop + selectedNode.height * scale;
     if (nodeRight < 0 || nodeBottom < CANVAS_STAGE_OFFSET || nodeLeft > stageBounds.width || nodeTop > stageBounds.height) return undefined;
-    // 面板比节点略宽（参考旧版 500px 面板宽于节点的布局），屏宽换算后收敛在 340–520。
-    const width = Math.min(520, Math.max(340, Math.round(selectedNode.width * scale) + 64));
+    // 面板比节点略宽（参考旧版 500px 面板宽于节点的布局），屏宽换算后收敛在 340–520；用户拖宽过则以拖宽值为准。
+    const savedWidth = numberValue(selectedNode.metadata?.promptPanelWidth);
+    const width = savedWidth ? Math.min(560, Math.max(340, savedWidth)) : Math.min(520, Math.max(340, Math.round(selectedNode.width * scale) + 64));
     const nodeCenterX = panX + (selectedNode.x + selectedNode.width / 2) * scale;
     // 实测面板高度做钳制，避免估算偏差把面板顶回盖住节点；始终锚在节点正下方。
     const measuredHeight = Math.max(160, panelHeight);
@@ -3516,6 +3525,47 @@ export default function CanvasWorkspaceView() {
     }
   };
 
+  const uploadMediaToNode = async (nodeId: string, file: File | undefined, kind: "video" | "audio") => {
+    const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
+    const expected = kind === "video" ? "video/" : "audio/";
+    if (!sourceNode || !file || !file.type.startsWith(expected)) return;
+    const activeScope = canonicalProjectScopeRef.current;
+    if (!activeScope) return toast.warning("正在确认项目工作区，暂不能上传媒体");
+    try {
+      const asset = await uploadAsset(file, {
+        type: kind,
+        name: file.name,
+        category: "reference",
+        source_type: "canvas",
+        source_project_id: projectId,
+        source_project_name: projectTitle,
+        source_metadata: JSON.stringify({ canvas_node_id: sourceNode.id, relation: "upload" }),
+      }, activeScope);
+      const nextNodes = nodesRef.current.map((node) => node.id === sourceNode.id ? {
+        ...node,
+        title: asset.name || file.name,
+        imageAssetId: asset.id,
+        imageSrc: undefined,
+        metadata: {
+          ...node.metadata,
+          assetId: asset.id,
+          assetScope: activeScope,
+          mimeType: asset.content_type || file.type,
+          bytes: asset.size || file.size,
+          status: "success" as const,
+        },
+      } : node);
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
+      await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+      toast.success(kind === "video" ? "视频已上传到节点" : "音频已上传到节点");
+    } catch (error) {
+      toast.error(publicApiError(error, "上传媒体失败"));
+    } finally {
+      if (replaceMediaInputRef.current) replaceMediaInputRef.current.value = "";
+    }
+  };
+
   const replaceCanvasImage = async (file: File | undefined) => {
     const sourceNode = nodesRef.current.find((node) => node.id === replaceImageNodeId);
     setReplaceImageNodeId("");
@@ -5734,6 +5784,47 @@ export default function CanvasWorkspaceView() {
     setTitleEditingNodeId("");
   };
 
+  const optimizeNodePrompt = async (node: CanvasNodeData) => {
+    const current = promptTextFromNode(node).trim();
+    if (!current) return toast.warning("先写点提示词再优化");
+    if (promptOptimizing) return;
+    if (!textModel) return toast.error("请先配置文本模型");
+    setPromptOptimizing(true);
+    try {
+      const result = await requestAiText({
+        model: textModel,
+        prompt: `请将下面的生成提示词优化得更具体、更有画面感，保持原意，直接返回优化后的提示词本身，不要解释：\n\n${current}`,
+      });
+      const optimized = result.content.trim();
+      if (!optimized) return toast.warning("优化结果为空");
+      updateNodePrompt(node.id, optimized);
+      toast.success("提示词已优化");
+    } catch (error) {
+      toast.error(publicApiError(error, "优化提示词失败"));
+    } finally {
+      setPromptOptimizing(false);
+    }
+  };
+
+  const startPanelWidthResize = (event: PointerEvent, node: CanvasNodeData) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = panelRef.current?.getBoundingClientRect().width || 340;
+    const move = (moveEvent: globalThis.PointerEvent) => {
+      const width = Math.min(560, Math.max(340, Math.round(startWidth + moveEvent.clientX - startX)));
+      updateNode(node.id, { metadata: { ...(node.metadata || {}), promptPanelWidth: width } });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
   const adjustNodeFontSize = (node: CanvasNodeData, delta: number) => {
     const current = numberValue(node.metadata?.fontSize) || 14;
     const next = Math.max(10, Math.min(32, current + delta));
@@ -6674,6 +6765,7 @@ export default function CanvasWorkspaceView() {
     <div className="canvas-page real-canvas-page">
       <input ref={fileInputRef} type="file" accept="image/*,video/*,audio/*" multiple hidden disabled={projectActionDisabled} onChange={(event) => event.target.files && void uploadFilesAsNodes(event.target.files)} />
       <input ref={replaceImageInputRef} type="file" accept="image/*" hidden disabled={projectActionDisabled} onChange={(event) => void replaceCanvasImage(event.target.files?.[0])} />
+      <input ref={replaceMediaInputRef} type="file" accept="video/*,audio/*" hidden disabled={projectActionDisabled} onChange={(event) => { const file = event.target.files?.[0]; const kind = file?.type.startsWith("video/") ? "video" as const : "audio" as const; void uploadMediaToNode(replaceMediaNodeIdRef.current, file, kind); }} />
       <input ref={fragmentInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectActionDisabled || fragmentBusy} onChange={(event) => void importCanvasFragment(event.target.files?.[0])} />
       <input ref={projectArchiveInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectActionDisabled || projectArchiveBusy} onChange={(event) => void importCanvasProjectArchive(event.target.files?.[0])} />
       <div className="canvas-heading">
@@ -7009,14 +7101,23 @@ export default function CanvasWorkspaceView() {
                         onPointerDown={(event) => event.stopPropagation()}
                       />
                     ) : null}
-                    {isEmptyMediaNode && node.kind === "image" && hoveredId === node.id && !runningNodeIds.has(node.id) ? (
+                    {isEmptyMediaNode && (node.kind === "image" || node.kind === "video") && hoveredId === node.id && !runningNodeIds.has(node.id) ? (
                       <button
                         type="button"
                         className="node-upload-pill"
-                        onClick={(event) => { event.stopPropagation(); setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (node.kind === "video") {
+                            replaceMediaNodeIdRef.current = node.id;
+                            replaceMediaInputRef.current?.click();
+                          } else {
+                            setReplaceImageNodeId(node.id);
+                            replaceImageInputRef.current?.click();
+                          }
+                        }}
                         onPointerDown={(event) => event.stopPropagation()}
                       >
-                        <Upload size={13} /> 上传
+                        <Upload size={13} /> {node.kind === "video" ? "上传视频" : "上传"}
                       </button>
                     ) : null}
                     {isBatchRootNode ? (
@@ -7319,7 +7420,21 @@ export default function CanvasWorkspaceView() {
           <div className="inspector-head">
             <div><p className="eyebrow">INSPECTOR</p><h3>{selectedGroup?.title || selectedNode?.title || "未选择节点"}</h3></div>
             {selectedNode && !selectedGroup ? (
-              <button className="icon-button subtle node-card-close" title="关闭面板" onClick={() => setInspectorOpen(false)}><X size={15} /></button>
+              <div className="node-card-head-actions">
+                {selectedNode.kind === "video" ? (
+                  <button className="icon-button subtle" title="素材校验" onClick={() => setMaterialNodeId(selectedNode.id)}><BadgeCheck size={15} /></button>
+                ) : null}
+                <button
+                  className="icon-button subtle"
+                  title="一键复制提示词内容"
+                  onClick={() => {
+                    const text = promptTextFromNode(selectedNode);
+                    if (!text.trim()) return toast.info("当前节点没有提示词");
+                    void navigator.clipboard.writeText(text).then(() => toast.success("提示词已复制"));
+                  }}
+                ><Copy size={15} /></button>
+                <button className="icon-button subtle node-card-close" title="关闭面板" onClick={() => setInspectorOpen(false)}><X size={15} /></button>
+              </div>
             ) : null}
           </div>
           {selectedGroup ? (
@@ -7369,12 +7484,11 @@ export default function CanvasWorkspaceView() {
               </div>
 
               <div className="node-card-tools">
-                {editableNodeKind(selectedNode.kind) ? (
-                  <button type="button" title="打开完整提示词库" onClick={() => setPromptLibraryNodeId(selectedNode.id)}><BookOpen size={15} /></button>
+                {selectedNode.kind !== "director" ? (
+                  <button type="button" title="素材库" onClick={openAssetPicker}><FolderOpen size={15} /></button>
                 ) : null}
                 {selectedNode.kind === "image" && imageSrcFromNode(selectedNode, previews) ? (
                   <>
-                    <button type="button" title="复制图片提示词" onClick={() => void copyCanvasImagePrompt(selectedNode)}><Copy size={15} /></button>
                     <Popover>
                       <PopoverTrigger asChild>
                         <button type="button" title="图片工具"><WandSparkles size={15} /></button>
@@ -7477,6 +7591,7 @@ export default function CanvasWorkspaceView() {
                     {!selectedVideoConfig && !selectedAudioConfig && selectedGenerationMode !== "image" && selectedNode.kind !== "config" ? <p className="prompt-copy">当前模式没有额外参数。</p> : null}
                   </PopoverContent>
                 </Popover>
+                <span className="node-chip node-credit-chip" title="本次生成数量">{<Zap size={12} />} ×{selectedGenerationMode === "image" || selectedNode.kind === "config" ? imageCountFromNode(selectedNode) : 1}</span>
                 <div className="node-card-primary">
                   {selectedNode.kind === "director" ? (
                     <button className="node-send-button" onClick={() => void openDirectorNode(selectedNode)}><ArrowRight size={15} /> 导演台</button>
@@ -7499,6 +7614,28 @@ export default function CanvasWorkspaceView() {
                 <button title="从此节点连接" onClick={() => activateConnectionMode(selectedNode.id)}><Link2 size={14} /></button>
                 <button title="复制节点（仅入边）" onClick={() => void duplicateSelectedNode()}><Copy size={14} /></button>
                 <button title="删除节点" onClick={() => removeNode(selectedNode.id)}><Trash2 size={14} /></button>
+                <button title="清空输入框内容" disabled={!promptTextFromNode(selectedNode).trim()} onClick={() => updateNodePrompt(selectedNode.id, "")}><Eraser size={14} /></button>
+                {selectedNode.kind !== "director" ? <button title="提示词库" onClick={() => setPromptLibraryNodeId(selectedNode.id)}><BookOpen size={14} /></button> : null}
+                {selectedNode.kind === "image" ? (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button title="风格"><Palette size={14} /></button>
+                    </PopoverTrigger>
+                    <PopoverContent className="node-pop-card" align="end" sideOffset={8}>
+                      <p className="eyebrow">风格预设</p>
+                      {["电影感光影", "写实摄影", "赛博朋克霓虹", "水彩插画", "极简扁平", "日系动画"].map((style) => (
+                        <button key={style} className="node-pop-item" onClick={() => {
+                          const base = promptTextFromNode(selectedNode).trim();
+                          updateNodePrompt(selectedNode.id, base ? `${base}，${style}` : style);
+                        }}>{style}</button>
+                      ))}
+                    </PopoverContent>
+                  </Popover>
+                ) : null}
+                {selectedNode.kind === "video" ? <button title="分镜栏编辑" onClick={() => setStoryboardNodeId(selectedNode.id)}><GalleryHorizontalEnd size={14} /></button> : null}
+                {selectedNode.kind === "image" ? <button title="我的提示词预设" onClick={() => setPromptLibraryNodeId(selectedNode.id)}><BookMarked size={14} /></button> : null}
+                {selectedNode.kind !== "director" ? <button title="优化提示词" disabled={promptOptimizing} onClick={() => void optimizeNodePrompt(selectedNode)}>{promptOptimizing ? <Loader2 className="spin" size={14} /> : <WandSparkles size={14} />}</button> : null}
+                <button title="skill 库（Agent）" onClick={() => setAgentOpen(true)}><Bot size={14} /></button>
                 <Popover>
                   <PopoverTrigger asChild>
                     <button title="更多操作"><MoreHorizontal size={14} /></button>
@@ -7524,6 +7661,9 @@ export default function CanvasWorkspaceView() {
               </div>
             </>
           ) : <div className="empty-output"><p>选择一个节点后编辑。</p></div>}
+          {selectedNode && !selectedGroup ? (
+            <button className="node-panel-resize" title="拖动调整面板宽度" aria-label="拖动调整面板宽度" onPointerDown={(event) => startPanelWidthResize(event, selectedNode)} />
+          ) : null}
         </aside>
         <AgentPanel
           projectId={projectId}

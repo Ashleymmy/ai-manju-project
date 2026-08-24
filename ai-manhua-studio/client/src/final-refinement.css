@@ -2048,3 +2048,41 @@ textarea.node-card-prompt {
   position: absolute;
   inset: -8px;
 }
+
+/* ---- Canvas: 面板头部操作、积分指示、宽度拖拽、输入框可拉高 ---- */
+.node-card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.node-credit-chip {
+  cursor: default;
+  color: #ffd9d2;
+  border-color: rgba(233, 81, 62, 0.35);
+  background: rgba(233, 81, 62, 0.08);
+}
+
+.node-panel-resize {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  z-index: 20;
+  width: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ew-resize;
+}
+
+.inspector-floating .node-card-body .canvas-mention-editor > textarea,
+.inspector-floating textarea.node-card-text {
+  resize: vertical;
+  max-height: 320px;
+}
+
+.node-card-ops button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
