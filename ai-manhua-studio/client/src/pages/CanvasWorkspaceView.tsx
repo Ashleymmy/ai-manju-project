@@ -6848,6 +6848,8 @@ export default function CanvasWorkspaceView() {
                 const isBatchRootNode = Boolean(node.metadata?.isBatchRoot && (node.metadata?.batchChildIds?.length || 0) > 0);
                 const batchExpanded = Boolean(node.metadata?.imageBatchExpanded);
                 const isBatchChildNode = Boolean(node.metadata?.batchRootId);
+                // 空媒体节点（未上传/未生成内容）走参考图的极简形态：无标题栏、类型标签 + 居中图标、悬停出上传按钮
+                const isEmptyMediaNode = (node.kind === "image" || node.kind === "video" || node.kind === "audio") && !preview;
                 return (
                   <article
                     key={node.id}
@@ -6904,35 +6906,75 @@ export default function CanvasWorkspaceView() {
                       onClick={(event) => event.stopPropagation()}
                       onPointerDown={(event) => beginConnection(event, node.id, "source")}
                     />
-                    <div className="node-bar">
-                      <span>{nodeKindBadge(node.kind)}</span>
-                      {titleEditingNodeId === node.id ? (
-                        <input
-                          className="node-title-input"
-                          data-node-title-editor
-                          value={titleDraft}
-                          autoFocus
-                          onChange={(event) => setTitleDraft(event.target.value)}
-                          onBlur={() => commitNodeTitle(node)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") commitNodeTitle(node);
-                            if (event.key === "Escape") setTitleEditingNodeId("");
-                          }}
-                          onPointerDown={(event) => event.stopPropagation()}
-                        />
-                      ) : (
-                        <b
-                          data-node-title-editor
-                          title="双击重命名节点"
-                          onDoubleClick={(event) => {
-                            event.stopPropagation();
-                            setTitleDraft(node.title);
-                            setTitleEditingNodeId(node.id);
-                          }}
-                          onPointerDown={(event) => event.stopPropagation()}
-                        >{node.title}</b>
-                      )}
-                    </div>
+                    {isEmptyMediaNode ? (
+                      <div
+                        className="node-empty-label"
+                        data-node-title-editor
+                        title="双击重命名节点"
+                        onDoubleClick={(event) => {
+                          event.stopPropagation();
+                          setTitleDraft(node.title);
+                          setTitleEditingNodeId(node.id);
+                        }}
+                        onPointerDown={(event) => event.stopPropagation()}
+                      >
+                        {nodeKindBadge(node.kind)} <span>{node.title}</span>
+                      </div>
+                    ) : (
+                      <div className="node-bar">
+                        <span>{nodeKindBadge(node.kind)}</span>
+                        {titleEditingNodeId === node.id ? (
+                          <input
+                            className="node-title-input"
+                            data-node-title-editor
+                            value={titleDraft}
+                            autoFocus
+                            onChange={(event) => setTitleDraft(event.target.value)}
+                            onBlur={() => commitNodeTitle(node)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") commitNodeTitle(node);
+                              if (event.key === "Escape") setTitleEditingNodeId("");
+                            }}
+                            onPointerDown={(event) => event.stopPropagation()}
+                          />
+                        ) : (
+                          <b
+                            data-node-title-editor
+                            title="双击重命名节点"
+                            onDoubleClick={(event) => {
+                              event.stopPropagation();
+                              setTitleDraft(node.title);
+                              setTitleEditingNodeId(node.id);
+                            }}
+                            onPointerDown={(event) => event.stopPropagation()}
+                          >{node.title}</b>
+                        )}
+                      </div>
+                    )}
+                    {titleEditingNodeId === node.id && isEmptyMediaNode ? (
+                      <input
+                        className="node-title-input node-empty-title-input"
+                        value={titleDraft}
+                        autoFocus
+                        onChange={(event) => setTitleDraft(event.target.value)}
+                        onBlur={() => commitNodeTitle(node)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") commitNodeTitle(node);
+                          if (event.key === "Escape") setTitleEditingNodeId("");
+                        }}
+                        onPointerDown={(event) => event.stopPropagation()}
+                      />
+                    ) : null}
+                    {isEmptyMediaNode && node.kind === "image" && hoveredId === node.id && !runningNodeIds.has(node.id) ? (
+                      <button
+                        type="button"
+                        className="node-upload-pill"
+                        onClick={(event) => { event.stopPropagation(); setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}
+                        onPointerDown={(event) => event.stopPropagation()}
+                      >
+                        <Upload size={13} /> 上传
+                      </button>
+                    ) : null}
                     {isBatchRootNode ? (
                       <button
                         type="button"
@@ -7031,6 +7073,10 @@ export default function CanvasWorkspaceView() {
                           <p style={node.metadata?.fontSize ? { fontSize: `${node.metadata.fontSize}px`, lineHeight: 1.65 } : undefined}>{nodeText || nodeInlineEditPlaceholder(node.kind)}</p>
                         </div>
                       )
+                    ) : isEmptyMediaNode ? (
+                      <div className="prompt-body node-empty-body">
+                        <ImageIcon size={30} strokeWidth={1.2} />
+                      </div>
                     ) : (
                       <div className="prompt-body">{node.kind === "image" ? <ImageIcon size={22} /> : <Sparkles size={18} />}<p>{node.content || "空节点"}</p></div>
                     )}
@@ -7068,7 +7114,7 @@ export default function CanvasWorkspaceView() {
                         <b>{jobProgressByNode[node.id] ? `${jobProgressByNode[node.id]}%` : "RUNNING"}</b>
                       </div>
                     ) : null}
-                    {hoveredId === node.id && (
+                    {hoveredId === node.id && !isEmptyMediaNode && (
                       <div className="node-hover-toolbar" data-canvas-ui data-canvas-no-zoom>
                         {runningNodeIds.has(node.id) ? (
                           <button title="停止生成" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); stopGenerationByNodeId(node.id); }}><Square size={12} /><span>停止</span></button>

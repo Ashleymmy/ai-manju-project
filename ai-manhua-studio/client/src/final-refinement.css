@@ -1938,3 +1938,113 @@ textarea.node-card-prompt {
 .real-canvas-node.batch-root::after {
   border-radius: 14px;
 }
+
+/* ---- Canvas: 空节点极简形态（参考一键拉片） ---- */
+.node-empty-label {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  color: #8b9590;
+  font: 9px "IBM Plex Mono", monospace;
+  letter-spacing: 0.06em;
+  cursor: text;
+}
+
+.node-empty-label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #aab4ae;
+  font: 10px "Noto Sans SC", sans-serif;
+  letter-spacing: 0;
+}
+
+.node-empty-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #5d6964;
+}
+
+.node-empty-title-input {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  z-index: 30;
+  max-width: calc(100% - 20px);
+}
+
+.node-upload-pill {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  z-index: 15;
+  transform: translate(-50%, -100%);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 13px;
+  border: 1px solid rgba(125, 211, 252, 0.32);
+  border-radius: 999px;
+  background: rgba(18, 26, 29, 0.94);
+  color: #b9dfeff0;
+  cursor: pointer;
+  font-size: 11px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.32);
+}
+
+.node-upload-pill:hover {
+  border-color: rgba(125, 211, 252, 0.6);
+  background: rgba(28, 38, 42, 0.96);
+}
+
+/* ---- Canvas: 连接锚点改为 ⊕ 形态 ---- */
+.canvas-connection-handle {
+  width: 22px;
+  height: 22px;
+  margin-top: -11px;
+  border: 1px solid rgba(139, 149, 144, 0.55);
+  background: rgba(15, 22, 26, 0.85);
+  box-shadow: none;
+}
+
+.canvas-connection-handle::after {
+  inset: 5px;
+  background: none;
+  background-image: linear-gradient(#8b9590, #8b9590), linear-gradient(#8b9590, #8b9590);
+  background-position: center;
+  background-size: 100% 1.5px, 1.5px 100%;
+  background-repeat: no-repeat;
+  border-radius: 0;
+}
+
+.canvas-connection-handle.target { left: -11px; }
+.canvas-connection-handle.source { right: -11px; }
+
+.canvas-connection-handle:hover,
+.canvas-connection-handle.active {
+  border-color: #7dd3fc;
+  box-shadow: 0 0 12px rgba(125, 211, 252, 0.35);
+}
+
+.canvas-connection-handle:hover::after,
+.canvas-connection-handle.active::after {
+  background-image: linear-gradient(#7dd3fc, #7dd3fc), linear-gradient(#7dd3fc, #7dd3fc);
+}
+
+/* ---- Canvas: 连接锚点脱离卡片悬浮（不再嵌边），保扩大命中区 ---- */
+.canvas-connection-handle.target { left: -34px; }
+.canvas-connection-handle.source { right: -34px; }
+
+.canvas-connection-handle::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
