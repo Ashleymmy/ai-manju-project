@@ -1174,15 +1174,18 @@ export default function CanvasWorkspaceView() {
     const scale = Math.max(0.05, zoom / 100);
     // 面板比节点略宽（参考旧版 500px 面板宽于节点的布局），屏宽换算后收敛在 340–520。
     const width = Math.min(520, Math.max(340, Math.round(selectedNode.width * scale) + 64));
-    const estimatedHeight = 300;
     const nodeCenterX = panX + (selectedNode.x + selectedNode.width / 2) * scale;
     // .real-canvas-grid 相对 stage 有 CANVAS_STAGE_OFFSET 的 top 偏移，需一并计入。
     const nodeBottomY = CANVAS_STAGE_OFFSET + panY + (selectedNode.y + selectedNode.height) * scale;
-    // 固定在节点正下方（不向上翻转）；底部空间不足时仅向上收拢，保持下缘贴边。
+    // 始终锚在节点正下方；剩余空间不足时面板按剩余高度限高滚动，绝不向上翻。
+    const minPanelHeight = 140;
     let top = nodeBottomY + 12;
+    const maxTop = Math.max(CANVAS_STAGE_OFFSET + 8, stageBounds.height - minPanelHeight - 12);
+    top = Math.min(top, maxTop);
+    top = Math.max(CANVAS_STAGE_OFFSET + 8, top);
     const left = Math.min(Math.max(12, nodeCenterX - width / 2), Math.max(12, stageBounds.width - width - 12));
-    top = Math.min(Math.max(CANVAS_STAGE_OFFSET + 8, top), Math.max(CANVAS_STAGE_OFFSET + 8, stageBounds.height - estimatedHeight - 12));
-    return { left: Math.round(left), top: Math.round(top), width };
+    const availableHeight = Math.max(minPanelHeight, stageBounds.height - top - 12);
+    return { left: Math.round(left), top: Math.round(top), width, maxHeight: Math.round(availableHeight) };
   }, [panX, panY, selectedNode, stageBounds.height, stageBounds.width, zoom]);
   const contextMenuStyle = useMemo<CSSProperties | undefined>(() => {
     if (!contextMenu) return undefined;
