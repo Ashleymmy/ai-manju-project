@@ -1172,14 +1172,18 @@ export default function CanvasWorkspaceView() {
   const selectedPanelStyle = useMemo<CSSProperties | undefined>(() => {
     if (!selectedNode) return undefined;
     const scale = Math.max(0.05, zoom / 100);
+    // 节点完全移出舞台视野时不显示面板（钳制在边缘会显得悬浮无锚点）。
+    const nodeLeft = panX + selectedNode.x * scale;
+    const nodeTop = CANVAS_STAGE_OFFSET + panY + selectedNode.y * scale;
+    const nodeRight = nodeLeft + selectedNode.width * scale;
+    const nodeBottom = nodeTop + selectedNode.height * scale;
+    if (nodeRight < 0 || nodeBottom < CANVAS_STAGE_OFFSET || nodeLeft > stageBounds.width || nodeTop > stageBounds.height) return undefined;
     // 面板比节点略宽（参考旧版 500px 面板宽于节点的布局），屏宽换算后收敛在 340–520。
     const width = Math.min(520, Math.max(340, Math.round(selectedNode.width * scale) + 64));
     const nodeCenterX = panX + (selectedNode.x + selectedNode.width / 2) * scale;
-    // .real-canvas-grid 相对 stage 有 CANVAS_STAGE_OFFSET 的 top 偏移，需一并计入。
-    const nodeBottomY = CANVAS_STAGE_OFFSET + panY + (selectedNode.y + selectedNode.height) * scale;
     // 始终锚在节点正下方；剩余空间不足时面板按剩余高度限高滚动，绝不向上翻。
     const minPanelHeight = 140;
-    let top = nodeBottomY + 12;
+    let top = nodeBottom + 12;
     const maxTop = Math.max(CANVAS_STAGE_OFFSET + 8, stageBounds.height - minPanelHeight - 12);
     top = Math.min(top, maxTop);
     top = Math.max(CANVAS_STAGE_OFFSET + 8, top);
@@ -7274,7 +7278,7 @@ export default function CanvasWorkspaceView() {
           ) : null}
         </section>
 
-        <aside className={`inspector-panel canvas-floating-inspector${selectedNode && !selectedGroup ? " inspector-floating" : ""}`} data-canvas-ui data-canvas-no-zoom style={(selectedNode || selectedGroup) && inspectorOpen && !projectActionDisabled ? (selectedNode ? selectedPanelStyle : undefined) : { display: "none" }} onClick={(event) => event.stopPropagation()}>
+        <aside className={`inspector-panel canvas-floating-inspector${selectedNode && !selectedGroup ? " inspector-floating" : ""}`} data-canvas-ui data-canvas-no-zoom style={selectedNode && !selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedPanelStyle ? selectedPanelStyle : { display: "none" }) : ((selectedNode || selectedGroup) && inspectorOpen && !projectActionDisabled ? undefined : { display: "none" })} onClick={(event) => event.stopPropagation()}>
           <div className="inspector-head">
             <div><p className="eyebrow">INSPECTOR</p><h3>{selectedGroup?.title || selectedNode?.title || "未选择节点"}</h3></div>
             {selectedNode && !selectedGroup ? (
