@@ -2235,3 +2235,9 @@ textarea.node-card-prompt {
   user-select: text;
   -webkit-user-select: text;
 }
+
+/* ---- Canvas: 节点工具条圆角（与面板卡片风格统一） ---- */
+.node-hover-toolbar {
+  border-radius: 999px;
+  padding: 4px;
+}

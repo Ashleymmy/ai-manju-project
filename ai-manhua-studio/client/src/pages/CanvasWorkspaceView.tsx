@@ -7234,7 +7234,7 @@ export default function CanvasWorkspaceView() {
                         <b>{jobProgressByNode[node.id] ? `${jobProgressByNode[node.id]}%` : "RUNNING"}</b>
                       </div>
                     ) : null}
-                    {hoveredId === node.id && !isEmptyMediaNode && (
+                    {selectedId === node.id && !isEmptyMediaNode && (
                       <div className="node-hover-toolbar" data-canvas-ui data-canvas-no-zoom>
                         {runningNodeIds.has(node.id) ? (
                           <button title="停止生成" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); stopGenerationByNodeId(node.id); }}><Square size={12} /><span>停止</span></button>
