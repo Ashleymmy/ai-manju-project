@@ -2163,3 +2163,58 @@ textarea.node-card-prompt {
   background-color: #0a0c0d;
   background-image: radial-gradient(rgba(230, 226, 209, 0.09) 1px, transparent 1.1px);
 }
+
+/* ---- Canvas: 节点信息悬浮在节点上方外侧（常驻、留缝、跟随） ---- */
+.node-float-label {
+  position: absolute;
+  top: -10px;
+  left: 0;
+  transform: translateY(-100%);
+  z-index: 6;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: calc(100% + 96px);
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+.node-float-kind {
+  color: #7d8882;
+  font: 8px "IBM Plex Mono", monospace;
+  letter-spacing: 0.14em;
+  flex-shrink: 0;
+}
+
+.node-float-label > b {
+  overflow: hidden;
+  max-width: 300px;
+  color: #cfd6d0;
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  cursor: text;
+}
+
+.node-float-label .node-float-title-input {
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+/* 悬停工具条与上传 pill 上移，为悬浮标签让位 */
+.node-hover-toolbar {
+  top: -34px;
+}
+
+.node-upload-pill {
+  top: -36px;
+}
+
+/* 卡内无标题栏后，内容区补全上缘圆角 */
+.real-canvas-node img,
+.real-canvas-node video,
+.real-canvas-node .prompt-body,
+.real-canvas-node .node-loading-overlay {
+  border-radius: 13px;
+}

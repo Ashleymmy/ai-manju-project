@@ -7044,65 +7044,36 @@ export default function CanvasWorkspaceView() {
                       onClick={(event) => event.stopPropagation()}
                       onPointerDown={(event) => beginConnection(event, node.id, "source")}
                     />
-                    {isEmptyMediaNode ? (
-                      <div
-                        className="node-empty-label"
-                        data-node-title-editor
-                        title="双击重命名节点"
-                        onDoubleClick={(event) => {
-                          event.stopPropagation();
-                          setTitleDraft(node.title);
-                          setTitleEditingNodeId(node.id);
-                        }}
-                        onPointerDown={(event) => event.stopPropagation()}
-                      >
-                        {nodeKindBadge(node.kind)} <span>{node.title}</span>
-                      </div>
-                    ) : (
-                      <div className="node-bar">
-                        <span>{nodeKindBadge(node.kind)}</span>
-                        {titleEditingNodeId === node.id ? (
-                          <input
-                            className="node-title-input"
-                            data-node-title-editor
-                            value={titleDraft}
-                            autoFocus
-                            onChange={(event) => setTitleDraft(event.target.value)}
-                            onBlur={() => commitNodeTitle(node)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") commitNodeTitle(node);
-                              if (event.key === "Escape") setTitleEditingNodeId("");
-                            }}
-                            onPointerDown={(event) => event.stopPropagation()}
-                          />
-                        ) : (
-                          <b
-                            data-node-title-editor
-                            title="双击重命名节点"
-                            onDoubleClick={(event) => {
-                              event.stopPropagation();
-                              setTitleDraft(node.title);
-                              setTitleEditingNodeId(node.id);
-                            }}
-                            onPointerDown={(event) => event.stopPropagation()}
-                          >{node.title}</b>
-                        )}
-                      </div>
-                    )}
-                    {titleEditingNodeId === node.id && isEmptyMediaNode ? (
-                      <input
-                        className="node-title-input node-empty-title-input"
-                        value={titleDraft}
-                        autoFocus
-                        onChange={(event) => setTitleDraft(event.target.value)}
-                        onBlur={() => commitNodeTitle(node)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") commitNodeTitle(node);
-                          if (event.key === "Escape") setTitleEditingNodeId("");
-                        }}
-                        onPointerDown={(event) => event.stopPropagation()}
-                      />
-                    ) : null}
+                    <div
+                      className="node-float-label"
+                      data-node-title-editor
+                      onPointerDown={(event) => event.stopPropagation()}
+                    >
+                      <span className="node-float-kind">{nodeKindBadge(node.kind)}</span>
+                      {titleEditingNodeId === node.id ? (
+                        <input
+                          className="node-title-input node-float-title-input"
+                          value={titleDraft}
+                          autoFocus
+                          onChange={(event) => setTitleDraft(event.target.value)}
+                          onBlur={() => commitNodeTitle(node)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") commitNodeTitle(node);
+                            if (event.key === "Escape") setTitleEditingNodeId("");
+                          }}
+                          onPointerDown={(event) => event.stopPropagation()}
+                        />
+                      ) : (
+                        <b
+                          title="双击重命名节点"
+                          onDoubleClick={(event) => {
+                            event.stopPropagation();
+                            setTitleDraft(node.title);
+                            setTitleEditingNodeId(node.id);
+                          }}
+                        >{node.title}</b>
+                      )}
+                    </div>
                     {isEmptyMediaNode && (node.kind === "image" || node.kind === "video") && hoveredId === node.id && !runningNodeIds.has(node.id) ? (
                       <button
                         type="button"
