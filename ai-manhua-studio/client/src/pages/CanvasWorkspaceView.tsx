@@ -939,6 +939,8 @@ export default function CanvasWorkspaceView() {
   const uploadingRef = useRef(false);
   const stageRef = useRef<HTMLElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const [panelHeight, setPanelHeight] = useState(300);
   const panStateRef = useRef<CanvasPanState>({
     mode: "idle",
     startClientX: 0,
@@ -1181,16 +1183,18 @@ export default function CanvasWorkspaceView() {
     // 面板比节点略宽（参考旧版 500px 面板宽于节点的布局），屏宽换算后收敛在 340–520。
     const width = Math.min(520, Math.max(340, Math.round(selectedNode.width * scale) + 64));
     const nodeCenterX = panX + (selectedNode.x + selectedNode.width / 2) * scale;
-    // 始终锚在节点正下方；剩余空间不足时面板按剩余高度限高滚动，绝不向上翻。
+    // 实测面板高度做钳制，避免估算偏差把面板顶回盖住节点；始终锚在节点正下方。
+    const measuredHeight = Math.max(160, panelHeight);
     const minPanelHeight = 140;
     let top = nodeBottom + 12;
-    const maxTop = Math.max(CANVAS_STAGE_OFFSET + 8, stageBounds.height - minPanelHeight - 12);
+    const maxTop = Math.max(CANVAS_STAGE_OFFSET + 8, stageBounds.height - measuredHeight - 12);
     top = Math.min(top, maxTop);
+    // 节点太高把面板推出舞台时，改用舞台内可用高度，确保面板总能完整显示在节点下方。
     top = Math.max(CANVAS_STAGE_OFFSET + 8, top);
-    const left = Math.min(Math.max(12, nodeCenterX - width / 2), Math.max(12, stageBounds.width - width - 12));
     const availableHeight = Math.max(minPanelHeight, stageBounds.height - top - 12);
+    const left = Math.min(Math.max(12, nodeCenterX - width / 2), Math.max(12, stageBounds.width - width - 12));
     return { left: Math.round(left), top: Math.round(top), width, maxHeight: Math.round(availableHeight) };
-  }, [panX, panY, selectedNode, stageBounds.height, stageBounds.width, zoom]);
+  }, [panX, panY, panelHeight, selectedNode, stageBounds.height, stageBounds.width, zoom]);
   const contextMenuStyle = useMemo<CSSProperties | undefined>(() => {
     if (!contextMenu) return undefined;
     const width = 220;
@@ -1764,6 +1768,17 @@ export default function CanvasWorkspaceView() {
     setSeedanceAssetNodeId("");
     setMaterialNodeId("");
   }, [selectedNode?.id]);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const height = entries[0]?.contentRect.height;
+      if (height) setPanelHeight(Math.round(height));
+    });
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -7278,7 +7293,7 @@ export default function CanvasWorkspaceView() {
           ) : null}
         </section>
 
-        <aside className={`inspector-panel canvas-floating-inspector${selectedNode && !selectedGroup ? " inspector-floating" : ""}`} data-canvas-ui data-canvas-no-zoom style={selectedNode && !selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedPanelStyle ? selectedPanelStyle : { display: "none" }) : ((selectedNode || selectedGroup) && inspectorOpen && !projectActionDisabled ? undefined : { display: "none" })} onClick={(event) => event.stopPropagation()}>
+        <aside ref={panelRef} className={`inspector-panel canvas-floating-inspector${selectedNode && !selectedGroup ? " inspector-floating" : ""}`} data-canvas-ui data-canvas-no-zoom style={selectedNode && !selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedPanelStyle ? selectedPanelStyle : { display: "none" }) : ((selectedNode || selectedGroup) && inspectorOpen && !projectActionDisabled ? undefined : { display: "none" })} onClick={(event) => event.stopPropagation()}>
           <div className="inspector-head">
             <div><p className="eyebrow">INSPECTOR</p><h3>{selectedGroup?.title || selectedNode?.title || "未选择节点"}</h3></div>
             {selectedNode && !selectedGroup ? (
