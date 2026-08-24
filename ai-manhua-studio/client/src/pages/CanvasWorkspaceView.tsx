@@ -135,6 +135,7 @@ import {
   requestAiText,
   saveProjectSnapshot,
   uploadAsset,
+  updateAssetUserState,
   videoGenerationResultToBlob,
   videoModelSettings,
   waitForImageJob,
@@ -1140,6 +1141,50 @@ export default function CanvasWorkspaceView() {
   const imageMaskPreview = imageMaskNode ? imageSrcFromNode(imageMaskNode, previews) : "";
   const imagePreviewNode = imagePreviewNodeId ? nodeMap.get(imagePreviewNodeId) : undefined;
   const imagePreviewSrc = imagePreviewNode ? imageSrcFromNode(imagePreviewNode, previews) : "";
+  /** 预览弹窗的兄弟图集合：批次根 → [根, ...子图]；子图 → 同组全部；独立节点 → 自身。 */
+  const imagePreviewSiblings = useMemo(() => {
+    const node = imagePreviewNode;
+    if (!node) return [] as CanvasNodeData[];
+    const rootId = stringValue(node.metadata?.batchRootId);
+    const root = rootId ? nodes.find((item) => item.id === rootId) : node.metadata?.isBatchRoot ? node : undefined;
+    if (!root) return [node];
+    const children = (root.metadata?.batchChildIds || [])
+      .map((id) => nodes.find((item) => item.id === id))
+      .filter((item): item is CanvasNodeData => Boolean(item));
+    return [root, ...children];
+  }, [imagePreviewNode, nodes]);
+  const [previewAssetMeta, setPreviewAssetMeta] = useState<{ createdAt?: string; contentType?: string }>({});
+
+  useEffect(() => {
+    const node = imagePreviewNode;
+    const assetId = node ? assetIdFromNode(node) : "";
+    if (!assetId) {
+      setPreviewAssetMeta({});
+      return;
+    }
+    const scope = workspaceScopeValue(node?.metadata?.assetScope) || canonicalProjectScopeRef.current || "personal";
+    let disposed = false;
+    getAsset(assetId, scope).then((asset) => {
+      if (disposed) return;
+      setPreviewAssetMeta({ createdAt: asset.created_at, contentType: asset.content_type });
+    }).catch(() => undefined);
+    return () => { disposed = true; };
+  }, [imagePreviewNode]);
+
+  useEffect(() => {
+    if (!imagePreviewNodeId) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+      const ids = imagePreviewSiblings.map((item) => item.id);
+      const index = ids.indexOf(imagePreviewNodeId);
+      if (ids.length < 2 || index < 0) return;
+      event.preventDefault();
+      const next = ids[(index + (event.key === "ArrowRight" ? 1 : -1) + ids.length) % ids.length];
+      setImagePreviewNodeId(next);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [imagePreviewNodeId, imagePreviewSiblings]);
   const storyboardSelectedCount = nodes.filter((node) => selectedNodeIds.has(node.id) && node.kind === "image" && Boolean(imageSrcFromNode(node, previews))).length || (storyboardNodeId ? 1 : 0);
   const minimapModel = useMemo(() => buildCanvasMinimapModel(
     visibleNodes,
@@ -5898,6 +5943,48 @@ export default function CanvasWorkspaceView() {
     await generateImageFromNode(created.id);
   };
 
+  const toggleCanvasNodeFavorite = async (node: CanvasNodeData) => {
+    const assetId = assetIdFromNode(node);
+    if (!assetId) return toast.info("该节点还没有归档资产可收藏");
+    const activeScope = canonicalProjectScopeRef.current || "personal";
+    try {
+      await updateAssetUserState(assetId, { reaction: "favorite" }, workspaceScopeValue(node.metadata?.assetScope) || activeScope);
+      toast.success("已收藏到素材库");
+    } catch (error) {
+      toast.error(publicApiError(error, "收藏失败"));
+    }
+  };
+
+  /** 把批次子图从图片组中拆出为独立节点（应用到画布）。 */
+  const detachBatchChildToCanvas = (child: CanvasNodeData) => {
+    const rootId = child.metadata?.batchRootId;
+    const root = nodesRef.current.find((item) => item.id === rootId);
+    if (!rootId || !root) return;
+    const nextNodes = nodesRef.current.map((node) => {
+      if (node.id === child.id) {
+        const metadata = { ...(node.metadata || {}) };
+        delete metadata.batchRootId;
+        return { ...node, metadata };
+      }
+      if (node.id === rootId) {
+        const childIds = (node.metadata?.batchChildIds || []).filter((id) => id !== child.id);
+        return {
+          ...node,
+          metadata: {
+            ...node.metadata,
+            batchChildIds: childIds,
+            isBatchRoot: childIds.length ? node.metadata?.isBatchRoot : false,
+          },
+        };
+      }
+      return node;
+    });
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    void persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+    toast.success("已应用为独立节点");
+  };
+
   const runCanvasGroupGeneration = async (groupId: string) => {
     if (!groupId || runningGroupId || switchingRef.current) return;
     const group = groupsRef.current.find((item) => item.id === groupId);
@@ -7106,6 +7193,17 @@ export default function CanvasWorkspaceView() {
                         {(node.metadata?.batchChildIds?.length || 0) + 1} <ChevronRight size={12} />
                       </button>
                     ) : null}
+                    {node.kind === "image" && preview && selectedId === node.id ? (
+                      <button
+                        type="button"
+                        className="canvas-node-favorite"
+                        title="收藏到素材库"
+                        onClick={(event) => { event.stopPropagation(); void toggleCanvasNodeFavorite(node); }}
+                        onPointerDown={(event) => event.stopPropagation()}
+                      >
+                        <Star size={13} />
+                      </button>
+                    ) : null}
                     {node.kind === "text" && nodeText.trim() && !runningNodeIds.has(node.id) ? (
                       <button
                         type="button"
@@ -7118,15 +7216,43 @@ export default function CanvasWorkspaceView() {
                       </button>
                     ) : null}
                     {isBatchChildNode && node.imageAssetId ? (
-                      <button
-                        type="button"
-                        className="canvas-batch-primary"
-                        title="设为图片组主图"
-                        onClick={(event) => { event.stopPropagation(); setBatchPrimaryNode(node); }}
-                        onPointerDown={(event) => event.stopPropagation()}
-                      >
-                        <Star size={13} /> 设为主图
-                      </button>
+                      <>
+                        <div className="canvas-batch-child-tools">
+                          <button
+                            type="button"
+                            title="收藏到素材库"
+                            onClick={(event) => { event.stopPropagation(); void toggleCanvasNodeFavorite(node); }}
+                            onPointerDown={(event) => event.stopPropagation()}
+                          >
+                            <Star size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            title="应用到画布（拆出为独立节点）"
+                            onClick={(event) => { event.stopPropagation(); detachBatchChildToCanvas(node); }}
+                            onPointerDown={(event) => event.stopPropagation()}
+                          >
+                            <ImageIcon size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            title="下载"
+                            onClick={(event) => { event.stopPropagation(); void downloadNodeMedia(node); }}
+                            onPointerDown={(event) => event.stopPropagation()}
+                          >
+                            <Download size={13} />
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          className="canvas-batch-primary"
+                          title="设为图片组主图"
+                          onClick={(event) => { event.stopPropagation(); setBatchPrimaryNode(node); }}
+                          onPointerDown={(event) => event.stopPropagation()}
+                        >
+                          <Star size={13} /> 设为主图
+                        </button>
+                      </>
                     ) : null}
                     {preview && previewKind === "video" ? (
                       <video
@@ -7820,18 +7946,52 @@ export default function CanvasWorkspaceView() {
         </DialogContent>
       </Dialog>
       <Dialog open={Boolean(imagePreviewNode && imagePreviewSrc)} onOpenChange={(open) => { if (!open) setImagePreviewNodeId(""); }}>
-        <DialogContent className="sm:max-w-[920px] canvas-image-preview-dialog">
+        <DialogContent className="sm:max-w-[1120px] canvas-image-preview-dialog">
           <DialogHeader>
             <DialogTitle>{imagePreviewNode?.title || "图片预览"}</DialogTitle>
-            <DialogDescription>查看画布节点归档的原始图片。</DialogDescription>
+            <DialogDescription>节点产物的详细预览，底部缩略图或键盘 ← → 可切换同组图片。</DialogDescription>
           </DialogHeader>
-          <div className="canvas-image-preview-stage">
-            {imagePreviewSrc ? <img src={imagePreviewSrc} alt={imagePreviewNode?.title || "画布图片"} /> : null}
-          </div>
-          <DialogFooter>
-            <button className="outline-button small" type="button" onClick={() => setImagePreviewNodeId("")}>关闭</button>
-            <button className="vermilion-button" type="button" onClick={() => void downloadSelectedMedia()}><Download size={15} /> 下载 / 导出</button>
-          </DialogFooter>
+          {imagePreviewNode ? (
+            <div className="preview-detail-layout">
+              <div className="preview-detail-main">
+                <div className="canvas-image-preview-stage">
+                  {imagePreviewSrc ? <img src={imagePreviewSrc} alt={imagePreviewNode.title || "画布图片"} /> : null}
+                </div>
+                {imagePreviewSiblings.length > 1 ? (
+                  <div className="preview-detail-thumbs">
+                    {imagePreviewSiblings.map((sibling) => (
+                      <button key={sibling.id} type="button" className={sibling.id === imagePreviewNodeId ? "selected" : ""} onClick={() => setImagePreviewNodeId(sibling.id)} title={sibling.title}>
+                        {imageSrcFromNode(sibling, previews) ? <img src={imageSrcFromNode(sibling, previews)} alt={sibling.title} /> : <ImageIcon size={16} />}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <aside className="preview-detail-info">
+                <h4>提示词</h4>
+                <p className="preview-detail-prompt">{promptTextFromNode(imagePreviewNode) || "—"}</p>
+                <h4>信息</h4>
+                <div className="preview-detail-rows">
+                  <div><span>模型</span><b>{imageModelLabel(modelFromNode(imagePreviewNode, imageModel), modelCatalog || undefined)}</b></div>
+                  <div><span>质量</span><b>{stringValue(imagePreviewNode.metadata?.quality) || "auto"}</b></div>
+                  <div><span>宽高比</span><b>{stringValue(imagePreviewNode.metadata?.size) || "auto"}</b></div>
+                  <div><span>文件大小</span><b>{numberValue(imagePreviewNode.metadata?.bytes) ? formatBytes(numberValue(imagePreviewNode.metadata?.bytes) as number) : "—"}</b></div>
+                  <div><span>日期</span><b>{previewAssetMeta.createdAt ? new Date(previewAssetMeta.createdAt).toLocaleString("zh-CN") : "—"}</b></div>
+                  <div><span>创建者</span><b>{user?.display_name || user?.username || "—"}</b></div>
+                </div>
+                <div className="preview-detail-actions">
+                  {imagePreviewNode.metadata?.batchRootId ? (
+                    <button className="outline-button small" type="button" onClick={() => { setBatchPrimaryNode(imagePreviewNode); }}>设为主图</button>
+                  ) : null}
+                  <button className="outline-button small" type="button" onClick={() => {
+                    if (imagePreviewNode.metadata?.batchRootId) detachBatchChildToCanvas(imagePreviewNode);
+                    setImagePreviewNodeId("");
+                  }}>应用到画布</button>
+                  <button className="vermilion-button" type="button" onClick={() => void downloadNodeMedia(imagePreviewNode)}><Download size={15} /> 下载</button>
+                </div>
+              </aside>
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
       <Dialog

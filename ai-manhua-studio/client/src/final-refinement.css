@@ -2241,3 +2241,147 @@ textarea.node-card-prompt {
   border-radius: 999px;
   padding: 4px;
 }
+
+/* ---- Canvas: 节点收藏角标 / 批次子图悬浮工具组 / 大图预览详情 ---- */
+.canvas-node-favorite {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 12;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(125, 211, 252, 0.32);
+  border-radius: 8px;
+  background: rgba(18, 26, 29, 0.92);
+  color: #c9e8f5;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+
+.canvas-node-favorite:hover { border-color: rgba(125, 211, 252, 0.6); }
+
+.canvas-batch-child-tools {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 12;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.real-canvas-node:hover .canvas-batch-child-tools { opacity: 1; }
+
+.canvas-batch-child-tools button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(125, 211, 252, 0.32);
+  border-radius: 8px;
+  background: rgba(18, 26, 29, 0.92);
+  color: #c9e8f5;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+
+/* 选中态批次根节点才显示堆叠层 */
+.real-canvas-node.batch-root:not(.selected)::before,
+.real-canvas-node.batch-root:not(.selected)::after { display: none; }
+
+.preview-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 18px;
+}
+
+.preview-detail-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preview-detail-main .canvas-image-preview-stage img {
+  max-height: 56vh;
+  width: 100%;
+  object-fit: contain;
+}
+
+.preview-detail-thumbs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px;
+}
+
+.preview-detail-thumbs button {
+  flex: 0 0 64px;
+  height: 48px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.preview-detail-thumbs button.selected { border-color: var(--red); }
+
+.preview-detail-thumbs img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.preview-detail-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  padding-left: 18px;
+}
+
+.preview-detail-info h4 {
+  margin: 0 0 8px;
+  color: #8b9590;
+  font: 9px "IBM Plex Mono", monospace;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.preview-detail-prompt {
+  max-height: 160px;
+  margin: 0 0 16px;
+  overflow-y: auto;
+  color: #d6d9d3;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.preview-detail-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.preview-detail-rows > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.preview-detail-rows span { color: #7d8882; }
+.preview-detail-rows b { color: #d6d9d3; font-weight: 500; }
+
+.preview-detail-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  flex-wrap: wrap;
+}
