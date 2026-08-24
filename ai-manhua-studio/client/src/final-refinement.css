@@ -2098,3 +2098,18 @@ textarea.node-card-prompt {
   width: 0;
   height: 0;
 }
+
+/* ---- Canvas: 面板操作行换行 + 面板滚动条隐藏 ---- */
+.inspector-floating .node-card-ops {
+  flex-wrap: wrap;
+}
+
+.inspector-panel {
+  scrollbar-width: none;
+}
+
+.inspector-panel::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
