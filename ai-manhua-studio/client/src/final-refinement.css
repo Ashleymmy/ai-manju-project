@@ -2113,3 +2113,24 @@ textarea.node-card-prompt {
   width: 0;
   height: 0;
 }
+
+/* ---- Canvas: 空文本/视频/音频/配置节点中央类型图标 ---- */
+.prompt-body-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.prompt-body-type-icon {
+  display: grid;
+  place-items: center;
+  color: #5d6964;
+}
+
+.prompt-body-empty p {
+  margin-top: 0;
+  color: #7d8882;
+}

@@ -7215,8 +7215,8 @@ export default function CanvasWorkspaceView() {
                         />
                         )
                       ) : (
-                        <div className="prompt-body" title="双击编辑节点内容">
-                          <Sparkles size={18} />
+                        <div className={nodeText.trim() ? "prompt-body" : "prompt-body prompt-body-empty"} title="双击编辑节点内容">
+                          {nodeText.trim() ? null : <span className="prompt-body-type-icon">{nodeKindCenterIcon(node.kind)}</span>}
                           <p style={node.metadata?.fontSize ? { fontSize: `${node.metadata.fontSize}px`, lineHeight: 1.65 } : undefined}>{nodeText || nodeInlineEditPlaceholder(node.kind)}</p>
                         </div>
                       )
@@ -8248,6 +8248,16 @@ function nodeInlineEditPlaceholder(kind: CanvasNodeKind) {
   if (kind === "audio") return "双击编辑音频提示";
   if (kind === "note") return "双击编辑备注";
   return "双击编辑节点内容";
+}
+
+/** 空节点中央的按类型大图标（对齐空图片节点的形态）。 */
+function nodeKindCenterIcon(kind: CanvasNodeKind) {
+  const props = { size: 30, strokeWidth: 1.2 };
+  if (kind === "video") return <Film {...props} />;
+  if (kind === "audio") return <Music2 {...props} />;
+  if (kind === "config") return <SlidersHorizontal {...props} />;
+  if (kind === "text" || kind === "note" || kind === "prompt") return <Type {...props} />;
+  return <ImageIcon {...props} />;
 }
 
 function assetIdFromNode(node: CanvasNodeData) {
