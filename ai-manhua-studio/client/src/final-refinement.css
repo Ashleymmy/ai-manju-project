@@ -1912,3 +1912,29 @@ textarea.node-card-prompt {
   margin-top: 8px;
   padding-top: 8px;
 }
+
+/* ---- Canvas: 节点卡片圆角统一（与弹出面板 14px 一致） ---- */
+.real-canvas-node {
+  border-radius: 14px;
+}
+
+.real-canvas-node .node-bar {
+  border-radius: 13px 13px 0 0;
+}
+
+.real-canvas-node img,
+.real-canvas-node video,
+.real-canvas-node .prompt-body,
+.real-canvas-node .node-loading-overlay {
+  border-radius: 0 0 13px 13px;
+}
+
+.real-canvas-node .prompt-body:only-child,
+.real-canvas-node .prompt-body:first-of-type {
+  border-radius: 0 0 13px 13px;
+}
+
+.real-canvas-node.batch-root::before,
+.real-canvas-node.batch-root::after {
+  border-radius: 14px;
+}
