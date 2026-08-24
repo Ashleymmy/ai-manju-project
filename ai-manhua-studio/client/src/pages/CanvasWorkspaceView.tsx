@@ -963,6 +963,7 @@ export default function CanvasWorkspaceView() {
   const edgesRef = useRef<CanvasEdgeData[]>([]);
   const groupsRef = useRef<CanvasGroupData[]>([]);
   const selectedNodeIdsRef = useRef<Set<string>>(new Set());
+  const hoverLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectionBoxRef = useRef<CanvasSelectionBoxState | null>(null);
   const suppressNodeClickRef = useRef("");
   const clipboardRef = useRef<CanvasClipboardPayload<CanvasNodeData, CanvasEdgeData> | null>(null);
@@ -977,6 +978,27 @@ export default function CanvasWorkspaceView() {
   const connectionTargetIdRef = useRef("");
   const connectionPreviewPointRef = useRef<{ x: number; y: number } | null>(null);
   const pendingConnectionCreateRef = useRef<PendingConnectionCreateState | null>(null);
+
+  /** 悬停延迟清空：给鼠标跨越节点与悬浮组件（上传按钮/工具条）之间间隙的时间。 */
+  const handleNodeHoverStart = useCallback((id: string) => {
+    if (hoverLeaveTimerRef.current) {
+      clearTimeout(hoverLeaveTimerRef.current);
+      hoverLeaveTimerRef.current = null;
+    }
+    setHoveredId(id);
+  }, []);
+
+  const handleNodeHoverEnd = useCallback((id: string) => {
+    if (hoverLeaveTimerRef.current) clearTimeout(hoverLeaveTimerRef.current);
+    hoverLeaveTimerRef.current = setTimeout(() => {
+      setHoveredId((current) => (current === id ? "" : current));
+      hoverLeaveTimerRef.current = null;
+    }, 180);
+  }, []);
+
+  useEffect(() => () => {
+    if (hoverLeaveTimerRef.current) clearTimeout(hoverLeaveTimerRef.current);
+  }, []);
 
   const applyNodeSelection = useCallback((ids: Iterable<string>, primaryId = "", openInspector = false) => {
     const next = new Set(ids);
@@ -6905,8 +6927,8 @@ export default function CanvasWorkspaceView() {
                       }
                       applyNodeSelection([node.id], node.id, true);
                     }}
-                    onMouseEnter={() => setHoveredId(node.id)}
-                    onMouseLeave={() => setHoveredId("")}
+                    onMouseEnter={() => handleNodeHoverStart(node.id)}
+                    onMouseLeave={() => handleNodeHoverEnd(node.id)}
                     onPointerDown={(event) => startDrag(event, node)}
                     onPointerMove={moveDrag}
                     onPointerUp={endDrag}
