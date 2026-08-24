@@ -2218,3 +2218,20 @@ textarea.node-card-prompt {
 .real-canvas-node .node-loading-overlay {
   border-radius: 13px;
 }
+
+/* ---- Canvas: 节点整体禁止文本选择/图片原生拖拽，行内编辑器除外 ---- */
+.real-canvas-node {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.real-canvas-node img,
+.real-canvas-node video {
+  -webkit-user-drag: none;
+}
+
+.real-canvas-node .node-inline-editor,
+.real-canvas-node .node-inline-editor textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}

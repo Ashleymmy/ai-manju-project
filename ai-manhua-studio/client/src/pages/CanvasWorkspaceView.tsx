@@ -4017,7 +4017,9 @@ export default function CanvasWorkspaceView() {
     if (switchingRef.current) return;
     const target = event.target as HTMLElement;
     if (event.button !== 0) return;
-    if (isCanvasHotkeyEditingTarget(target) || target.closest(".canvas-connection-handle")) return;
+    // 拖拽只排除真正的交互控件（按钮/输入框/行内编辑器/连接锚点）；
+    // data-canvas-no-zoom 的媒体内容（video/audio/img）也允许按住拖动节点。
+    if (target.closest("button, input, textarea, select, [contenteditable='true'], .node-inline-editor, .canvas-connection-handle, [data-canvas-ui]")) return;
     if (connectFromRef.current || pendingConnectionCreateRef.current) return;
     const additive = event.shiftKey || event.ctrlKey || event.metaKey;
     const current = selectedNodeIdsRef.current;
@@ -7145,7 +7147,7 @@ export default function CanvasWorkspaceView() {
                         onPointerDown={(event) => event.stopPropagation()}
                       />
                     ) : preview ? (
-                      <img src={preview} alt={node.title} />
+                      <img src={preview} alt={node.title} draggable={false} />
                     ) : editableNodeKind(node.kind) ? (
                       isInlineEditing ? (
                         generatedTextNode ? (
