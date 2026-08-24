@@ -7462,9 +7462,6 @@ export default function CanvasWorkspaceView() {
           ) : selectedNode ? (
             <>
               <div className="node-card-body">
-                {selectedNode.kind === "image" && imageSrcFromNode(selectedNode, previews) ? (
-                  <img className="node-card-preview" src={imageSrcFromNode(selectedNode, previews)} alt={selectedNode.title} />
-                ) : null}
                 <CanvasResourceMentionTextarea
                   className="prompt-copy node-card-prompt"
                   value={promptTextFromNode(selectedNode)}
