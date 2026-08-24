@@ -2134,3 +2134,20 @@ textarea.node-card-prompt {
   margin-top: 0;
   color: #7d8882;
 }
+
+/* ---- Canvas: mention 覆盖层与输入框盒模型对齐（修遮挡） ---- */
+.canvas-mention-overlay.prompt-copy {
+  margin: 0;
+}
+
+.inspector-floating .canvas-mention-overlay.node-card-prompt {
+  margin: 0;
+  padding: 11px 13px;
+  border: 0;
+  width: auto;
+  min-height: 0;
+  background: transparent;
+  resize: none;
+  border-radius: 10px;
+  font: 12px/1.75 "Noto Sans SC", sans-serif;
+}
