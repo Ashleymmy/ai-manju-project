@@ -42,6 +42,7 @@ import {
   MoreHorizontal,
   PenLine,
   PanelRight,
+  Pin,
   Plus,
   Redo2,
   Save,
@@ -854,6 +855,7 @@ export default function CanvasWorkspaceView() {
   const [agentOpen, setAgentOpen] = useState(false);
   const [agentUndoSnapshot, setAgentUndoSnapshot] = useState<CanvasAgentSnapshot | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [pinnedToolbarNodeId, setPinnedToolbarNodeId] = useState("");
   const shortcutsRef = useRef<CanvasShortcutBindings>({ ...DEFAULT_CANVAS_SHORTCUTS });
   // 快捷键处理器声明在生成逻辑之前，用 ref 间接调用以避免前向引用。
   const runSelectedGenerationRef = useRef<() => Promise<void>>(async () => undefined);
@@ -7437,13 +7439,13 @@ export default function CanvasWorkspaceView() {
                         <b>{jobProgressByNode[node.id] ? `${jobProgressByNode[node.id]}%` : "RUNNING"}</b>
                       </div>
                     ) : null}
-                    {selectedId === node.id && !isEmptyMediaNode && (
+                    {(selectedId === node.id || pinnedToolbarNodeId === node.id) && !isEmptyMediaNode && (
                       <div className="node-hover-toolbar" data-canvas-ui data-canvas-no-zoom>
                         {runningNodeIds.has(node.id) ? (
                           <button title="停止生成" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); stopGenerationByNodeId(node.id); }}><Square size={12} /><span>停止</span></button>
                         ) : (
                           <>
-                             <button title="连接" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); applyNodeSelection([node.id], node.id, true); activateConnectionMode(node.id); }}><Link2 size={12} /><span>连接</span></button>
+                             <button title={pinnedToolbarNodeId === node.id ? "取消固定" : "固定工具条"} className={pinnedToolbarNodeId === node.id ? "active" : ""} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setPinnedToolbarNodeId((current) => current === node.id ? "" : node.id); }}><Pin size={12} /><span>Pin</span></button>
                              <button title="复制" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void duplicateSelectedNode(node.id); }}><Copy size={12} /><span>复制</span></button>
                              {node.kind === "director" ? <button title="打开导演台" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void openDirectorNode(node); }}><ArrowRight size={12} /><span>导演台</span></button> : null}
                              {node.kind === "text" ? <button title="用文本生图" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void generateImageFromTextNode(node); }}><ImageIcon size={12} /><span>生图</span></button> : null}
@@ -7453,7 +7455,17 @@ export default function CanvasWorkspaceView() {
                                  <button title="增大字号" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); adjustNodeFontSize(node, 2); }}><Plus size={12} /><span>A+</span></button>
                                </>
                              ) : null}
-                             {node.kind === "image" && preview ? <button title="图片工具" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); openImageToolDialog(node.id); }}><SlidersHorizontal size={12} /><span>工具</span></button> : null}
+                             {node.kind === "image" && preview ? (
+                               <Popover>
+                                 <PopoverTrigger asChild>
+                                   <button title="图片工具" onPointerDown={(e) => e.stopPropagation()}><SlidersHorizontal size={12} /><span>工具</span></button>
+                                 </PopoverTrigger>
+                                 <PopoverContent className="node-pop-card node-pop-wide" align="center" side="top" sideOffset={10}>
+                                   <p className="eyebrow">图片工具</p>
+                                   <CanvasImageToolGrid node={node} imageToolBusy={imageToolBusy} storyboardBusy={storyboardBusy} openImageToolDialog={openImageToolDialog} setImageAnnotationNodeId={setImageAnnotationNodeId} setImageMaskNodeId={setImageMaskNodeId} setImageToolError={setImageToolError} flipCanvasImageNode={flipCanvasImageNode} generatePanoramaCanvasImage={generatePanoramaCanvasImage} generateStoryboard={(n) => setStoryboardNodeId(n.id)} createImageReversePromptNodes={createImageReversePromptNodes} setImagePreviewNodeId={setImagePreviewNodeId} setReplaceImageNodeId={setReplaceImageNodeId} replaceImageInputRef={replaceImageInputRef} archiveCanvasMediaNode={archiveCanvasMediaNode} />
+                                 </PopoverContent>
+                               </Popover>
+                             ) : null}
                              {node.kind === "image" && !preview ? <button title="上传图片" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}><Upload size={12} /><span>上传</span></button> : null}
                              {node.kind === "video" && preview ? <button title="从当前播放帧创建图片节点" disabled={Boolean(captureFrameNodeId)} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void captureVideoFrameNode(node); }}><Camera size={12} /><span>截帧</span></button> : null}
                              {node.kind === "video" && preview ? <button title="AI 超分（依赖管理员配置的模型服务）" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); toast.info("视频超分依赖管理员配置的模型服务，本地暂未实现"); }}><Sparkles size={12} /><span>超分</span></button> : null}
@@ -7469,9 +7481,7 @@ export default function CanvasWorkspaceView() {
                               <button title="重试视频" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void retryVideoNode(node); }}><RotateCcw size={12} /><span>重试</span></button>
                             ) : node.metadata?.status === "error" && generationModeFromNode(node) === "audio" ? (
                               <button title="重试音频" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void retryAudioNode(node); }}><RotateCcw size={12} /><span>重试</span></button>
-                            ) : node.kind === "director" ? null : (
-                              <button title={`生成${generationModeLabel(generationModeFromNode(node))}`} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); applyNodeSelection([node.id], node.id, true); void generateFromNode(node.id); }}><WandSparkles size={12} /><span>生成</span></button>
-                            )}
+                            ) : node.kind === "director" ? null : null}
                             <button className="danger" title="删除" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); removeNode(node.id); }}><Trash2 size={12} /><span>删除</span></button>
                           </>
                         )}
@@ -7685,26 +7695,8 @@ export default function CanvasWorkspaceView() {
                       </PopoverTrigger>
                       <PopoverContent className="node-pop-card node-pop-wide" align="start" sideOffset={8}>
                         <p className="eyebrow">图片工具</p>
-                        <div className="canvas-image-tool-grid">
-                          <button title="裁剪图片" onClick={() => openImageToolDialog(selectedNode.id, "crop")} disabled={imageToolBusy}><Crop size={15} /> 裁剪</button>
-                          <button title="提取图片局部区域" onClick={() => openImageToolDialog(selectedNode.id, "focus")} disabled={imageToolBusy}><Eye size={15} /> 聚焦</button>
-                          <button title="在图片上绘制形状、箭头、画笔和文字" onClick={() => setImageAnnotationNodeId(selectedNode.id)} disabled={imageToolBusy}><PenLine size={15} /> 标注</button>
-                          <button title="涂抹区域并使用 AI 局部修改" onClick={() => { setImageMaskNodeId(selectedNode.id); setImageToolError(""); }} disabled={imageToolBusy}><PenLine size={15} /> 蒙版</button>
-                          <button title="扩展图片画布并使用 AI 补全" onClick={() => openImageToolDialog(selectedNode.id, "outpaint")} disabled={imageToolBusy}><Expand size={15} /> 扩图</button>
-                          <button title="按行列切分图片" onClick={() => openImageToolDialog(selectedNode.id, "split")} disabled={imageToolBusy}><Grid2X2 size={15} /> 切图</button>
-                          <button title="水平翻转当前图片" onClick={() => void flipCanvasImageNode(selectedNode, "horizontal")} disabled={imageToolBusy}><FlipHorizontal size={15} /> 水平</button>
-                          <button title="垂直翻转当前图片" onClick={() => void flipCanvasImageNode(selectedNode, "vertical")} disabled={imageToolBusy}><FlipVertical size={15} /> 垂直</button>
-                          <button title="放大图片分辨率" onClick={() => openImageToolDialog(selectedNode.id, "upscale")} disabled={imageToolBusy}><ZoomIn size={15} /> 放大</button>
-                          <button title="压缩图片体积" onClick={() => openImageToolDialog(selectedNode.id, "compress")} disabled={imageToolBusy}><Minimize2 size={15} /> 压缩</button>
-                          <button title="基于原图生成 2:1 全景图" onClick={() => void generatePanoramaCanvasImage(selectedNode)} disabled={imageToolBusy}><Images size={15} /> 全景</button>
-                          <button title="基于原图重新生成其他机位" onClick={() => openImageToolDialog(selectedNode.id, "angle")} disabled={imageToolBusy}><Camera size={15} /> 多角度</button>
-                          <button title="AI 超分依赖管理员配置的模型服务" onClick={() => toast.info("AI 超分依赖管理员配置的模型服务，本地暂未实现")}><Sparkles size={15} /> AI 超分</button>
-                          <button title="把所选图片排成故事板 PNG" onClick={() => setStoryboardNodeId(selectedNode.id)} disabled={storyboardBusy}><GalleryHorizontalEnd size={15} /> 故事板</button>
-                          <button title="创建反推提示词的文本配置节点" onClick={() => void createImageReversePromptNodes(selectedNode)}><WandSparkles size={15} /> 反推</button>
-                          <button title="查看原图" onClick={() => setImagePreviewNodeId(selectedNode.id)}><Maximize2 size={15} /> 查看</button>
-                          <button title="替换当前图片" onClick={() => { setReplaceImageNodeId(selectedNode.id); replaceImageInputRef.current?.click(); }}><Upload size={15} /> 替换</button>
-                          <button title="确认图片已归档到素材库" onClick={() => void archiveCanvasMediaNode(selectedNode)}><Archive size={15} /> 素材</button>
-                        </div>
+                        <CanvasImageToolGrid node={selectedNode} imageToolBusy={imageToolBusy} storyboardBusy={storyboardBusy} openImageToolDialog={openImageToolDialog} setImageAnnotationNodeId={setImageAnnotationNodeId} setImageMaskNodeId={setImageMaskNodeId} setImageToolError={setImageToolError} flipCanvasImageNode={flipCanvasImageNode} generatePanoramaCanvasImage={generatePanoramaCanvasImage} generateStoryboard={(n) => setStoryboardNodeId(n.id)} createImageReversePromptNodes={createImageReversePromptNodes} setImagePreviewNodeId={setImagePreviewNodeId} setReplaceImageNodeId={setReplaceImageNodeId} replaceImageInputRef={replaceImageInputRef} archiveCanvasMediaNode={archiveCanvasMediaNode} />
+
                       </PopoverContent>
                     </Popover>
                   </>
@@ -9232,6 +9224,47 @@ function stringValue(value: unknown) {
 
 function workspaceScopeValue(value: unknown): WorkspaceScope | undefined {
   return value === "personal" || value === "team" ? value : undefined;
+}
+
+function CanvasImageToolGrid({ node, imageToolBusy, storyboardBusy, openImageToolDialog, setImageAnnotationNodeId, setImageMaskNodeId, setImageToolError, flipCanvasImageNode, generatePanoramaCanvasImage, generateStoryboard, createImageReversePromptNodes, setImagePreviewNodeId, setReplaceImageNodeId, replaceImageInputRef, archiveCanvasMediaNode }: {
+  node: CanvasNodeData;
+  imageToolBusy: boolean;
+  storyboardBusy: boolean;
+  openImageToolDialog: (nodeId: string, mode?: CanvasImageToolMode) => void;
+  setImageAnnotationNodeId: (id: string) => void;
+  setImageMaskNodeId: (id: string) => void;
+  setImageToolError: (v: string) => void;
+  flipCanvasImageNode: (node: CanvasNodeData, dir: "horizontal" | "vertical") => Promise<unknown>;
+  generatePanoramaCanvasImage: (node: CanvasNodeData) => Promise<unknown>;
+  generateStoryboard: (node: CanvasNodeData) => void;
+  createImageReversePromptNodes: (node: CanvasNodeData) => Promise<unknown>;
+  setImagePreviewNodeId: (id: string) => void;
+  setReplaceImageNodeId: (id: string) => void;
+  replaceImageInputRef: React.RefObject<HTMLInputElement | null>;
+  archiveCanvasMediaNode: (node: CanvasNodeData) => Promise<unknown>;
+}) {
+  return (
+    <div className="canvas-image-tool-grid">
+      <button title="裁剪图片" onClick={() => openImageToolDialog(node.id, "crop")} disabled={imageToolBusy}><Crop size={15} /> 裁剪</button>
+      <button title="提取图片局部区域" onClick={() => openImageToolDialog(node.id, "focus")} disabled={imageToolBusy}><Eye size={15} /> 聚焦</button>
+      <button title="在图片上绘制形状、箭头、画笔和文字" onClick={() => setImageAnnotationNodeId(node.id)} disabled={imageToolBusy}><PenLine size={15} /> 标注</button>
+      <button title="涂抹区域并使用 AI 局部修改" onClick={() => { setImageMaskNodeId(node.id); setImageToolError(""); }} disabled={imageToolBusy}><PenLine size={15} /> 蒙版</button>
+      <button title="扩展图片画布并使用 AI 补全" onClick={() => openImageToolDialog(node.id, "outpaint")} disabled={imageToolBusy}><Expand size={15} /> 扩图</button>
+      <button title="按行列切分图片" onClick={() => openImageToolDialog(node.id, "split")} disabled={imageToolBusy}><Grid2X2 size={15} /> 切图</button>
+      <button title="水平翻转当前图片" onClick={() => void flipCanvasImageNode(node, "horizontal")} disabled={imageToolBusy}><FlipHorizontal size={15} /> 水平</button>
+      <button title="垂直翻转当前图片" onClick={() => void flipCanvasImageNode(node, "vertical")} disabled={imageToolBusy}><FlipVertical size={15} /> 垂直</button>
+      <button title="放大图片分辨率" onClick={() => openImageToolDialog(node.id, "upscale")} disabled={imageToolBusy}><ZoomIn size={15} /> 放大</button>
+      <button title="压缩图片体积" onClick={() => openImageToolDialog(node.id, "compress")} disabled={imageToolBusy}><Minimize2 size={15} /> 压缩</button>
+      <button title="基于原图生成 2:1 全景图" onClick={() => void generatePanoramaCanvasImage(node)} disabled={imageToolBusy}><Images size={15} /> 全景</button>
+      <button title="基于原图重新生成其他机位" onClick={() => openImageToolDialog(node.id, "angle")} disabled={imageToolBusy}><Camera size={15} /> 多角度</button>
+      <button title="AI 超分依赖管理员配置的模型服务" onClick={() => toast.info("AI 超分依赖管理员配置的模型服务，本地暂未实现")}><Sparkles size={15} /> AI 超分</button>
+      <button title="把所选图片排成故事板 PNG" onClick={() => generateStoryboard(node)} disabled={storyboardBusy}><GalleryHorizontalEnd size={15} /> 故事板</button>
+      <button title="创建反推提示词的文本配置节点" onClick={() => void createImageReversePromptNodes(node)}><WandSparkles size={15} /> 反推</button>
+      <button title="查看原图" onClick={() => setImagePreviewNodeId(node.id)}><Maximize2 size={15} /> 查看</button>
+      <button title="替换当前图片" onClick={() => { setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}><Upload size={15} /> 替换</button>
+      <button title="确认图片已归档到素材库" onClick={() => void archiveCanvasMediaNode(node)}><Archive size={15} /> 素材</button>
+    </div>
+  );
 }
 
 function formatBytes(value: number) {
