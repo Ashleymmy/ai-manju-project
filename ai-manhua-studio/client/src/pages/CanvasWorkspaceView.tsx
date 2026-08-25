@@ -976,7 +976,6 @@ export default function CanvasWorkspaceView() {
   const hoverLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectionHandlesRef = useRef(new Map<string, HTMLElement>());
   const hoveredHandleKeyRef = useRef("");
-  const [magnetPoint, setMagnetPoint] = useState<{ x: number; y: number } | null>(null);
   const selectionBoxRef = useRef<CanvasSelectionBoxState | null>(null);
   const suppressNodeClickRef = useRef("");
   const clipboardRef = useRef<CanvasClipboardPayload<CanvasNodeData, CanvasEdgeData> | null>(null);
@@ -1013,8 +1012,9 @@ export default function CanvasWorkspaceView() {
     if (hoverLeaveTimerRef.current) clearTimeout(hoverLeaveTimerRef.current);
   }, []);
 
-  /* ---- 连接点磁性吸附：鼠标靠近时最近的连接点放大并拉满命中区 ---- */
+  /* ---- 连接点磁性吸附：光标靠近时连接点被吸向光标 ---- */
   const CONNECTION_HANDLE_MAGNET_RADIUS = 56;
+  const CONNECTION_HANDLE_SNAP_RADIUS = 18;
 
   const registerConnectionHandle = useCallback((nodeId: string, side: "source" | "target", element: HTMLElement | null) => {
     const key = `${nodeId}:${side}`;
@@ -1023,12 +1023,19 @@ export default function CanvasWorkspaceView() {
   }, []);
 
   useEffect(() => {
+    const resetMagnet = (key: string) => {
+      const element = key ? connectionHandlesRef.current.get(key) : undefined;
+      if (!element) return;
+      element.classList.remove("handle-magnet");
+      element.style.transform = "";
+    };
     const onMove = (event: globalThis.PointerEvent) => {
       if (connectionDragRef.current.active || panStateRef.current.mode !== "idle") return;
       const { clientX, clientY } = event;
       let nearestKey = "";
       let nearestDistance = Infinity;
-      let nearestCenter: { x: number; y: number } | null = null;
+      let nearestDx = 0;
+      let nearestDy = 0;
       connectionHandlesRef.current.forEach((element, key) => {
         const rect = element.getBoundingClientRect();
         const cx = rect.x + rect.width / 2;
@@ -1037,29 +1044,29 @@ export default function CanvasWorkspaceView() {
         if (distance < nearestDistance) {
           nearestDistance = distance;
           nearestKey = key;
-          nearestCenter = { x: cx, y: cy };
+          nearestDx = clientX - cx;
+          nearestDy = clientY - cy;
         }
       });
       const next = nearestDistance <= CONNECTION_HANDLE_MAGNET_RADIUS ? nearestKey : "";
-      // 吸附态十字准星：钉在最近锚点中心（stage 相对坐标），营造光标被吸过去的效果。
-      if (next) {
-        const stageRect = stageRef.current?.getBoundingClientRect();
-        const center = nearestCenter as { x: number; y: number } | null;
-        setMagnetPoint(stageRect && center ? { x: center.x - stageRect.left, y: center.y - stageRect.top } : null);
-      } else {
-        setMagnetPoint(null);
+      if (next !== hoveredHandleKeyRef.current) {
+        resetMagnet(hoveredHandleKeyRef.current);
+        hoveredHandleKeyRef.current = next;
+        if (next) connectionHandlesRef.current.get(next)?.classList.add("handle-magnet");
       }
-      if (next === hoveredHandleKeyRef.current) return;
-      const previous = hoveredHandleKeyRef.current ? connectionHandlesRef.current.get(hoveredHandleKeyRef.current) : undefined;
-      previous?.classList.remove("handle-magnet");
-      hoveredHandleKeyRef.current = next;
-      if (next) connectionHandlesRef.current.get(next)?.classList.add("handle-magnet");
+      if (!next) return;
+      const element = connectionHandlesRef.current.get(next);
+      if (!element) return;
+      // 距离越近吸力越强：SNAP 半径内完全贴到光标上，边缘处回到节点边缘。
+      const strength = nearestDistance <= CONNECTION_HANDLE_SNAP_RADIUS
+        ? 1
+        : Math.max(0, 1 - (nearestDistance - CONNECTION_HANDLE_SNAP_RADIUS) / (CONNECTION_HANDLE_MAGNET_RADIUS - CONNECTION_HANDLE_SNAP_RADIUS));
+      element.style.transform = `translate(${(nearestDx * strength).toFixed(1)}px, ${(nearestDy * strength).toFixed(1)}px) scale(1.4)`;
     };
     window.addEventListener("pointermove", onMove as EventListener, { passive: true });
     return () => {
       window.removeEventListener("pointermove", onMove as EventListener);
-      const current = hoveredHandleKeyRef.current ? connectionHandlesRef.current.get(hoveredHandleKeyRef.current) : undefined;
-      current?.classList.remove("handle-magnet");
+      resetMagnet(hoveredHandleKeyRef.current);
       hoveredHandleKeyRef.current = "";
     };
   }, []);
@@ -6970,7 +6977,7 @@ export default function CanvasWorkspaceView() {
       <div className={`canvas-workspace real-canvas-workspace ${inspectorOpen && !projectActionDisabled ? "inspector-open" : ""} ${agentOpen && !projectActionDisabled ? "agent-open" : ""} ${connectFrom ? "connecting" : ""}`}>
         <section
           ref={stageRef}
-          className={`canvas-stage real-canvas-stage canvas-background-${backgroundMode}${magnetPoint ? " handle-magnetizing" : ""}`}
+          className={`canvas-stage real-canvas-stage canvas-background-${backgroundMode}`}
           style={{ "--canvas-grid-size": `${40 * zoom / 100}px`, "--canvas-grid-x": `${panX}px`, "--canvas-grid-y": `${panY}px` } as CSSProperties}
           onPointerDown={handleStagePointerDown}
           onContextMenu={(event) => { if (projectActionDisabled) { event.preventDefault(); return; } openCanvasContextMenu(event); }}
@@ -6978,13 +6985,6 @@ export default function CanvasWorkspaceView() {
           onDragOver={(event) => { if (!projectActionDisabled) event.preventDefault(); }}
           onDrop={(event) => { event.preventDefault(); if (!projectActionDisabled) void uploadFilesAsNodes(event.dataTransfer.files); }}
         >
-          {magnetPoint ? (
-            <div
-              className="canvas-handle-crosshair"
-              style={{ left: magnetPoint.x, top: magnetPoint.y }}
-              aria-hidden="true"
-            />
-          ) : null}
           <div className="canvas-top-tools" data-canvas-ui data-canvas-no-zoom>
             <div className="tool-cluster">
               <button title="选择" disabled={projectActionDisabled}><MousePointer2 size={16} /></button>
