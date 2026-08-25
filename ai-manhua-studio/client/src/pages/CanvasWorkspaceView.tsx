@@ -976,6 +976,7 @@ export default function CanvasWorkspaceView() {
   const hoverLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectionHandlesRef = useRef(new Map<string, HTMLElement>());
   const hoveredHandleKeyRef = useRef("");
+  const [magnetPoint, setMagnetPoint] = useState<{ x: number; y: number } | null>(null);
   const selectionBoxRef = useRef<CanvasSelectionBoxState | null>(null);
   const suppressNodeClickRef = useRef("");
   const clipboardRef = useRef<CanvasClipboardPayload<CanvasNodeData, CanvasEdgeData> | null>(null);
@@ -1027,6 +1028,7 @@ export default function CanvasWorkspaceView() {
       const { clientX, clientY } = event;
       let nearestKey = "";
       let nearestDistance = Infinity;
+      let nearestCenter: { x: number; y: number } | null = null;
       connectionHandlesRef.current.forEach((element, key) => {
         const rect = element.getBoundingClientRect();
         const cx = rect.x + rect.width / 2;
@@ -1035,9 +1037,18 @@ export default function CanvasWorkspaceView() {
         if (distance < nearestDistance) {
           nearestDistance = distance;
           nearestKey = key;
+          nearestCenter = { x: cx, y: cy };
         }
       });
       const next = nearestDistance <= CONNECTION_HANDLE_MAGNET_RADIUS ? nearestKey : "";
+      // 吸附态十字准星：钉在最近锚点中心（stage 相对坐标），营造光标被吸过去的效果。
+      if (next) {
+        const stageRect = stageRef.current?.getBoundingClientRect();
+        const center = nearestCenter as { x: number; y: number } | null;
+        setMagnetPoint(stageRect && center ? { x: center.x - stageRect.left, y: center.y - stageRect.top } : null);
+      } else {
+        setMagnetPoint(null);
+      }
       if (next === hoveredHandleKeyRef.current) return;
       const previous = hoveredHandleKeyRef.current ? connectionHandlesRef.current.get(hoveredHandleKeyRef.current) : undefined;
       previous?.classList.remove("handle-magnet");
@@ -6959,7 +6970,7 @@ export default function CanvasWorkspaceView() {
       <div className={`canvas-workspace real-canvas-workspace ${inspectorOpen && !projectActionDisabled ? "inspector-open" : ""} ${agentOpen && !projectActionDisabled ? "agent-open" : ""} ${connectFrom ? "connecting" : ""}`}>
         <section
           ref={stageRef}
-          className={`canvas-stage real-canvas-stage canvas-background-${backgroundMode}`}
+          className={`canvas-stage real-canvas-stage canvas-background-${backgroundMode}${magnetPoint ? " handle-magnetizing" : ""}`}
           style={{ "--canvas-grid-size": `${40 * zoom / 100}px`, "--canvas-grid-x": `${panX}px`, "--canvas-grid-y": `${panY}px` } as CSSProperties}
           onPointerDown={handleStagePointerDown}
           onContextMenu={(event) => { if (projectActionDisabled) { event.preventDefault(); return; } openCanvasContextMenu(event); }}
@@ -6967,6 +6978,13 @@ export default function CanvasWorkspaceView() {
           onDragOver={(event) => { if (!projectActionDisabled) event.preventDefault(); }}
           onDrop={(event) => { event.preventDefault(); if (!projectActionDisabled) void uploadFilesAsNodes(event.dataTransfer.files); }}
         >
+          {magnetPoint ? (
+            <div
+              className="canvas-handle-crosshair"
+              style={{ left: magnetPoint.x, top: magnetPoint.y }}
+              aria-hidden="true"
+            />
+          ) : null}
           <div className="canvas-top-tools" data-canvas-ui data-canvas-no-zoom>
             <div className="tool-cluster">
               <button title="选择" disabled={projectActionDisabled}><MousePointer2 size={16} /></button>
