@@ -338,6 +338,7 @@ type CanvasNodeMetadata = Record<string, unknown> & {
   size?: string;
   resolution?: string;
   seconds?: string;
+  videoSubMode?: string;
   generateAudio?: boolean;
   watermark?: boolean;
   quality?: string;
@@ -7625,11 +7626,23 @@ export default function CanvasWorkspaceView() {
           ) : selectedNode ? (
             <>
               <div className="node-card-body">
+                {selectedNode.kind === "video" ? (
+                  <div className="video-submode-tabs">
+                    {VIDEO_SUBMODES.map((sub) => (
+                      <button
+                        key={sub.value}
+                        type="button"
+                        className={videoSubModeFromNode(selectedNode) === sub.value ? "active" : ""}
+                        onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), videoSubMode: sub.value } })}
+                      >{sub.label}</button>
+                    ))}
+                  </div>
+                ) : null}
                 <CanvasResourceMentionTextarea
                   className="prompt-copy node-card-prompt"
                   value={promptTextFromNode(selectedNode)}
                   references={mentionReferencesForNode(selectedNode.id)}
-                  placeholder="输入 @ 可引用已连接节点或资产…，Enter 提交生成"
+                  placeholder={selectedNode.kind === "video" ? videoSubModePlaceholder(videoSubModeFromNode(selectedNode)) : "输入 @ 可引用已连接节点或资产…，Enter 提交生成"}
                   onMentionQueryChange={queueMentionAssetSearch}
                   onSubmit={() => void generateFromNode(selectedNode.id)}
                   onChange={(value) => updateNodePrompt(selectedNode.id, value)}
@@ -8498,6 +8511,40 @@ function nodeInlineEditPlaceholder(kind: CanvasNodeKind) {
   if (kind === "audio") return "双击编辑音频提示";
   if (kind === "note") return "双击编辑备注";
   return "双击编辑节点内容";
+}
+
+/** 视频节点的生成方式标签（对应参考的标签组，首位帧替代动作模仿）。 */
+const VIDEO_SUBMODES = [
+  { value: "text", label: "文生视频" },
+  { value: "reference", label: "全能参考" },
+  { value: "edit", label: "视频编辑" },
+  { value: "extend", label: "视频延长" },
+  { value: "first-last", label: "首位帧" },
+  { value: "camera", label: "运镜" },
+] as const;
+
+type VideoSubMode = (typeof VIDEO_SUBMODES)[number]["value"];
+
+function videoSubModeFromNode(node: CanvasNodeData): VideoSubMode {
+  const value = stringValue(node.metadata?.videoSubMode);
+  return VIDEO_SUBMODES.some((sub) => sub.value === value) ? value as VideoSubMode : "text";
+}
+
+function videoSubModePlaceholder(mode: VideoSubMode) {
+  switch (mode) {
+    case "reference":
+      return "输入文字或 @ 参考内容，自由组合图、文、音、视频元素。例如：@图片1 模仿 @视频1 的动作，音色参考 @音频1。";
+    case "edit":
+      return "描述你想要对视频进行的编辑操作，例如：将背景替换为海滩场景。";
+    case "extend":
+      return "描述视频延长的画面走向。例如：延长 @视频1，镜头继续向前推进。";
+    case "first-last":
+      return "上传首帧与尾帧图片后，描述中间的运动过程…";
+    case "camera":
+      return "描述运镜方式，例如：镜头缓慢推近主体，轻微环绕…";
+    default:
+      return "请输入视频描述…";
+  }
 }
 
 /** 空节点中央的按类型大图标（对齐空图片节点的形态）。 */

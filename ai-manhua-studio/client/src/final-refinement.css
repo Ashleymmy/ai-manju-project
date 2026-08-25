@@ -2584,3 +2584,30 @@ textarea.node-card-prompt {
   color: #d6d9d3;
   font: 11px "IBM Plex Mono", monospace;
 }
+
+/* ---- Canvas: 视频生成方式标签组 ---- */
+.video-submode-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.video-submode-tabs button {
+  flex-shrink: 0;
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: #8b9590;
+  cursor: pointer;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.video-submode-tabs button.active {
+  border-color: rgba(233, 81, 62, 0.6);
+  background: rgba(233, 81, 62, 0.14);
+  color: #ffd9d2;
+}
