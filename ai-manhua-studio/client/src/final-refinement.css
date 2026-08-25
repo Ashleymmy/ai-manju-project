@@ -2611,3 +2611,26 @@ textarea.node-card-prompt {
   background: rgba(233, 81, 62, 0.14);
   color: #ffd9d2;
 }
+
+/* ---- Canvas: 视频节点截取当前帧按钮 ---- */
+.node-video-capture {
+  position: absolute;
+  right: 10px;
+  bottom: 42px;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(10, 12, 13, 0.82);
+  color: #d6d9d3;
+  cursor: pointer;
+  font-size: 10px;
+  backdrop-filter: blur(8px);
+}
+
+.node-video-capture:hover { background: rgba(233, 81, 62, 0.3); }
+.node-video-capture:disabled { opacity: 0.5; }

@@ -7320,14 +7320,26 @@ export default function CanvasWorkspaceView() {
                       </>
                     ) : null}
                     {preview && previewKind === "video" ? (
-                      <video
-                        src={preview}
-                        controls
-                        preload="metadata"
-                        data-testid="canvas-node-video"
-                        data-canvas-no-zoom
-                        onPointerDown={(event) => event.stopPropagation()}
-                      />
+                      <>
+                        <video
+                          src={preview}
+                          controls
+                          preload="metadata"
+                          data-testid="canvas-node-video"
+                          data-canvas-no-zoom
+                          onPointerDown={(event) => event.stopPropagation()}
+                        />
+                        <button
+                          type="button"
+                          className="node-video-capture"
+                          title="截取当前帧为图片节点"
+                          disabled={Boolean(captureFrameNodeId)}
+                          onClick={(event) => { event.stopPropagation(); void captureVideoFrameNode(node); }}
+                          onPointerDown={(event) => event.stopPropagation()}
+                        >
+                          <Camera size={12} /> {captureFrameNodeId === node.id ? "截取中…" : "截取当前帧"}
+                        </button>
+                      </>
                     ) : preview && previewKind === "audio" ? (
                       <audio
                         src={preview}
@@ -7444,6 +7456,9 @@ export default function CanvasWorkspaceView() {
                              {node.kind === "image" && preview ? <button title="图片工具" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); openImageToolDialog(node.id); }}><SlidersHorizontal size={12} /><span>工具</span></button> : null}
                              {node.kind === "image" && !preview ? <button title="上传图片" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}><Upload size={12} /><span>上传</span></button> : null}
                              {node.kind === "video" && preview ? <button title="从当前播放帧创建图片节点" disabled={Boolean(captureFrameNodeId)} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void captureVideoFrameNode(node); }}><Camera size={12} /><span>截帧</span></button> : null}
+                             {node.kind === "video" && preview ? <button title="AI 超分（依赖管理员配置的模型服务）" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); toast.info("视频超分依赖管理员配置的模型服务，本地暂未实现"); }}><Sparkles size={12} /><span>超分</span></button> : null}
+                             {node.kind === "video" && preview ? <button title="素材校验" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setMaterialNodeId(node.id); }}><BadgeCheck size={12} /><span>校验</span></button> : null}
+                             {node.kind === "video" && preview ? <button title="全屏播放" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); document.querySelector<HTMLVideoElement>(`.real-canvas-node[data-node-id="${node.id}"] video`)?.requestFullscreen?.(); }}><Maximize2 size={12} /><span>全屏</span></button> : null}
                              {preview || node.kind === "text" ? <button title="加入素材库" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void (node.kind === "text" ? archiveCanvasTextNode(node) : archiveCanvasMediaNode(node)); }}><FolderOpen size={12} /><span>存资产</span></button> : null}
                              {preview ? <button title="下载" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void downloadNodeMedia(node); }}><Download size={12} /><span>下载</span></button> : null}
                             {node.metadata?.status === "error" && generationModeFromNode(node) === "image" ? (
