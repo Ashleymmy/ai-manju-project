@@ -2634,3 +2634,79 @@ textarea.node-card-prompt {
 
 .node-video-capture:hover { background: rgba(233, 81, 62, 0.3); }
 .node-video-capture:disabled { opacity: 0.5; }
+
+/* ---- Canvas: skill 库管理弹窗 ---- */
+.skill-library-dialog {
+  max-width: 620px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.skill-library-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 0 12px;
+}
+
+.skill-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.skill-create-form input,
+.skill-create-form textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #222a2b;
+  color: #e0ded5;
+  font-size: 12px;
+  outline: none;
+}
+
+.skill-create-form textarea { min-height: 72px; resize: vertical; }
+
+.skill-create-actions { display: flex; gap: 8px; }
+
+.skill-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skill-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.skill-item.disabled { opacity: 0.5; }
+
+.skill-item-body { flex: 1; min-width: 0; }
+.skill-item-body b { color: #e6e6de; font-size: 12px; }
+.skill-item-body small { display: block; color: #8b9590; margin: 3px 0; font-size: 10px; }
+.skill-item-body p { margin: 4px 0 0; color: #aab4ae; font-size: 11px; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+.skill-busy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 10px;
+  color: #8b9590;
+  font-size: 11px;
+}

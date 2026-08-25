@@ -186,6 +186,8 @@ import {
   type CanvasPoint,
 } from "@/lib/canvas-selection";
 import { DEFAULT_CANVAS_SHORTCUTS, eventMatchesShortcut, isCanvasHotkeyEditingTarget, resolveCanvasShortcuts, type CanvasShortcutBindings } from "@/lib/canvas-hotkeys";
+import { loadSkills, type CanvasSkill } from "@/lib/skill-library";
+import SkillLibraryDialog from "@/components/SkillLibraryDialog";
 import {
   createCanvasClipboard,
   pasteCanvasClipboard,
@@ -901,6 +903,8 @@ export default function CanvasWorkspaceView() {
   const [titleEditingNodeId, setTitleEditingNodeId] = useState("");
   const [titleDraft, setTitleDraft] = useState("");
   const [promptOptimizing, setPromptOptimizing] = useState(false);
+  const [skillLibraryOpen, setSkillLibraryOpen] = useState(false);
+  const [enabledSkills, setEnabledSkills] = useState<CanvasSkill[]>([]);
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
   const [connectionTargetId, setConnectionTargetId] = useState("");
   const [connectionPreviewPoint, setConnectionPreviewPoint] = useState<{ x: number; y: number } | null>(null);
@@ -5898,16 +5902,17 @@ export default function CanvasWorkspaceView() {
     setTitleEditingNodeId("");
   };
 
-  const optimizeNodePrompt = async (node: CanvasNodeData) => {
+  const optimizeNodePrompt = async (node: CanvasNodeData, skillPrompt?: string) => {
     const current = promptTextFromNode(node).trim();
     if (!current) return toast.warning("先写点提示词再优化");
     if (promptOptimizing) return;
     if (!textModel) return toast.error("请先配置文本模型");
     setPromptOptimizing(true);
     try {
+      const instruction = skillPrompt?.trim() || "你是提示词优化专家。在不改变主体与场景的前提下，补足画面、动作、光影与质感细节，直接返回优化后的提示词本身，不要解释。";
       const result = await requestAiText({
         model: textModel,
-        prompt: `请将下面的生成提示词优化得更具体、更有画面感，保持原意，直接返回优化后的提示词本身，不要解释：\n\n${current}`,
+        prompt: `${instruction}\n\n待优化的提示词：\n${current}`,
       });
       const optimized = result.content.trim();
       if (!optimized) return toast.warning("优化结果为空");
@@ -7857,8 +7862,22 @@ export default function CanvasWorkspaceView() {
                 ) : null}
                 {selectedNode.kind === "video" ? <button title="分镜栏编辑" onClick={() => setStoryboardNodeId(selectedNode.id)}><GalleryHorizontalEnd size={14} /></button> : null}
                 {selectedNode.kind === "image" ? <button title="我的提示词预设" onClick={() => setPromptLibraryNodeId(selectedNode.id)}><BookMarked size={14} /></button> : null}
-                {selectedNode.kind !== "director" ? <button title="优化提示词" disabled={promptOptimizing} onClick={() => void optimizeNodePrompt(selectedNode)}>{promptOptimizing ? <Loader2 className="spin" size={14} /> : <WandSparkles size={14} />}</button> : null}
-                <button title="skill 库（Agent）" onClick={() => setAgentOpen(true)}><Bot size={14} /></button>
+                {selectedNode.kind !== "director" ? (
+                  <Popover onOpenChange={(open) => { if (open) setEnabledSkills(loadSkills().filter((skill) => skill.enabled)); }}>
+                    <PopoverTrigger asChild>
+                      <button title="优化提示词" disabled={promptOptimizing}>{promptOptimizing ? <Loader2 className="spin" size={14} /> : <WandSparkles size={14} />}</button>
+                    </PopoverTrigger>
+                    <PopoverContent className="node-pop-card" align="end" sideOffset={8}>
+                      <p className="eyebrow">选择优化技能</p>
+                      <button className="node-pop-item" disabled={promptOptimizing} onClick={() => void optimizeNodePrompt(selectedNode)}><WandSparkles size={13} /> 默认优化</button>
+                      {enabledSkills.map((skill) => (
+                        <button key={skill.id} className="node-pop-item" disabled={promptOptimizing} title={skill.description || skill.prompt} onClick={() => void optimizeNodePrompt(selectedNode, skill.prompt)}><Bot size={13} /> {skill.title}</button>
+                      ))}
+                      <button className="node-pop-item" onClick={() => setSkillLibraryOpen(true)}><Plus size={13} /> 管理技能库…</button>
+                    </PopoverContent>
+                  </Popover>
+                ) : null}
+                <button title="skill 库" onClick={() => setSkillLibraryOpen(true)}><Bot size={14} /></button>
                 <Popover>
                   <PopoverTrigger asChild>
                     <button title="更多操作"><MoreHorizontal size={14} /></button>
@@ -7898,6 +7917,7 @@ export default function CanvasWorkspaceView() {
           onExecuteWorkspaceTool={executeAgentWorkspaceTool}
           onUndoOps={undoAgentOperations}
         />
+        <SkillLibraryDialog open={skillLibraryOpen} onOpenChange={setSkillLibraryOpen} />
         <PromptLibraryDialog
           open={Boolean(promptLibraryNodeId)}
           onOpenChange={(open) => { if (!open) setPromptLibraryNodeId(""); }}
