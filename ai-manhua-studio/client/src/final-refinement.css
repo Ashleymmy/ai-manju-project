@@ -2710,3 +2710,280 @@ textarea.node-card-prompt {
   color: #8b9590;
   font-size: 11px;
 }
+
+/* ---- Canvas: 提示词预设管理（左右两栏） ---- */
+.preset-manager-dialog {
+  max-width: 860px;
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.preset-manager-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.preset-manager-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  border-right: 1px solid var(--line);
+  padding-right: 14px;
+}
+
+.preset-manager-toolbar {
+  display: flex;
+  gap: 8px;
+}
+
+.preset-manager-items {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preset-manager-item {
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+}
+
+.preset-manager-item.active {
+  border-color: rgba(233, 81, 62, 0.6);
+  background: rgba(233, 81, 62, 0.08);
+}
+
+.preset-manager-item-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.preset-manager-item-head b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #e6e6de;
+}
+
+.preset-manager-item > p {
+  margin: 5px 0 0;
+  color: #8b9590;
+  font-size: 10px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.preset-manager-item-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.preset-manager-item-actions button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: #9ba8a1;
+  cursor: pointer;
+}
+
+.preset-manager-item-actions button:hover { color: #ffd9d2; border-color: rgba(233, 81, 62, 0.4); }
+
+.preset-manager-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.preset-manager-editor label {
+  display: block;
+  color: #8b9590;
+  font: 9px "IBM Plex Mono", monospace;
+  letter-spacing: 0.1em;
+}
+
+.preset-manager-editor input,
+.preset-manager-editor select,
+.preset-manager-editor textarea {
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #222a2b;
+  color: #e0ded5;
+  font: 12px/1.7 "Noto Sans SC", sans-serif;
+  outline: none;
+}
+
+.preset-manager-editor textarea { min-height: 200px; resize: vertical; }
+
+.preset-manager-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #8b9590;
+  font-size: 11px;
+  padding: 20px 0;
+}
+
+/* ---- Canvas: 风格预设缩略图网格 ---- */
+.style-preset-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.style-preset-tabs button {
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: #8b9590;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.style-preset-tabs button.active {
+  border-color: rgba(233, 81, 62, 0.6);
+  background: rgba(233, 81, 62, 0.14);
+  color: #ffd9d2;
+}
+
+.style-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.style-preset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+}
+
+.style-preset-card:hover { border-color: rgba(233, 81, 62, 0.5); }
+
+.style-preset-thumb {
+  display: block;
+  height: 52px;
+  width: 100%;
+}
+
+.style-preset-card span {
+  padding: 0 8px 8px;
+  color: #c9cdc5;
+  font-size: 10px;
+  text-align: left;
+}
+
+/* ---- Canvas: 分镜栏编辑弹窗 ---- */
+.storyboard-editor-dialog {
+  max-width: 780px;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.storyboard-editor-layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.storyboard-scene-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  padding-right: 12px;
+}
+
+.scene-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #c9cdc5;
+  cursor: pointer;
+  text-align: left;
+}
+
+.scene-item b { font-size: 11px; color: #e6e6de; }
+.scene-item span { font-size: 9px; color: #77817c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scene-item.active { border-color: rgba(233, 81, 62, 0.6); background: rgba(233, 81, 62, 0.1); }
+
+.scene-add {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-style: dashed;
+  color: #8b9590;
+  font-size: 10px;
+}
+
+.storyboard-scene-editor {
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.storyboard-scene-editor .prompt-copy {
+  min-height: 72px;
+}
+
+.storyboard-flags {
+  flex-direction: row;
+  gap: 18px;
+}
+
+.storyboard-flags label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #c9cdc5;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.storyboard-scene-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+}

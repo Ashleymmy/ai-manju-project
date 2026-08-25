@@ -188,6 +188,8 @@ import {
 import { DEFAULT_CANVAS_SHORTCUTS, eventMatchesShortcut, isCanvasHotkeyEditingTarget, resolveCanvasShortcuts, type CanvasShortcutBindings } from "@/lib/canvas-hotkeys";
 import { loadSkills, type CanvasSkill } from "@/lib/skill-library";
 import SkillLibraryDialog from "@/components/SkillLibraryDialog";
+import PromptPresetManagerDialog from "@/components/PromptPresetManagerDialog";
+import StoryboardEditorDialog, { type StoryboardScene } from "@/components/StoryboardEditorDialog";
 import {
   createCanvasClipboard,
   pasteCanvasClipboard,
@@ -342,6 +344,7 @@ type CanvasNodeMetadata = Record<string, unknown> & {
   resolution?: string;
   seconds?: string;
   videoSubMode?: string;
+  storyboardScenes?: Array<Record<string, unknown>>;
   generateAudio?: boolean;
   watermark?: boolean;
   quality?: string;
@@ -904,6 +907,8 @@ export default function CanvasWorkspaceView() {
   const [titleDraft, setTitleDraft] = useState("");
   const [promptOptimizing, setPromptOptimizing] = useState(false);
   const [skillLibraryOpen, setSkillLibraryOpen] = useState(false);
+  const [presetManagerOpen, setPresetManagerOpen] = useState(false);
+  const [styleCategory, setStyleCategory] = useState<string>("drama");
   const [enabledSkills, setEnabledSkills] = useState<CanvasSkill[]>([]);
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
   const [connectionTargetId, setConnectionTargetId] = useState("");
@@ -921,6 +926,7 @@ export default function CanvasWorkspaceView() {
   const [imageMaskNodeId, setImageMaskNodeId] = useState("");
   const [imagePreviewNodeId, setImagePreviewNodeId] = useState("");
   const [storyboardNodeId, setStoryboardNodeId] = useState("");
+  const [storyboardEditorNodeId, setStoryboardEditorNodeId] = useState("");
   const [storyboardLayout, setStoryboardLayout] = useState<StoryboardLayout>("grid-2x2");
   const [storyboardBusy, setStoryboardBusy] = useState(false);
   const [replaceImageNodeId, setReplaceImageNodeId] = useState("");
@@ -7849,19 +7855,29 @@ export default function CanvasWorkspaceView() {
                     <PopoverTrigger asChild>
                       <button title="风格"><Palette size={14} /></button>
                     </PopoverTrigger>
-                    <PopoverContent className="node-pop-card" align="end" sideOffset={8}>
-                      <p className="eyebrow">风格预设</p>
-                      {["电影感光影", "写实摄影", "赛博朋克霓虹", "水彩插画", "极简扁平", "日系动画"].map((style) => (
-                        <button key={style} className="node-pop-item" onClick={() => {
-                          const base = promptTextFromNode(selectedNode).trim();
-                          updateNodePrompt(selectedNode.id, base ? `${base}，${style}` : style);
-                        }}>{style}</button>
-                      ))}
+                    <PopoverContent className="node-pop-card node-pop-wide" align="end" sideOffset={8}>
+                      <p className="eyebrow">风格</p>
+                      <div className="style-preset-tabs">
+                        {STYLE_CATEGORIES.map((category) => (
+                          <button key={category.value} type="button" className={styleCategory === category.value ? "active" : ""} onClick={() => setStyleCategory(category.value)}>{category.label}</button>
+                        ))}
+                      </div>
+                      <div className="style-preset-grid">
+                        {STYLE_PRESETS.filter((item) => item.category === styleCategory).map((item) => (
+                          <button key={item.name} type="button" className="style-preset-card" title={item.prompt} onClick={() => {
+                            const base = promptTextFromNode(selectedNode).trim();
+                            updateNodePrompt(selectedNode.id, base ? `${base}，${item.prompt}` : item.prompt);
+                          }}>
+                            <i className="style-preset-thumb" style={{ background: item.gradient }} />
+                            <span>{item.name}</span>
+                          </button>
+                        ))}
+                      </div>
                     </PopoverContent>
                   </Popover>
                 ) : null}
-                {selectedNode.kind === "video" ? <button title="分镜栏编辑" onClick={() => setStoryboardNodeId(selectedNode.id)}><GalleryHorizontalEnd size={14} /></button> : null}
-                {selectedNode.kind === "image" ? <button title="我的提示词预设" onClick={() => setPromptLibraryNodeId(selectedNode.id)}><BookMarked size={14} /></button> : null}
+                {selectedNode.kind === "video" ? <button title="分镜栏编辑" onClick={() => setStoryboardEditorNodeId(selectedNode.id)}><GalleryHorizontalEnd size={14} /></button> : null}
+                {selectedNode.kind === "image" ? <button title="我的提示词预设" onClick={() => setPresetManagerOpen(true)}><BookMarked size={14} /></button> : null}
                 {selectedNode.kind !== "director" ? (
                   <Popover onOpenChange={(open) => { if (open) setEnabledSkills(loadSkills().filter((skill) => skill.enabled)); }}>
                     <PopoverTrigger asChild>
@@ -7918,6 +7934,17 @@ export default function CanvasWorkspaceView() {
           onUndoOps={undoAgentOperations}
         />
         <SkillLibraryDialog open={skillLibraryOpen} onOpenChange={setSkillLibraryOpen} />
+        <PromptPresetManagerDialog open={presetManagerOpen} onOpenChange={setPresetManagerOpen} />
+        <StoryboardEditorDialog
+          open={Boolean(storyboardEditorNodeId)}
+          onOpenChange={(open) => { if (!open) setStoryboardEditorNodeId(""); }}
+          title={nodes.find((item) => item.id === storyboardEditorNodeId)?.title || ""}
+          scenes={storyboardScenesFromNode(nodes.find((item) => item.id === storyboardEditorNodeId))}
+          onSave={(scenes) => {
+            const node = nodes.find((item) => item.id === storyboardEditorNodeId);
+            if (node) updateNode(node.id, { metadata: { ...(node.metadata || {}), storyboardScenes: scenes as unknown as Record<string, unknown>[] } });
+          }}
+        />
         <PromptLibraryDialog
           open={Boolean(promptLibraryNodeId)}
           onOpenChange={(open) => { if (!open) setPromptLibraryNodeId(""); }}
@@ -8531,6 +8558,40 @@ function nodeEditorTextFromNode(node: CanvasNodeData) {
   return isGeneratedCanvasText(node) ? canvasTextDisplayValue(node) : promptTextFromNode(node);
 }
 
+/** 风格预设：分类标签 + 色块缩略图网格。 */
+const STYLE_CATEGORIES = [
+  { value: "anime", label: "动漫" },
+  { value: "digital", label: "数字艺术" },
+  { value: "director", label: "致敬导演" },
+  { value: "drama", label: "戏剧张力" },
+  { value: "extra", label: "扩展" },
+] as const;
+
+type StyleCategoryValue = (typeof STYLE_CATEGORIES)[number]["value"];
+
+const STYLE_PRESETS: Array<{ category: StyleCategoryValue; name: string; prompt: string; gradient: string }> = [
+  { category: "anime", name: "日系动画", prompt: "日系动画风格，赛璐璐上色，干净线条", gradient: "linear-gradient(135deg,#3b4a6b,#c98b9e)" },
+  { category: "anime", name: "吉卜力手绘", prompt: "吉卜力手绘动画风，温暖水彩底色", gradient: "linear-gradient(135deg,#5a7a5c,#d9c9a3)" },
+  { category: "anime", name: "新海诚光影", prompt: "新海诚式天空光影，高饱和云层与光斑", gradient: "linear-gradient(135deg,#2b4a7a,#8fb8d9)" },
+  { category: "anime", name: "像素艺术", prompt: "像素艺术，复古游戏画面", gradient: "linear-gradient(135deg,#4a3b6b,#d98bb0)" },
+  { category: "digital", name: "赛博朋克霓虹", prompt: "赛博朋克霓虹，高对比冷暖光", gradient: "linear-gradient(135deg,#1b1f3b,#e0457b)" },
+  { category: "digital", name: "蒸汽波", prompt: "蒸汽波，粉紫色调与复古网格", gradient: "linear-gradient(135deg,#3b2b5b,#e08bb8)" },
+  { category: "digital", name: "故障艺术", prompt: "故障艺术，错位色块与扫描线", gradient: "linear-gradient(135deg,#123,#0fa)" },
+  { category: "digital", name: "低多边形", prompt: "低多边形 3D 插画", gradient: "linear-gradient(135deg,#2a4a3b,#8bc98b)" },
+  { category: "director", name: "韦斯·安德森", prompt: "韦斯·安德森式对称构图，柔和粉彩", gradient: "linear-gradient(135deg,#c9a3a3,#e8d9b8)" },
+  { category: "director", name: "王家卫", prompt: "王家卫式抽帧拖影，潮湿霓虹与旧香港色调", gradient: "linear-gradient(135deg,#3b2b1b,#c96b3b)" },
+  { category: "director", name: "诺兰冷峻", prompt: "诺兰式冷峻写实，灰蓝色调与大景深", gradient: "linear-gradient(135deg,#1b2530,#7a8b99)" },
+  { category: "director", name: "沙丘废土", prompt: "沙丘式废土美学，橙黄沙暴与巨物感", gradient: "linear-gradient(135deg,#6b4a2b,#d9a35b)" },
+  { category: "drama", name: "电影感光影", prompt: "电影感光影，戏剧性明暗对比", gradient: "linear-gradient(135deg,#14181d,#c9853b)" },
+  { category: "drama", name: "黑色电影", prompt: "黑色电影，硬朗侧光与长阴影", gradient: "linear-gradient(135deg,#0d0d0f,#5b5b66)" },
+  { category: "drama", name: "舞台聚光", prompt: "舞台聚光灯下的主体，深色背景", gradient: "linear-gradient(135deg,#12090f,#8b3b6b)" },
+  { category: "drama", name: "雨夜霓虹", prompt: "雨夜霓虹反射，潮湿街道与冷暖对比", gradient: "linear-gradient(135deg,#0d1b2a,#3b6bc9)" },
+  { category: "extra", name: "水彩插画", prompt: "水彩插画，纸张纹理与晕染", gradient: "linear-gradient(135deg,#a3c9c9,#e8e0d0)" },
+  { category: "extra", name: "油画厚涂", prompt: "油画厚涂，可见笔触与颜料堆叠", gradient: "linear-gradient(135deg,#4a3b2b,#c9853b)" },
+  { category: "extra", name: "极简扁平", prompt: "极简扁平插画，大色块与留白", gradient: "linear-gradient(135deg,#e8e0d0,#8bc9c9)" },
+  { category: "extra", name: "写实摄影", prompt: "写实摄影质感，真实光线与颗粒", gradient: "linear-gradient(135deg,#2b2b2b,#a3a3a3)" },
+];
+
 function nodeInlineEditPlaceholder(kind: CanvasNodeKind) {
   if (kind === "config") return "双击编辑配置";
   if (kind === "text") return "双击编辑文本";
@@ -8572,6 +8633,20 @@ function videoSubModePlaceholder(mode: VideoSubMode) {
     default:
       return "请输入视频描述…";
   }
+}
+
+/** 读取节点上保存的分镜场景列表。 */
+function storyboardScenesFromNode(node: CanvasNodeData | undefined): StoryboardScene[] {
+  const raw = node?.metadata?.storyboardScenes;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(isRecord).map((item) => ({
+    id: typeof item.id === "string" ? item.id : crypto.randomUUID(),
+    duration: Math.max(1, Math.min(10, Number(item.duration) || 4)),
+    visual: typeof item.visual === "string" ? item.visual : "",
+    dialogue: typeof item.dialogue === "string" ? item.dialogue : "",
+    sfx: Boolean(item.sfx),
+    bgm: Boolean(item.bgm),
+  }));
 }
 
 /** 空节点中央的按类型大图标（对齐空图片节点的形态）。 */
