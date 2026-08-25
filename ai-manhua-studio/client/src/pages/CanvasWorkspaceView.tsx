@@ -974,6 +974,8 @@ export default function CanvasWorkspaceView() {
   const groupsRef = useRef<CanvasGroupData[]>([]);
   const selectedNodeIdsRef = useRef<Set<string>>(new Set());
   const hoverLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectionHandlesRef = useRef(new Map<string, HTMLElement>());
+  const hoveredHandleKeyRef = useRef("");
   const selectionBoxRef = useRef<CanvasSelectionBoxState | null>(null);
   const suppressNodeClickRef = useRef("");
   const clipboardRef = useRef<CanvasClipboardPayload<CanvasNodeData, CanvasEdgeData> | null>(null);
@@ -1008,6 +1010,47 @@ export default function CanvasWorkspaceView() {
 
   useEffect(() => () => {
     if (hoverLeaveTimerRef.current) clearTimeout(hoverLeaveTimerRef.current);
+  }, []);
+
+  /* ---- 连接点磁性吸附：鼠标靠近时最近的连接点放大并拉满命中区 ---- */
+  const CONNECTION_HANDLE_MAGNET_RADIUS = 56;
+
+  const registerConnectionHandle = useCallback((nodeId: string, side: "source" | "target", element: HTMLElement | null) => {
+    const key = `${nodeId}:${side}`;
+    if (element) connectionHandlesRef.current.set(key, element);
+    else connectionHandlesRef.current.delete(key);
+  }, []);
+
+  useEffect(() => {
+    const onMove = (event: globalThis.PointerEvent) => {
+      if (connectionDragRef.current.active || panStateRef.current.mode !== "idle") return;
+      const { clientX, clientY } = event;
+      let nearestKey = "";
+      let nearestDistance = Infinity;
+      connectionHandlesRef.current.forEach((element, key) => {
+        const rect = element.getBoundingClientRect();
+        const cx = rect.x + rect.width / 2;
+        const cy = rect.y + rect.height / 2;
+        const distance = Math.hypot(clientX - cx, clientY - cy);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestKey = key;
+        }
+      });
+      const next = nearestDistance <= CONNECTION_HANDLE_MAGNET_RADIUS ? nearestKey : "";
+      if (next === hoveredHandleKeyRef.current) return;
+      const previous = hoveredHandleKeyRef.current ? connectionHandlesRef.current.get(hoveredHandleKeyRef.current) : undefined;
+      previous?.classList.remove("handle-magnet");
+      hoveredHandleKeyRef.current = next;
+      if (next) connectionHandlesRef.current.get(next)?.classList.add("handle-magnet");
+    };
+    window.addEventListener("pointermove", onMove as EventListener, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onMove as EventListener);
+      const current = hoveredHandleKeyRef.current ? connectionHandlesRef.current.get(hoveredHandleKeyRef.current) : undefined;
+      current?.classList.remove("handle-magnet");
+      hoveredHandleKeyRef.current = "";
+    };
   }, []);
 
   const applyNodeSelection = useCallback((ids: Iterable<string>, primaryId = "", openInspector = false) => {
@@ -7119,6 +7162,7 @@ export default function CanvasWorkspaceView() {
                     onPointerCancel={endDrag}
                   >
                     <button
+                      ref={(element) => registerConnectionHandle(node.id, "target", element)}
                       type="button"
                       className={`canvas-connection-handle target canvas-node-handle ${connectFrom === node.id && connectHandleType === "target" ? "active" : ""}`}
                       aria-label="连接到此节点"
@@ -7127,6 +7171,7 @@ export default function CanvasWorkspaceView() {
                       onPointerDown={(event) => beginConnection(event, node.id, "target")}
                     />
                     <button
+                      ref={(element) => registerConnectionHandle(node.id, "source", element)}
                       type="button"
                       className={`canvas-connection-handle source canvas-node-handle ${connectFrom === node.id && connectHandleType === "source" ? "active" : ""}`}
                       aria-label="从此节点连接"
