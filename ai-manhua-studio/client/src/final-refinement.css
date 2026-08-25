@@ -2470,5 +2470,117 @@ textarea.node-card-prompt {
   background-image: linear-gradient(#7dd3fc, #7dd3fc), linear-gradient(#7dd3fc, #7dd3fc);
 }
 
-  to { transform: scale(1); opacity: 1; }
+/* ---- Canvas: 参数弹出卡（时长滑块/分辨率按钮组/比例图标网格） ---- */
+.param-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.param-group:last-child { border-bottom: 0; }
+
+.param-group-label {
+  display: flex;
+  justify-content: space-between;
+  color: #8b9590;
+  font: 9px "IBM Plex Mono", monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.param-group-label b { color: #d6d9d3; }
+
+.param-segments {
+  display: flex;
+  gap: 6px;
+}
+
+.param-segments button {
+  flex: 1;
+  min-height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #b9c0ba;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.param-segments button.active {
+  border-color: rgba(233, 81, 62, 0.6);
+  background: rgba(233, 81, 62, 0.14);
+  color: #ffd9d2;
+}
+
+.param-ratio-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.param-ratio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #b9c0ba;
+  cursor: pointer;
+  font: 9px "IBM Plex Mono", monospace;
+}
+
+.param-ratio.active {
+  border-color: rgba(233, 81, 62, 0.6);
+  background: rgba(233, 81, 62, 0.12);
+  color: #ffd9d2;
+}
+
+.param-ratio-icon {
+  display: block;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  opacity: 0.85;
+}
+
+.param-range {
+  width: 100%;
+  accent-color: var(--red);
+}
+
+.param-range-ticks {
+  display: flex;
+  justify-content: space-between;
+  color: #77817c;
+  font: 8px "IBM Plex Mono", monospace;
+}
+
+.param-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.param-stepper button {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  background: transparent;
+  color: #d6d9d3;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.param-stepper b {
+  min-width: 26px;
+  text-align: center;
+  color: #d6d9d3;
+  font: 11px "IBM Plex Mono", monospace;
 }

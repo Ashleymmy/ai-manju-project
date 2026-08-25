@@ -7731,14 +7731,55 @@ export default function CanvasWorkspaceView() {
                   <PopoverContent className="node-pop-card node-pop-params" align="start" sideOffset={8}>
                     <p className="eyebrow">详细参数</p>
                     {selectedGenerationMode === "image" ? <>
-                      <div className="parameter-row"><span>比例</span><select value={sizeFromNode(selectedNode)} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: event.target.value } })}>{["auto", "1:1", "16:9", "9:16"].map((item) => <option key={item} value={item}>{item === "auto" ? "AUTO 自适应" : item}</option>)}</select></div>
-                      <div className="parameter-row"><span>质量</span><select value={qualityFromNode(selectedNode)} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), quality: event.target.value } })}>{["auto", "low", "medium", "high"].map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
+                      <div className="param-group"><span className="param-group-label">比例</span>
+                        <div className="param-ratio-grid">
+                          {["auto", "1:1", "16:9", "9:16", "21:9", "3:4", "4:3"].map((ratio) => (
+                            <button key={ratio} type="button" className={sizeFromNode(selectedNode) === ratio ? "param-ratio active" : "param-ratio"} title={ratio === "auto" ? "AUTO 自适应" : ratio} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: ratio } })}>
+                              <i className="param-ratio-icon" style={ratioIconStyle(ratio)} />
+                              <span>{ratio === "auto" ? "AUTO" : ratio}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="param-group"><span className="param-group-label">精细度</span>
+                        <div className="param-segments">
+                          {[["auto", "自动"], ["low", "低"], ["medium", "中"], ["high", "高"]].map(([value, label]) => (
+                            <button key={value} type="button" className={qualityFromNode(selectedNode) === value ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), quality: value } })}>{label}</button>
+                          ))}
+                        </div>
+                      </div>
                     </> : null}
-                    {selectedGenerationMode === "image" || selectedNode.kind === "config" ? <div className="parameter-row"><span>数量</span><input type="number" min={1} max={15} value={imageCountFromNode(selectedNode)} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), count: Math.max(1, Math.min(15, Number(event.target.value) || 1)) } })} /></div> : null}
+                    {selectedGenerationMode === "image" || selectedNode.kind === "config" ? <div className="param-group"><span className="param-group-label">数量</span><div className="param-stepper"><button type="button" onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), count: Math.max(1, imageCountFromNode(selectedNode) - 1) } })}>−</button><b>{imageCountFromNode(selectedNode)}</b><button type="button" onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), count: Math.min(15, imageCountFromNode(selectedNode) + 1) } })}>+</button></div></div> : null}
                     {selectedVideoConfig ? <>
-                      <div className="parameter-row"><span>比例 / 尺寸</span><select value={selectedVideoConfig.size} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: event.target.value } })}>{(selectedVideoSeedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes).map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
-                      <div className="parameter-row"><span>清晰度</span><select value={selectedVideoConfig.resolution} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), resolution: event.target.value } })}>{(selectedVideoSeedance ? videoModelSettings.seedanceResolutions : videoModelSettings.openAiResolutions).map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
-                      <div className="parameter-row"><span>时长</span><select value={selectedVideoConfig.seconds} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), seconds: event.target.value } })}>{(selectedVideoSeedance ? (isLongSeedanceVideoModel(selectedVideoConfig.model) ? videoModelSettings.seedanceLongDurations : videoModelSettings.seedanceDurations) : videoModelSettings.openAiDurations).map((item) => <option key={item} value={String(item)}>{item === -1 ? "自动" : `${item} 秒`}</option>)}</select></div>
+                      <div className="param-group"><span className="param-group-label">时长 <b>{selectedVideoConfig.seconds === "-1" ? "自动" : `${selectedVideoConfig.seconds} 秒`}</b></span>
+                        {(() => {
+                          const durations = selectedVideoSeedance ? (isLongSeedanceVideoModel(selectedVideoConfig.model) ? videoModelSettings.seedanceLongDurations : videoModelSettings.seedanceDurations) : videoModelSettings.openAiDurations;
+                          const index = Math.max(0, durations.findIndex((item) => String(item) === String(selectedVideoConfig.seconds)));
+                          return (
+                            <>
+                              <input type="range" className="param-range" min={0} max={durations.length - 1} step={1} value={index} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), seconds: String(durations[Number(event.target.value)]) } })} />
+                              <div className="param-range-ticks">{durations.map((item) => <span key={String(item)}>{item === -1 ? "自动" : `${item}s`}</span>)}</div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                      <div className="param-group"><span className="param-group-label">分辨率</span>
+                        <div className="param-segments">
+                          {(selectedVideoSeedance ? videoModelSettings.seedanceResolutions : videoModelSettings.openAiResolutions).map((item) => (
+                            <button key={item} type="button" className={selectedVideoConfig.resolution === item ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), resolution: item } })}>{item}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="param-group"><span className="param-group-label">宽高比</span>
+                        <div className="param-ratio-grid">
+                          {(selectedVideoSeedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes.map(sizeToRatioLabel)).map((ratio) => (
+                            <button key={ratio} type="button" className={selectedVideoConfig.size === ratio || sizeToRatioLabel(selectedVideoConfig.size) === ratio ? "param-ratio active" : "param-ratio"} title={ratio} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: ratio } })}>
+                              <i className="param-ratio-icon" style={ratioIconStyle(ratio)} />
+                              <span>{ratio === "adaptive" ? "自适应" : ratio}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                       {selectedVideoSeedance ? <>
                         <label className="parameter-row"><span>生成音频</span><input type="checkbox" checked={selectedVideoConfig.generateAudio} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), generateAudio: event.target.checked } })} /></label>
                         <label className="parameter-row"><span>添加水印</span><input type="checkbox" checked={selectedVideoConfig.watermark} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), watermark: event.target.checked } })} /></label>
@@ -9136,6 +9177,30 @@ function formatBytes(value: number) {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
   return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+/** 比例图标的小矩形样式（参数卡的图标按钮用）。 */
+function ratioIconStyle(ratio: string): CSSProperties {
+  const sizeMap: Record<string, [number, number]> = {
+    "1:1": [16, 16],
+    "16:9": [22, 12],
+    "9:16": [12, 22],
+    "21:9": [24, 10],
+    "3:4": [14, 19],
+    "4:3": [19, 14],
+  };
+  const [w, h] = sizeMap[ratio] || [17, 17];
+  return { width: w, height: h, borderStyle: ratio === "auto" || ratio === "adaptive" ? "dashed" : "solid" };
+}
+
+/** OpenAI 尺寸值转宽高比标签（1280x720 → 16:9）。 */
+function sizeToRatioLabel(size: string) {
+  if (size === "auto") return "adaptive";
+  const [w, h] = size.split("x").map(Number);
+  if (!w || !h) return size;
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+  const d = gcd(w, h);
+  return `${w / d}:${h / d}`;
 }
 
 function numberValue(value: unknown) {
