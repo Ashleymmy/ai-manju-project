@@ -9383,25 +9383,37 @@ function CanvasImageToolGrid({ node, imageToolBusy, storyboardBusy, openImageToo
   archiveCanvasMediaNode: (node: CanvasNodeData) => Promise<unknown>;
 }) {
   return (
-    <div className="canvas-image-tool-grid">
-      <button title="裁剪图片" onClick={() => openImageToolDialog(node.id, "crop")} disabled={imageToolBusy}><Crop size={15} /> 裁剪</button>
-      <button title="提取图片局部区域" onClick={() => openImageToolDialog(node.id, "focus")} disabled={imageToolBusy}><Eye size={15} /> 聚焦</button>
-      <button title="在图片上绘制形状、箭头、画笔和文字" onClick={() => setImageAnnotationNodeId(node.id)} disabled={imageToolBusy}><PenLine size={15} /> 标注</button>
-      <button title="涂抹区域并使用 AI 局部修改" onClick={() => { setImageMaskNodeId(node.id); setImageToolError(""); }} disabled={imageToolBusy}><PenLine size={15} /> 蒙版</button>
-      <button title="扩展图片画布并使用 AI 补全" onClick={() => openImageToolDialog(node.id, "outpaint")} disabled={imageToolBusy}><Expand size={15} /> 扩图</button>
-      <button title="按行列切分图片" onClick={() => openImageToolDialog(node.id, "split")} disabled={imageToolBusy}><Grid2X2 size={15} /> 切图</button>
-      <button title="水平翻转当前图片" onClick={() => void flipCanvasImageNode(node, "horizontal")} disabled={imageToolBusy}><FlipHorizontal size={15} /> 水平</button>
-      <button title="垂直翻转当前图片" onClick={() => void flipCanvasImageNode(node, "vertical")} disabled={imageToolBusy}><FlipVertical size={15} /> 垂直</button>
-      <button title="放大图片分辨率" onClick={() => openImageToolDialog(node.id, "upscale")} disabled={imageToolBusy}><ZoomIn size={15} /> 放大</button>
-      <button title="压缩图片体积" onClick={() => openImageToolDialog(node.id, "compress")} disabled={imageToolBusy}><Minimize2 size={15} /> 压缩</button>
-      <button title="基于原图生成 2:1 全景图" onClick={() => void generatePanoramaCanvasImage(node)} disabled={imageToolBusy}><Images size={15} /> 全景</button>
-      <button title="基于原图重新生成其他机位" onClick={() => openImageToolDialog(node.id, "angle")} disabled={imageToolBusy}><Camera size={15} /> 多角度</button>
-      <button title="AI 超分依赖管理员配置的模型服务" onClick={() => toast.info("AI 超分依赖管理员配置的模型服务，本地暂未实现")}><Sparkles size={15} /> AI 超分</button>
-      <button title="把所选图片排成故事板 PNG" onClick={() => generateStoryboard(node)} disabled={storyboardBusy}><GalleryHorizontalEnd size={15} /> 故事板</button>
-      <button title="创建反推提示词的文本配置节点" onClick={() => void createImageReversePromptNodes(node)}><WandSparkles size={15} /> 反推</button>
-      <button title="查看原图" onClick={() => setImagePreviewNodeId(node.id)}><Maximize2 size={15} /> 查看</button>
-      <button title="替换当前图片" onClick={() => { setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}><Upload size={15} /> 替换</button>
-      <button title="确认图片已归档到素材库" onClick={() => void archiveCanvasMediaNode(node)}><Archive size={15} /> 素材</button>
+    <div className="canvas-image-tool-list">
+      <button title="扩展图片画布并使用 AI 补全" onClick={() => openImageToolDialog(node.id, "outpaint")} disabled={imageToolBusy}><Expand size={14} /> 扩图</button>
+      <button title="擦除图片上的指定区域" disabled><Eraser size={14} /> 擦除 <span className="tool-soon">即将上线</span></button>
+      <button title="在图片上绘制形状、箭头、画笔和文字" onClick={() => setImageAnnotationNodeId(node.id)} disabled={imageToolBusy}><PenLine size={14} /> 标注</button>
+      <button title="AI 增强画质" disabled><Sparkles size={14} /> 增强 <span className="tool-soon">即将上线</span></button>
+      <button title="调整图片像素尺寸" disabled><Grid2X2 size={14} /> 调整像素 <span className="tool-soon">即将上线</span></button>
+      <button title="涂抹区域并使用 AI 局部修改（抠图）" onClick={() => { setImageMaskNodeId(node.id); setImageToolError(""); }} disabled={imageToolBusy}><Scissors size={14} /> 抠图</button>
+      <div className="tool-split-row">
+        <span className="tool-split-label"><Grid2X2 size={13} /> 快速切分</span>
+        <div className="tool-split-options">
+          {[2, 3, 4].map((grid) => (
+            <button key={grid} title={`按 ${grid}×${grid} 切分`} onClick={() => openImageToolDialog(node.id, "split")} disabled={imageToolBusy}>{grid}×{grid}</button>
+          ))}
+        </div>
+      </div>
+      <button title="Seedance 2.0 合规验证" disabled><BadgeCheck size={14} /> Seedance 2.0 合规验证 <span className="tool-soon">即将上线</span></button>
+      <div className="tool-list-divider" />
+      <button title="裁剪图片" onClick={() => openImageToolDialog(node.id, "crop")} disabled={imageToolBusy}><Crop size={14} /> 裁剪</button>
+      <button title="提取图片局部区域" onClick={() => openImageToolDialog(node.id, "focus")} disabled={imageToolBusy}><Eye size={14} /> 聚焦</button>
+      <button title="水平翻转当前图片" onClick={() => void flipCanvasImageNode(node, "horizontal")} disabled={imageToolBusy}><FlipHorizontal size={14} /> 水平翻转</button>
+      <button title="垂直翻转当前图片" onClick={() => void flipCanvasImageNode(node, "vertical")} disabled={imageToolBusy}><FlipVertical size={14} /> 垂直翻转</button>
+      <button title="放大图片分辨率" onClick={() => openImageToolDialog(node.id, "upscale")} disabled={imageToolBusy}><ZoomIn size={14} /> 放大</button>
+      <button title="压缩图片体积" onClick={() => openImageToolDialog(node.id, "compress")} disabled={imageToolBusy}><Minimize2 size={14} /> 压缩</button>
+      <button title="基于原图生成 2:1 全景图" onClick={() => void generatePanoramaCanvasImage(node)} disabled={imageToolBusy}><Images size={14} /> 全景图</button>
+      <button title="基于原图重新生成其他机位" onClick={() => openImageToolDialog(node.id, "angle")} disabled={imageToolBusy}><Camera size={14} /> 多角度</button>
+      <button title="AI 超分依赖管理员配置的模型服务" onClick={() => toast.info("AI 超分依赖管理员配置的模型服务，本地暂未实现")}><Sparkles size={14} /> AI 超分</button>
+      <button title="把所选图片排成故事板 PNG" onClick={() => generateStoryboard(node)} disabled={storyboardBusy}><GalleryHorizontalEnd size={14} /> 故事板</button>
+      <button title="创建反推提示词的文本配置节点" onClick={() => void createImageReversePromptNodes(node)}><WandSparkles size={14} /> 反推提示词</button>
+      <button title="查看原图" onClick={() => setImagePreviewNodeId(node.id)}><Maximize2 size={14} /> 查看原图</button>
+      <button title="替换当前图片" onClick={() => { setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}><Upload size={14} /> 替换图片</button>
+      <button title="确认图片已归档到素材库" onClick={() => void archiveCanvasMediaNode(node)}><Archive size={14} /> 存入素材库</button>
     </div>
   );
 }

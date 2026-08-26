@@ -3069,3 +3069,94 @@ textarea.node-card-prompt {
   padding: 0;
   justify-content: center;
 }
+
+/* ---- Canvas: 图片工具改列表式（对齐参考图1） ---- */
+.canvas-image-tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.canvas-image-tool-list > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: #c9cdc5;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  border-radius: 7px;
+}
+
+.canvas-image-tool-list > button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.canvas-image-tool-list > button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.canvas-image-tool-list > button svg {
+  flex-shrink: 0;
+  color: #8b9590;
+}
+
+.tool-soon {
+  margin-left: auto;
+  color: #77817c;
+  font-size: 9px;
+}
+
+.tool-split-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 12px;
+  color: #c9cdc5;
+  font-size: 12px;
+}
+
+.tool-split-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tool-split-label svg { color: #8b9590; }
+
+.tool-split-options {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.tool-split-options button {
+  min-height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: #8b9590;
+  cursor: pointer;
+  font: 9px "IBM Plex Mono", monospace;
+}
+
+.tool-split-options button:hover:not(:disabled) {
+  border-color: rgba(233, 81, 62, 0.5);
+  color: #ffd9d2;
+}
+
+.tool-list-divider {
+  height: 1px;
+  margin: 6px 0;
+  background: var(--line);
+}
