@@ -4189,7 +4189,7 @@ export default function CanvasWorkspaceView() {
     connectionPreviewPointRef.current = previewPoint;
     connectionTargetIdRef.current = "";
     pendingConnectionCreateRef.current = null;
-    applyNodeSelection([nodeId], nodeId, true);
+    // 不调用 applyNodeSelection，避免打开 Inspector
     setConnectFrom(nodeId);
     setConnectHandleType(handleType);
     setConnectionPreviewPoint(previewPoint);
