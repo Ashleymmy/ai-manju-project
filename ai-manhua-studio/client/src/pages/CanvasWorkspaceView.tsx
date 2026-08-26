@@ -7688,21 +7688,24 @@ export default function CanvasWorkspaceView() {
                       if (mode === "text") return null; // 文生视频无需输入源
 
                       const requiredType = (mode === "reference" || mode === "first-last") ? "image" : (mode === "edit" || mode === "extend") ? "video" : null;
-                      const requiredCount = mode === "first-last" ? 2 : 1;
                       const validSources = sourceNodes.filter((n) => n.kind === requiredType);
 
+                      // 全能参考支持多图，其它模式固定数量
+                      const minCount = mode === "first-last" ? 2 : 1;
+                      const displayCount = mode === "reference" ? Math.max(validSources.length, 1) : minCount;
+
                       return (
-                        <div className="video-input-sources">
-                          {Array.from({ length: requiredCount }).map((_, index) => {
+                        <div className="video-input-sources" data-count={displayCount}>
+                          {Array.from({ length: displayCount }).map((_, index) => {
                             const source = validSources[index];
                             const preview = source ? (source.kind === "image" ? imageSrcFromNode(source, previews) : source.metadata?.preview as string | undefined) : null;
                             return (
                               <div key={index} className="video-input-slot">
                                 {preview && source ? (
                                   source.kind === "image" ? (
-                                    <img src={preview} alt="" />
+                                    <img src={preview} alt="" onClick={() => setImagePreviewNodeId(source.id)} style={{ cursor: "pointer" }} />
                                   ) : (
-                                    <video src={preview} muted />
+                                    <video src={preview} muted onClick={() => setImagePreviewNodeId(source.id)} style={{ cursor: "pointer" }} />
                                   )
                                 ) : (
                                   <button type="button" title={`连接${requiredType === "image" ? "图片" : "视频"}节点`}>

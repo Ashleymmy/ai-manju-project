@@ -3435,7 +3435,9 @@ textarea.node-card-prompt {
 
 .video-input-sources {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .video-input-slot {
@@ -3446,6 +3448,22 @@ textarea.node-card-prompt {
   background: rgba(0, 0, 0, 0.3);
   overflow: hidden;
   position: relative;
+  flex-shrink: 0;
+}
+
+/* 多图自适应：3个及以上时缩小 */
+.video-input-sources[data-count="3"] .video-input-slot,
+.video-input-sources[data-count="4"] .video-input-slot {
+  width: 48px;
+  height: 34px;
+}
+
+.video-input-sources[data-count="5"] .video-input-slot,
+.video-input-sources[data-count="6"] .video-input-slot,
+.video-input-sources[data-count="7"] .video-input-slot,
+.video-input-sources[data-count="8"] .video-input-slot {
+  width: 42px;
+  height: 30px;
 }
 
 .video-input-slot img,
