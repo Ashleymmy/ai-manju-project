@@ -3424,3 +3424,50 @@ textarea.node-card-prompt {
   font-size: 11px;
   font-weight: 500;
 }
+
+/* ---- Canvas: 视频输入源显示 ---- */
+.video-submode-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.video-input-sources {
+  display: flex;
+  gap: 8px;
+}
+
+.video-input-slot {
+  width: 56px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  position: relative;
+}
+
+.video-input-slot img,
+.video-input-slot video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.video-input-slot button {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #8b9590;
+  cursor: pointer;
+}
+
+.video-input-slot button:hover {
+  color: #ffd9d2;
+  background: rgba(233, 81, 62, 0.1);
+}

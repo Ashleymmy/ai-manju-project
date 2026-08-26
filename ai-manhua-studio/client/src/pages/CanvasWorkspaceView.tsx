@@ -7678,8 +7678,43 @@ export default function CanvasWorkspaceView() {
             <>
               <div className="node-card-body">
                 {selectedNode.kind === "video" ? (
-                  <div className="video-submode-current">
+                  <div className="video-submode-header">
                     <span className="video-submode-badge">{VIDEO_SUBMODES.find((sub) => sub.value === videoSubModeFromNode(selectedNode))?.label || "文生视频"}</span>
+                    {(() => {
+                      const mode = videoSubModeFromNode(selectedNode);
+                      const incomingEdges = edges.filter((edge) => edge.to === selectedNode.id);
+                      const sourceNodes = incomingEdges.map((edge) => nodes.find((n) => n.id === edge.from)).filter((n): n is CanvasNodeData => n !== undefined);
+
+                      if (mode === "text") return null; // 文生视频无需输入源
+
+                      const requiredType = (mode === "reference" || mode === "first-last") ? "image" : (mode === "edit" || mode === "extend") ? "video" : null;
+                      const requiredCount = mode === "first-last" ? 2 : 1;
+                      const validSources = sourceNodes.filter((n) => n.kind === requiredType);
+
+                      return (
+                        <div className="video-input-sources">
+                          {Array.from({ length: requiredCount }).map((_, index) => {
+                            const source = validSources[index];
+                            const preview = source ? (source.kind === "image" ? imageSrcFromNode(source, previews) : source.metadata?.preview as string | undefined) : null;
+                            return (
+                              <div key={index} className="video-input-slot">
+                                {preview && source ? (
+                                  source.kind === "image" ? (
+                                    <img src={preview} alt="" />
+                                  ) : (
+                                    <video src={preview} muted />
+                                  )
+                                ) : (
+                                  <button type="button" title={`连接${requiredType === "image" ? "图片" : "视频"}节点`}>
+                                    <Plus size={14} />
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
                 ) : null}
                 <CanvasResourceMentionTextarea
@@ -7738,20 +7773,6 @@ export default function CanvasWorkspaceView() {
                             className={videoSubModeFromNode(selectedNode) === sub.value ? "node-pop-item active" : "node-pop-item"}
                             onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), videoSubMode: sub.value } })}
                           >{sub.label}</button>
-                        ))}
-                      </PopoverContent>
-                    </Popover>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button type="button" className="node-chip">{generationModeLabel(selectedGenerationMode)} <ChevronDown size={12} /></button>
-                      </PopoverTrigger>
-                      <PopoverContent className="node-pop-card" align="start" sideOffset={8}>
-                        <p className="eyebrow">生成模式</p>
-                        {(["text", "image", "video", "audio"] as const).map((mode) => (
-                          <button key={mode} className={selectedGenerationMode === mode ? "node-pop-item active" : "node-pop-item"} onClick={() => {
-                            const model = mode === "text" ? textModel : mode === "image" ? imageModel : mode === "video" ? videoModel : audioModel;
-                            updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), generationMode: mode, model } });
-                          }}>{generationModeLabel(mode)}</button>
                         ))}
                       </PopoverContent>
                     </Popover>
