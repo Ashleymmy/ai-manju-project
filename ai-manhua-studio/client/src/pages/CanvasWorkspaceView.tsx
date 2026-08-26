@@ -345,6 +345,7 @@ type CanvasNodeMetadata = Record<string, unknown> & {
   seconds?: string;
   videoSubMode?: string;
   storyboardScenes?: Array<Record<string, unknown>>;
+  imageResolution?: string;
   generateAudio?: boolean;
   watermark?: boolean;
   quality?: string;
@@ -3301,7 +3302,7 @@ export default function CanvasWorkspaceView() {
           generationType: "edit",
           sourceNodeId: sourceNode.id,
           model,
-          size: options.size || sizeFromNode(sourceNode),
+          size: options.size || toImageSizeValue(sizeFromNode(sourceNode)),
           quality: qualityFromNode(sourceNode),
           editRelation: options.relation,
           referenceInputs: assetIdFromNode(sourceNode) ? [{
@@ -3330,7 +3331,7 @@ export default function CanvasWorkspaceView() {
         scope: activeScope,
         prompt,
         model,
-        size: options.size || sizeFromNode(sourceNode),
+        size: options.size || toImageSizeValue(sizeFromNode(sourceNode)),
         quality: qualityFromNode(sourceNode),
         referenceFiles: [referenceFile],
         maskFile,
@@ -5148,7 +5149,7 @@ export default function CanvasWorkspaceView() {
         scope: activeScope,
         prompt,
         model: stringValue(target.metadata?.model) || imageModel,
-        size: sizeFromNode(target),
+        size: toImageSizeValue(sizeFromNode(target)),
         quality: qualityFromNode(target),
         referenceFiles: files,
       });
@@ -5390,7 +5391,7 @@ export default function CanvasWorkspaceView() {
         scope: canonicalProjectScope,
         prompt: stringValue(node.metadata?.prompt) || node.content,
         model: stringValue(node.metadata?.model) || imageModel,
-        size: sizeFromNode(node),
+        size: toImageSizeValue(sizeFromNode(node)),
         quality: qualityFromNode(node),
         referenceFiles: [],
         existingJobId: jobId,
@@ -5592,7 +5593,7 @@ export default function CanvasWorkspaceView() {
     const childIds = count > 1 ? Array.from({ length: count }, () => crypto.randomUUID()) : [];
     const targetIds = childIds.length ? childIds : [rootId];
     const model = modelFromNode(sourceNode, imageModel);
-    const size = sizeFromNode(sourceNode);
+    const size = toImageSizeValue(sizeFromNode(sourceNode));
     const quality = qualityFromNode(sourceNode);
     const commonMetadata: CanvasNodeMetadata = {
       content: prompt,
@@ -7762,20 +7763,35 @@ export default function CanvasWorkspaceView() {
                   <PopoverContent className="node-pop-card node-pop-params" align="start" sideOffset={8}>
                     <p className="eyebrow">详细参数</p>
                     {selectedGenerationMode === "image" ? <>
+                      <div className="param-group"><span className="param-group-label">画质</span>
+                        <div className="param-segments param-segments-wide">
+                          {["1K", "2K", "4K"].map((value) => (
+                            <button key={value} type="button" className={(selectedNode.metadata?.imageResolution || "2K") === value ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), imageResolution: value } })}>{value}</button>
+                          ))}
+                        </div>
+                      </div>
                       <div className="param-group"><span className="param-group-label">比例</span>
                         <div className="param-ratio-grid">
-                          {["auto", "1:1", "16:9", "9:16", "21:9", "3:4", "4:3"].map((ratio) => (
-                            <button key={ratio} type="button" className={sizeFromNode(selectedNode) === ratio ? "param-ratio active" : "param-ratio"} title={ratio === "auto" ? "AUTO 自适应" : ratio} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: ratio } })}>
+                          <button type="button" className={sizeFromNode(selectedNode) === "auto" ? "param-ratio active" : "param-ratio"} title="AUTO 自适应" onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: "auto" } })}>
+                            <i className="param-ratio-icon" style={ratioIconStyle("auto")} />
+                            <span>自适应</span>
+                          </button>
+                          {["1:1", "2:1", "4:3", "3:4", "5:4", "4:5", "3:2", "2:3", "21:9", "9:21", "16:9", "9:16"].map((ratio) => (
+                            <button key={ratio} type="button" className={sizeFromNode(selectedNode) === ratio ? "param-ratio active" : "param-ratio"} title={ratio} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: ratio } })}>
                               <i className="param-ratio-icon" style={ratioIconStyle(ratio)} />
-                              <span>{ratio === "auto" ? "AUTO" : ratio}</span>
+                              <span>{ratio}</span>
                             </button>
                           ))}
+                          <button type="button" className={sizeFromNode(selectedNode) === "panorama" ? "param-ratio active" : "param-ratio"} title="全景图" onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: "panorama" } })}>
+                            <i className="param-ratio-icon param-ratio-panorama" style={ratioIconStyle("panorama")} />
+                            <span>全景图</span>
+                          </button>
                         </div>
                       </div>
                       <div className="param-group"><span className="param-group-label">精细度</span>
                         <div className="param-segments">
-                          {[["auto", "自动"], ["low", "低"], ["medium", "中"], ["high", "高"]].map(([value, label]) => (
-                            <button key={value} type="button" className={qualityFromNode(selectedNode) === value ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), quality: value } })}>{label}</button>
+                          {[["low", "低"], ["medium", "中"], ["high", "高"]].map(([value, label]) => (
+                            <button key={value} type="button" className={qualityFromNode(selectedNode) === value || (value === "medium" && qualityFromNode(selectedNode) === "auto") ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), quality: value } })}>{label}</button>
                           ))}
                         </div>
                       </div>
@@ -8796,9 +8812,13 @@ function readCanvasFileDataUrl(file: File, signal?: AbortSignal) {
   });
 }
 
-function sizeFromNode(node: CanvasNodeData): ImageSizeValue {
-  const value = stringValue(node.metadata?.size).toLowerCase();
-  return value === "1:1" || value === "16:9" || value === "9:16" || value === "2:1" || value === "auto" ? value : "auto";
+function sizeFromNode(node: CanvasNodeData): string {
+  return stringValue(node.metadata?.size).toLowerCase() || "auto";
+}
+
+/** 生成时把扩展比例（5:4/全景图等）回落到后端支持的值。 */
+function toImageSizeValue(size: string): ImageSizeValue {
+  return size === "1:1" || size === "16:9" || size === "9:16" || size === "2:1" || size === "auto" ? size : "auto";
 }
 
 function qualityFromNode(node: CanvasNodeData): ImageQualityValue {
@@ -9376,8 +9396,16 @@ function ratioIconStyle(ratio: string): CSSProperties {
     "16:9": [22, 12],
     "9:16": [12, 22],
     "21:9": [24, 10],
+    "9:21": [10, 24],
     "3:4": [14, 19],
     "4:3": [19, 14],
+    "5:4": [19, 15],
+    "4:5": [15, 19],
+    "3:2": [21, 14],
+    "2:3": [14, 21],
+    "2:1": [22, 11],
+    "1:2": [11, 22],
+    "panorama": [26, 10],
   };
   const [w, h] = sizeMap[ratio] || [17, 17];
   return { width: w, height: h, borderStyle: ratio === "auto" || ratio === "adaptive" ? "dashed" : "solid" };

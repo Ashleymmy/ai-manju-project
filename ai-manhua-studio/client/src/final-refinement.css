@@ -2987,3 +2987,23 @@ textarea.node-card-prompt {
   gap: 8px;
   padding-top: 12px;
 }
+
+/* ---- Canvas: 参数卡按参考图调网格 ---- */
+.param-segments-wide button {
+  font-size: 12px;
+  min-height: 32px;
+}
+
+.param-ratio-grid {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.param-ratio span {
+  font-size: 9px;
+}
+
+/* 全景图图标：横向拉长的虚线框 */
+.param-ratio-panorama {
+  border-style: dashed;
+  border-radius: 3px;
+}
