@@ -7157,7 +7157,7 @@ export default function CanvasWorkspaceView() {
                 return (
                   <article
                     key={node.id}
-                    className={`real-canvas-node ${node.kind} ${isBatchRootNode ? "batch-root" : ""} ${selectedNodeIds.has(node.id) ? "selected" : ""} ${connectionTargetId === node.id ? "connection-target" : ""} ${runningNodeIds.has(node.id) ? "running" : ""}`}
+                    className={`real-canvas-node ${node.kind} ${isBatchRootNode ? "batch-root" : ""} ${selectedNodeIds.has(node.id) ? "selected" : ""} ${connectionTargetId === node.id ? "connection-target" : ""} ${runningNodeIds.has(node.id) ? "running" : ""} ${connectFrom ? "connecting-mode" : ""}`}
                     data-node-id={node.id}
                     style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
                     onClick={(event) => chooseNode(node.id, event)}

@@ -3489,3 +3489,19 @@ textarea.node-card-prompt {
   color: #ffd9d2;
   background: rgba(233, 81, 62, 0.1);
 }
+
+/* ---- Canvas: 连线模式禁用内部交互 ---- */
+.real-canvas-node.connecting-mode button:not(.canvas-connection-handle),
+.real-canvas-node.connecting-mode input,
+.real-canvas-node.connecting-mode textarea,
+.real-canvas-node.connecting-mode select,
+.real-canvas-node.connecting-mode [contenteditable="true"],
+.real-canvas-node.connecting-mode .video-input-slot img,
+.real-canvas-node.connecting-mode .video-input-slot video {
+  pointer-events: none;
+}
+
+/* 连接handle保持可用 */
+.real-canvas-node.connecting-mode .canvas-connection-handle {
+  pointer-events: auto;
+}
