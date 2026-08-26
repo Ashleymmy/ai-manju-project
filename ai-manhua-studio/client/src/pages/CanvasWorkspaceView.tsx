@@ -7341,7 +7341,11 @@ export default function CanvasWorkspaceView() {
                           preload="metadata"
                           data-testid="canvas-node-video"
                           data-canvas-no-zoom
-                          onPointerDown={(event) => event.stopPropagation()}
+                          onPointerDown={(event) => {
+                            // 仅拦截播放控制条区域（底部 36px），其余画面放行给节点拖拽
+                            const rect = event.currentTarget.getBoundingClientRect();
+                            if (event.clientY > rect.bottom - 36) event.stopPropagation();
+                          }}
                         />
                         <button
                           type="button"
