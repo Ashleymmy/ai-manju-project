@@ -3007,3 +3007,15 @@ textarea.node-card-prompt {
   border-style: dashed;
   border-radius: 3px;
 }
+
+/* ---- Canvas: 积分消耗 chip 可点击 + 提示文案 ---- */
+.node-credit-chip {
+  cursor: pointer;
+}
+
+.node-pop-hint {
+  margin: 8px 0 0;
+  color: #77817c;
+  font-size: 9px;
+  line-height: 1.5;
+}

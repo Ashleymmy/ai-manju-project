@@ -7716,6 +7716,7 @@ export default function CanvasWorkspaceView() {
               </div>
 
               <div className="node-card-chips">
+                {selectedNode.kind === "video" ? (
                 <Popover>
                   <PopoverTrigger asChild>
                     <button type="button" className="node-chip">{generationModeLabel(selectedGenerationMode)} <ChevronDown size={12} /></button>
@@ -7730,6 +7731,7 @@ export default function CanvasWorkspaceView() {
                     ))}
                   </PopoverContent>
                 </Popover>
+                ) : null}
                 <Popover>
                   <PopoverTrigger asChild>
                     <button type="button" className="node-chip node-chip-model" title={selectedGenerationModel}>{(textModelLabels[selectedGenerationModel] || selectedGenerationModel || "选择模型").split("::").at(-1)} <ChevronDown size={12} /></button>
@@ -7796,7 +7798,6 @@ export default function CanvasWorkspaceView() {
                         </div>
                       </div>
                     </> : null}
-                    {selectedGenerationMode === "image" || selectedNode.kind === "config" ? <div className="param-group"><span className="param-group-label">数量</span><div className="param-stepper"><button type="button" onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), count: Math.max(1, imageCountFromNode(selectedNode) - 1) } })}>−</button><b>{imageCountFromNode(selectedNode)}</b><button type="button" onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), count: Math.min(15, imageCountFromNode(selectedNode) + 1) } })}>+</button></div></div> : null}
                     {selectedVideoConfig ? <>
                       <div className="param-group"><span className="param-group-label">时长 <b>{selectedVideoConfig.seconds === "-1" ? "自动" : `${selectedVideoConfig.seconds} 秒`}</b></span>
                         {(() => {
@@ -7841,7 +7842,20 @@ export default function CanvasWorkspaceView() {
                     {!selectedVideoConfig && !selectedAudioConfig && selectedGenerationMode !== "image" && selectedNode.kind !== "config" ? <p className="prompt-copy">当前模式没有额外参数。</p> : null}
                   </PopoverContent>
                 </Popover>
-                <span className="node-chip node-credit-chip" title="本次生成数量">{<Zap size={12} />} ×{selectedGenerationMode === "image" || selectedNode.kind === "config" ? imageCountFromNode(selectedNode) : 1}</span>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button type="button" className="node-chip node-credit-chip" title="生成数量与积分消耗（1:1）"><Zap size={12} /> ×{imageCountFromNode(selectedNode)}</button>
+                  </PopoverTrigger>
+                  <PopoverContent className="node-pop-card" align="start" sideOffset={8}>
+                    <p className="eyebrow">数量 / 积分</p>
+                    <div className="param-segments">
+                      {[1, 2, 4, 6].map((count) => (
+                        <button key={count} type="button" className={imageCountFromNode(selectedNode) === count ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), count } })}>×{count}</button>
+                      ))}
+                    </div>
+                    <p className="node-pop-hint">当前暂定所有类型生成积分消耗与数量 1:1</p>
+                  </PopoverContent>
+                </Popover>
                 <div className="node-card-primary">
                   {selectedNode.kind === "director" ? (
                     <button className="node-send-button" onClick={() => void openDirectorNode(selectedNode)}><ArrowRight size={15} /> 导演台</button>
