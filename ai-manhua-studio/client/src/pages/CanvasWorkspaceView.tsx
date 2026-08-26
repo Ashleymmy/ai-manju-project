@@ -4110,6 +4110,7 @@ export default function CanvasWorkspaceView() {
     const activeConnectHandleType = connectHandleTypeRef.current;
     if (activeConnectFrom && activeConnectFrom !== id) {
       connectNodes(activeConnectFrom, id, activeConnectHandleType);
+      return; // 完成连线后直接返回，不选中节点
     } else if (activeConnectFrom === id) {
       connectFromRef.current = "";
       connectHandleTypeRef.current = "source";
@@ -4121,6 +4122,7 @@ export default function CanvasWorkspaceView() {
       setConnectionTargetId("");
       setConnectionPreviewPoint(null);
       setPendingConnectionCreate(null);
+      return; // 取消连线后直接返回，不选中节点
     }
     const additive = Boolean(event && (event.shiftKey || event.ctrlKey || event.metaKey));
     if (additive) {
