@@ -7678,15 +7678,8 @@ export default function CanvasWorkspaceView() {
             <>
               <div className="node-card-body">
                 {selectedNode.kind === "video" ? (
-                  <div className="video-submode-tabs">
-                    {VIDEO_SUBMODES.map((sub) => (
-                      <button
-                        key={sub.value}
-                        type="button"
-                        className={videoSubModeFromNode(selectedNode) === sub.value ? "active" : ""}
-                        onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), videoSubMode: sub.value } })}
-                      >{sub.label}</button>
-                    ))}
+                  <div className="video-submode-current">
+                    <span className="video-submode-badge">{VIDEO_SUBMODES.find((sub) => sub.value === videoSubModeFromNode(selectedNode))?.label || "文生视频"}</span>
                   </div>
                 ) : null}
                 <CanvasResourceMentionTextarea
@@ -7731,20 +7724,38 @@ export default function CanvasWorkspaceView() {
 
               <div className="node-card-chips">
                 {selectedNode.kind === "video" ? (
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button type="button" className="node-chip">{generationModeLabel(selectedGenerationMode)} <ChevronDown size={12} /></button>
-                  </PopoverTrigger>
-                  <PopoverContent className="node-pop-card" align="start" sideOffset={8}>
-                    <p className="eyebrow">生成模式</p>
-                    {(["text", "image", "video", "audio"] as const).map((mode) => (
-                      <button key={mode} className={selectedGenerationMode === mode ? "node-pop-item active" : "node-pop-item"} onClick={() => {
-                        const model = mode === "text" ? textModel : mode === "image" ? imageModel : mode === "video" ? videoModel : audioModel;
-                        updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), generationMode: mode, model } });
-                      }}>{generationModeLabel(mode)}</button>
-                    ))}
-                  </PopoverContent>
-                </Popover>
+                  <>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button type="button" className="node-chip">{VIDEO_SUBMODES.find((sub) => sub.value === videoSubModeFromNode(selectedNode))?.label || "文生视频"} <ChevronDown size={12} /></button>
+                      </PopoverTrigger>
+                      <PopoverContent className="node-pop-card" align="start" sideOffset={8}>
+                        <p className="eyebrow">视频模式</p>
+                        {VIDEO_SUBMODES.map((sub) => (
+                          <button
+                            key={sub.value}
+                            type="button"
+                            className={videoSubModeFromNode(selectedNode) === sub.value ? "node-pop-item active" : "node-pop-item"}
+                            onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), videoSubMode: sub.value } })}
+                          >{sub.label}</button>
+                        ))}
+                      </PopoverContent>
+                    </Popover>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button type="button" className="node-chip">{generationModeLabel(selectedGenerationMode)} <ChevronDown size={12} /></button>
+                      </PopoverTrigger>
+                      <PopoverContent className="node-pop-card" align="start" sideOffset={8}>
+                        <p className="eyebrow">生成模式</p>
+                        {(["text", "image", "video", "audio"] as const).map((mode) => (
+                          <button key={mode} className={selectedGenerationMode === mode ? "node-pop-item active" : "node-pop-item"} onClick={() => {
+                            const model = mode === "text" ? textModel : mode === "image" ? imageModel : mode === "video" ? videoModel : audioModel;
+                            updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), generationMode: mode, model } });
+                          }}>{generationModeLabel(mode)}</button>
+                        ))}
+                      </PopoverContent>
+                    </Popover>
+                  </>
                 ) : null}
                 <Popover>
                   <PopoverTrigger asChild>

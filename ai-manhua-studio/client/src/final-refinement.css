@@ -3242,7 +3242,6 @@ textarea.node-card-prompt {
   max-height: 86vh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
 .storyboard-timeline-tabs {
@@ -3398,13 +3397,30 @@ textarea.node-card-prompt {
   flex-shrink: 0;
 }
 
-/* 隐藏 DialogContent 自身的滚动条 */
+/* 隐藏 DialogContent 自身的滚动条但保持滚动功能 */
 .storyboard-timeline-dialog > div {
-  overflow: hidden !important;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 
 .storyboard-timeline-dialog > div::-webkit-scrollbar {
   display: none;
+}
+
+/* ---- Canvas: 视频模式顶部当前显示 ---- */
+.video-submode-current {
+  display: flex;
+  justify-content: flex-start;
+  padding: 8px 0;
+}
+
+.video-submode-badge {
+  display: inline-flex;
+  padding: 5px 12px;
+  border: 1px solid rgba(233, 81, 62, 0.4);
+  border-radius: 6px;
+  background: rgba(233, 81, 62, 0.12);
+  color: #ffd9d2;
+  font-size: 11px;
+  font-weight: 500;
 }
