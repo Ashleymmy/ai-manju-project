@@ -8685,9 +8685,13 @@ function storyboardScenesFromNode(node: CanvasNodeData | undefined): StoryboardS
   if (!Array.isArray(raw)) return [];
   return raw.filter(isRecord).map((item) => ({
     id: typeof item.id === "string" ? item.id : crypto.randomUUID(),
-    duration: Math.max(1, Math.min(10, Number(item.duration) || 4)),
+    startTime: Math.max(0, Number(item.startTime) || 0),
+    endTime: Math.max(0, Number(item.endTime) || 5),
+    quality: (item.quality === "标准" || item.quality === "流畅" || item.quality === "高清") ? item.quality : "标准",
+    lightEffect: "选择",
     visual: typeof item.visual === "string" ? item.visual : "",
-    dialogue: typeof item.dialogue === "string" ? item.dialogue : "",
+    camera: typeof item.camera === "string" ? item.camera : "",
+    materials: typeof item.materials === "string" ? item.materials : "",
     sfx: Boolean(item.sfx),
     bgm: Boolean(item.bgm),
   }));
