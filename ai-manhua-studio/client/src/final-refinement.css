@@ -3019,3 +3019,53 @@ textarea.node-card-prompt {
   font-size: 9px;
   line-height: 1.5;
 }
+
+/* ---- Canvas: 工具条按参考改 —— Pin 独立在上方 + 纯图标条 ---- */
+.node-toolbar-wrap {
+  position: absolute;
+  top: -34px;
+  left: 50%;
+  transform: translate(-50%, -100%);
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.node-toolbar-pin {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(18, 26, 29, 0.94);
+  color: #8b9590;
+  cursor: pointer;
+  font: 9px "IBM Plex Mono", monospace;
+  letter-spacing: 0.08em;
+  backdrop-filter: blur(6px);
+}
+
+.node-toolbar-pin.active,
+.node-toolbar-pin:hover {
+  border-color: rgba(233, 81, 62, 0.55);
+  color: #ffd9d2;
+}
+
+/* 覆盖之前的文字标签样式，纯图标 */
+.node-hover-toolbar {
+  position: static;
+  transform: none;
+  gap: 2px;
+  padding: 4px;
+}
+
+.node-hover-toolbar button {
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
+}

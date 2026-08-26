@@ -7452,25 +7452,34 @@ export default function CanvasWorkspaceView() {
                       </div>
                     ) : null}
                     {(selectedId === node.id || pinnedToolbarNodeId === node.id) && !isEmptyMediaNode && (
-                      <div className="node-hover-toolbar" data-canvas-ui data-canvas-no-zoom>
+                      <div className="node-toolbar-wrap" data-canvas-ui data-canvas-no-zoom>
+                        <button
+                          type="button"
+                          className={`node-toolbar-pin ${pinnedToolbarNodeId === node.id ? "active" : ""}`}
+                          title={pinnedToolbarNodeId === node.id ? "取消固定" : "固定工具条"}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => { e.stopPropagation(); setPinnedToolbarNodeId((current) => current === node.id ? "" : node.id); }}
+                        >
+                          <Pin size={10} /> Pin
+                        </button>
+                        <div className="node-hover-toolbar">
                         {runningNodeIds.has(node.id) ? (
-                          <button title="停止生成" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); stopGenerationByNodeId(node.id); }}><Square size={12} /><span>停止</span></button>
+                          <button title="停止生成" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); stopGenerationByNodeId(node.id); }}><Square size={12} /></button>
                         ) : (
                           <>
-                             <button title={pinnedToolbarNodeId === node.id ? "取消固定" : "固定工具条"} className={pinnedToolbarNodeId === node.id ? "active" : ""} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setPinnedToolbarNodeId((current) => current === node.id ? "" : node.id); }}><Pin size={12} /><span>Pin</span></button>
-                             <button title="复制" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void duplicateSelectedNode(node.id); }}><Copy size={12} /><span>复制</span></button>
-                             {node.kind === "director" ? <button title="打开导演台" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void openDirectorNode(node); }}><ArrowRight size={12} /><span>导演台</span></button> : null}
-                             {node.kind === "text" ? <button title="用文本生图" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void generateImageFromTextNode(node); }}><ImageIcon size={12} /><span>生图</span></button> : null}
+                             <button title="复制" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void duplicateSelectedNode(node.id); }}><Copy size={13} /></button>
+                             {node.kind === "director" ? <button title="打开导演台" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void openDirectorNode(node); }}><ArrowRight size={13} /></button> : null}
+                             {node.kind === "text" ? <button title="用文本生图" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void generateImageFromTextNode(node); }}><ImageIcon size={13} /></button> : null}
                              {node.kind === "text" ? (
                                <>
-                                 <button title="减小字号" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); adjustNodeFontSize(node, -2); }}><Minus size={12} /><span>A-</span></button>
-                                 <button title="增大字号" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); adjustNodeFontSize(node, 2); }}><Plus size={12} /><span>A+</span></button>
+                                 <button title="减小字号" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); adjustNodeFontSize(node, -2); }}><Minus size={13} /></button>
+                                 <button title="增大字号" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); adjustNodeFontSize(node, 2); }}><Plus size={13} /></button>
                                </>
                              ) : null}
                              {node.kind === "image" && preview ? (
                                <Popover>
                                  <PopoverTrigger asChild>
-                                   <button title="图片工具" onPointerDown={(e) => e.stopPropagation()}><SlidersHorizontal size={12} /><span>工具</span></button>
+                                   <button title="图片工具（更多）" onPointerDown={(e) => e.stopPropagation()}><SlidersHorizontal size={13} /></button>
                                  </PopoverTrigger>
                                  <PopoverContent className="node-pop-card node-pop-wide" align="center" side="top" sideOffset={10}>
                                    <p className="eyebrow">图片工具</p>
@@ -7478,25 +7487,26 @@ export default function CanvasWorkspaceView() {
                                  </PopoverContent>
                                </Popover>
                              ) : null}
-                             {node.kind === "image" && !preview ? <button title="上传图片" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}><Upload size={12} /><span>上传</span></button> : null}
-                             {node.kind === "video" && preview ? <button title="从当前播放帧创建图片节点" disabled={Boolean(captureFrameNodeId)} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void captureVideoFrameNode(node); }}><Camera size={12} /><span>截帧</span></button> : null}
-                             {node.kind === "video" && preview ? <button title="AI 超分（依赖管理员配置的模型服务）" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); toast.info("视频超分依赖管理员配置的模型服务，本地暂未实现"); }}><Sparkles size={12} /><span>超分</span></button> : null}
-                             {node.kind === "video" && preview ? <button title="素材校验" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setMaterialNodeId(node.id); }}><BadgeCheck size={12} /><span>校验</span></button> : null}
-                             {node.kind === "video" && preview ? <button title="全屏播放" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); document.querySelector<HTMLVideoElement>(`.real-canvas-node[data-node-id="${node.id}"] video`)?.requestFullscreen?.(); }}><Maximize2 size={12} /><span>全屏</span></button> : null}
-                             {preview || node.kind === "text" ? <button title="加入素材库" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void (node.kind === "text" ? archiveCanvasTextNode(node) : archiveCanvasMediaNode(node)); }}><FolderOpen size={12} /><span>存资产</span></button> : null}
-                             {preview ? <button title="下载" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void downloadNodeMedia(node); }}><Download size={12} /><span>下载</span></button> : null}
+                             {node.kind === "image" && !preview ? <button title="上传图片" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}><Upload size={13} /></button> : null}
+                             {node.kind === "video" && preview ? <button title="从当前播放帧创建图片节点" disabled={Boolean(captureFrameNodeId)} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void captureVideoFrameNode(node); }}><Camera size={13} /></button> : null}
+                             {node.kind === "video" && preview ? <button title="AI 超分（依赖管理员配置的模型服务）" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); toast.info("视频超分依赖管理员配置的模型服务，本地暂未实现"); }}><Sparkles size={13} /></button> : null}
+                             {node.kind === "video" && preview ? <button title="素材校验" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setMaterialNodeId(node.id); }}><BadgeCheck size={13} /></button> : null}
+                             {node.kind === "video" && preview ? <button title="全屏播放" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); document.querySelector<HTMLVideoElement>(`.real-canvas-node[data-node-id="${node.id}"] video`)?.requestFullscreen?.(); }}><Maximize2 size={13} /></button> : null}
+                             {preview || node.kind === "text" ? <button title="加入素材库" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void (node.kind === "text" ? archiveCanvasTextNode(node) : archiveCanvasMediaNode(node)); }}><FolderOpen size={13} /></button> : null}
+                             {preview ? <button title="下载" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void downloadNodeMedia(node); }}><Download size={13} /></button> : null}
                             {node.metadata?.status === "error" && generationModeFromNode(node) === "image" ? (
-                              <button title="重试生成" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void retryImageNode(node); }}><RotateCcw size={12} /><span>重试</span></button>
+                              <button title="重试生成" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void retryImageNode(node); }}><RotateCcw size={13} /></button>
                             ) : node.metadata?.status === "error" && generationModeFromNode(node) === "text" ? (
-                              <button title="重试文本" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void retryTextNode(node); }}><RotateCcw size={12} /><span>重试</span></button>
+                              <button title="重试文本" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void retryTextNode(node); }}><RotateCcw size={13} /></button>
                             ) : node.metadata?.status === "error" && generationModeFromNode(node) === "video" ? (
-                              <button title="重试视频" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void retryVideoNode(node); }}><RotateCcw size={12} /><span>重试</span></button>
+                              <button title="重试视频" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void retryVideoNode(node); }}><RotateCcw size={13} /></button>
                             ) : node.metadata?.status === "error" && generationModeFromNode(node) === "audio" ? (
-                              <button title="重试音频" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void retryAudioNode(node); }}><RotateCcw size={12} /><span>重试</span></button>
+                              <button title="重试音频" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void retryAudioNode(node); }}><RotateCcw size={13} /></button>
                             ) : node.kind === "director" ? null : null}
-                            <button className="danger" title="删除" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); removeNode(node.id); }}><Trash2 size={12} /><span>删除</span></button>
+                            <button className="danger" title="删除" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); removeNode(node.id); }}><Trash2 size={13} /></button>
                           </>
                         )}
+                        </div>
                       </div>
                     )}
                   </article>
