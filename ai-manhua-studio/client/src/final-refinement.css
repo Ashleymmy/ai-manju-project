@@ -3160,3 +3160,159 @@ textarea.node-card-prompt {
   margin: 6px 0;
   background: var(--line);
 }
+
+/* ---- Canvas: 提示词库双模式（个人+公共） ---- */
+.prompt-library-mode-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.prompt-library-mode-tabs button {
+  flex: 1;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: #8b9590;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.prompt-library-mode-tabs button.active {
+  border-color: rgba(233, 81, 62, 0.6);
+  background: rgba(233, 81, 62, 0.12);
+  color: #ffd9d2;
+}
+
+.prompt-library-personal-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.prompt-library-personal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  border-right: 1px solid var(--line);
+  padding-right: 14px;
+}
+
+.prompt-library-personal-items {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preset-item {
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+}
+
+.preset-item.active {
+  border-color: rgba(233, 81, 62, 0.6);
+  background: rgba(233, 81, 62, 0.08);
+}
+
+.preset-item-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.preset-item-head b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #e6e6de;
+}
+
+.preset-item > p {
+  margin: 5px 0 0;
+  color: #8b9590;
+  font-size: 10px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.preset-item-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.preset-item-actions button {
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: #9ba8a1;
+  cursor: pointer;
+  font-size: 9px;
+}
+
+.preset-item-actions button:hover { color: #ffd9d2; border-color: rgba(233, 81, 62, 0.4); }
+
+.prompt-library-personal-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.prompt-library-personal-editor label {
+  display: block;
+  color: #8b9590;
+  font: 9px "IBM Plex Mono", monospace;
+  letter-spacing: 0.1em;
+}
+
+.prompt-library-personal-editor input,
+.prompt-library-personal-editor select,
+.prompt-library-personal-editor textarea {
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #222a2b;
+  color: #e0ded5;
+  font: 12px/1.7 "Noto Sans SC", sans-serif;
+  outline: none;
+}
+
+.prompt-library-personal-editor textarea { min-height: 160px; resize: vertical; }
+
+.prompt-library-personal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.prompt-library-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #8b9590;
+  font-size: 11px;
+  padding: 20px 0;
+}
