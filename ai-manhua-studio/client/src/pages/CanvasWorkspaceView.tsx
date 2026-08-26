@@ -7205,7 +7205,10 @@ export default function CanvasWorkspaceView() {
                       aria-label="连接到此节点"
                       title="拖到另一节点，或单击后再点目标节点"
                       onClick={(event) => event.stopPropagation()}
-                      onPointerDown={(event) => beginConnection(event, node.id, "target")}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                        beginConnection(event, node.id, "target");
+                      }}
                     />
                     <button
                       ref={(element) => registerConnectionHandle(node.id, "source", element)}
@@ -7214,7 +7217,10 @@ export default function CanvasWorkspaceView() {
                       aria-label="从此节点连接"
                       title="拖到另一节点，或单击后再点目标节点"
                       onClick={(event) => event.stopPropagation()}
-                      onPointerDown={(event) => beginConnection(event, node.id, "source")}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                        beginConnection(event, node.id, "source");
+                      }}
                     />
                     <div
                       className="node-float-label"
