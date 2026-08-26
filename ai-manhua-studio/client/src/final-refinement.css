@@ -3242,6 +3242,7 @@ textarea.node-card-prompt {
   max-height: 86vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .storyboard-timeline-tabs {
@@ -3277,6 +3278,12 @@ textarea.node-card-prompt {
   gap: 14px;
   padding-top: 12px;
   overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.storyboard-timeline-editor::-webkit-scrollbar {
+  display: none;
 }
 
 .storyboard-timeline-row {
@@ -3325,7 +3332,19 @@ textarea.node-card-prompt {
 
 .storyboard-timeline-editor textarea {
   min-height: 64px;
+  padding: 10px 12px;
+  border: 1px solid rgba(139, 149, 144, 0.4);
+  border-radius: 8px;
+  background: rgba(34, 42, 43, 0.6);
+  color: #e0ded5;
+  font-size: 12px;
+  line-height: 1.6;
+  outline: none;
   resize: vertical;
+}
+
+.storyboard-timeline-editor textarea:focus {
+  border-color: rgba(233, 81, 62, 0.5);
 }
 
 .storyboard-timeline-footer {
