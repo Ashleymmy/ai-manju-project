@@ -3389,3 +3389,22 @@ textarea.node-card-prompt {
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
+
+.storyboard-timeline-menu-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8b9590;
+  flex-shrink: 0;
+}
+
+/* 隐藏 DialogContent 自身的滚动条 */
+.storyboard-timeline-dialog > div {
+  overflow: hidden !important;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.storyboard-timeline-dialog > div::-webkit-scrollbar {
+  display: none;
+}

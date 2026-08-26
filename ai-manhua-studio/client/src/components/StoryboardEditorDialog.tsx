@@ -93,7 +93,9 @@ export default function StoryboardEditorDialog({ open, onOpenChange, title, scen
           <DialogDescription>编辑视频分镜时间轴、内容与配置。保存后写入当前视频节点。</DialogDescription>
         </DialogHeader>
         <div className="storyboard-timeline-tabs">
-          <Menu size={16} />
+          <div className="storyboard-timeline-menu-icon">
+            <Menu size={16} />
+          </div>
           {scenes.map((scene, index) => (
             <button
               key={scene.id}
@@ -121,8 +123,12 @@ export default function StoryboardEditorDialog({ open, onOpenChange, title, scen
                 </select>
               </label>
               <label>选择
-                <select disabled>
+                <select>
                   <option>选择运镜预设</option>
+                  <option>推镜</option>
+                  <option>拉镜</option>
+                  <option>摇镜</option>
+                  <option>跟镜</option>
                 </select>
               </label>
             </div>
