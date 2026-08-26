@@ -7160,10 +7160,14 @@ export default function CanvasWorkspaceView() {
                     className={`real-canvas-node ${node.kind} ${isBatchRootNode ? "batch-root" : ""} ${selectedNodeIds.has(node.id) ? "selected" : ""} ${connectionTargetId === node.id ? "connection-target" : ""} ${runningNodeIds.has(node.id) ? "running" : ""} ${connectFrom ? "connecting-mode" : ""}`}
                     data-node-id={node.id}
                     style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
-                    onClick={(event) => chooseNode(node.id, event)}
+                    onClick={(event) => {
+                      if (connectFrom) return; // 连线模式下不触发点击
+                      chooseNode(node.id, event);
+                    }}
                     onContextMenu={(event) => openNodeContextMenu(event, node.id)}
                     onDoubleClick={(event) => {
                       event.stopPropagation();
+                      if (connectFrom) return; // 连线模式下不触发双击
                       if ((event.target as HTMLElement).closest("[data-node-title-editor]")) return;
                       if (isBatchRootNode) {
                         toggleCanvasBatch(node.id);
