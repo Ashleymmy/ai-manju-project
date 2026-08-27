@@ -26,6 +26,7 @@ import {
   BookMarked,
   Bot,
   Grid2X2,
+  Grid3x3,
   GalleryHorizontalEnd,
   GitMerge,
   Home,
@@ -7532,11 +7533,10 @@ export default function CanvasWorkspaceView() {
             <button onClick={() => zoomCanvasAroundCenter(viewportRef.current.zoom + 10)} disabled={projectActionDisabled}>+</button>
             <span />
             <button className={minimapOpen ? "active" : ""} title={minimapOpen ? "关闭缩略导航" : "打开缩略导航"} onClick={() => setMinimapOpen((open) => !open)} disabled={projectActionDisabled}><MapIcon size={15} /></button>
-            <button onClick={fitCanvasToContent} disabled={projectActionDisabled}><Maximize2 size={15} /> 适配</button>
-          </div>
-          <div className="canvas-bg-controls" data-canvas-ui data-canvas-no-zoom>
+            <button onClick={fitCanvasToContent} disabled={projectActionDisabled} title="适配"><Maximize2 size={15} /></button>
+            <span />
             <button title="显示或隐藏图片信息" className={showImageInfo ? "active" : ""} onClick={() => setShowImageInfo((value) => !value)} disabled={projectActionDisabled}><Eye size={15} /></button>
-            <button title="点阵背景" className={backgroundMode === "dots" ? "active" : ""} onClick={() => setBackgroundMode("dots")} disabled={projectActionDisabled}><MapIcon size={15} /></button>
+            <button title="点阵背景" className={backgroundMode === "dots" ? "active" : ""} onClick={() => setBackgroundMode("dots")} disabled={projectActionDisabled}><Grid3x3 size={15} /></button>
             <button title="网格背景" className={backgroundMode === "lines" ? "active" : ""} onClick={() => setBackgroundMode("lines")} disabled={projectActionDisabled}><Grid2X2 size={15} /></button>
             <button title="空白背景" className={backgroundMode === "blank" ? "active" : ""} onClick={() => setBackgroundMode("blank")} disabled={projectActionDisabled}><Square size={14} /></button>
           </div>
