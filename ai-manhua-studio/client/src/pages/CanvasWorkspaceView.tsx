@@ -913,6 +913,8 @@ export default function CanvasWorkspaceView() {
   const [presetManagerOpen, setPresetManagerOpen] = useState(false);
   const [styleCategory, setStyleCategory] = useState<string>("drama");
   const [enabledSkills, setEnabledSkills] = useState<CanvasSkill[]>([]);
+  const [canvasSwitcherOpen, setCanvasSwitcherOpen] = useState(false);
+  const [canvasSwitcherQuery, setCanvasSwitcherQuery] = useState("");
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
   const [connectionTargetId, setConnectionTargetId] = useState("");
   const [connectionPreviewPoint, setConnectionPreviewPoint] = useState<{ x: number; y: number } | null>(null);
@@ -1202,6 +1204,11 @@ export default function CanvasWorkspaceView() {
   };
   const selectedGroup = groups.find((group) => group.id === selectedGroupId);
   const nodeMap = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const filteredProjects = useMemo(() => {
+    const query = canvasSwitcherQuery.trim().toLowerCase();
+    if (!query) return projects;
+    return projects.filter((project) => project.title.toLowerCase().includes(query));
+  }, [canvasSwitcherQuery, projects]);
   const materialNode = materialNodeId ? nodeMap.get(materialNodeId) : undefined;
   const seedanceAssetNode = seedanceAssetNodeId ? nodeMap.get(seedanceAssetNodeId) : undefined;
   const agentSnapshot = useMemo(
@@ -6947,15 +6954,65 @@ export default function CanvasWorkspaceView() {
       <input ref={projectArchiveInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectActionDisabled || projectArchiveBusy} onChange={(event) => void importCanvasProjectArchive(event.target.files?.[0])} />
       <div className="canvas-heading">
         <div className="page-intro">
-          <div><p className="eyebrow">CANVAS / {projectId.slice(-8).toUpperCase()}</p><h1 title="双击重命名项目" onDoubleClick={() => void renameCurrentProject()}>{projectTitle || "无限画布"}</h1><p>节点、连线和生成结果都会保存到 {currentProjectDisplayScope === "team" ? "团队" : "个人"} 工作区服务端快照。</p></div>
+          <div className="canvas-switcher-container">
+            <Popover open={canvasSwitcherOpen} onOpenChange={setCanvasSwitcherOpen}>
+              <PopoverTrigger asChild>
+                <button className="canvas-switcher-trigger" disabled={projectActionDisabled}>
+                  <div className="canvas-switcher-avatar">
+                    <Palette size={16} />
+                  </div>
+                  <span className="canvas-switcher-title">{projectTitle || "无限画布"}</span>
+                  <ChevronDown size={16} className={canvasSwitcherOpen ? "rotated" : ""} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="canvas-switcher-popover" align="start" sideOffset={8}>
+                <div className="canvas-switcher-search">
+                  <Search size={14} />
+                  <input
+                    value={canvasSwitcherQuery}
+                    onChange={(event) => setCanvasSwitcherQuery(event.target.value)}
+                    placeholder="搜索画布…"
+                  />
+                </div>
+                <div className="canvas-switcher-list">
+                  {filteredProjects.map((project) => (
+                    <button
+                      key={project.id}
+                      className={`canvas-switcher-item ${project.id === projectId ? "active" : ""}`}
+                      onClick={() => {
+                        setCanvasSwitcherOpen(false);
+                        setCanvasSwitcherQuery("");
+                        void switchCanvasProject(project.id);
+                      }}
+                      disabled={projectActionDisabled}
+                    >
+                      <div className="canvas-switcher-item-avatar">
+                        <Palette size={14} />
+                      </div>
+                      <span className="canvas-switcher-item-title">{project.title}</span>
+                      {project.id === projectId ? <Check size={14} /> : null}
+                    </button>
+                  ))}
+                  {!filteredProjects.length ? (
+                    <div className="canvas-switcher-empty">
+                      <p>无匹配画布</p>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="canvas-switcher-footer">
+                  <button className="canvas-switcher-new" onClick={() => { setCanvasSwitcherOpen(false); setCreateDialogOpen(true); }} disabled={projectActionDisabled}>
+                    <Plus size={14} />
+                    新建画布
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
+            <p className="canvas-switcher-desc">节点、连线和生成结果都会保存到 {currentProjectDisplayScope === "team" ? "团队" : "个人"} 工作区服务端快照。</p>
+          </div>
         </div>
         <div className="canvas-head-actions">
           <button className="outline-button small canvas-home-button" onClick={() => navigate("/")} title="返回首页" aria-label="返回首页"><Home size={15} /> 首页</button>
           <div className="scope-switch mini-scope">{scopeOptions.map((item) => <button key={item.value} className={currentProjectDisplayScope === item.value ? "active" : ""} onClick={() => void switchCanvasScope(item.value)} disabled={projectActionDisabled}>{item.label}</button>)}</div>
-          <select className="outline-button small project-switcher" value={projectId} onChange={(event) => void switchCanvasProject(event.target.value)} disabled={projectActionDisabled}>
-            <option value="">切换画布…</option>
-            {projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
-          </select>
           <button className="outline-button small canvas-icon-button" title="撤销" aria-label="撤销" onClick={() => void undoCanvas()} disabled={!canUndo || projectActionDisabled}><Undo2 size={15} /></button>
           <button className="outline-button small canvas-icon-button" title="重做" aria-label="重做" onClick={() => void redoCanvas()} disabled={!canRedo || projectActionDisabled}><Redo2 size={15} /></button>
           <button

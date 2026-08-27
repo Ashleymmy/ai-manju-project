@@ -48,6 +48,98 @@
   transition: border-color .15s;
 }
 .agent-field input:focus { border-color: var(--vermilion, #E9513E); }
+
+/* ── Canvas Switcher ──────────────────────────────────────────── */
+.canvas-switcher-container {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.canvas-switcher-trigger {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px 6px 6px; background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.1); border-radius: 7px;
+  color: var(--text, #fff); font-size: 15px; font-weight: 600;
+  cursor: pointer; transition: all .15s; max-width: 320px;
+}
+.canvas-switcher-trigger:hover:not(:disabled) {
+  background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.18);
+}
+.canvas-switcher-trigger:disabled { opacity: .5; cursor: not-allowed; }
+.canvas-switcher-trigger svg:last-child { transition: transform .2s; flex-shrink: 0; }
+.canvas-switcher-trigger svg:last-child.rotated { transform: rotate(180deg); }
+.canvas-switcher-avatar {
+  width: 28px; height: 28px; border-radius: 6px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; flex-shrink: 0;
+}
+.canvas-switcher-title {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.canvas-switcher-desc {
+  font-size: 12px; color: var(--muted, #888); margin: 0;
+}
+.canvas-switcher-popover {
+  width: 320px; padding: 0; background: rgba(18,24,25,.96);
+  border: 1px solid rgba(239,235,222,.18); border-radius: 8px;
+  box-shadow: 0 24px 56px rgba(0,0,0,.42); backdrop-filter: blur(16px);
+}
+.canvas-switcher-search {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.canvas-switcher-search svg { color: var(--muted, #888); flex-shrink: 0; }
+.canvas-switcher-search input {
+  flex: 1; background: transparent; border: 0; outline: 0;
+  color: var(--text, #fff); font-size: 13px; font-family: inherit;
+}
+.canvas-switcher-search input::placeholder { color: var(--muted, #666); }
+.canvas-switcher-list {
+  max-height: 320px; overflow-y: auto; padding: 6px;
+}
+.canvas-switcher-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 10px; background: transparent; border: 0; border-radius: 6px;
+  color: var(--text, #fff); font-size: 13px; text-align: left;
+  cursor: pointer; transition: background .12s;
+}
+.canvas-switcher-item:hover:not(:disabled) { background: rgba(255,255,255,.06); }
+.canvas-switcher-item:disabled { opacity: .5; cursor: not-allowed; }
+.canvas-switcher-item.active {
+  background: rgba(103,162,255,.12); color: var(--cobalt, #67a2ff);
+}
+.canvas-switcher-item.active .canvas-switcher-item-avatar {
+  background: var(--cobalt, #67a2ff);
+}
+.canvas-switcher-item-avatar {
+  width: 24px; height: 24px; border-radius: 5px;
+  background: rgba(255,255,255,.1);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted, #aaa); flex-shrink: 0;
+}
+.canvas-switcher-item-title {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.canvas-switcher-item svg:last-child {
+  color: var(--cobalt, #67a2ff); flex-shrink: 0;
+}
+.canvas-switcher-empty {
+  padding: 24px 12px; text-align: center;
+}
+.canvas-switcher-empty p {
+  margin: 0; font-size: 12px; color: var(--muted, #666);
+}
+.canvas-switcher-footer {
+  padding: 6px; border-top: 1px solid rgba(255,255,255,.08);
+}
+.canvas-switcher-new {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 10px; background: transparent; border: 0; border-radius: 6px;
+  color: var(--cobalt, #67a2ff); font-size: 13px; font-weight: 500;
+  cursor: pointer; transition: background .12s;
+}
+.canvas-switcher-new:hover:not(:disabled) { background: rgba(103,162,255,.08); }
+.canvas-switcher-new:disabled { opacity: .5; cursor: not-allowed; }
+
 .agent-chat { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 .agent-messages {
   flex: 1; overflow-y: auto; padding: 12px 12px;
