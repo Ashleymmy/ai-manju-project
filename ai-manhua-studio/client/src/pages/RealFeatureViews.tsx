@@ -198,9 +198,12 @@ export function ImageWorkbenchView() {
   const [scope, setScope] = useState<WorkspaceScope>(() => initialScopeFromSearch());
   const [model, setModel] = useState("");
   const [catalog, setCatalog] = useState<ImageModelCatalog | null>(null);
-  const [size, setSize] = useState<"auto" | "1:1" | "16:9" | "9:16">("auto");
+  const [size, setSize] = useState<"auto" | "1:1" | "3:2" | "2:3" | "4:3" | "3:4" | "16:9" | "9:16" | "1:1(2x)" | "16:9(2x)" | "9:16(2x)" | "16:9(4k)" | "9:16(4k)">("auto");
   const [quality, setQuality] = useState<"auto" | "low" | "medium" | "high">("auto");
   const [count, setCount] = useState(1);
+  const [width, setWidth] = useState(1024);
+  const [height, setHeight] = useState(1024);
+  const [align16, setAlign16] = useState(true);
   const [prompt, setPrompt] = useState("雨夜，狭长街道，潮湿沥青反射红色招牌；人物在画面右侧停留，低机位缓慢推近，电影级冷暖对比。");
   const [promptPresets, setPromptPresets] = useState<PromptPreset[]>([]);
   const [promptLibraryOpen, setPromptLibraryOpen] = useState(false);
@@ -480,6 +483,43 @@ export function ImageWorkbenchView() {
     <SurfaceTitle eyebrow="KEYFRAME / NEW" title="关键帧生成" description="走真实模型与队列，支持参考图编辑，把结果直接送回画布。"
       actions={<div className="scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => setScope(item.value)}>{item.label}</button>)}</div>} />
     <div className="image-workbench">
+      <aside className="generation-history-sidebar">
+        <div className="history-sidebar-header">
+          <h2 className="eyebrow">生成记录</h2>
+          <span>{history.length}</span>
+        </div>
+        <div className="history-sidebar-actions">
+          <button className="outline-button small"><Plus size={14} /> 新建项目</button>
+          <button className="outline-button small">全选</button>
+          <button className="outline-button small">删除</button>
+        </div>
+        <div className="history-sidebar-content">
+          {history.length > 0 ? (
+            <div className="history-sidebar-list">
+              {history.map((asset) => (
+                <div className="history-sidebar-item" key={asset.id}>
+                  <div className="history-item-thumbnail">
+                    {historyUrls[asset.id] ? (
+                      <img src={historyUrls[asset.id]} alt={asset.name} />
+                    ) : (
+                      <div className="empty-thumbnail"><ImageIcon size={20} /></div>
+                    )}
+                  </div>
+                  <div className="history-item-info">
+                    <p className="history-item-name">{asset.name}</p>
+                    <small className="history-item-meta">{new Date(asset.createdAt || Date.now()).toLocaleDateString()}</small>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="history-empty">
+              <ImageIcon size={32} />
+              <p>还没有生成记录</p>
+            </div>
+          )}
+        </div>
+      </aside>
       <section className="image-composer" onPaste={(event) => {
         const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
         if (files.length) { event.preventDefault(); addReferenceFiles(files); }
@@ -494,9 +534,17 @@ export function ImageWorkbenchView() {
         </div>
         <div className="composer-options">
           <label>模型<select value={model} onChange={(e) => setModel(e.target.value)}>{catalog?.models.map((item) => <option key={item} value={item}>{imageModelLabel(item, catalog)}</option>)}</select></label>
-          <label>画幅<div className="ratio-buttons">{(["auto", "1:1", "16:9", "9:16"] as const).map((ratio) => <button key={ratio} className={size === ratio ? "active" : ""} onClick={() => setSize(ratio)}>{ratio === "auto" ? "AUTO" : ratio}</button>)}</div></label>
-          <label>质量<div className="ratio-buttons">{qualityOptions.map((item) => <button key={item.value} className={quality === item.value ? "active" : ""} onClick={() => setQuality(item.value)}>{item.label}</button>)}</div></label>
-          <label>数量<div className="counter"><button onClick={() => setCount((v) => Math.max(1, v - 1))}>−</button><b>{String(count).padStart(2, "0")}</b><button onClick={() => setCount((v) => Math.min(15, v + 1))}>+</button></div></label>
+        </div>
+        <div className="composer-options">
+          <label>质量<div className="ratio-buttons">{(["auto", "high", "medium", "low"] as const).map((q) => <button key={q} className={quality === q ? "active" : ""} onClick={() => setQuality(q)}>{q === "auto" ? "自动" : q === "high" ? "高" : q === "medium" ? "中" : "低"}</button>)}</div></label>
+          <label>数量<div className="counter"><button onClick={() => setCount((v) => Math.max(1, v - 1))}>−</button><input type="number" value={count} onChange={(e) => setCount(Math.max(1, Math.min(15, Number(e.target.value) || 1)))} min="1" max="15" /><button onClick={() => setCount((v) => Math.min(15, v + 1))}>+</button></div></label>
+        </div>
+        <div className="composer-size-settings">
+          <label>尺寸<div className="size-inputs"><span>W</span><input type="number" value={width} onChange={(e) => setWidth(Number(e.target.value))} min="256" max="2048" step={align16 ? "16" : "1"} /><button className="swap-size" onClick={() => { const tmp = width; setWidth(height); setHeight(tmp); }}>⇄</button><span>H</span><input type="number" value={height} onChange={(e) => setHeight(Number(e.target.value))} min="256" max="2048" step={align16 ? "16" : "1"} /><label className="align-toggle"><input type="checkbox" checked={align16} onChange={(e) => setAlign16(e.target.checked)} /><span>16倍数对齐</span></label></div></label>
+        </div>
+        <div className="composer-ratio-grid">
+          <label>宽高比</label>
+          <div className="ratio-grid">{(["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "1:1(2x)", "16:9(2x)", "9:16(2x)", "16:9(4k)", "9:16(4k)", "auto"] as const).map((ratio) => <button key={ratio} className={size === ratio ? "active" : ""} onClick={() => setSize(ratio)}>{ratio}</button>)}</div>
         </div>
         {generating && <div className="job-progress"><i style={{ width: `${jobProgress}%` }} /></div>}
         <div className="generate-row">
