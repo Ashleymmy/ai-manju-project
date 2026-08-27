@@ -7347,16 +7347,6 @@ export default function CanvasWorkspaceView() {
                       </button>
                     ) : null}
                     {node.kind === "text" && nodeText.trim() && !runningNodeIds.has(node.id) ? (
-                      <button
-                        type="button"
-                        className="node-text-generate"
-                        title="用文本生图"
-                        onClick={(event) => { event.stopPropagation(); void generateImageFromTextNode(node); }}
-                        onPointerDown={(event) => event.stopPropagation()}
-                      >
-                        <ImageIcon size={13} /> 生图
-                      </button>
-                    ) : null}
                     {isBatchChildNode && node.imageAssetId ? (
                       <>
                         <div className="canvas-batch-child-tools">
