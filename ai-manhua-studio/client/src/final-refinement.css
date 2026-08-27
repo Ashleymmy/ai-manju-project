@@ -3513,6 +3513,7 @@ textarea.node-card-prompt {
   margin-left: auto;
   padding: 3px;
   border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 7px;
   background: #222a2a;
 }
 
@@ -3542,6 +3543,7 @@ textarea.node-card-prompt {
   height: 33px;
   padding: 3px;
   border: 1px solid var(--line);
+  border-radius: 7px;
   background: rgba(25, 31, 32, 0.92);
   backdrop-filter: blur(9px);
 }
@@ -3587,4 +3589,17 @@ textarea.node-card-prompt {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* ---- Canvas 工具栏统一圆角 ---- */
+.canvas-bottom-tools {
+  border-radius: 7px;
+}
+
+.canvas-focus .canvas-top-tools {
+  border-radius: 7px;
+}
+
+.tool-cluster {
+  border-radius: 5px;
 }
