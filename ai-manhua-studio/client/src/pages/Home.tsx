@@ -6,6 +6,7 @@ import {
   ArrowDownToLine,
   ArrowUpRight,
   Box,
+  Check,
   ChevronRight,
   CircleDashed,
   Clapperboard,
@@ -24,6 +25,7 @@ import {
   RadioTower,
   Search,
   Settings2,
+  Sparkles,
   Tag,
   Terminal,
   Trash2,
@@ -673,7 +675,141 @@ function Queue() {
     ["succeeded", `完成 ${String(count("succeeded")).padStart(2, "0")}`],
     ["failed", `异常 ${String(count("failed")).padStart(2, "0")}`],
   ];
-  return <div className="page-content"><PageIntro path="/queue" action={<div className="queue-actions"><div className="scope-switch">{(["personal", "team"] as const).map((item) => <button key={item} className={scope === item ? "active" : ""} onClick={() => setScope(item)}>{item === "personal" ? "个人空间" : "团队空间"}</button>)}</div><div className="queue-health"><i />实时轮询已连接</div></div>} /><div className="queue-layout"><section className="queue-card"><div className="queue-tabs">{tabs.map(([key, label]) => <button className={filter === key ? "active" : ""} key={key} onClick={() => setFilter(key)}>{label}</button>)}</div><div className="job-list">{visible.map((job) => <div className="job-row" key={`${job.kind}-${job.id}`}><div className={`job-icon ${job.state}`}>{job.kind === "comic" ? <Clapperboard size={18} /> : <Film size={18} />}</div><div className="job-copy"><div><b>{job.name}</b><span>{job.type} · {job.id}</span></div>{(job.state === "running" || job.state === "queued") && <div className="job-progress"><i style={{ width: `${job.progress}%` }} /></div>}</div><div className="job-state"><span className={`status-chip ${job.state}`}>{job.state === "running" ? "生成中" : job.state === "queued" ? "队列中" : job.state === "succeeded" ? "已完成" : job.state === "canceled" ? "已取消" : "异常"}</span><small>{job.updated}</small></div>{job.kind === "comic" ? <button className="icon-button subtle" title="打开漫剧资产助手" onClick={() => navigate("/comic-assets")}><ArrowUpRight size={16} /></button> : (job.state === "running" || job.state === "queued") ? <button className="icon-button subtle" title="取消任务" onClick={() => void cancelQueueJob(job.id, job.scope, refresh)}><Pause size={16} /></button> : <button className="icon-button subtle" disabled><MoreHorizontal size={16} /></button>}</div>)}</div>{!visible.length && <div className="empty-output"><RadioTower size={27} /><p>当前筛选没有任务。</p></div>}</section><aside className="queue-aside"><p className="eyebrow">STATUS MACHINE</p><h3>让每次等待<br />都看得见。</h3><div className="state-machine"><span className="done">queued</span><i /><span className="active">running</span><i /><span>succeeded</span></div><p>队列状态来自服务端 Job 与漫剧批次，随个人 / 团队空间切换；页面刷新后会重新读取，不依赖本地假数据。</p><code>GET /api/jobs?limit=50&scope={scope}</code></aside></div></div>;
+  return (
+    <div className="page-content">
+      <PageIntro
+        path="/queue"
+        action={
+          <div className="queue-actions">
+            <div className="scope-switch">
+              {(["personal", "team"] as const).map((item) => (
+                <button
+                  key={item}
+                  className={scope === item ? "active" : ""}
+                  onClick={() => setScope(item)}
+                >
+                  {item === "personal" ? "个人空间" : "团队空间"}
+                </button>
+              ))}
+            </div>
+            <div className="queue-nav-buttons">
+              <button className="queue-nav-button" onClick={() => navigate("/image")}>图片生成</button>
+              <button className="queue-nav-button" onClick={() => navigate("/video")}>视频生成</button>
+              <button className="queue-nav-button active" onClick={() => navigate("/canvas")}>回到画布</button>
+            </div>
+          </div>
+        }
+      />
+
+      <div className="queue-status-cards">
+        <div className="status-card">
+          <div className="status-icon running"><Sparkles size={20} /></div>
+          <div className="status-number">{count("running")}</div>
+          <div className="status-label">运行中</div>
+        </div>
+        <div className="status-card">
+          <div className="status-icon queued"><WandSparkles size={20} /></div>
+          <div className="status-number">{count("queued")}</div>
+          <div className="status-label">等待/暂停</div>
+        </div>
+        <div className="status-card">
+          <div className="status-icon succeeded"><Check size={20} /></div>
+          <div className="status-number">{count("succeeded")}</div>
+          <div className="status-label">已完成</div>
+        </div>
+        <div className="status-card">
+          <div className="status-icon failed"><Plus size={20} style={{transform: 'rotate(45deg)'}} /></div>
+          <div className="status-number">{count("failed")}</div>
+          <div className="status-label">失败</div>
+        </div>
+      </div>
+
+      <div className="queue-layout">
+        <section className="queue-card">
+          <div className="queue-tabs">
+            {tabs.map(([key, label]) => (
+              <button
+                className={filter === key ? "active" : ""}
+                key={key}
+                onClick={() => setFilter(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="job-list">
+            {visible.map((job) => (
+              <div className="job-row" key={`${job.kind}-${job.id}`}>
+                <div className={`job-icon ${job.state}`}>
+                  {job.kind === "comic" ? <Clapperboard size={18} /> : <Film size={18} />}
+                </div>
+                <div className="job-copy">
+                  <div>
+                    <b>{job.name}</b>
+                    <span>{job.type} · {job.id}</span>
+                  </div>
+                  {(job.state === "running" || job.state === "queued") && (
+                    <div className="job-progress">
+                      <i style={{ width: `${job.progress}%` }} />
+                    </div>
+                  )}
+                </div>
+                <div className="job-state">
+                  <span className={`status-chip ${job.state}`}>
+                    {job.state === "running" ? "生成中" :
+                     job.state === "queued" ? "队列中" :
+                     job.state === "succeeded" ? "已完成" :
+                     job.state === "canceled" ? "已取消" : "异常"}
+                  </span>
+                  <small>{job.updated}</small>
+                </div>
+                {job.kind === "comic" ? (
+                  <button
+                    className="icon-button subtle"
+                    title="打开漫剧资产助手"
+                    onClick={() => navigate("/comic-assets")}
+                  >
+                    <ArrowUpRight size={16} />
+                  </button>
+                ) : (job.state === "running" || job.state === "queued") ? (
+                  <button
+                    className="icon-button subtle"
+                    title="取消任务"
+                    onClick={() => void cancelQueueJob(job.id, job.scope, refresh)}
+                  >
+                    <Pause size={16} />
+                  </button>
+                ) : (
+                  <button className="icon-button subtle" disabled>
+                    <MoreHorizontal size={16} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          {!visible.length && (
+            <div className="empty-output">
+              <RadioTower size={27} />
+              <p>当前筛选没有任务。</p>
+            </div>
+          )}
+        </section>
+        <aside className="queue-aside">
+          <p className="eyebrow">STATUS MACHINE</p>
+          <h3>让每次等待<br />都看得见。</h3>
+          <div className="state-machine">
+            <span className="done">queued</span>
+            <i />
+            <span className="active">running</span>
+            <i />
+            <span>succeeded</span>
+          </div>
+          <p>队列状态来自服务端 Job 与漫剧批次，随个人 / 团队空间切换；页面刷新后会重新读取，不依赖本地假数据。</p>
+          <code>GET /api/jobs?limit=50&scope={scope}</code>
+        </aside>
+      </div>
+    </div>
+  );
 }
 
 async function cancelQueueJob(id: string, scope: string, refresh: () => void) {

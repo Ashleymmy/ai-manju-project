@@ -1308,3 +1308,125 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--red); outline-o
 .history-sidebar-actions button {
   border-top-right-radius: 8px;
 }
+
+/* 渲染队列导航按钮 */
+.queue-nav-buttons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.queue-nav-button {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #e0ded6;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.queue-nav-button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.queue-nav-button.active {
+  background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
+  border-color: transparent;
+  color: white;
+}
+
+/* 渲染队列状态卡片 */
+.queue-status-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.status-card {
+  background: rgba(15, 19, 28, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.3s ease;
+}
+
+.status-card:hover {
+  background: rgba(15, 19, 28, 0.8);
+  border-color: rgba(255, 255, 255, 0.12);
+  transform: translateY(-2px);
+}
+
+.status-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.status-icon.running {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+}
+
+.status-icon.queued {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+  color: white;
+}
+
+.status-icon.succeeded {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+}
+
+.status-icon.failed {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+}
+
+.status-number {
+  font-size: 36px;
+  font-weight: 700;
+  color: #e0ded6;
+  line-height: 1;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.status-label {
+  font-size: 13px;
+  color: #9ca3af;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* 响应式 */
+@media (max-width: 1100px) {
+  .queue-status-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .queue-nav-buttons {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .queue-nav-button {
+    width: 100%;
+  }
+  
+  .queue-status-cards {
+    grid-template-columns: 1fr;
+  }
+}
