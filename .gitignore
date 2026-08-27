@@ -56,3 +56,12 @@ Thumbs.db
 
 # pnpm store (local cache, not part of source)
 .pnpm-store/
+
+# Next.js build and cache (all variants)
+.next/
+.next-*/
+**/.next/
+**/.next-*/
+
+# Turbopack cache
+**/cache/turbopack/
