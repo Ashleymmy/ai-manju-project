@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  CloudUpload,
   Copy,
   Camera,
   Crop,
@@ -6984,15 +6985,6 @@ export default function CanvasWorkspaceView() {
               <DropdownMenuItem className="canvas-more-danger" disabled={projectActionDisabled || clearCanvasBusy || (!nodes.length && !edges.length && !groups.length)} onSelect={() => { setClearCanvasError(""); setClearCanvasOpen(true); }}><Eraser size={14} /> 清空画布</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <button
-            className="vermilion-button"
-            onClick={() => void generateFromNode()}
-            disabled={!selectedNode || ((selectedGenerationMode === "text" || selectedGenerationMode === "image") && !selectedGenerationModel) || runningNodeIds.has(selectedNode.id) || projectActionDisabled}
-          >
-            <WandSparkles size={16} /> {selectedNode && runningNodeIds.has(selectedNode.id)
-              ? `生成中 ${jobProgressByNode[selectedNode.id] || 0}%`
-              : `生成${generationModeLabel(selectedGenerationMode)}节点`}
-          </button>
         </div>
       </div>
 
@@ -7010,6 +7002,9 @@ export default function CanvasWorkspaceView() {
           <div className="canvas-top-tools" data-canvas-ui data-canvas-no-zoom>
             <div className="tool-cluster">
               <button title="选择" disabled={projectActionDisabled}><MousePointer2 size={16} /></button>
+              <button title={connectFrom ? "选择目标节点完成连接" : "从当前节点开始连接"} className={connectFrom ? "active" : ""} onClick={() => selectedNode && activateConnectionMode(selectedNode.id)} disabled={projectActionDisabled}><Link2 size={16} /></button>
+              <button title="撤销" onClick={() => void undoCanvas()} disabled={!canUndo || projectActionDisabled}><Undo2 size={16} /></button>
+              <button title="重做" onClick={() => void redoCanvas()} disabled={!canRedo || projectActionDisabled}><Redo2 size={16} /></button>
               <i className="tool-divider" />
               <button title="添加文本" onClick={() => addNode("text")} disabled={projectActionDisabled}><Type size={16} /></button>
               <button title="添加图片" onClick={() => addNode("image")} disabled={projectActionDisabled}><ImageIcon size={16} /></button>
@@ -7021,7 +7016,6 @@ export default function CanvasWorkspaceView() {
               <button title="上传素材" onClick={() => fileInputRef.current?.click()} disabled={uploading || projectActionDisabled}><Upload size={16} /></button>
               <button title="从资产库插入" onClick={openAssetPicker} disabled={projectActionDisabled}><FolderOpen size={16} /></button>
               <i className="tool-divider" />
-              <button title={connectFrom ? "选择目标节点完成连接" : "从当前节点开始连接"} className={connectFrom ? "active" : ""} onClick={() => selectedNode && activateConnectionMode(selectedNode.id)} disabled={projectActionDisabled}><Link2 size={16} /></button>
               <button title="将所选节点创建为分组" onClick={createGroupFromSelected} disabled={projectActionDisabled || selectedNodeIds.size < 2}><Boxes size={16} /></button>
               <button title="将所选节点连接到新配置或已有配置" onClick={() => setConnectSelectionOpen(true)} disabled={projectActionDisabled || selectedNodeIds.size < 2}><GitMerge size={16} /></button>
               <button title="按顺序执行当前分组中的可生成节点" onClick={() => selectedGroupId && void runCanvasGroupGeneration(selectedGroupId)} disabled={projectActionDisabled || !selectedGroupId || Boolean(runningGroupId)}>{runningGroupId === selectedGroupId ? <Loader2 className="spin" size={16} /> : <WandSparkles size={16} />}</button>
@@ -7033,18 +7027,12 @@ export default function CanvasWorkspaceView() {
                   <button title="删除选中节点" onClick={() => removeNodes(selectedNodeIdsRef.current)} disabled={projectActionDisabled}><Trash2 size={16} /></button>
                 </>
               ) : null}
-              <i className="tool-divider" />
-              <span className="canvas-background-segments" aria-label="画布背景模式">
-                <button title="点阵背景" className={backgroundMode === "dots" ? "active" : ""} onClick={() => setBackgroundMode("dots")} disabled={projectActionDisabled}><MapIcon size={15} /></button>
-                <button title="网格背景" className={backgroundMode === "lines" ? "active" : ""} onClick={() => setBackgroundMode("lines")} disabled={projectActionDisabled}><Grid2X2 size={15} /></button>
-                <button title="空白背景" className={backgroundMode === "blank" ? "active" : ""} onClick={() => setBackgroundMode("blank")} disabled={projectActionDisabled}><Square size={14} /></button>
-              </span>
-              <button title="显示或隐藏图片信息" className={showImageInfo ? "active" : ""} onClick={() => setShowImageInfo((value) => !value)} disabled={projectActionDisabled}><Eye size={16} /></button>
             </div>
-            <span>{switching ? "正在保存并切换画布…" : projectScopePending ? "正在确认项目工作区…" : connectFrom ? "连接模式：请选择目标节点" : "真实快照模式"}</span>
-            <div className="canvas-title-chip" data-sync-status={syncStatus} title={syncStatusTitle}>
-              {syncStatus === "loading" || syncStatus === "saving" ? <Loader2 className="spin" size={10} /> : syncStatus === "synced" ? <Check size={10} /> : <i />}
-              {canvasSyncLabel(syncStatus)}{snapshotVersion > 0 ? ` v${snapshotVersion}` : ""} · {nodes.length} 节点 · {edges.length} 连线
+            <div className="canvas-agent-pills" data-canvas-ui data-canvas-no-zoom>
+              <button title="数字人（Seedance 素材）" onClick={() => selectedNode && setSeedanceAssetNodeId(selectedNode.id)} disabled={!selectedNode || projectActionDisabled}><UserRoundCog size={14} /></button>
+              <button title="数字资产（资产库）" onClick={openAssetPicker} disabled={projectActionDisabled}><FolderOpen size={14} /></button>
+              <button title="原型对话 Agent（服务侧）" onClick={() => setAgentOpen((value) => !value)} className={agentOpen ? "active" : ""} disabled={projectActionDisabled}><Sparkles size={14} /></button>
+              <button title="画布对话 Agent（本机桥接）" onClick={() => setAgentOpen((value) => !value)} className={agentOpen ? "active" : ""} disabled={projectActionDisabled}><Bot size={14} /></button>
             </div>
           </div>
 
@@ -7537,12 +7525,20 @@ export default function CanvasWorkspaceView() {
           )}
 
           <div className="canvas-bottom-tools" data-canvas-ui data-canvas-no-zoom>
+            <button title="手动同步到服务端快照（占位，自动同步已开启）" onClick={() => void persistSnapshot()} disabled={saving || syncStatus === "saving" || projectActionDisabled || !snapshotWriteReady}><CloudUpload size={15} /></button>
+            <span />
             <button onClick={() => zoomCanvasAroundCenter(viewportRef.current.zoom - 10)} disabled={projectActionDisabled}>−</button>
             <b>{zoom}%</b>
             <button onClick={() => zoomCanvasAroundCenter(viewportRef.current.zoom + 10)} disabled={projectActionDisabled}>+</button>
             <span />
             <button className={minimapOpen ? "active" : ""} title={minimapOpen ? "关闭缩略导航" : "打开缩略导航"} onClick={() => setMinimapOpen((open) => !open)} disabled={projectActionDisabled}><MapIcon size={15} /></button>
             <button onClick={fitCanvasToContent} disabled={projectActionDisabled}><Maximize2 size={15} /> 适配</button>
+          </div>
+          <div className="canvas-bg-controls" data-canvas-ui data-canvas-no-zoom>
+            <button title="显示或隐藏图片信息" className={showImageInfo ? "active" : ""} onClick={() => setShowImageInfo((value) => !value)} disabled={projectActionDisabled}><Eye size={15} /></button>
+            <button title="点阵背景" className={backgroundMode === "dots" ? "active" : ""} onClick={() => setBackgroundMode("dots")} disabled={projectActionDisabled}><MapIcon size={15} /></button>
+            <button title="网格背景" className={backgroundMode === "lines" ? "active" : ""} onClick={() => setBackgroundMode("lines")} disabled={projectActionDisabled}><Grid2X2 size={15} /></button>
+            <button title="空白背景" className={backgroundMode === "blank" ? "active" : ""} onClick={() => setBackgroundMode("blank")} disabled={projectActionDisabled}><Square size={14} /></button>
           </div>
           {minimapOpen && !projectActionDisabled ? (
             <div className="canvas-minimap" data-canvas-ui data-canvas-no-zoom onPointerDown={(event) => event.stopPropagation()}>

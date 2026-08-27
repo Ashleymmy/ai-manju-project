@@ -507,24 +507,16 @@ export default function AgentPanel({
   return (
     <aside className="agent-panel">
       <div className="agent-panel-head">
-        <div>
-          <p className="eyebrow">CANVAS AGENT</p>
+        <div className="agent-head-icons">
+          <button className={tab === "connect" ? "active" : ""} title="连接 / 设置" onClick={() => setTab("connect")}><PlugZap size={14} /></button>
+          <button className={tab === "chat" ? "active" : ""} title="对话" onClick={() => setTab("chat")}><MessageCircle size={14} /></button>
+        </div>
+        <div className="agent-head-right">
           <div className="agent-status">
             <i className={`status-dot ${channel === "online" ? textModel ? "connected" : "" : connected ? "connected" : ""}`} />
-            <span>{activity}</span>
           </div>
-        </div>
-        <div className="agent-head-actions">
-          <div className="agent-tabs">
-            <button className={tab === "connect" ? "active" : ""} onClick={() => setTab("connect")}>
-              <PlugZap size={13} /> 连接
-            </button>
-            <button className={tab === "chat" ? "active" : ""} onClick={() => setTab("chat")}>
-              <MessageCircle size={13} /> 对话
-            </button>
-          </div>
-          <button className="icon-button subtle" onClick={onClose} aria-label="关闭 Agent 面板">
-            <X size={16} />
+          <button className="icon-button subtle" onClick={onClose} aria-label="关闭 Agent 面板" title="关闭">
+            <X size={14} />
           </button>
         </div>
       </div>

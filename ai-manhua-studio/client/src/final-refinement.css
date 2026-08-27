@@ -3505,3 +3505,86 @@ textarea.node-card-prompt {
 .real-canvas-node.connecting-mode .canvas-connection-handle {
   pointer-events: auto;
 }
+
+/* ---- Canvas: 右上 Agent pill 组 / 右下背景控制条 ---- */
+.canvas-agent-pills {
+  display: flex;
+  gap: 3px;
+  margin-left: auto;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: #222a2a;
+}
+
+.canvas-agent-pills button {
+  display: grid;
+  place-items: center;
+  width: 29px;
+  height: 27px;
+  border: 0;
+  background: transparent;
+  color: #909b96;
+  cursor: pointer;
+}
+
+.canvas-agent-pills button:hover { color: #fff; }
+.canvas-agent-pills button.active { background: #42504d; color: #fff; }
+.canvas-agent-pills button:disabled { opacity: 0.35; cursor: default; }
+
+.canvas-bg-controls {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 33px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  background: rgba(25, 31, 32, 0.92);
+  backdrop-filter: blur(9px);
+}
+
+.canvas-bg-controls button {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border: 0;
+  background: transparent;
+  color: #909b96;
+  cursor: pointer;
+}
+
+.canvas-bg-controls button.active { background: #42504d; color: #fff; }
+.canvas-bg-controls button:disabled { opacity: 0.35; cursor: default; }
+
+/* ---- Agent 面板头部改图标列 ---- */
+.agent-head-icons {
+  display: flex;
+  gap: 4px;
+}
+
+.agent-head-icons button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted, #999);
+  cursor: pointer;
+}
+
+.agent-head-icons button.active {
+  background: var(--surface-2, #202020);
+  color: var(--text, #fff);
+}
+
+.agent-head-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
