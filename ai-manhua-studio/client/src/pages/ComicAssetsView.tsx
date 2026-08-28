@@ -656,8 +656,8 @@ export function ComicAssetsView() {
         <h1>漫剧资产助手</h1>
         <p className="comic-hero-description">可从剧本、四 Sheet 资产表或空项目开始；候选资产确认入库后，再处理提示词并创建服务端后台批次。关闭页面不会中断已创建的任务。</p>
         <div className="comic-hero-actions">
-          <button className="comic-tab-button" onClick={() => setScope("personal")}>个人空间</button>
-          <button className="comic-tab-button" onClick={() => setScope("team")}>团队空间</button>
+          <button className={`comic-tab-button ${scope === "personal" ? "active" : ""}`} onClick={() => setScope("personal")}>个人空间</button>
+          <button className={`comic-tab-button ${scope === "team" ? "active" : ""}`} onClick={() => setScope("team")}>团队空间</button>
           <button className="create-button" onClick={handleCreateProject}><Plus size={16} /> 新建资产项目</button>
         </div>
       </div>
@@ -675,7 +675,7 @@ export function ComicAssetsView() {
     <div className="comic-workspace-layout">
       <aside className="comic-projects-panel">
         <div className="comic-panel-header">
-          <h3>个人空间项目</h3>
+          <h3>{scope === "personal" ? "个人空间项目" : "团队空间项目"}</h3>
           <button className="comic-refresh-button" onClick={() => void reloadProjects()}><RefreshCcw size={14} /></button>
         </div>
         <div className="comic-panel-count">共 {projects.length} 个</div>
@@ -703,7 +703,7 @@ export function ComicAssetsView() {
               <FolderOpen size={64} />
             </div>
             <h2>先创建一个资产项目</h2>
-            <p>上传剧本或由文本模型拆解资产，或直接导入已有 XLSX 资产表；全部候选都合入后再送队认。</p>
+            <p>上传剧本可由文本模型拆解资产，或直接导入已有XLSX资产表；全部候选都会先预览确认。</p>
             <button className="create-button" onClick={handleCreateProject}><Plus size={16} /> 新建项目</button>
           </div>
         ) : (

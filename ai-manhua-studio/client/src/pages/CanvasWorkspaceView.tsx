@@ -6818,8 +6818,8 @@ export default function CanvasWorkspaceView() {
             <button className="outline-button small" onClick={() => navigate("/")} disabled={switching}>
               <ChevronLeft size={16} /> 返回
             </button>
+            <div className="scope-switch canvas-scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => void switchCanvasScope(item.value)} disabled={switching}>{item.label}</button>)}</div>
           </div>
-          <div className="scope-switch canvas-scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => void switchCanvasScope(item.value)} disabled={switching}>{item.label}</button>)}</div>
           <div className="page-intro">
             <div><p className="eyebrow">CANVAS / PROJECTS</p><h1>选择一张真实画布</h1><p>这里会打开 {scope === "team" ? "团队" : "个人"} 工作区的服务端项目快照，不再使用静态样例节点。</p></div>
             <div className="canvas-head-actions canvas-project-list-actions">
