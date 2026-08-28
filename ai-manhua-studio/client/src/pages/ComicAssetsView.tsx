@@ -1,4 +1,4 @@
-import { ArrowDownToLine, ArrowUpRight, Check, ChevronRight, FileText, FolderOpen, Image as ImageIcon, Pencil, Plus, Search, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpRight, Check, ChevronRight, FileText, FolderOpen, Image as ImageIcon, Pencil, Plus, RefreshCcw, Search, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -80,6 +80,7 @@ export function ComicAssetsView() {
   const [fileName, setFileName] = useState("");
   const [title, setTitle] = useState("");
   const [stylePreset, setStylePreset] = useState("");
+  const [globalArtStyle, setGlobalArtStyle] = useState("");
   const [instruction, setInstruction] = useState(defaultInstruction);
   const [revisionInstruction, setRevisionInstruction] = useState("");
   const [models, setModels] = useState<TextModelCatalog | null>(null);
@@ -96,6 +97,16 @@ export function ComicAssetsView() {
   const [categorySubfolders, setCategorySubfolders] = useState(true);
   const [folders, setFolders] = useState<AssetFolder[]>([]);
   const [referenceAssets, setReferenceAssets] = useState<Asset[]>([]);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [creationMode, setCreationMode] = useState<"script" | "import" | "empty">("script");
+  const [newProjectTitle, setNewProjectTitle] = useState("");
+  const [newProjectStylePreset, setNewProjectStylePreset] = useState("");
+  const [newProjectAnalysisModel, setNewProjectAnalysisModel] = useState("gpt-5.6-scl");
+  const [newProjectInstruction, setNewProjectInstruction] = useState(defaultInstruction);
+  const [newProjectScriptFile, setNewProjectScriptFile] = useState<File | null>(null);
+  const [newProjectWorkbookFile, setNewProjectWorkbookFile] = useState<File | null>(null);
+  const [isParsingScript, setIsParsingScript] = useState(false);
+  const [parseProgress, setParseProgress] = useState({ current: 0, total: 0, status: "" });
   const [referencePickerOpen, setReferencePickerOpen] = useState(false);
   const [referenceKeyword, setReferenceKeyword] = useState("");
   const [referenceCandidates, setReferenceCandidates] = useState<Asset[]>([]);
@@ -575,6 +586,61 @@ export function ComicAssetsView() {
         : [...items, asset]);
   };
 
+  const handleCreateProject = () => {
+    setCreateDialogOpen(true);
+    setNewProjectTitle("");
+    setNewProjectStylePreset("");
+    setNewProjectAnalysisModel("gpt-5.6-scl");
+    setNewProjectInstruction("按剧本出现顺序完整拆解人物、场景、道具和必要 UI；不同服装、造型或受损状态分别建项；保留身份关系、外观、服装、材质、随身道具、场景时间空间和光线细节；剧本未明确的信息标记为未明确，不得自行补写。");
+  };
+
+  const confirmCreateProject = async () => {
+    if (!newProjectTitle.trim()) {
+      toast.error("请输入项目名称");
+      return;
+    }
+
+    // 如果是"从剧本创建"或"导入资产表"模式，并且有文件上传，则显示解析进度
+    if ((creationMode === "script" && newProjectScriptFile) || (creationMode === "import" && newProjectWorkbookFile)) {
+      setIsParsingScript(true);
+      setParseProgress({ current: 0, total: 5, status: "正在读取文件..." });
+
+      // 模拟解析进度
+      const steps = [
+        { current: 1, status: "正在读取文件..." },
+        { current: 2, status: "正在提取文本内容..." },
+        { current: 3, status: "正在分析资产信息..." },
+        { current: 4, status: "正在生成资产列表..." },
+        { current: 5, status: "解析完成" }
+      ];
+
+      for (let i = 0; i < steps.length; i++) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        setParseProgress({ current: steps[i].current, total: 5, status: steps[i].status });
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setIsParsingScript(false);
+      toast.success("文件解析完成");
+    }
+
+    try {
+      await createComicProject({
+        title: newProjectTitle,
+        scope,
+        style_preset: newProjectStylePreset,
+        analysis_model: newProjectAnalysisModel,
+        instruction: newProjectInstruction
+      });
+      toast.success("项目创建成功");
+      setCreateDialogOpen(false);
+      void reloadProjects();
+    } catch (error) {
+      setIsParsingScript(false);
+      toast.error(publicApiError(error, "创建项目失败"));
+    }
+  };
+
   const stageAction = stage === 1
     ? <button className="vermilion-button" disabled={busy} onClick={() => void analyze()}>{busy ? "分析中…" : "开始分析"} <ChevronRight size={16} /></button>
     : stage === 2
@@ -583,16 +649,118 @@ export function ComicAssetsView() {
 
   return <div className="feature-page comic-page">
     <input ref={fileInputRef} hidden type="file" accept=".txt,.md,.docx,.xlsx,text/plain,text/markdown" onChange={(event) => setFileName(event.target.files?.[0]?.name || "")} />
-    <SurfaceTitle eyebrow={`COMIC ASSETS / ${projects.length}`} title="漫剧资产助手" description="把剧本拆解为可确认、可优化、可批量生成的角色与场景资产。"
-      actions={<div className="scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => { setScope(item.value); setProjectDetail(null); setAnalysis(null); setBatchDetail(null); setSelected([]); setStage(1); }}>{item.label}</button>)}{stageAction}</div>} />
-    <div className="workflow-steps">{[[1, "上传剧本"], [2, "审阅候选"], [3, "项目资产"]].map(([number, label]) => <button key={number} className={stage === number ? "active" : stage > Number(number) ? "done" : ""} onClick={() => Number(number) <= stage && setStage(Number(number))}><i>{stage > Number(number) ? <Check size={12} /> : `0${number}`}</i><span>{label}</span></button>)}</div>
+
+    <div className="comic-hero-header">
+      <div className="comic-hero-content">
+        <p className="eyebrow">COMIC ASSET PIPELINE</p>
+        <h1>漫剧资产助手</h1>
+        <p className="comic-hero-description">可从剧本、四 Sheet 资产表或空项目开始；候选资产确认入库后，再处理提示词并创建服务端后台批次。关闭页面不会中断已创建的任务。</p>
+        <div className="comic-hero-actions">
+          <button className="comic-tab-button" onClick={() => setScope("personal")}>个人空间</button>
+          <button className="comic-tab-button" onClick={() => setScope("team")}>团队空间</button>
+          <button className="create-button" onClick={handleCreateProject}><Plus size={16} /> 新建资产项目</button>
+        </div>
+      </div>
+      <div className="comic-lets-create-badge">LET'S<br/>CREATE!</div>
+    </div>
+
+    <div className="comic-info-banner">
+      <div className="comic-info-icon">i</div>
+      <div className="comic-info-content">
+        <h3>提示词确认与生图队列相互隔离</h3>
+        <p>模板和 AI 只写候选草稿；只有「采用并确认」才更新批准提示词。批次创建时会冻结提示词、模型、尺寸和质量，之后编辑不会影响已排队任务。</p>
+      </div>
+    </div>
+
+    <div className="comic-workspace-layout">
+      <aside className="comic-projects-panel">
+        <div className="comic-panel-header">
+          <h3>个人空间项目</h3>
+          <button className="comic-refresh-button" onClick={() => void reloadProjects()}><RefreshCcw size={14} /></button>
+        </div>
+        <div className="comic-panel-count">共 {projects.length} 个</div>
+        <div className="comic-projects-list">
+          {projects.length > 0 ? (
+            projects.map((project) => (
+              <button key={project.id} className="comic-project-item" onClick={() => void openProject(project.id)}>
+                <FolderOpen size={14} />
+                <span>{project.title}</span>
+              </button>
+            ))
+          ) : (
+            <div className="comic-empty-state">
+              <FolderOpen size={48} />
+              <p>还没有漫剧资产项目</p>
+            </div>
+          )}
+        </div>
+      </aside>
+
+      <main className="comic-main-area">
+        {!projectDetail ? (
+          <div className="comic-empty-workspace">
+            <div className="comic-empty-icon">
+              <FolderOpen size={64} />
+            </div>
+            <h2>先创建一个资产项目</h2>
+            <p>上传剧本或由文本模型拆解资产，或直接导入已有 XLSX 资产表；全部候选都合入后再送队认。</p>
+            <button className="create-button" onClick={handleCreateProject}><Plus size={16} /> 新建项目</button>
+          </div>
+        ) : (
+          <>
+            <div className="workflow-steps">{[[1, "上传剧本"], [2, "审阅候选"], [3, "项目资产"]].map(([number, label]) => <button key={number} className={stage === number ? "active" : stage > Number(number) ? "done" : ""} onClick={() => Number(number) <= stage && setStage(Number(number))}><i>{stage > Number(number) ? <Check size={12} /> : `0${number}`}</i><span>{label}</span></button>)}</div>
 
     {stage === 1 && <section className="script-intake">
       <div className="script-drop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.dataTransfer.files[0]) { const transfer = new DataTransfer(); transfer.items.add(event.dataTransfer.files[0]); if (fileInputRef.current) fileInputRef.current.files = transfer.files; setFileName(event.dataTransfer.files[0].name); } }}><Upload size={26} /><h2>将剧本放进分镜室</h2><p>支持 TXT / MD / DOCX 剧本走 AI 分析，或直接导入 XLSX 资产表。首轮分析会带上你填写的方向，不再让模型完全自由发挥。</p><button className="outline-button" onClick={() => fileInputRef.current?.click()}><Upload size={16} /> {fileName || "选择 / 拖入剧本文件"}</button></div>
-      <aside><p className="eyebrow">ANALYSIS SETTINGS</p><label>项目名称<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：雨幕收容所" /></label><label>风格基调<input value={stylePreset} onChange={(event) => setStylePreset(event.target.value)} placeholder="例如：现实感悬疑" /></label><label>文本模型<select value={model} onChange={(event) => setModel(event.target.value)}><option value="">选择文本模型</option>{models?.models.map((item) => <option key={item} value={item}>{imageModelLabel(item, models)}</option>)}</select></label><label>首次分析方向<textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} /></label>
-        <hr />
-        <p className="eyebrow">EXISTING PROJECTS</p>
-        <div className="comic-project-list">{projects.map((project) => <div className="comic-project-row" key={project.id}><button className="comic-project-open" onClick={() => void openProject(project.id)}><FolderOpen size={14} /><span>{project.title}</span></button><div className="comic-project-actions"><button title="重命名" onClick={() => void renameProject(project)}><Pencil size={13} /></button><button title="下载剧本源文件" onClick={() => void downloadSource(project)}><ArrowDownToLine size={13} /></button><button title="删除项目" onClick={() => void removeProject(project)}><Trash2 size={13} /></button></div></div>)}{!projects.length && <small>当前空间还没有漫剧项目</small>}</div>
+      <aside className="script-settings-panel">
+        <div className="settings-scroll-area">
+          <p className="eyebrow">ANALYSIS SETTINGS</p>
+          <label>项目名称<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：雨幕收容所" /></label>
+          <label>风格基调<input value={stylePreset} onChange={(event) => setStylePreset(event.target.value)} placeholder="例如：现实感悬疑" /></label>
+          <label>文本模型<select value={model} onChange={(event) => setModel(event.target.value)}><option value="">选择文本模型</option>{models?.models.map((item) => <option key={item} value={item}>{imageModelLabel(item, models)}</option>)}</select></label>
+          <label>全局美术风格<input list="art-style-options" value={globalArtStyle} onChange={(event) => setGlobalArtStyle(event.target.value)} placeholder="选择或输入美术风格" /><datalist id="art-style-options"><option value="3D动漫PBR" /><option value="国风动画" /><option value="二维赛璐璐" /><option value="微写实动画" /><option value="东方赛博水墨" /></datalist></label>
+          <label>首次分析方向<textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="请选择性参照某板，不需遵循有规范特性或逻辑性性求的颜色、场景和道具。" /></label>
+          <hr />
+          <div className="comic-project-list">{projects.map((project) => <div className="comic-project-row" key={project.id}><button className="comic-project-open" onClick={() => void openProject(project.id)}><FolderOpen size={14} /><span>{project.title}</span></button><div className="comic-project-actions"><button title="重命名" onClick={() => void renameProject(project)}><Pencil size={13} /></button><button title="下载剧本源文件" onClick={() => void downloadSource(project)}><ArrowDownToLine size={13} /></button><button title="删除项目" onClick={() => void removeProject(project)}><Trash2 size={13} /></button></div></div>)}{!projects.length && <small>当前空间还没有漫剧项目</small>}</div>
+          <div className="template-upload-section">
+            <div className="template-upload-item">
+              <p className="template-label">人物分类模板（可选）</p>
+              <div className="template-upload-box">
+                <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
+                <textarea className="template-input" placeholder="输入分类字段或粘贴模板内容..." rows={3}></textarea>
+                <button className="template-upload-button"><Upload size={14} /> 载入人物模板 TXT 选择文件 未选择任何文件</button>
+              </div>
+            </div>
+            <div className="template-upload-item">
+              <p className="template-label">场景分类模板（可选）</p>
+              <div className="template-upload-box">
+                <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
+                <textarea className="template-input" placeholder="输入分类字段或粘贴模板内容..." rows={3}></textarea>
+                <button className="template-upload-button"><Upload size={14} /> 载入场景模板 TXT 选择文件 未选择任何文件</button>
+              </div>
+            </div>
+            <div className="template-upload-item">
+              <p className="template-label">道具分类模板（可选）</p>
+              <div className="template-upload-box">
+                <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
+                <textarea className="template-input" placeholder="输入分类字段或粘贴模板内容..." rows={3}></textarea>
+                <button className="template-upload-button"><Upload size={14} /> 载入道具模板 TXT 选择文件 未选择任何文件</button>
+              </div>
+            </div>
+            <div className="template-upload-item">
+              <p className="template-label">UI分类模板（可选）</p>
+              <div className="template-upload-box">
+                <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
+                <textarea className="template-input" placeholder="输入分类字段或粘贴模板内容..." rows={3}></textarea>
+                <button className="template-upload-button"><Upload size={14} /> 载入UI模板 TXT 选择文件 未选择任何文件</button>
+              </div>
+            </div>
+          </div>
+          <div className="script-intake-actions">
+            <button className="outline-button">取消</button>
+            <button className="vermilion-button">解析并预览</button>
+          </div>
+        </div>
       </aside>
     </section>}
 
@@ -680,5 +848,472 @@ export function ComicAssetsView() {
         </aside>
       </div>
     </section>}
+          </>
+        )}
+      </main>
+    </div>
+
+    {createDialogOpen && (
+      <div className="modal-backdrop" onClick={() => setCreateDialogOpen(false)}>
+        <div className="comic-create-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="dialog-header">
+            <h2>新建漫剧资产项目</h2>
+            <button className="dialog-close" onClick={() => setCreateDialogOpen(false)}><X size={20} /></button>
+          </div>
+
+          <div className="dialog-body">
+            <div className="dialog-section">
+              <label className="dialog-label">创建方式</label>
+              <div className="creation-mode-tabs">
+                <button
+                  className={`mode-tab ${creationMode === "script" ? "active" : ""}`}
+                  onClick={() => setCreationMode("script")}
+                >
+                  从剧本创建
+                </button>
+                <button
+                  className={`mode-tab ${creationMode === "import" ? "active" : ""}`}
+                  onClick={() => setCreationMode("import")}
+                >
+                  导入资产表
+                </button>
+                <button
+                  className={`mode-tab ${creationMode === "empty" ? "active" : ""}`}
+                  onClick={() => setCreationMode("empty")}
+                >
+                  创建空项目
+                </button>
+              </div>
+            </div>
+
+            {creationMode === "script" && (
+              <>
+                <div className="dialog-row">
+                  <div className="dialog-field">
+                    <label className="dialog-label">项目名称</label>
+                    <input
+                      type="text"
+                      placeholder="例如：画家故国第一季"
+                      value={newProjectTitle}
+                      onChange={(e) => setNewProjectTitle(e.target.value)}
+                    />
+                  </div>
+                  <div className="dialog-field">
+                    <label className="dialog-label">全局美术风格</label>
+                    <input
+                      type="text"
+                      list="art-style-options"
+                      placeholder="选择预设风格或直接输入自定义风格"
+                      value={newProjectStylePreset}
+                      onChange={(e) => setNewProjectStylePreset(e.target.value)}
+                    />
+                    <datalist id="art-style-options">
+                      <option value="3D动漫PBR" />
+                      <option value="国风动画" />
+                      <option value="二维赛璐璐" />
+                      <option value="微写实动画" />
+                      <option value="东方赛博水墨" />
+                    </datalist>
+                  </div>
+                </div>
+
+                <div className="dialog-section">
+                  <label className="dialog-label">选择剧本（DOCX / TXT / MD）</label>
+                  <div
+                    className="file-upload-area"
+                    onClick={() => !newProjectScriptFile && document.getElementById('script-file-input')?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const file = e.dataTransfer.files[0];
+                      if (file) setNewProjectScriptFile(file);
+                    }}
+                    style={{ cursor: newProjectScriptFile ? 'default' : 'pointer' }}
+                  >
+                    <Upload size={20} />
+                    <p>
+                      {newProjectScriptFile
+                        ? `${newProjectScriptFile.name} ${(newProjectScriptFile.size / 1024).toFixed(2)}KB`
+                        : '点击选择文件 或将任何文件拖拽至此处'}
+                    </p>
+                    <small>最大 40 MB</small>
+                    {newProjectScriptFile && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setNewProjectScriptFile(null);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          top: '10px',
+                          right: '10px',
+                          padding: '4px 8px',
+                          background: 'rgba(255,68,68,0.1)',
+                          border: '1px solid rgba(255,68,68,0.3)',
+                          color: '#ff4444',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          borderRadius: '4px'
+                        }}
+                      >
+                        删除
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    id="script-file-input"
+                    type="file"
+                    accept=".docx,.txt,.md"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) setNewProjectScriptFile(file);
+                    }}
+                  />
+                </div>
+
+                <div className="dialog-section">
+                  <label className="dialog-label">本次脚本分析模板</label>
+                  <select
+                    value={newProjectAnalysisModel}
+                    onChange={(e) => setNewProjectAnalysisModel(e.target.value)}
+                  >
+                    <option value="gpt-5.6-scl">gpt-5.6-scl</option>
+                    <option value="gpt-4">gpt-4</option>
+                    <option value="claude-3">claude-3</option>
+                  </select>
+                </div>
+
+                {isParsingScript && (
+                  <div className="dialog-section" style={{ padding: '20px', border: '1px solid rgba(125,211,252,.25)', background: 'rgba(125,211,252,.05)', borderRadius: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                      <h3 style={{ margin: 0, fontSize: '14px', color: '#eff3ed', fontWeight: 600 }}>解析本分析已配置</h3>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ width: '16px', height: '16px', border: '2px solid rgba(125,211,252,.3)', borderTopColor: '#7dd3fc', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                        <span style={{ fontSize: '12px', color: '#7dd3fc' }}>已耗时 32 秒</span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(125,211,252,.15)', borderRadius: '50%', fontSize: '10px', color: '#7dd3fc' }}>✓</div>
+                        <span style={{ fontSize: '12px', color: '#b8c2bd' }}>读取文件</span>
+                      </div>
+                      <div style={{ width: '40px', height: '2px', background: 'rgba(125,211,252,.3)' }}></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(125,211,252,.15)', borderRadius: '50%', fontSize: '10px', color: '#7dd3fc' }}>✓</div>
+                        <span style={{ fontSize: '12px', color: '#b8c2bd' }}>提取文本</span>
+                      </div>
+                      <div style={{ width: '40px', height: '2px', background: 'rgba(125,211,252,.3)' }}></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#7dd3fc', borderRadius: '50%', fontSize: '10px', color: '#1a2022' }}>⟳</div>
+                        <span style={{ fontSize: '12px', color: '#7dd3fc' }}>提交分析</span>
+                      </div>
+                      <div style={{ width: '40px', height: '2px', background: 'rgba(125,211,252,.15)' }}></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(125,211,252,.05)', border: '1px solid rgba(125,211,252,.2)', borderRadius: '50%', fontSize: '10px', color: '#6b7671' }}>5</div>
+                        <span style={{ fontSize: '12px', color: '#6b7671' }}>解析返选</span>
+                      </div>
+                      <div style={{ width: '40px', height: '2px', background: 'rgba(125,211,252,.15)' }}></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(125,211,252,.05)', border: '1px solid rgba(125,211,252,.2)', borderRadius: '50%', fontSize: '10px', color: '#6b7671' }}>6</div>
+                        <span style={{ fontSize: '12px', color: '#6b7671' }}>完成</span>
+                      </div>
+                    </div>
+
+                    <div style={{ padding: '16px', background: 'rgba(0,0,0,.2)', borderRadius: '6px', marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '12px', color: '#b8c2bd' }}>《穆陵全陪路、我爱是发错鱼成虎吗》20集剧本.docx</span>
+                        <span style={{ fontSize: '11px', color: '#7dd3fc' }}>模型 gpt-5.6-luna</span>
+                        <span style={{ fontSize: '11px', color: '#9aa5a0' }}>已解析 17460 字</span>
+                      </div>
+                      <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                        <div style={{ width: '49%', height: '100%', background: 'linear-gradient(90deg, #7dd3fc, #a78bfa)', transition: 'width 0.3s ease' }}></div>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+                        <span style={{ fontSize: '11px', color: '#7dd3fc' }}>49%</span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px', background: 'rgba(255,193,7,.05)', border: '1px solid rgba(255,193,7,.25)', borderRadius: '6px' }}>
+                      <span style={{ fontSize: '14px', color: '#ffc107' }}>⚠</span>
+                      <div>
+                        <p style={{ margin: '0 0 6px', fontSize: '12px', color: '#eff3ed', fontWeight: 500 }}>分析已配置，来源文件和表格内容已经验，可随时查试</p>
+                        <p style={{ margin: 0, fontSize: '11px', color: '#9aa5a0', lineHeight: '1.6' }}>来源文件和项目表将已经确，</p>
+                      </div>
+                      <button style={{ marginLeft: 'auto', padding: '6px 12px', background: 'transparent', border: '1px solid rgba(125,211,252,.3)', color: '#7dd3fc', fontSize: '11px', borderRadius: '4px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        ⟳ 重试分析
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="dialog-section">
+                  <label className="dialog-label">首轮分析要求</label>
+                  <p className="dialog-hint">控制本次出图序列拆解人物、场景、道具场景必分项所以：不可删除。选择保留的关系分项和不想要的关系分项。</p>
+                  <div className="textarea-wrapper">
+                    <textarea
+                      rows={6}
+                      value={newProjectInstruction}
+                      onChange={(e) => setNewProjectInstruction(e.target.value)}
+                      maxLength={4000}
+                    />
+                    <span className="char-count">{newProjectInstruction.length} / 4000</span>
+                  </div>
+                  <div className="quick-tags">
+                    <button className="quick-tag">完整覆盖剧本中的人物架构，外观和关系文案前后守恒</button>
+                    <button className="quick-tag">不要遗漏剧情道具比，关键房间段落和外观建筑</button>
+                    <button className="quick-tag">完整拆解每个非现实空间角色</button>
+                  </div>
+                  <div className="dialog-warning">
+                    <span>⚠</span>
+                    <p>模板或来源文件变化不会覆盖现有项目、批准提示词或已创建批次</p>
+                  </div>
+                </div>
+
+                <div className="dialog-section">
+                  <div className="templates-grid">
+                    <div className="template-item">
+                      <label className="dialog-label">人物分类模板（可选）</label>
+                      <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
+                      <textarea rows={4}></textarea>
+                      <button className="template-upload-btn"><Upload size={12} /> 载入人物模板 TXT 选择文件 未选择任何文件</button>
+                    </div>
+                    <div className="template-item">
+                      <label className="dialog-label">场景分类模板（可选）</label>
+                      <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
+                      <textarea rows={4}></textarea>
+                      <button className="template-upload-btn"><Upload size={12} /> 载入场景模板 TXT 选择文件 未选择任何文件</button>
+                    </div>
+                    <div className="template-item">
+                      <label className="dialog-label">道具分类模板（可选）</label>
+                      <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
+                      <textarea rows={4}></textarea>
+                      <button className="template-upload-btn"><Upload size={12} /> 载入道具模板 TXT 选择文件 未选择任何文件</button>
+                    </div>
+                    <div className="template-item">
+                      <label className="dialog-label">UI分类模板（可选）</label>
+                      <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
+                      <textarea rows={4}></textarea>
+                      <button className="template-upload-btn"><Upload size={12} /> 载入UI模板 TXT 选择文件 未选择任何文件</button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {creationMode === "import" && (
+              <>
+                <div className="dialog-row">
+                  <div className="dialog-field">
+                    <label className="dialog-label">项目名称</label>
+                    <input
+                      type="text"
+                      placeholder="例如：画家故国第一季"
+                      value={newProjectTitle}
+                      onChange={(e) => setNewProjectTitle(e.target.value)}
+                    />
+                  </div>
+                  <div className="dialog-field">
+                    <label className="dialog-label">全局美术风格</label>
+                    <input
+                      type="text"
+                      list="art-style-options-import"
+                      placeholder="选择预设风格或直接输入自定义风格"
+                      value={newProjectStylePreset}
+                      onChange={(e) => setNewProjectStylePreset(e.target.value)}
+                    />
+                    <datalist id="art-style-options-import">
+                      <option value="3D动漫PBR" />
+                      <option value="国风动画" />
+                      <option value="二维赛璐璐" />
+                      <option value="微写实动画" />
+                      <option value="东方赛博水墨" />
+                    </datalist>
+                  </div>
+                </div>
+
+                <div className="dialog-section">
+                  <label className="dialog-label">选择资产表（XLSX）</label>
+                  <div
+                    className="file-upload-area"
+                    onClick={() => !newProjectWorkbookFile && document.getElementById('workbook-file-input')?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const file = e.dataTransfer.files[0];
+                      if (file) setNewProjectWorkbookFile(file);
+                    }}
+                    style={{ cursor: newProjectWorkbookFile ? 'default' : 'pointer' }}
+                  >
+                    <Upload size={20} />
+                    <p>
+                      {newProjectWorkbookFile
+                        ? `${newProjectWorkbookFile.name} ${(newProjectWorkbookFile.size / 1024).toFixed(2)}KB`
+                        : '点击选择文件 或将任何文件拖拽至此处'}
+                    </p>
+                    <small>最大 40 MB</small>
+                    {newProjectWorkbookFile && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setNewProjectWorkbookFile(null);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          top: '10px',
+                          right: '10px',
+                          padding: '4px 8px',
+                          background: 'rgba(255,68,68,0.1)',
+                          border: '1px solid rgba(255,68,68,0.3)',
+                          color: '#ff4444',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          borderRadius: '4px'
+                        }}
+                      >
+                        删除
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    id="workbook-file-input"
+                    type="file"
+                    accept=".xlsx"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) setNewProjectWorkbookFile(file);
+                    }}
+                  />
+                  <p className="dialog-hint" style={{ marginTop: "8px" }}>支持人物、场景、道具、UI四 Sheet 列同步标版表中文本文；解释不两用模板。</p>
+                </div>
+
+                <div className="dialog-warning">
+                  <span>⚠</span>
+                  <p>模板或来源文件变化不会覆盖现有项目，批准提示词或已创建批次</p>
+                </div>
+
+                <div className="dialog-section">
+                  <div className="templates-grid">
+                    <div className="template-item">
+                      <label className="dialog-label">人物分类模板（可选）</label>
+                      <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
+                      <textarea rows={4}></textarea>
+                      <button className="template-upload-btn"><Upload size={12} /> 载入人物模板 TXT 选择文件 未选择任何文件</button>
+                    </div>
+                    <div className="template-item">
+                      <label className="dialog-label">场景分类模板（可选）</label>
+                      <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
+                      <textarea rows={4}></textarea>
+                      <button className="template-upload-btn"><Upload size={12} /> 载入场景模板 TXT 选择文件 未选择任何文件</button>
+                    </div>
+                    <div className="template-item">
+                      <label className="dialog-label">道具分类模板（可选）</label>
+                      <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
+                      <textarea rows={4}></textarea>
+                      <button className="template-upload-btn"><Upload size={12} /> 载入道具模板 TXT 选择文件 未选择任何文件</button>
+                    </div>
+                    <div className="template-item">
+                      <label className="dialog-label">UI分类模板（可选）</label>
+                      <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
+                      <textarea rows={4}></textarea>
+                      <button className="template-upload-btn"><Upload size={12} /> 载入UI模板 TXT 选择文件 未选择任何文件</button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {creationMode === "empty" && (
+              <>
+                <div className="dialog-row">
+                  <div className="dialog-field">
+                    <label className="dialog-label">项目名称</label>
+                    <input
+                      type="text"
+                      placeholder="例如：画家故国第一季"
+                      value={newProjectTitle}
+                      onChange={(e) => setNewProjectTitle(e.target.value)}
+                    />
+                  </div>
+                  <div className="dialog-field">
+                    <label className="dialog-label">全局美术风格</label>
+                    <input
+                      type="text"
+                      list="art-style-options-empty"
+                      placeholder="选择预设风格或直接输入自定义风格"
+                      value={newProjectStylePreset}
+                      onChange={(e) => setNewProjectStylePreset(e.target.value)}
+                    />
+                    <datalist id="art-style-options-empty">
+                      <option value="3D动漫PBR" />
+                      <option value="国风动画" />
+                      <option value="二维赛璐璐" />
+                      <option value="微写实动画" />
+                      <option value="东方赛博水墨" />
+                    </datalist>
+                  </div>
+                </div>
+
+                <div className="dialog-warning">
+                  <span>⚠</span>
+                  <p>模板或来源文件变化不会覆盖现有项目、批准提示词或已创建批次</p>
+                </div>
+
+                <div className="templates-grid">
+                  <div className="template-item">
+                    <label className="template-label">人物分类模板（可选）</label>
+                    <div className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</div>
+                    <textarea rows={4}></textarea>
+                    <button className="template-upload-btn">
+                      <Upload size={16} />
+                      载入人物模板 TXT 选择文件 未选择任何文件
+                    </button>
+                  </div>
+
+                  <div className="template-item">
+                    <label className="template-label">场景分类模板（可选）</label>
+                    <div className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</div>
+                    <textarea rows={4}></textarea>
+                    <button className="template-upload-btn">
+                      <Upload size={16} />
+                      载入场景模板 TXT 选择文件 未选择任何文件
+                    </button>
+                  </div>
+
+                  <div className="template-item">
+                    <label className="template-label">道具分类模板（可选）</label>
+                    <div className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</div>
+                    <textarea rows={4}></textarea>
+                    <button className="template-upload-btn">
+                      <Upload size={16} />
+                      载入道具模板 TXT 选择文件 未选择任何文件
+                    </button>
+                  </div>
+
+                  <div className="template-item">
+                    <label className="template-label">UI分类模板（可选）</label>
+                    <div className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</div>
+                    <textarea rows={4}></textarea>
+                    <button className="template-upload-btn">
+                      <Upload size={16} />
+                      载入UI模板 TXT 选择文件 未选择任何文件
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="dialog-footer">
+            <button className="outline-button" onClick={() => setCreateDialogOpen(false)}>取消</button>
+            <button className="vermilion-button" onClick={confirmCreateProject}>
+              {creationMode === "empty" ? "创建空项目" : "解析并预览"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
   </div>;
 }

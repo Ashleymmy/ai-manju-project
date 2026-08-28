@@ -701,26 +701,22 @@ function Queue() {
         }
       />
 
-      <div className="queue-status-cards">
-        <div className="status-card">
-          <div className="status-icon running"><Sparkles size={20} /></div>
-          <div className="status-number">{count("running")}</div>
-          <div className="status-label">运行中</div>
+      <div className="queue-status-overview">
+        <div className="status-item">
+          <span className="status-count">{String(count("running")).padStart(2, "0")}</span>
+          <span className="status-text">运行中</span>
         </div>
-        <div className="status-card">
-          <div className="status-icon queued"><WandSparkles size={20} /></div>
-          <div className="status-number">{count("queued")}</div>
-          <div className="status-label">等待/暂停</div>
+        <div className="status-item">
+          <span className="status-count">{String(count("queued")).padStart(2, "0")}</span>
+          <span className="status-text">等待 / 暂停</span>
         </div>
-        <div className="status-card">
-          <div className="status-icon succeeded"><Check size={20} /></div>
-          <div className="status-number">{count("succeeded")}</div>
-          <div className="status-label">已完成</div>
+        <div className="status-item">
+          <span className="status-count">{String(count("succeeded")).padStart(2, "0")}</span>
+          <span className="status-text">已完成</span>
         </div>
-        <div className="status-card">
-          <div className="status-icon failed"><Plus size={20} style={{transform: 'rotate(45deg)'}} /></div>
-          <div className="status-number">{count("failed")}</div>
-          <div className="status-label">失败</div>
+        <div className="status-item">
+          <span className="status-count">{String(count("failed")).padStart(2, "0")}</span>
+          <span className="status-text">异常 / 失败</span>
         </div>
       </div>
 

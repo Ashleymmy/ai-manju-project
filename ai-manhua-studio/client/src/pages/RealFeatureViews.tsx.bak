@@ -833,7 +833,7 @@ export function AssetLibraryView() {
   const deleteFolder = async () => {
     if (!activeFolderId) return;
     const folder = folders.find((item) => item.id === activeFolderId);
-    if (!window.confirm(`删除文件夹"${folder?.name || activeFolderId}"？其中资产会回到默认归档目录。`)) return;
+    if (!window.confirm(`删除文件夹“${folder?.name || activeFolderId}”？其中资产会回到默认归档目录。`)) return;
     try {
       const result = await deleteAssetFolder(activeFolderId, scope);
       setActiveFolderId("");
@@ -1140,7 +1140,7 @@ export function TagLibraryView() {
   const addTag = async (parentId = "") => { const name = window.prompt(parentId ? "新子标签名称" : "新标签名称"); if (!name?.trim()) return; const created = await createWorkspaceTag(scope, { parent_id: parentId || undefined, name: name.trim(), asset_enabled: true, prompt_enabled: true, inherit_mode: "auto" }); await reload(created.id); };
   const saveCurrent = async () => { if (!current || !draftName.trim()) return; const saved = await updateTag(scope, current.id, { name: draftName.trim(), description: draftDescription.trim(), asset_enabled: current.asset_enabled, prompt_enabled: current.prompt_enabled, inherit_mode: current.inherit_mode, status: current.status, sort_order: current.sort_order }); setTags((items) => items.map((item) => item.id === saved.id ? saved : item)); };
   const moveCurrent = async () => { if (!current || !current.editable) return; if (moveParentId && currentBlockedIds.has(moveParentId)) { toast.error("不能移动到自身或自身后代"); return; } await bulkMoveTags(scope, [current.id], moveParentId || undefined); await reload(current.id); };
-  const archiveCurrent = async () => { if (!current || !window.confirm(`删除"${current.name}"及其可归档子标签？`)) return; await deleteTag(scope, current.id); await reload(); };
+  const archiveCurrent = async () => { if (!current || !window.confirm(`删除“${current.name}”及其可归档子标签？`)) return; await deleteTag(scope, current.id); await reload(); };
   const bulkMoveSelected = async () => { if (!selectedIds.length) return; if (moveParentId && bulkBlockedIds.has(moveParentId)) { toast.error("不能移动到选中标签或其后代"); return; } await bulkMoveTags(scope, selectedIds, moveParentId || undefined); setSelectedIds([]); await reload(); };
   const bulkDeleteSelected = async () => { if (!selectedIds.length || !window.confirm(`删除 ${selectedIds.length} 个标签及其可归档子标签？`)) return; await bulkDeleteTags(scope, selectedIds); setSelectedIds([]); await reload(); };
   const addAlias = async () => { if (!current || !alias.trim()) return; await createTagAlias(scope, current.id, alias.trim()); setAlias(""); await reload(current.id); };
@@ -1257,7 +1257,7 @@ export function PromptLibraryView() {
   return <div className="feature-page prompt-page">
     <SurfaceTitle eyebrow={mode === "personal" ? `PROMPTS / ${presets.length}` : `LIBRARY / ${systemTotal}`} title="提示词中心" description="个人预设与偏好共用一份数据；系统库聚合公开提示词仓库，可直接检索复用。"
       actions={<div className="scope-switch"><button className={mode === "personal" ? "active" : ""} onClick={() => setMode("personal")}>个人预设</button><button className={mode === "system" ? "active" : ""} onClick={() => setMode("system")}>系统库</button>{mode === "personal" && <button className="vermilion-button" onClick={() => void createPreset()}><Plus size={16} /> 新建预设</button>}</div>} />
-    {mode === "personal" ? <div className="prompt-workspace"><aside className="prompt-filters"><div className="tag-search"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="关键词、标签或优先级" /></div><p className="field-label">PRIORITY</p>{[["置顶", "pinned"], ["高", "high"], ["普通", "normal"], ["低", "low"]].map(([name, key]) => <button onClick={() => setQuery(key)} key={key}><span>{name}</span><b>{presets.filter((item) => item.priority === key).length}</b></button>)}<hr /><p className="field-label">常用标签</p>{commonTags.map((tag) => <button className="tag-filter" onClick={() => setQuery(tag)} key={tag}>#{tag}</button>)}</aside><section className="template-list"><div className="template-list-head"><span>{loading ? "读取中…" : `匹配到 ${visible.length} 条视觉片段`}</span></div>{visible.map((item) => <button className={active?.id === item.id ? "template-card selected" : "template-card"} onClick={() => setActiveId(item.id)} key={item.id}><div><span>{priorityLabel(item.priority)}</span><b>{item.title}</b><p>{item.prompt || "尚未填写提示词"}</p></div><div className="template-card-tags">{item.tags.map((tag) => <i key={tag}>#{tag}</i>)}</div></button>)}</section><aside className="prompt-preview">{active ? <><div><p className="eyebrow">PRESET PREVIEW</p><input value={active.title} onChange={(e) => patchActive({ title: e.target.value })} /></div><div className="preview-tags">{active.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div><textarea value={active.prompt} onChange={(e) => patchActive({ prompt: e.target.value })} /><input value={active.tags.join(", ")} onChange={(e) => patchActive({ tags: e.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean) })} placeholder="标签，以逗号分隔" /><select value={active.priority} onChange={(e) => patchActive({ priority: e.target.value as PromptPreset["priority"] })}><option value="pinned">置顶</option><option value="high">高</option><option value="normal">普通</option><option value="low">低</option></select><div className="prompt-order-actions"><button onClick={() => void moveActive(-1)}>上移</button><button onClick={() => void moveActive(1)}>下移</button></div><button className="vermilion-button" onClick={() => void persist(presets.map((item) => item.id === active.id ? { ...item, updatedAt: new Date().toISOString() } : item), "提示词已保存")}><Check size={16} /> 保存预设</button><button className="full-outline" onClick={() => { sessionStorage.setItem("ai-manju:image-prompt", active.prompt); window.location.assign("/image"); }}><WandSparkles size={16} /> 送入关键帧</button><button className="full-outline" onClick={async () => { await navigator.clipboard.writeText(active.prompt); toast.success("提示词已复制"); }}><FileText size={15} /> 复制完整提示词</button><button className="full-outline" onClick={() => { if (window.confirm(`删除"${active.title}"？`)) void persist(presets.filter((item) => item.id !== active.id), "提示词已删除"); }}><Trash2 size={15} /> 删除预设</button></> : <div className="empty-output"><p>暂无个人提示词预设</p></div>}</aside></div>
+    {mode === "personal" ? <div className="prompt-workspace"><aside className="prompt-filters"><div className="tag-search"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="关键词、标签或优先级" /></div><p className="field-label">PRIORITY</p>{[["置顶", "pinned"], ["高", "high"], ["普通", "normal"], ["低", "low"]].map(([name, key]) => <button onClick={() => setQuery(key)} key={key}><span>{name}</span><b>{presets.filter((item) => item.priority === key).length}</b></button>)}<hr /><p className="field-label">常用标签</p>{commonTags.map((tag) => <button className="tag-filter" onClick={() => setQuery(tag)} key={tag}>#{tag}</button>)}</aside><section className="template-list"><div className="template-list-head"><span>{loading ? "读取中…" : `匹配到 ${visible.length} 条视觉片段`}</span></div>{visible.map((item) => <button className={active?.id === item.id ? "template-card selected" : "template-card"} onClick={() => setActiveId(item.id)} key={item.id}><div><span>{priorityLabel(item.priority)}</span><b>{item.title}</b><p>{item.prompt || "尚未填写提示词"}</p></div><div className="template-card-tags">{item.tags.map((tag) => <i key={tag}>#{tag}</i>)}</div></button>)}</section><aside className="prompt-preview">{active ? <><div><p className="eyebrow">PRESET PREVIEW</p><input value={active.title} onChange={(e) => patchActive({ title: e.target.value })} /></div><div className="preview-tags">{active.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div><textarea value={active.prompt} onChange={(e) => patchActive({ prompt: e.target.value })} /><input value={active.tags.join(", ")} onChange={(e) => patchActive({ tags: e.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean) })} placeholder="标签，以逗号分隔" /><select value={active.priority} onChange={(e) => patchActive({ priority: e.target.value as PromptPreset["priority"] })}><option value="pinned">置顶</option><option value="high">高</option><option value="normal">普通</option><option value="low">低</option></select><div className="prompt-order-actions"><button onClick={() => void moveActive(-1)}>上移</button><button onClick={() => void moveActive(1)}>下移</button></div><button className="vermilion-button" onClick={() => void persist(presets.map((item) => item.id === active.id ? { ...item, updatedAt: new Date().toISOString() } : item), "提示词已保存")}><Check size={16} /> 保存预设</button><button className="full-outline" onClick={() => { sessionStorage.setItem("ai-manju:image-prompt", active.prompt); window.location.assign("/image"); }}><WandSparkles size={16} /> 送入关键帧</button><button className="full-outline" onClick={async () => { await navigator.clipboard.writeText(active.prompt); toast.success("提示词已复制"); }}><FileText size={15} /> 复制完整提示词</button><button className="full-outline" onClick={() => { if (window.confirm(`删除“${active.title}”？`)) void persist(presets.filter((item) => item.id !== active.id), "提示词已删除"); }}><Trash2 size={15} /> 删除预设</button></> : <div className="empty-output"><p>暂无个人提示词预设</p></div>}</aside></div>
       : <div className="prompt-workspace">
         <aside className="prompt-filters">
           <div className="tag-search"><Search size={15} /><input value={systemKeyword} onChange={(e) => setSystemKeyword(e.target.value)} placeholder="搜索标题、正文或标签" /></div>
@@ -1316,69 +1316,69 @@ export function ProfileView() {
     await persistProfilePresets([...preferences, preset], "个人提示词已创建");
   };
   const patchProfilePreset = (patch: Partial<PromptPreset>) => activePreset && setPreferences((items) => items.map((item) => item.id === activePreset.id ? { ...item, ...patch } : item));
-  return <div className="feature-page profile-page">
-    <SurfaceTitle eyebrow="PROFILE / YOU" title="个人主页" description="把常用模型、提示词预设和工作区状态集中放在一个页面里。"
-      actions={<button className="outline-button small" onClick={() => window.location.assign("/prompts")}>打开提示词库</button>} />
-    <div className="profile-workspace">
-      <section className="profile-account-section">
-        <p className="eyebrow">ACCOUNT</p>
-        <h2>{user?.display_name || user?.username || "—"}</h2>
-        <p className="profile-role-text">{user?.role}</p>
+  return <div className=”feature-page profile-page”>
+    <SurfaceTitle eyebrow=”PROFILE / YOU” title=”个人主页” description=”把常用模型、提示词预设和工作区状态集中放在一个页面里。”
+      actions={<button className=”outline-button small” onClick={() => window.location.assign(“/prompts”)}>打开提示词库</button>} />
+    <div className=”profile-workspace”>
+      <section className=”profile-account-section”>
+        <p className=”eyebrow”>ACCOUNT</p>
+        <h2>{user?.display_name || user?.username || “—“}</h2>
+        <p className=”profile-role-text”>{user?.role}</p>
       </section>
-      <div className="profile-stats-row">
-        <div className="profile-metric-card">
-          <span className="metric-label">进行中项目</span>
-          <b className="metric-value">{data.projects.total ?? "—"}</b>
-          <small className="metric-unit">前进中现活跃项目</small>
+      <div className=”profile-stats-row”>
+        <div className=”profile-metric-card”>
+          <span className=”metric-label”>进行中项目</span>
+          <b className=”metric-value”>{data.projects.total ?? “—“}</b>
+          <small className=”metric-unit”>前进中现活跃项目</small>
         </div>
-        <div className="profile-metric-card">
-          <span className="metric-label">资产管理</span>
-          <b className="metric-value">{data.assets.total ?? "—"}</b>
-          <small className="metric-unit">图企中现活资产</small>
+        <div className=”profile-metric-card”>
+          <span className=”metric-label”>资产管理</span>
+          <b className=”metric-value”>{data.assets.total ?? “—“}</b>
+          <small className=”metric-unit”>图企中现活资产</small>
         </div>
-        <div className="profile-metric-card">
-          <span className="metric-label">可视推进</span>
-          <b className="metric-value">{data.jobs.total ?? "—"}</b>
-          <small className="metric-unit">并用线程和进站</small>
+        <div className=”profile-metric-card”>
+          <span className=”metric-label”>可视推进</span>
+          <b className=”metric-value”>{data.jobs.total ?? “—“}</b>
+          <small className=”metric-unit”>并用线程和进站</small>
         </div>
-        <div className="profile-metric-card">
-          <span className="metric-label">资配预设</span>
-          <b className="metric-value">{promptCount < 10 ? `0${promptCount}` : promptCount}</b>
-          <small className="metric-unit">提供配额预设项</small>
+        <div className=”profile-metric-card”>
+          <span className=”metric-label”>资配预设</span>
+          <b className=”metric-value”>{promptCount < 10 ? `0${promptCount}` : promptCount}</b>
+          <small className=”metric-unit”>提供配额预设项</small>
         </div>
       </div>
-      <section className="profile-shortcuts-section">
-        <p className="eyebrow">SHORTCUTS</p>
-        <div className="profile-nav-grid">
-          <button className="profile-nav-item" onClick={() => window.location.assign("/prompts")}>
+      <section className=”profile-shortcuts-section”>
+        <p className=”eyebrow”>SHORTCUTS</p>
+        <div className=”profile-nav-grid”>
+          <button className=”profile-nav-item” onClick={() => window.location.assign(“/prompts”)}>
             <span>进入完整提示词库</span>
             <ChevronRight size={16} />
           </button>
-          <button className="profile-nav-item" onClick={() => window.location.assign("/assets")}>
+          <button className=”profile-nav-item” onClick={() => window.location.assign(“/assets”)}>
             <span>进入资产库</span>
             <ChevronRight size={16} />
           </button>
-          <button className="profile-nav-item" onClick={() => window.location.assign("/canvas")}>
+          <button className=”profile-nav-item” onClick={() => window.location.assign(“/canvas”)}>
             <span>打开画布</span>
             <ChevronRight size={16} />
           </button>
-          <button className="profile-nav-item" onClick={() => window.location.assign("/image")}>
+          <button className=”profile-nav-item” onClick={() => window.location.assign(“/image”)}>
             <span>打开关键帧生成</span>
             <ChevronRight size={16} />
           </button>
         </div>
       </section>
-      <section className="profile-prompt-section">
-        <div className="profile-section-header">
+      <section className=”profile-prompt-section”>
+        <div className=”profile-section-header”>
           <div>
-            <p className="eyebrow">PRIVATE PROMPTS</p>
+            <p className=”eyebrow”>PRIVATE PROMPTS</p>
             <h2>个人提示词预设</h2>
           </div>
-          <button className="outline-button small" onClick={() => void createProfilePreset()}><Plus size={15} /> 新建</button>
+          <button className=”outline-button small” onClick={() => void createProfilePreset()}><Plus size={15} /> 新建</button>
         </div>
-        <div className="profile-prompt-workspace">
-          <div className="profile-preset-list">{preferences.length ? [...preferences].sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.sort_order - b.sort_order).map((preset) => <button key={preset.id} className={activePreset?.id === preset.id ? "selected" : ""} onClick={() => setActivePresetId(preset.id)}><span className="preset-priority">{priorityLabel(preset.priority)}</span><b>{preset.title}</b><small>{preset.tags.join(" / ") || preset.prompt.slice(0, 40) || "未填写"}</small></button>) : <div className="empty-output"><p>暂无个人提示词，点击新建开始。</p></div>}</div>
-          <div className="profile-preset-editor">{activePreset ? <><input value={activePreset.title} onChange={(event) => patchProfilePreset({ title: event.target.value })} placeholder="标题" /><textarea value={activePreset.prompt} onChange={(event) => patchProfilePreset({ prompt: event.target.value })} placeholder="提示词内容" /><input value={activePreset.tags.join(", ")} onChange={(event) => patchProfilePreset({ tags: event.target.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean) })} placeholder="标签，以逗号分隔" /><select value={activePreset.priority} onChange={(event) => patchProfilePreset({ priority: event.target.value as PromptPreset["priority"] })}><option value="pinned">置顶</option><option value="high">高</option><option value="normal">普通</option><option value="low">低</option></select><div className="profile-preset-actions"><button className="vermilion-button" disabled={saving} onClick={() => void persistProfilePresets(preferences, "个人提示词已保存")}><Check size={15} /> 保存</button><button className="outline-button small" onClick={() => { sessionStorage.setItem("ai-manju:image-prompt", activePreset.prompt); window.location.assign("/image"); }}><WandSparkles size={15} /> 送入关键帧</button><button className="outline-button small" onClick={() => void navigator.clipboard.writeText(activePreset.prompt).then(() => toast.success("提示词已复制"))}><FileText size={15} /> 复制</button><button className="outline-button small" onClick={() => window.confirm(`删除"${activePreset.title}"？`) && void persistProfilePresets(preferences.filter((item) => item.id !== activePreset.id), "个人提示词已删除")}><Trash2 size={15} /> 删除</button></div></> : <div className="empty-output"><p>选择一个提示词进行编辑。</p></div>}</div>
+        <div className=”profile-prompt-workspace”>
+          <div className=”profile-preset-list”>{preferences.length ? [...preferences].sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.sort_order - b.sort_order).map((preset) => <button key={preset.id} className={activePreset?.id === preset.id ? “selected” : “”} onClick={() => setActivePresetId(preset.id)}><span className=”preset-priority”>{priorityLabel(preset.priority)}</span><b>{preset.title}</b><small>{preset.tags.join(“ / “) || preset.prompt.slice(0, 40) || “未填写”}</small></button>) : <div className=”empty-output”><p>暂无个人提示词，点击新建开始。</p></div>}</div>
+          <div className=”profile-preset-editor”>{activePreset ? <><input value={activePreset.title} onChange={(event) => patchProfilePreset({ title: event.target.value })} placeholder=”标题” /><textarea value={activePreset.prompt} onChange={(event) => patchProfilePreset({ prompt: event.target.value })} placeholder=”提示词内容” /><input value={activePreset.tags.join(“, “)} onChange={(event) => patchProfilePreset({ tags: event.target.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean) })} placeholder=”标签，以逗号分隔” /><select value={activePreset.priority} onChange={(event) => patchProfilePreset({ priority: event.target.value as PromptPreset[“priority”] })}><option value=”pinned”>置顶</option><option value=”high”>高</option><option value=”normal”>普通</option><option value=”low”>低</option></select><div className=”profile-preset-actions”><button className=”vermilion-button” disabled={saving} onClick={() => void persistProfilePresets(preferences, “个人提示词已保存”)}><Check size={15} /> 保存</button><button className=”outline-button small” onClick={() => { sessionStorage.setItem(“ai-manju:image-prompt”, activePreset.prompt); window.location.assign(“/image”); }}><WandSparkles size={15} /> 送入关键帧</button><button className=”outline-button small” onClick={() => void navigator.clipboard.writeText(activePreset.prompt).then(() => toast.success(“提示词已复制”))}><FileText size={15} /> 复制</button><button className=”outline-button small” onClick={() => window.confirm(`删除”${activePreset.title}”？`) && void persistProfilePresets(preferences.filter((item) => item.id !== activePreset.id), “个人提示词已删除”)}><Trash2 size={15} /> 删除</button></div></> : <div className=”empty-output”><p>选择一个提示词进行编辑。</p></div>}</div>
         </div>
       </section>
     </div>
