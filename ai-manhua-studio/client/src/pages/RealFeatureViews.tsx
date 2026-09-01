@@ -9,12 +9,15 @@ import {
   ChevronRight,
   Clapperboard,
   FileText,
+  FolderInput,
   FolderOpen,
   Hash,
   Image as ImageIcon,
   ImagePlus,
   Layers3,
   Loader2,
+  Music2,
+  Pencil,
   Plus,
   RefreshCcw,
   Search,
@@ -23,6 +26,7 @@ import {
   Tag,
   Trash2,
   Upload,
+  Video,
   WandSparkles,
   X,
 } from "lucide-react";
@@ -32,6 +36,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspaceDashboardData } from "@/hooks/useWorkspaceDashboardData";
 import {
+  bindAssetTags,
   bulkDeleteTags,
   bulkMoveAssets,
   bulkMoveTags,
@@ -40,7 +45,7 @@ import {
   createAssetExport,
   createAssetFolder,
   createProject,
-  createWorkspaceTag,
+  createTag,
   createTagAlias,
   deleteAssetFolder,
   deleteTag,
@@ -63,13 +68,18 @@ import {
   getTrashedAssetLibrary,
   imageModelLabel,
   listAllTags,
-  listTagAssets,
   listAssetExports,
+  listAssetTagDetails,
+  listTagAssets,
+  listTagPrompts,
   preflightAssetTrash,
   publicApiError,
+  removeAssetTag,
   restoreAssets,
   permanentDeleteAsset,
+  resyncAssetInheritedTags,
   trashAssets,
+  updateAssetFolder,
   updateAssetMetadata,
   updateAssetUserState,
   updatePreferences,
@@ -82,6 +92,7 @@ import {
   type AssetFolder,
   type AssetLineageView,
   type AssetSourceType,
+  type AssetTagDetail,
   type AssetUsageEvent,
   type CanvasProject,
   type GeneratedImage,
@@ -89,16 +100,19 @@ import {
   type PromptPreset,
   type SemanticTag,
   type SystemPrompt,
+  type TagInheritMode,
   type WorkspaceScope,
 } from "@/services/api";
 import { collectTagSubtreeIds, filterTagsWithAncestors, flattenTagTree, semanticTagPath } from "@/lib/tag-tree";
+import { collectFolderSubtreeIds, flattenFolderTree, folderPathLabel } from "@/lib/asset-folder-tree";
 import { assetPackageUploadMetadata, createAssetPackage, readAssetPackage } from "@/lib/asset-transfer";
 import PromptLibraryDialog from "@/components/PromptLibraryDialog";
+import SeedanceAssetPanel from "@/components/SeedanceAssetPanel";
 
 export { ComicAssetsView } from "./ComicAssetsView";
 
 type Option<T extends string> = { value: T; label: string };
-type SmartView = "all" | "favorite" | "dislike" | "unused" | "frequent" | "trash";
+type SmartView = "all" | "favorite" | "dislike" | "unused" | "frequent" | "seedance" | "trash";
 
 const scopeOptions: Array<Option<WorkspaceScope>> = [
   { value: "personal", label: "个人空间" },
@@ -132,6 +146,7 @@ const smartViews: Array<{ value: SmartView; label: string }> = [
   { value: "dislike", label: "已踩" },
   { value: "unused", label: "未使用" },
   { value: "frequent", label: "高频调用" },
+  { value: "seedance", label: "真人素材" },
   { value: "trash", label: "回收站" },
 ];
 
@@ -612,6 +627,10 @@ export function AssetLibraryView() {
   const [packageBusy, setPackageBusy] = useState("");
   const packageInputRef = useRef<HTMLInputElement>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const [detailName, setDetailName] = useState("");
+  const [detailCategory, setDetailCategory] = useState<AssetCategory | "">("");
+  const [detailMediaUrl, setDetailMediaUrl] = useState("");
+  const [folderMoveFor, setFolderMoveFor] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const selected = assets.find((asset) => asset.id === selectedId) || assets[0];
   const selectedIdsFromUi = selectedIds.length ? selectedIds : selected ? [selected.id] : [];
@@ -619,9 +638,11 @@ export function AssetLibraryView() {
   const activeFolder = folders.find((folder) => folder.id === activeFolderId);
   const filterRoots = showAllFilterTags ? roots : roots.slice(0, 8);
   const uploadTags = showAllUploadTags ? tags : tags.slice(0, 24);
+  const folderRows = useMemo(() => flattenFolderTree(folders), [folders]);
+  const folderSubtreeForMove = useMemo(() => folderMoveFor ? collectFolderSubtreeIds(folders, folderMoveFor) : new Set<string>(), [folderMoveFor, folders]);
 
   const refresh = useCallback(() => setRefreshKey((value) => value + 1), []);
-  const smartViewQuery = (smartView === "all" || smartView === "trash" ? "" : smartView) as "" | "favorite" | "dislike" | "unused" | "frequent";
+  const smartViewQuery = (smartView === "all" || smartView === "trash" || smartView === "seedance" ? "" : smartView) as "" | "favorite" | "dislike" | "unused" | "frequent";
   const query = useMemo(() => ({
     keyword: debouncedKeyword.trim() || undefined,
     smartView: smartViewQuery,
@@ -670,6 +691,14 @@ export function AssetLibraryView() {
 
   useEffect(() => {
     const controller = new AbortController();
+    // 「真人素材」选项页走 Seedance 素材接口，不查询资产库
+    if (smartView === "seedance") {
+      setAssets([]);
+      setTotal(0);
+      setSelectedId("");
+      setLoading(false);
+      return () => controller.abort();
+    }
     setLoading(true);
     const task = smartView === "trash" ? getTrashedAssetLibrary(scope, query, controller.signal) : getAssetLibrary(scope, query, controller.signal);
     task.then(async (result) => {
@@ -700,10 +729,36 @@ export function AssetLibraryView() {
 
   useEffect(() => {
     setNoteDraft(selected?.note || selected?.user_state?.private_note || "");
+    setDetailName(selected?.name || "");
+    setDetailCategory(selected?.category || "");
     setLineage(null);
     setUsageEvents([]);
     setSendPanelOpen(false);
-  }, [selected?.id, selected?.note, selected?.user_state?.private_note]);
+  }, [selected?.id, selected?.name, selected?.category, selected?.note, selected?.user_state?.private_note]);
+
+  // 视频/音频资产的内嵌预览：读取完整内容 Object URL（图片走缩略图通道）
+  useEffect(() => {
+    if (!selected || selected.type === "image") {
+      setDetailMediaUrl("");
+      return;
+    }
+    let disposed = false;
+    let objectUrl = "";
+    getAssetContentObjectUrl(selected.id, scope).then((url) => {
+      if (disposed) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+      objectUrl = url;
+      setDetailMediaUrl(url);
+    }).catch(() => {
+      if (!disposed) setDetailMediaUrl("");
+    });
+    return () => {
+      disposed = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [selected?.id, selected?.type, scope]);
 
   useEffect(() => {
     if (!selected?.id) return;
@@ -784,6 +839,61 @@ export function AssetLibraryView() {
     const saved = await updateAssetMetadata(selected.id, { note: noteDraft }, scope);
     setAssets((items) => items.map((item) => item.id === saved.id ? saved : item));
     toast.success("资产备注已保存");
+  };
+
+  const saveMeta = async () => {
+    if (!selected) return;
+    const name = detailName.trim();
+    if (!name) {
+      toast.warning("资产名称不能为空");
+      return;
+    }
+    try {
+      const saved = await updateAssetMetadata(selected.id, { name, category: detailCategory || "" }, scope);
+      setAssets((items) => items.map((item) => item.id === saved.id ? saved : item));
+      toast.success("资产名称与分类已保存");
+    } catch (error) {
+      toast.error(publicApiError(error, "保存资产信息失败"));
+    }
+  };
+
+  const renameFolder = async (folder: AssetFolder) => {
+    const name = window.prompt("重命名文件夹", folder.name)?.trim();
+    if (!name || name === folder.name) return;
+    try {
+      await updateAssetFolder(folder.id, { name, parent_id: folder.parent_id || undefined, sort_order: folder.sort_order }, scope);
+      toast.success("文件夹已重命名");
+      refresh();
+    } catch (error) {
+      toast.error(publicApiError(error, "重命名文件夹失败"));
+    }
+  };
+
+  const moveFolderTo = async (folder: AssetFolder, parentId: string) => {
+    if ((folder.parent_id || "") === parentId) return;
+    try {
+      await updateAssetFolder(folder.id, { name: folder.name, parent_id: parentId || undefined, sort_order: folder.sort_order }, scope);
+      toast.success(parentId ? "文件夹层级已调整" : "文件夹已移到根级");
+      refresh();
+    } catch (error) {
+      toast.error(publicApiError(error, "调整文件夹层级失败"));
+    }
+  };
+
+  const shiftFolder = async (folder: AssetFolder, direction: -1 | 1) => {
+    const siblings = folders
+      .filter((item) => (item.parent_id || "") === (folder.parent_id || ""))
+      .sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name, "zh-CN"));
+    const index = siblings.findIndex((item) => item.id === folder.id);
+    const target = siblings[index + direction];
+    if (!target) return;
+    try {
+      await updateAssetFolder(folder.id, { name: folder.name, parent_id: folder.parent_id || undefined, sort_order: target.sort_order }, scope);
+      await updateAssetFolder(target.id, { name: target.name, parent_id: target.parent_id || undefined, sort_order: folder.sort_order }, scope);
+      refresh();
+    } catch (error) {
+      toast.error(publicApiError(error, "调整文件夹排序失败"));
+    }
   };
 
   const toggleReaction = async (reaction: "favorite" | "dislike") => {
@@ -1023,12 +1133,52 @@ export function AssetLibraryView() {
         <hr />
         <p className="field-label">FOLDERS</p>
         <button className={!activeFolderId ? "selected" : ""} onClick={() => setActiveFolderId("")}>全部目录</button>
-        {folders.map((folder) => <button key={folder.id} className={activeFolderId === folder.id ? "folder-row selected" : "folder-row"} onClick={() => { setActiveFolderId(folder.id); setMoveFolderId(folder.id); }}>{folder.name}<b>{folder.descendant_asset_count ?? folder.asset_count}</b></button>)}
+        {folderRows.map(({ folder, depth }) => {
+          const siblings = folders.filter((item) => (item.parent_id || "") === (folder.parent_id || ""));
+          const siblingIndex = siblings.findIndex((item) => item.id === folder.id);
+          const editable = folder.kind !== "system";
+          return (
+            <div key={folder.id} className="folder-row-wrap">
+              <button className={activeFolderId === folder.id ? "folder-row selected" : "folder-row"} style={{ paddingLeft: 10 + depth * 14 }} onClick={() => { setActiveFolderId(folder.id); setMoveFolderId(folder.id); }}>
+                {depth ? <ChevronRight size={12} /> : <FolderOpen size={13} />}
+                <span>{folder.name}</span>
+                <b>{folder.descendant_asset_count ?? folder.asset_count}</b>
+              </button>
+              {editable ? (
+                <span className="folder-row-actions">
+                  <button type="button" title="重命名文件夹" onClick={() => void renameFolder(folder)}><Pencil size={11} /></button>
+                  <button type="button" title="上移" disabled={siblingIndex <= 0} onClick={() => void shiftFolder(folder, -1)}><ArrowUp size={11} /></button>
+                  <button type="button" title="下移" disabled={siblingIndex < 0 || siblingIndex >= siblings.length - 1} onClick={() => void shiftFolder(folder, 1)}><ArrowDown size={11} /></button>
+                  <button type="button" title="调整层级" onClick={() => setFolderMoveFor((current) => current === folder.id ? "" : folder.id)}><FolderInput size={11} /></button>
+                </span>
+              ) : null}
+              {folderMoveFor === folder.id ? (
+                <select
+                  className="folder-move-select"
+                  autoFocus
+                  value=""
+                  onBlur={() => setFolderMoveFor("")}
+                  onChange={(event) => {
+                    const target = event.target.value;
+                    setFolderMoveFor("");
+                    if (target !== "__cancel") void moveFolderTo(folder, target);
+                  }}
+                >
+                  <option value="__cancel">选择目标父级…</option>
+                  <option value="">根级</option>
+                  {folders.filter((candidate) => candidate.kind !== "system" && candidate.id !== folder.id && !folderSubtreeForMove.has(candidate.id)).map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>{folderPathLabel(folders, candidate.id)}</option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
+          );
+        })}
         <hr />
         <button onClick={() => void createFolder()}><Plus size={14} /> 新建文件夹</button>
         <button onClick={() => void deleteFolder()} disabled={!activeFolderId}>删除当前文件夹</button>
       </aside>
-      <section className="asset-browser" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void handleFiles(event.dataTransfer.files); }}>
+      <section className="asset-browser" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (smartView !== "seedance") void handleFiles(event.dataTransfer.files); }}>{smartView === "seedance" ? <SeedanceAssetPanel scope={scope} /> : <>
         <div className="asset-browser-top"><div><button className="breadcrumb">{scope === "personal" ? "个人素材" : "团队素材"} <ChevronRight size={13} /></button><h2>{activeFolder?.name || smartViews.find((item) => item.value === smartView)?.label}</h2></div><div className="tag-search"><Search size={15} /><input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索资产名称、来源或标签" /></div></div>
         <div className="asset-filter-bar">
           <select value={category} onChange={(event) => setCategory(event.target.value as AssetCategory | "")}>{assetCategoryOptions.map((item) => <option key={item.value || "all"} value={item.value}>{item.label}</option>)}</select>
@@ -1044,10 +1194,108 @@ export function AssetLibraryView() {
         <div className="asset-bulk-bar"><label><input type="checkbox" checked={assets.length > 0 && selectedIds.length === assets.length} onChange={(event) => setSelectedIds(event.target.checked ? assets.map((asset) => asset.id) : [])} /> 本页全选</label><span>已选 {bulkIds.length} 项</span><select value={moveFolderId} onChange={(event) => setMoveFolderId(event.target.value)}><option value="">移动到目录…</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select><button onClick={() => void moveSelectedAssets()} disabled={!moveFolderId || !bulkIds.length}>移动</button><button onClick={() => void deleteOrRestore()} disabled={!bulkIds.length}>{smartView === "trash" ? "恢复" : "删除"}</button>{smartView === "trash" && <button onClick={() => void permanentDeleteSelected()} disabled={!bulkIds.length}>永久删除</button>}{smartView === "trash" && <button onClick={() => void emptyTrash()}>清空回收站</button>}<button onClick={() => void applySelectedTags("add")} disabled={!selectedTagIds.length || !bulkIds.length}>追加筛选标签</button><button onClick={() => void applySelectedTags("remove")} disabled={!selectedTagIds.length || !bulkIds.length}>移除筛选标签</button><button onClick={() => void createExport("selected")} disabled={exportBusy === "selected" || !bulkIds.length}>导出选中</button><button onClick={() => void createExport("filter")} disabled={exportBusy === "filter"}>导出筛选</button><button onClick={() => void createExport("folder")} disabled={!activeFolderId || exportBusy === "folder"}>导出目录</button><button onClick={() => void exportAssetPackage()} disabled={!bulkIds.length || packageBusy === "export"}>{packageBusy === "export" ? "打包中…" : "打包选中"}</button><button onClick={() => packageInputRef.current?.click()} disabled={packageBusy === "import"}>{packageBusy === "import" ? "导入中…" : "导入资产包"}</button></div>
         {loading ? <div className="empty-output"><Loader2 className="spin" size={26} /><p>正在读取资产…</p></div> : assets.length ? <div className="asset-thumb-grid">{assets.map((asset) => <article key={asset.id} className={selected?.id === asset.id ? "library-asset selected" : "library-asset"}><label className="asset-check"><input type="checkbox" checked={selectedIds.includes(asset.id)} onChange={() => toggleSelectedAsset(asset.id)} /></label><button onClick={() => setSelectedId(asset.id)}>{previewUrls[asset.id] ? <img src={previewUrls[asset.id]} alt={asset.name} /> : <div className="empty-output"><ImageIcon size={22} /></div>}<span className="asset-category">{asset.category || asset.type}</span><i>{asset.id.slice(-8)}</i><div><b>{asset.name}</b><small>{asset.source_type || "unknown"}</small></div></button></article>)}</div> : <div className="empty-output"><Archive size={26} /><p>当前筛选下没有资产<br />可直接把文件拖入此区域上传。</p></div>}
         <div className="batch-actions"><button className="outline-button small" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button><span>{page} / {Math.max(1, Math.ceil(total / 30))}</span><button className="outline-button small" disabled={page * 30 >= total} onClick={() => setPage((value) => value + 1)}>下一页</button></div>
-      </section>
-      <aside className="asset-detail">{selected ? <><div className="detail-head"><div><p className="eyebrow">ASSET / {selected.id.slice(-8)}</p><h3>{selected.name}</h3></div><button className="icon-button subtle" onClick={() => void deleteOrRestore()}>{smartView === "trash" ? <Archive size={16} /> : <Trash2 size={16} />}</button></div>{previewUrls[selected.id] ? <img className="detail-image" src={previewUrls[selected.id]} alt={selected.name} /> : <div className="empty-output"><ImageIcon size={28} /></div>}<div className="detail-tabs">{["详情", "血缘", "使用", "导出"].map((tab) => <button className={detailTab === tab ? "active" : ""} onClick={() => setDetailTab(tab)} key={tab}>{tab}</button>)}</div>{detailTab === "详情" ? <div className="asset-metadata"><div><span>分类</span><b>{selected.category || selected.type}</b></div><div><span>来源</span><b>{selected.source_type || "unknown"}</b></div><div><span>体积</span><b>{selected.size ? `${(selected.size / 1024 / 1024).toFixed(2)} MB` : "—"}</b></div><div><span>标签</span><b>{selected.tags?.join(" · ") || "未绑定"}</b></div><label className="asset-note-editor"><span>备注</span><textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /><button onClick={() => void saveNote()}>保存备注</button></label></div> : detailTab === "血缘" ? <div className="lineage-detail"><div className="lineage-flow"><span>{selected.source_type || "来源未知"}</span><i /><strong>{selected.name}</strong></div>{lineage ? <>{lineage.parents?.length ? <div className="lineage-group"><p className="field-label">上游来源 {lineage.parents.length}</p>{lineage.parents.map((entry, index) => <button key={entry.id || index} onClick={() => entry.parent_asset_id && setSelectedId(entry.parent_asset_id)}><b>{entry.parent_asset_id?.slice(-8) || "—"}</b><span>{entry.relation_type || "derived"}</span></button>)}</div> : <small className="lineage-empty">没有上游来源记录</small>}{lineage.children?.length ? <div className="lineage-group"><p className="field-label">下游产物 {lineage.children.length}</p>{lineage.children.map((entry, index) => <button key={entry.id || index} onClick={() => entry.child_asset_id && setSelectedId(entry.child_asset_id)}><b>{entry.child_asset_id?.slice(-8) || "—"}</b><span>{entry.relation_type || "derived"}</span></button>)}</div> : <small className="lineage-empty">没有派生产物记录</small>}</> : <small className="lineage-empty">读取血缘中…</small>}</div> : detailTab === "使用" ? <div className="usage-list"><div><b>生成调用</b><small>{selected.usage_stats?.generation_use_count || 0} 次</small></div><div><b>有效引用</b><small>{selected.usage_stats?.active_reference_count || 0} 处</small></div><div><b>下载导出</b><small>{(selected.usage_stats?.download_count || 0) + (selected.usage_stats?.export_count || 0)} 次</small></div>{usageEvents.length > 0 && <div className="usage-events"><p className="field-label">最近事件</p>{usageEvents.slice(0, 8).map((event) => <div key={event.id}><span>{event.event_type}</span><small>{event.source_type || "—"}{event.created_at ? ` · ${new Date(event.created_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}</small></div>)}</div>}</div> :<div className="export-list">{exportBatches.slice(0, 5).map((batch) => <div key={batch.id}><span className={`status-chip ${batch.status}`}>{formatStatus(batch.status)}</span><b>{batch.succeeded}/{batch.total}</b><small>{batch.file_name || batch.id.slice(-8)}</small>{batch.status === "succeeded" || batch.status === "partial_failed" ? <button onClick={() => void downloadAssetExport(batch.id, scope).then((blob) => downloadBlob(blob, batch.file_name || `${batch.id}.zip`))}>下载</button> : batch.status === "queued" || batch.status === "running" ? <button onClick={() => void cancelAssetExport(batch.id, scope).then(reloadExports)}>取消</button> : null}</div>)}</div>}<div className="asset-detail-actions"><button onClick={() => void toggleReaction("favorite")}><Sparkles size={15} /> {selected.user_state?.reaction === "favorite" ? "取消收藏" : "收藏"}</button><button onClick={() => void toggleReaction("dislike")}><Trash2 size={15} /> {selected.user_state?.reaction === "dislike" ? "取消踩" : "踩"}</button><button onClick={() => void getAssetContentObjectUrl(selected.id, scope).then((url) => fetch(url).then((resp) => resp.blob()).then((blob) => { downloadBlob(blob, selected.name); URL.revokeObjectURL(url); }))}><Archive size={15} /> 下载</button></div><div className="asset-detail-actions"><button onClick={() => void sendToNewCanvas()}><Layers3 size={15} /> 发送到新画布</button><button onClick={() => setSendPanelOpen((value) => !value)}><FolderOpen size={15} /> 发送到已有画布</button>{selected.type === "image" && <button onClick={openInImageWorkbench}><WandSparkles size={15} /> 在生图工作台打开</button>}</div>{sendPanelOpen && <div className="asset-send-panel"><select value={sendProjectId} onChange={(event) => setSendProjectId(event.target.value)}>{sendProjects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}{!sendProjects.length && <option value="">暂无画布项目</option>}</select><button className="outline-button small" disabled={!sendProjectId} onClick={() => void sendToExistingCanvas()}>加入画布</button></div>}</> : <div className="empty-output"><p>选择一项资产查看详情</p></div>}</aside>
+      </>}</section>
+      <aside className="asset-detail">{selected ? <><div className="detail-head"><div><p className="eyebrow">ASSET / {selected.id.slice(-8)}</p><h3>{selected.name}</h3></div><button className="icon-button subtle" onClick={() => void deleteOrRestore()}>{smartView === "trash" ? <Archive size={16} /> : <Trash2 size={16} />}</button></div>{selected.type === "video" ? (detailMediaUrl ? <video className="detail-image detail-media" src={detailMediaUrl} controls preload="metadata" /> : <div className="empty-output"><Video size={28} /><p>读取视频预览…</p></div>) : selected.type === "audio" ? (detailMediaUrl ? <div className="detail-audio"><Music2 size={22} /><audio src={detailMediaUrl} controls preload="metadata" /></div> : <div className="empty-output"><Music2 size={28} /><p>读取音频预览…</p></div>) : previewUrls[selected.id] ? <img className="detail-image" src={previewUrls[selected.id]} alt={selected.name} /> : <div className="empty-output"><ImageIcon size={28} /></div>}<div className="detail-tabs">{["详情", "标签", "血缘", "使用", "导出"].map((tab) => <button className={detailTab === tab ? "active" : ""} onClick={() => setDetailTab(tab)} key={tab}>{tab}</button>)}</div>{detailTab === "详情" ? <div className="asset-metadata"><div className="asset-meta-edit"><span>名称</span><input value={detailName} onChange={(event) => setDetailName(event.target.value)} placeholder="资产名称" /><span>分类</span><select value={detailCategory} onChange={(event) => setDetailCategory(event.target.value as AssetCategory | "")}><option value="">不指定分类</option>{assetCategoryOptions.filter((item) => item.value).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><button className="outline-button small" onClick={() => void saveMeta()}>保存</button></div><div><span>来源</span><b>{selected.source_type || "unknown"}</b></div><div><span>体积</span><b>{selected.size ? `${(selected.size / 1024 / 1024).toFixed(2)} MB` : "—"}</b></div><div><span>标签</span><b>{selected.tags?.join(" · ") || "未绑定"}</b></div><label className="asset-note-editor"><span>备注</span><textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /><button onClick={() => void saveNote()}>保存备注</button></label></div> : detailTab === "标签" ? <AssetTagManager assetId={selected.id} scope={scope} allTags={tags} refreshKey={refreshKey} /> : detailTab === "血缘" ? <div className="lineage-detail"><div className="lineage-flow"><span>{selected.source_type || "来源未知"}</span><i /><strong>{selected.name}</strong></div>{lineage ? <>{lineage.parents?.length ? <div className="lineage-group"><p className="field-label">上游来源 {lineage.parents.length}</p>{lineage.parents.map((entry, index) => <button key={entry.id || index} onClick={() => entry.parent_asset_id && setSelectedId(entry.parent_asset_id)}><b>{entry.parent_asset_id?.slice(-8) || "—"}</b><span>{entry.relation_type || "derived"}</span></button>)}</div> : <small className="lineage-empty">没有上游来源记录</small>}{lineage.children?.length ? <div className="lineage-group"><p className="field-label">下游产物 {lineage.children.length}</p>{lineage.children.map((entry, index) => <button key={entry.id || index} onClick={() => entry.child_asset_id && setSelectedId(entry.child_asset_id)}><b>{entry.child_asset_id?.slice(-8) || "—"}</b><span>{entry.relation_type || "derived"}</span></button>)}</div> : <small className="lineage-empty">没有派生产物记录</small>}</> : <small className="lineage-empty">读取血缘中…</small>}</div> : detailTab === "使用" ? <div className="usage-list"><div><b>生成调用</b><small>{selected.usage_stats?.generation_use_count || 0} 次</small></div><div><b>有效引用</b><small>{selected.usage_stats?.active_reference_count || 0} 处</small></div><div><b>下载导出</b><small>{(selected.usage_stats?.download_count || 0) + (selected.usage_stats?.export_count || 0)} 次</small></div>{usageEvents.length > 0 && <div className="usage-events"><p className="field-label">最近事件</p>{usageEvents.slice(0, 8).map((event) => <div key={event.id}><span>{event.event_type}</span><small>{event.source_type || "—"}{event.created_at ? ` · ${new Date(event.created_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}</small></div>)}</div>}</div> :<div className="export-list">{exportBatches.slice(0, 5).map((batch) => <div key={batch.id}><span className={`status-chip ${batch.status}`}>{formatStatus(batch.status)}</span><b>{batch.succeeded}/{batch.total}</b><small>{batch.file_name || batch.id.slice(-8)}</small>{batch.status === "succeeded" || batch.status === "partial_failed" ? <button onClick={() => void downloadAssetExport(batch.id, scope).then((blob) => downloadBlob(blob, batch.file_name || `${batch.id}.zip`))}>下载</button> : batch.status === "queued" || batch.status === "running" ? <button onClick={() => void cancelAssetExport(batch.id, scope).then(reloadExports)}>取消</button> : null}</div>)}</div>}<div className="asset-detail-actions"><button onClick={() => void toggleReaction("favorite")}><Sparkles size={15} /> {selected.user_state?.reaction === "favorite" ? "取消收藏" : "收藏"}</button><button onClick={() => void toggleReaction("dislike")}><Trash2 size={15} /> {selected.user_state?.reaction === "dislike" ? "取消踩" : "踩"}</button><button onClick={() => void getAssetContentObjectUrl(selected.id, scope).then((url) => fetch(url).then((resp) => resp.blob()).then((blob) => { downloadBlob(blob, selected.name); URL.revokeObjectURL(url); }))}><Archive size={15} /> 下载</button></div><div className="asset-detail-actions"><button onClick={() => void sendToNewCanvas()}><Layers3 size={15} /> 发送到新画布</button><button onClick={() => setSendPanelOpen((value) => !value)}><FolderOpen size={15} /> 发送到已有画布</button>{selected.type === "image" && <button onClick={openInImageWorkbench}><WandSparkles size={15} /> 在生图工作台打开</button>}</div>{sendPanelOpen && <div className="asset-send-panel"><select value={sendProjectId} onChange={(event) => setSendProjectId(event.target.value)}>{sendProjects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}{!sendProjects.length && <option value="">暂无画布项目</option>}</select><button className="outline-button small" disabled={!sendProjectId} onClick={() => void sendToExistingCanvas()}>加入画布</button></div>}</> : <div className="empty-output"><p>选择一项资产查看详情</p></div>}</aside>
     </div>
   </div>;
+}
+
+/** 单资产语义标签管理：绑定/解绑直接标签、展示继承来源、重同步继承标签。 */
+function AssetTagManager({ assetId, scope, allTags, refreshKey }: { assetId: string; scope: WorkspaceScope; allTags: SemanticTag[]; refreshKey: number }) {
+  const [details, setDetails] = useState<AssetTagDetail[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    listAssetTagDetails(scope, assetId, controller.signal)
+      .then((result) => setDetails(result.items || []))
+      .catch((error) => {
+        if (!controller.signal.aborted) toast.error(publicApiError(error, "读取资产标签失败"));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [assetId, scope, refreshKey, reloadKey]);
+
+  const boundTagIds = new Set(details.map((detail) => detail.tag.id));
+  const candidates = allTags.filter((tag) => tag.asset_enabled && !boundTagIds.has(tag.id));
+
+  const bind = async (tagId: string) => {
+    setBusy(tagId);
+    try {
+      await bindAssetTags(assetId, [tagId], scope);
+      setReloadKey((value) => value + 1);
+      toast.success("标签已绑定");
+    } catch (error) {
+      toast.error(publicApiError(error, "绑定标签失败"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const unbind = async (tagId: string) => {
+    setBusy(tagId);
+    try {
+      await removeAssetTag(assetId, tagId, scope);
+      setReloadKey((value) => value + 1);
+      toast.success("标签已移除");
+    } catch (error) {
+      toast.error(publicApiError(error, "移除标签失败"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const resync = async () => {
+    setBusy("resync");
+    try {
+      await resyncAssetInheritedTags(assetId, scope);
+      setReloadKey((value) => value + 1);
+      toast.success("继承标签已按最新规则重同步");
+    } catch (error) {
+      toast.error(publicApiError(error, "重同步继承标签失败"));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  if (loading) return <div className="empty-output"><Loader2 className="spin" size={18} /><p>读取标签绑定…</p></div>;
+
+  return (
+    <div className="asset-tag-manager">
+      <p className="field-label">已绑定（{details.length}）</p>
+      <div className="asset-tag-bound">
+        {details.map((detail) => {
+          const direct = detail.origins.some((origin) => origin.origin_type === "direct");
+          const inherited = !direct && detail.origins.some((origin) => origin.origin_type === "inherited");
+          const suppressed = detail.binding.state === "suppressed";
+          const originLabel = direct ? "直接" : inherited ? "继承" : "系统";
+          return (
+            <span key={detail.binding.id} className={suppressed ? "asset-tag-chip suppressed" : "asset-tag-chip"} title={detail.tag.description || detail.tag.name}>
+              #{detail.tag.name}
+              <i>{suppressed ? "已屏蔽" : originLabel}</i>
+              {direct && !suppressed ? <button type="button" title="移除该标签" disabled={busy === detail.tag.id} onClick={() => void unbind(detail.tag.id)}><X size={10} /></button> : null}
+            </span>
+          );
+        })}
+        {!details.length ? <small>尚未绑定语义标签</small> : null}
+      </div>
+      <p className="field-label">可绑定标签</p>
+      <div className="asset-tag-pool">
+        {candidates.slice(0, 30).map((tag) => (
+          <button key={tag.id} type="button" disabled={Boolean(busy)} onClick={() => void bind(tag.id)} title={semanticTagPath(tag.id, allTags)}>#{tag.name}</button>
+        ))}
+        {!candidates.length ? <small>标签库中没有更多可绑定的资产标签</small> : null}
+      </div>
+      <button type="button" className="outline-button small" disabled={Boolean(busy)} onClick={() => void resync()}>
+        {busy === "resync" ? <Loader2 className="spin" size={13} /> : <RefreshCcw size={13} />} 重同步继承标签
+      </button>
+    </div>
+  );
 }
 
 export function TagLibraryView() {
@@ -1060,7 +1308,22 @@ export function TagLibraryView() {
   const [alias, setAlias] = useState("");
   const [draftName, setDraftName] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
+  const [draftAssetEnabled, setDraftAssetEnabled] = useState(true);
+  const [draftPromptEnabled, setDraftPromptEnabled] = useState(true);
+  const [draftInheritMode, setDraftInheritMode] = useState<TagInheritMode>("auto");
+  const [draftStatus, setDraftStatus] = useState<"active" | "archived">("active");
+  const [draftSortOrder, setDraftSortOrder] = useState(0);
   const [moveParentId, setMoveParentId] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createParentId, setCreateParentId] = useState("");
+  const [createScopeType, setCreateScopeType] = useState<"workspace" | "user">("workspace");
+  const [createAssetEnabled, setCreateAssetEnabled] = useState(true);
+  const [createPromptEnabled, setCreatePromptEnabled] = useState(true);
+  const [createInheritMode, setCreateInheritMode] = useState<TagInheritMode>("auto");
+  const [createBusy, setCreateBusy] = useState(false);
+  const [tagPromptIds, setTagPromptIds] = useState<string[]>([]);
+  const [tagPromptTotal, setTagPromptTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [tagAssets, setTagAssets] = useState<Asset[]>([]);
   const [tagAssetTotal, setTagAssetTotal] = useState(0);
@@ -1099,7 +1362,38 @@ export function TagLibraryView() {
   const bulkBlockedIds = useMemo(() => collectTagSubtreeIds(tags, selectedIds), [selectedIds, tags]);
   const currentParentOptions = tags.filter((tag) => tag.editable && !currentBlockedIds.has(tag.id));
   const bulkParentOptions = tags.filter((tag) => tag.editable && !bulkBlockedIds.has(tag.id));
-  useEffect(() => { setDraftName(current?.name || ""); setDraftDescription(current?.description || ""); setMoveParentId(current?.parent_id || ""); }, [current?.description, current?.id, current?.name, current?.parent_id]);
+  useEffect(() => {
+    setDraftName(current?.name || "");
+    setDraftDescription(current?.description || "");
+    setDraftAssetEnabled(current?.asset_enabled ?? true);
+    setDraftPromptEnabled(current?.prompt_enabled ?? true);
+    setDraftInheritMode(current?.inherit_mode || "auto");
+    setDraftStatus(current?.status || "active");
+    setDraftSortOrder(current?.sort_order || 0);
+    setMoveParentId(current?.parent_id || "");
+  }, [current?.asset_enabled, current?.description, current?.id, current?.inherit_mode, current?.name, current?.parent_id, current?.prompt_enabled, current?.sort_order, current?.status]);
+
+  // 「关联提示词」接通真实绑定接口（GET /api/tags/:id/prompts）
+  useEffect(() => {
+    if (!current?.id || !current.prompt_enabled) {
+      setTagPromptIds([]);
+      setTagPromptTotal(0);
+      return;
+    }
+    const controller = new AbortController();
+    listTagPrompts(scope, current.id, true, controller.signal)
+      .then((result) => {
+        setTagPromptIds(result.items || []);
+        setTagPromptTotal(result.total || 0);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setTagPromptIds([]);
+          setTagPromptTotal(0);
+        }
+      });
+    return () => controller.abort();
+  }, [scope, current?.id, current?.prompt_enabled]);
 
   useEffect(() => { setTagAssetPage(1); }, [scope, selectedId]);
   useEffect(() => {
@@ -1137,8 +1431,51 @@ export function TagLibraryView() {
   }, [scope, tagAssets]);
 
   const toggle = (id: string) => setSelectedIds((ids) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]);
-  const addTag = async (parentId = "") => { const name = window.prompt(parentId ? "新子标签名称" : "新标签名称"); if (!name?.trim()) return; const created = await createWorkspaceTag(scope, { parent_id: parentId || undefined, name: name.trim(), asset_enabled: true, prompt_enabled: true, inherit_mode: "auto" }); await reload(created.id); };
-  const saveCurrent = async () => { if (!current || !draftName.trim()) return; const saved = await updateTag(scope, current.id, { name: draftName.trim(), description: draftDescription.trim(), asset_enabled: current.asset_enabled, prompt_enabled: current.prompt_enabled, inherit_mode: current.inherit_mode, status: current.status, sort_order: current.sort_order }); setTags((items) => items.map((item) => item.id === saved.id ? saved : item)); };
+  const openCreate = (parentId = "") => {
+    setCreateParentId(parentId);
+    setCreateName("");
+    setCreateScopeType("workspace");
+    setCreateAssetEnabled(true);
+    setCreatePromptEnabled(true);
+    setCreateInheritMode("auto");
+    setCreateOpen(true);
+  };
+  const submitCreate = async () => {
+    const name = createName.trim();
+    if (!name || createBusy) return;
+    if (!createAssetEnabled && !createPromptEnabled) {
+      toast.warning("标签至少需要启用一种用途（资产或提示词）");
+      return;
+    }
+    setCreateBusy(true);
+    try {
+      const created = await createTag(scope, {
+        parent_id: createParentId || undefined,
+        name,
+        asset_enabled: createAssetEnabled,
+        prompt_enabled: createPromptEnabled,
+        inherit_mode: createInheritMode,
+        scope_type: createScopeType,
+      });
+      setCreateOpen(false);
+      toast.success(`标签「${created.name}」已创建`);
+      await reload(created.id);
+    } catch (error) {
+      toast.error(publicApiError(error, "创建标签失败"));
+    } finally {
+      setCreateBusy(false);
+    }
+  };
+  const saveCurrent = async () => {
+    if (!current || !draftName.trim()) return;
+    try {
+      const saved = await updateTag(scope, current.id, { name: draftName.trim(), description: draftDescription.trim(), asset_enabled: draftAssetEnabled, prompt_enabled: draftPromptEnabled, inherit_mode: draftInheritMode, status: draftStatus, sort_order: draftSortOrder });
+      setTags((items) => items.map((item) => item.id === saved.id ? saved : item));
+      toast.success("标签已保存");
+    } catch (error) {
+      toast.error(publicApiError(error, "保存标签失败"));
+    }
+  };
   const moveCurrent = async () => { if (!current || !current.editable) return; if (moveParentId && currentBlockedIds.has(moveParentId)) { toast.error("不能移动到自身或自身后代"); return; } await bulkMoveTags(scope, [current.id], moveParentId || undefined); await reload(current.id); };
   const archiveCurrent = async () => { if (!current || !window.confirm(`删除"${current.name}"及其可归档子标签？`)) return; await deleteTag(scope, current.id); await reload(); };
   const bulkMoveSelected = async () => { if (!selectedIds.length) return; if (moveParentId && bulkBlockedIds.has(moveParentId)) { toast.error("不能移动到选中标签或其后代"); return; } await bulkMoveTags(scope, selectedIds, moveParentId || undefined); setSelectedIds([]); await reload(); };
@@ -1148,9 +1485,9 @@ export function TagLibraryView() {
 
   return <div className="feature-page tag-page">
     <SurfaceTitle eyebrow={`TAXONOMY / ${tags.length}`} title="标签库" description="标签可同时服务资产与提示词，并支持删除、批量删除、移动和批量移动。"
-      actions={<div className="scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => setScope(item.value)}>{item.label}</button>)}<button className="vermilion-button" onClick={() => void addTag()}><Plus size={16} /> 新建标签</button></div>} />
+      actions={<div className="scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => setScope(item.value)}>{item.label}</button>)}<button className="vermilion-button" onClick={() => openCreate()}><Plus size={16} /> 新建标签</button></div>} />
     <div className="tag-bulk-toolbar"><span>已选 {selectedIds.length} 个标签</span><select value={moveParentId} onChange={(e) => setMoveParentId(e.target.value)}><option value="">移动到根级</option>{bulkParentOptions.map((tag) => <option key={tag.id} value={tag.id}>{semanticTagPath(tag.id, tags)}</option>)}</select><button onClick={() => void bulkMoveSelected()} disabled={!selectedIds.length}>批量移动</button><button onClick={() => void bulkDeleteSelected()} disabled={!selectedIds.length}>批量删除</button></div>
-    <div className="tag-workspace"><aside className="tag-tree"><div className="tag-search"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="检索标签" /></div>{loading ? <small>读取中…</small> : <div className="tag-group">{tagRows.map(renderTag)}</div>}</aside><section className="tag-editor">{current ? <><div className="tag-editor-head"><div><p className="eyebrow">{current.scope_type} / SEMANTIC TAG</p><h2>#{current.name}</h2></div><div><button className="icon-button subtle" onClick={() => void addTag(current.id)} disabled={!current.editable}><Plus size={16} /></button><button className="icon-button subtle" onClick={() => void archiveCurrent()} disabled={!current.editable}><Trash2 size={16} /></button></div></div><div className="tag-description"><span className="field-label">名称</span><input value={draftName} onChange={(e) => setDraftName(e.target.value)} disabled={!current.editable} /><span className="field-label">描述</span><textarea value={draftDescription} onChange={(e) => setDraftDescription(e.target.value)} disabled={!current.editable} /></div><div className="tag-settings"><label>移动到<select value={moveParentId} onChange={(e) => setMoveParentId(e.target.value)} disabled={!current.editable}><option value="">根级</option>{currentParentOptions.map((tag) => <option key={tag.id} value={tag.id}>{semanticTagPath(tag.id, tags)}</option>)}</select></label><label>作用范围<div className="tag-select">{current.asset_enabled && current.prompt_enabled ? "资产 + 提示词" : current.asset_enabled ? "资产" : "提示词"} <ChevronRight size={14} /></div></label></div><section className="aliases"><div><span className="field-label">别名</span><small>搜索时一并匹配</small></div><div className="alias-list">{current.aliases?.map((item) => <span key={item.id}>{item.alias}<button onClick={async () => { await deleteTagAlias(scope, current.id, item.id); await reload(current.id); }}>×</button></span>)}</div><div className="alias-create"><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="添加别名" /><button onClick={() => void addAlias()}>添加</button></div></section><div className="tag-editor-actions"><button className="outline-button" disabled={!current.editable} onClick={() => void moveCurrent()}>移动标签</button><button className="vermilion-button" disabled={!current.editable} onClick={() => void saveCurrent()}><Check size={16} /> 保存标签</button></div></> : <div className="empty-output"><p>当前没有可编辑标签</p></div>}</section><aside className="tag-relations"><p className="eyebrow">CONNECTIONS</p><div><b>{tagAssetTotal || current?.asset_count || 0}</b><span>关联资产（含后代）</span><button onClick={() => current && window.location.assign(`/assets?scope=${encodeURIComponent(scope)}&tag=${encodeURIComponent(current.id)}`)}>查看资产 <ArrowUpRight size={14} /></button></div><div><b>{current?.prompt_count || 0}</b><span>提示词模板</span><button onClick={() => current && window.location.assign(`/prompts?tag=${encodeURIComponent(current.name)}`)}>查看提示词 <ArrowUpRight size={14} /></button></div>{current && <section><p className="field-label">关联资产预览</p>{tagAssets.map((asset) => <button key={asset.id} onClick={() => window.location.assign(`/assets?scope=${encodeURIComponent(scope)}&tag=${encodeURIComponent(current.id)}`)}>{tagAssetPreviewUrls[asset.id] ? <img src={tagAssetPreviewUrls[asset.id]} alt="" style={{ width: 34, height: 34, objectFit: "cover", flex: "0 0 34px" }} /> : <ImageIcon size={18} />}<span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{asset.name}</span></button>)}{!tagAssets.length && <small>暂无关联资产</small>}<div className="batch-actions"><button disabled={tagAssetPage <= 1} onClick={() => setTagAssetPage((page) => Math.max(1, page - 1))}>上一页</button><span>{tagAssetPage} / {Math.max(1, Math.ceil(tagAssetTotal / 24))}</span><button disabled={tagAssetPage * 24 >= tagAssetTotal} onClick={() => setTagAssetPage((page) => page + 1)}>下一页</button></div></section>}</aside></div>
+    <div className="tag-workspace"><aside className="tag-tree"><div className="tag-search"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="检索标签" /></div>{loading ? <small>读取中…</small> : <div className="tag-group">{tagRows.map(renderTag)}</div>}</aside><section className="tag-editor">{createOpen ? <div className="tag-create-panel"><div className="tag-editor-head"><div><p className="eyebrow">NEW TAG</p><h2>新建标签</h2></div><button className="icon-button subtle" onClick={() => setCreateOpen(false)}><X size={15} /></button></div><div className="tag-settings tag-create-grid"><label>名称<input value={createName} onChange={(e) => setCreateName(e.target.value)} placeholder="标签名称" autoFocus /></label><label>父级<select value={createParentId} onChange={(e) => setCreateParentId(e.target.value)}><option value="">根级</option>{tags.filter((tag) => tag.editable).map((tag) => <option key={tag.id} value={tag.id}>{semanticTagPath(tag.id, tags)}</option>)}</select></label><label>归属<select value={createScopeType} onChange={(e) => setCreateScopeType(e.target.value as "workspace" | "user")}><option value="workspace">工作区共享</option><option value="user">仅自己可见</option></select></label><label>继承模式<select value={createInheritMode} onChange={(e) => setCreateInheritMode(e.target.value as TagInheritMode)}><option value="auto">自动继承</option><option value="manual">手动确认</option><option value="never">不继承</option></select></label><label className="tag-check"><input type="checkbox" checked={createAssetEnabled} onChange={(e) => setCreateAssetEnabled(e.target.checked)} /> 资产用途</label><label className="tag-check"><input type="checkbox" checked={createPromptEnabled} onChange={(e) => setCreatePromptEnabled(e.target.checked)} /> 提示词用途</label></div><div className="tag-editor-actions"><button className="outline-button" onClick={() => setCreateOpen(false)}>取消</button><button className="vermilion-button" disabled={createBusy || !createName.trim()} onClick={() => void submitCreate()}>{createBusy ? <Loader2 className="spin" size={15} /> : <Check size={15} />} 创建标签</button></div></div> : null}{current ? <><div className="tag-editor-head"><div><p className="eyebrow">{current.scope_type} / SEMANTIC TAG</p><h2>#{current.name}</h2></div><div><button className="icon-button subtle" onClick={() => openCreate(current.id)} disabled={!current.editable}><Plus size={16} /></button><button className="icon-button subtle" onClick={() => void archiveCurrent()} disabled={!current.editable}><Trash2 size={16} /></button></div></div><div className="tag-description"><span className="field-label">名称</span><input value={draftName} onChange={(e) => setDraftName(e.target.value)} disabled={!current.editable} /><span className="field-label">描述</span><textarea value={draftDescription} onChange={(e) => setDraftDescription(e.target.value)} disabled={!current.editable} /></div><div className="tag-settings"><label>移动到<select value={moveParentId} onChange={(e) => setMoveParentId(e.target.value)} disabled={!current.editable}><option value="">根级</option>{currentParentOptions.map((tag) => <option key={tag.id} value={tag.id}>{semanticTagPath(tag.id, tags)}</option>)}</select></label><label className="tag-check"><input type="checkbox" checked={draftAssetEnabled} onChange={(e) => setDraftAssetEnabled(e.target.checked)} disabled={!current.editable} /> 资产用途</label><label className="tag-check"><input type="checkbox" checked={draftPromptEnabled} onChange={(e) => setDraftPromptEnabled(e.target.checked)} disabled={!current.editable} /> 提示词用途</label><label>继承模式<select value={draftInheritMode} onChange={(e) => setDraftInheritMode(e.target.value as TagInheritMode)} disabled={!current.editable}><option value="auto">自动继承</option><option value="manual">手动确认</option><option value="never">不继承</option></select></label><label>状态<select value={draftStatus} onChange={(e) => setDraftStatus(e.target.value as "active" | "archived")} disabled={!current.editable}><option value="active">启用</option><option value="archived">归档</option></select></label><label>排序值<input type="number" value={draftSortOrder} onChange={(e) => setDraftSortOrder(Number(e.target.value) || 0)} disabled={!current.editable} /></label></div><section className="aliases"><div><span className="field-label">别名</span><small>搜索时一并匹配</small></div><div className="alias-list">{current.aliases?.map((item) => <span key={item.id}>{item.alias}<button onClick={async () => { await deleteTagAlias(scope, current.id, item.id); await reload(current.id); }}>×</button></span>)}</div><div className="alias-create"><input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder="添加别名" /><button onClick={() => void addAlias()}>添加</button></div></section><div className="tag-editor-actions"><button className="outline-button" disabled={!current.editable} onClick={() => void moveCurrent()}>移动标签</button><button className="vermilion-button" disabled={!current.editable} onClick={() => void saveCurrent()}><Check size={16} /> 保存标签</button></div></> : <div className="empty-output"><p>当前没有可编辑标签</p></div>}</section><aside className="tag-relations"><p className="eyebrow">CONNECTIONS</p><div><b>{tagAssetTotal || current?.asset_count || 0}</b><span>关联资产（含后代）</span><button onClick={() => current && window.location.assign(`/assets?scope=${encodeURIComponent(scope)}&tag=${encodeURIComponent(current.id)}`)}>查看资产 <ArrowUpRight size={14} /></button></div><div><b>{current?.prompt_enabled ? tagPromptTotal : (current?.prompt_count || 0)}</b><span>提示词绑定</span><button onClick={() => current && window.location.assign(`/prompts?tag=${encodeURIComponent(current.name)}`)}>按名称跳转提示词库 <ArrowUpRight size={14} /></button></div>{current?.prompt_enabled ? <section className="tag-prompt-bindings"><p className="field-label">关联提示词（绑定数据）</p>{tagPromptIds.slice(0, 12).map((promptId) => <code key={promptId} title={promptId}>{promptId}</code>)}{tagPromptIds.length > 12 ? <small>… 共 {tagPromptIds.length} 条绑定</small> : null}{!tagPromptIds.length ? <small>暂无提示词绑定记录（提示词绑定入口待后端开放，此处已接通查询接口）</small> : null}</section> : null}{current && <section><p className="field-label">关联资产预览</p>{tagAssets.map((asset) => <button key={asset.id} onClick={() => window.location.assign(`/assets?scope=${encodeURIComponent(scope)}&tag=${encodeURIComponent(current.id)}`)}>{tagAssetPreviewUrls[asset.id] ? <img src={tagAssetPreviewUrls[asset.id]} alt="" style={{ width: 34, height: 34, objectFit: "cover", flex: "0 0 34px" }} /> : <ImageIcon size={18} />}<span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{asset.name}</span></button>)}{!tagAssets.length && <small>暂无关联资产</small>}<div className="batch-actions"><button disabled={tagAssetPage <= 1} onClick={() => setTagAssetPage((page) => Math.max(1, page - 1))}>上一页</button><span>{tagAssetPage} / {Math.max(1, Math.ceil(tagAssetTotal / 24))}</span><button disabled={tagAssetPage * 24 >= tagAssetTotal} onClick={() => setTagAssetPage((page) => page + 1)}>下一页</button></div></section>}</aside></div>
   </div>;
 }
 
@@ -1160,6 +1497,7 @@ export function PromptLibraryView() {
   const [activeId, setActiveId] = useState("");
   const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get("tag") || "");
   const [loading, setLoading] = useState(true);
+  const [semanticPromptTags, setSemanticPromptTags] = useState<SemanticTag[]>([]);
   const [systemItems, setSystemItems] = useState<SystemPrompt[]>([]);
   const [systemTotal, setSystemTotal] = useState(0);
   const [systemTags, setSystemTags] = useState<string[]>([]);
@@ -1183,6 +1521,11 @@ export function PromptLibraryView() {
       setPresets(items);
       setActiveId(items[0]?.id || "");
     }).catch((error) => toast.error(publicApiError(error, "读取个人提示词失败"))).finally(() => setLoading(false));
+  }, []);
+
+  // 个人预设的自由字符串标签 ↔ 语义标签库：加载 prompt 用途标签用于联想/命中标注
+  useEffect(() => {
+    listAllTags("personal", "prompt").then(setSemanticPromptTags).catch(() => setSemanticPromptTags([]));
   }, []);
 
   useEffect(() => {
@@ -1257,7 +1600,7 @@ export function PromptLibraryView() {
   return <div className="feature-page prompt-page">
     <SurfaceTitle eyebrow={mode === "personal" ? `PROMPTS / ${presets.length}` : `LIBRARY / ${systemTotal}`} title="提示词中心" description="个人预设与偏好共用一份数据；系统库聚合公开提示词仓库，可直接检索复用。"
       actions={<div className="scope-switch"><button className={mode === "personal" ? "active" : ""} onClick={() => setMode("personal")}>个人预设</button><button className={mode === "system" ? "active" : ""} onClick={() => setMode("system")}>系统库</button>{mode === "personal" && <button className="vermilion-button" onClick={() => void createPreset()}><Plus size={16} /> 新建预设</button>}</div>} />
-    {mode === "personal" ? <div className="prompt-workspace"><aside className="prompt-filters"><div className="tag-search"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="关键词、标签或优先级" /></div><p className="field-label">PRIORITY</p>{[["置顶", "pinned"], ["高", "high"], ["普通", "normal"], ["低", "low"]].map(([name, key]) => <button onClick={() => setQuery(key)} key={key}><span>{name}</span><b>{presets.filter((item) => item.priority === key).length}</b></button>)}<hr /><p className="field-label">常用标签</p>{commonTags.map((tag) => <button className="tag-filter" onClick={() => setQuery(tag)} key={tag}>#{tag}</button>)}</aside><section className="template-list"><div className="template-list-head"><span>{loading ? "读取中…" : `匹配到 ${visible.length} 条视觉片段`}</span></div>{visible.map((item) => <button className={active?.id === item.id ? "template-card selected" : "template-card"} onClick={() => setActiveId(item.id)} key={item.id}><div><span>{priorityLabel(item.priority)}</span><b>{item.title}</b><p>{item.prompt || "尚未填写提示词"}</p></div><div className="template-card-tags">{item.tags.map((tag) => <i key={tag}>#{tag}</i>)}</div></button>)}</section><aside className="prompt-preview">{active ? <><div><p className="eyebrow">PRESET PREVIEW</p><input value={active.title} onChange={(e) => patchActive({ title: e.target.value })} /></div><div className="preview-tags">{active.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div><textarea value={active.prompt} onChange={(e) => patchActive({ prompt: e.target.value })} /><input value={active.tags.join(", ")} onChange={(e) => patchActive({ tags: e.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean) })} placeholder="标签，以逗号分隔" /><select value={active.priority} onChange={(e) => patchActive({ priority: e.target.value as PromptPreset["priority"] })}><option value="pinned">置顶</option><option value="high">高</option><option value="normal">普通</option><option value="low">低</option></select><div className="prompt-order-actions"><button onClick={() => void moveActive(-1)}>上移</button><button onClick={() => void moveActive(1)}>下移</button></div><button className="vermilion-button" onClick={() => void persist(presets.map((item) => item.id === active.id ? { ...item, updatedAt: new Date().toISOString() } : item), "提示词已保存")}><Check size={16} /> 保存预设</button><button className="full-outline" onClick={() => { sessionStorage.setItem("ai-manju:image-prompt", active.prompt); window.location.assign("/image"); }}><WandSparkles size={16} /> 送入关键帧</button><button className="full-outline" onClick={async () => { await navigator.clipboard.writeText(active.prompt); toast.success("提示词已复制"); }}><FileText size={15} /> 复制完整提示词</button><button className="full-outline" onClick={() => { if (window.confirm(`删除"${active.title}"？`)) void persist(presets.filter((item) => item.id !== active.id), "提示词已删除"); }}><Trash2 size={15} /> 删除预设</button></> : <div className="empty-output"><p>暂无个人提示词预设</p></div>}</aside></div>
+    {mode === "personal" ? <div className="prompt-workspace"><aside className="prompt-filters"><div className="tag-search"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="关键词、标签或优先级" /></div><p className="field-label">PRIORITY</p>{[["置顶", "pinned"], ["高", "high"], ["普通", "normal"], ["低", "low"]].map(([name, key]) => <button onClick={() => setQuery(key)} key={key}><span>{name}</span><b>{presets.filter((item) => item.priority === key).length}</b></button>)}<hr /><p className="field-label">常用标签</p>{commonTags.map((tag) => <button className="tag-filter" onClick={() => setQuery(tag)} key={tag}>#{tag}</button>)}</aside><section className="template-list"><div className="template-list-head"><span>{loading ? "读取中…" : `匹配到 ${visible.length} 条视觉片段`}</span></div>{visible.map((item) => <button className={active?.id === item.id ? "template-card selected" : "template-card"} onClick={() => setActiveId(item.id)} key={item.id}><div><span>{priorityLabel(item.priority)}</span><b>{item.title}</b><p>{item.prompt || "尚未填写提示词"}</p></div><div className="template-card-tags">{item.tags.map((tag) => <i key={tag}>#{tag}</i>)}</div></button>)}</section><aside className="prompt-preview">{active ? <><div><p className="eyebrow">PRESET PREVIEW</p><input value={active.title} onChange={(e) => patchActive({ title: e.target.value })} /></div><div className="preview-tags">{active.tags.map((tag) => { const semantic = semanticPromptTags.find((item) => item.name === tag); return <span key={tag} className={semantic ? "semantic" : ""} title={semantic ? "已命中语义标签库，点击跳转标签库" : "自由标签（未关联语义标签库）"} onClick={() => semantic && window.location.assign(`/tags?tag_id=${encodeURIComponent(semantic.id)}`)}>#{tag}</span>; })}</div><textarea value={active.prompt} onChange={(e) => patchActive({ prompt: e.target.value })} /><input list="prompt-semantic-tag-options" value={active.tags.join(", ")} onChange={(e) => patchActive({ tags: e.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean) })} placeholder="标签，以逗号分隔；可输入或从语义标签库选择" /><datalist id="prompt-semantic-tag-options">{semanticPromptTags.map((tag) => <option key={tag.id} value={tag.name} />)}</datalist>{semanticPromptTags.length ? <div className="prompt-semantic-hint"><span className="field-label">语义标签库</span>{semanticPromptTags.slice(0, 10).map((tag) => <button key={tag.id} type="button" disabled={active.tags.includes(tag.name)} onClick={() => patchActive({ tags: [...active.tags, tag.name] })}>#{tag.name}</button>)}</div> : null}<select value={active.priority} onChange={(e) => patchActive({ priority: e.target.value as PromptPreset["priority"] })}><option value="pinned">置顶</option><option value="high">高</option><option value="normal">普通</option><option value="low">低</option></select><div className="prompt-order-actions"><button onClick={() => void moveActive(-1)}>上移</button><button onClick={() => void moveActive(1)}>下移</button></div><button className="vermilion-button" onClick={() => void persist(presets.map((item) => item.id === active.id ? { ...item, updatedAt: new Date().toISOString() } : item), "提示词已保存")}><Check size={16} /> 保存预设</button><button className="full-outline" onClick={() => { sessionStorage.setItem("ai-manju:image-prompt", active.prompt); window.location.assign("/image"); }}><WandSparkles size={16} /> 送入关键帧</button><button className="full-outline" onClick={async () => { await navigator.clipboard.writeText(active.prompt); toast.success("提示词已复制"); }}><FileText size={15} /> 复制完整提示词</button><button className="full-outline" onClick={() => { if (window.confirm(`删除"${active.title}"？`)) void persist(presets.filter((item) => item.id !== active.id), "提示词已删除"); }}><Trash2 size={15} /> 删除预设</button></> : <div className="empty-output"><p>暂无个人提示词预设</p></div>}</aside></div>
       : <div className="prompt-workspace">
         <aside className="prompt-filters">
           <div className="tag-search"><Search size={15} /><input value={systemKeyword} onChange={(e) => setSystemKeyword(e.target.value)} placeholder="搜索标题、正文或标签" /></div>

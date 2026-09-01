@@ -89,3 +89,48 @@ export function listTagAssets(scope: WorkspaceScope, id: string, page = 1, pageS
     query: { scope, include_descendants: true, page, page_size: pageSize },
   });
 }
+
+/** 标签 → 提示词绑定查询：GET /api/tags/:tagId/prompts（返回 prompt_id 列表）。 */
+export function listTagPrompts(scope: WorkspaceScope, id: string, includeDescendants = true, signal?: AbortSignal) {
+  return request<{ items: string[]; total: number }>(`/api/tags/${encodeURIComponent(id)}/prompts`, {
+    signal,
+    query: { scope, include_descendants: includeDescendants || undefined },
+  });
+}
+
+export type AssetTagBindingState = "active" | "suppressed" | string;
+export type AssetTagOriginType = "direct" | "inherited" | "ai_suggested" | "system" | "migrated" | string;
+
+export type AssetTagBinding = {
+  id: string;
+  asset_id: string;
+  tag_id: string;
+  state: AssetTagBindingState;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type AssetTagOrigin = {
+  id: string;
+  binding_id: string;
+  origin_type: AssetTagOriginType;
+  source_asset_id?: string;
+  source_job_id?: string;
+  source_node_id?: string;
+};
+
+/** 资产维度标签详情：绑定 + 标签 + 来源（直接/继承/AI 建议等）。 */
+export type AssetTagDetail = {
+  binding: AssetTagBinding;
+  tag: SemanticTag;
+  origins: AssetTagOrigin[];
+};
+
+/** GET /api/assets/:id/tags — 单资产标签绑定详情（含继承来源）。 */
+export function listAssetTagDetails(scope: WorkspaceScope, assetId: string, signal?: AbortSignal) {
+  return request<{ items: AssetTagDetail[]; total: number }>(`/api/assets/${encodeURIComponent(assetId)}/tags`, {
+    signal,
+    query: { scope },
+  });
+}

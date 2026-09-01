@@ -30,6 +30,8 @@ export type VideoGenerationImageReference = {
   bytes: number;
   width: number;
   height: number;
+  /** Seedance 首尾帧语义：不设则按普通参考图（reference_image） */
+  role?: "first_frame" | "last_frame" | "reference_image";
 };
 
 export type VideoGenerationVideoReference = {
@@ -403,7 +405,7 @@ async function buildSeedanceContent(
     content.push({
       type: "image_url",
       image_url: { url: await resolveSeedanceImageReference(reference, imageBudgetBytes, wanImage) },
-      role: "reference_image",
+      role: reference.role || "reference_image",
     });
   }
   for (const reference of references.videos) {
