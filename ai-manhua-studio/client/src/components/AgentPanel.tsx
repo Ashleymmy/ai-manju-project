@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, Globe2, KeyRound, Link2, MessageCircle, Plug, PlugZap, RotateCcw, Send, ShieldCheck, X, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowUp, Bot, Brain, ChartColumn, Check, ChevronDown, ChevronRight, History, Image as ImageIcon, Info, KeyRound, LayoutGrid, Link2, MessageCircle, MessagesSquare, Paperclip, PlugZap, Plus, Puzzle, ScanSearch, Settings, ShieldCheck, Sparkles, Trash2, X, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchAiModels,
@@ -27,6 +27,9 @@ import {
 } from "@/lib/canvas-agent";
 
 type AgentMsg = { id: string; role: "user" | "assistant" | "error" | "tool"; text: string };
+type AgentConversation = { id: string; title: string; updatedAt: number; messages: AgentMsg[] };
+type AgentMenuKind = "threads" | "files" | "plus" | "confirm" | "models";
+type PlusMenuView = "root" | "canvas" | "skills" | "apps";
 type AgentToolResult = { ok: boolean; message: string; data?: unknown };
 type NormalizedToolCall = { id: string; name: string; arguments: string };
 type OnlineToolContext = {
@@ -40,6 +43,34 @@ type PendingAgentTool = { source: "local"; request: CanvasAgentToolRequest } | O
 
 const URL_KEY = "canvas-agent-url";
 const TOK_KEY = "canvas-agent-token";
+const CONVERSATIONS_KEY = (pid: string) => `canvas-agent-conversations:${pid}`;
+const MAX_SAVED_CONVERSATIONS = 20;
+// 技能预设与头脑风暴提示词：纯前端占位，后续由后端技能/应用体系适配
+const SKILL_PRESETS = [
+  { name: "剧本分析", prompt: "分析当前画布的剧本结构：指出主题、冲突和节奏问题。" },
+  { name: "分镜规划", prompt: "基于画布内容规划分镜：列出每个镜头的画面内容和顺序。" },
+  { name: "角色设定", prompt: "为画布中的角色补充设定：外貌、性格和动机。" },
+];
+const BRAINSTORM_PROMPT = "围绕当前画布做一次头脑风暴：给出 5 个不同方向的创意点子，并说明各自的画面潜力。";
+
+function loadConversations(pid: string): AgentConversation[] {
+  try {
+    const raw = localStorage.getItem(CONVERSATIONS_KEY(pid));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as AgentConversation[];
+    return Array.isArray(parsed) ? parsed.filter((item) => item && typeof item.id === "string" && Array.isArray(item.messages)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistConversations(pid: string, list: AgentConversation[]) {
+  try {
+    localStorage.setItem(CONVERSATIONS_KEY(pid), JSON.stringify(list.slice(0, MAX_SAVED_CONVERSATIONS)));
+  } catch {
+    // 存储失败（如配额不足）时静默降级，仅保留内存态。
+  }
+}
 const ONLINE_AGENT_MAX_STEPS = 4;
 const ONLINE_AGENT_PROMPT = "你是 AI-Manju 的在线画布助手。首轮必须调用工具：只读问题调用 canvas_get_state，需要改动画布时调用对应画布工具。需要生成内容时调用 canvas_generate_text、canvas_generate_image、canvas_generate_video、canvas_generate_audio 或 canvas_create_generation_flow。不要输出伪造的 JSON ops，不要编造执行结果。涉及已有节点时只能使用当前画布快照中的真实 id；信息不足时先向用户说明。工具返回后必须依据真实结果回答。";
 const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = CANVAS_AGENT_TOOLS.map((item) => ({
@@ -82,6 +113,14 @@ export default function AgentPanel({
   const [modelLoadError, setModelLoadError] = useState("");
   const [confirmTools, setConfirmTools] = useState(true);
   const [pendingTool, setPendingTool] = useState<PendingAgentTool | null>(null);
+  const [panelWidth, setPanelWidth] = useState(560); // 悬浮卡片初始宽度（可拖拽 250–600）
+  const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
+  const [conversations, setConversations] = useState<AgentConversation[]>(() => loadConversations(projectId));
+  const [openMenu, setOpenMenu] = useState<AgentMenuKind | null>(null);
+  const [plusView, setPlusView] = useState<PlusMenuView>("root");
+  const [autoModel, setAutoModel] = useState(false);
+  const [moreModelsOpen, setMoreModelsOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const wasConnectedRef = useRef(false);
   const clientId = useRef(crypto.randomUUID()).current;
@@ -92,6 +131,7 @@ export default function AgentPanel({
   const onExecuteWorkspaceToolRef = useRef(onExecuteWorkspaceTool);
   const onUndoOpsRef = useRef(onUndoOps);
   const localToolHandlerRef = useRef<(request: CanvasAgentToolRequest) => void>(() => undefined);
+  const resizingRef = useRef(false);
 
   const setPendingAgentTool = (value: PendingAgentTool | null) => {
     pendingToolRef.current = value;
@@ -101,6 +141,39 @@ export default function AgentPanel({
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, pendingTool, waiting]);
+
+  // 切换项目时重载该项目的对话列表并开启新对话
+  useEffect(() => {
+    setConversations(loadConversations(projectId));
+    setMessages([]);
+    setConversationId(crypto.randomUUID());
+    setThreadId(undefined);
+    setOpenMenu(null);
+  }, [projectId]);
+
+  // 消息变化时自动保存当前对话（标题取首条用户消息）
+  useEffect(() => {
+    if (!messages.length) return;
+    const firstUser = messages.find((m) => m.role === "user");
+    setConversations((prev) => {
+      const existing = prev.find((c) => c.id === conversationId);
+      const title = existing?.title ?? (firstUser ? firstUser.text.slice(0, 24) : "新建对话");
+      const entry: AgentConversation = { id: conversationId, title, updatedAt: Date.now(), messages };
+      const next = [entry, ...prev.filter((c) => c.id !== conversationId)].slice(0, MAX_SAVED_CONVERSATIONS);
+      persistConversations(projectId, next);
+      return next;
+    });
+  }, [messages, conversationId, projectId]);
+
+  // 点击面板菜单外部时关闭弹层
+  useEffect(() => {
+    if (!openMenu) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement | null)?.closest?.("[data-agent-menu]")) setOpenMenu(null);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [openMenu]);
 
   useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
   useEffect(() => { confirmToolsRef.current = confirmTools; }, [confirmTools]);
@@ -242,7 +315,7 @@ export default function AgentPanel({
 
   const sendOnlinePrompt = async (text: string) => {
     if (!text || waiting) return;
-    if (!textModel) {
+    if (!effectiveModel) {
       const message = modelLoadError || "没有支持 Agent 工具调用的文本模型";
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "error", text: message }]);
       setActivity("Agent 模型未配置");
@@ -285,7 +358,7 @@ export default function AgentPanel({
     toolChoice: "required" | "auto" = "auto",
   ): Promise<void> => {
     const response = await requestAiText({
-      model: textModel,
+      model: effectiveModel,
       messages: requestMessages,
       tools: ONLINE_AGENT_TOOLS,
       tool_choice: toolChoice,
@@ -502,39 +575,204 @@ export default function AgentPanel({
     setWaiting(false);
   };
 
-  if (!open) return null;
+  const currentTitle = conversations.find((c) => c.id === conversationId)?.title ?? "新建对话";
+
+  const modelDisplay = (model: string) => modelCatalog?.labels?.[model] || model;
+  // Auto 模式下使用模型目录默认模型，手动选择后退出 Auto
+  const effectiveModel = autoModel ? (modelCatalog?.defaultModel ?? "") : textModel;
+
+  const toggleMenu = (menu: AgentMenuKind) => {
+    if (menu === "plus") setPlusView("root");
+    setOpenMenu((prev) => (prev === menu ? null : menu));
+  };
+
+  const insertNodeReference = (node: { id: string; type: string; title?: string; content?: string }) => {
+    const label = node.title?.trim() || node.content?.trim().slice(0, 12) || node.type;
+    setPrompt((prev) => `${prev}${prev && !prev.endsWith(" ") ? " " : ""}@${label}(${node.id}) `);
+    setOpenMenu(null);
+  };
+
+  // 上传附件：前端占位，先把文件名作为引用插入输入框，待后端上传接口适配
+  const handleAttachFile = (files: FileList | null) => {
+    if (!files?.length) return;
+    const names = Array.from(files).map((file) => file.name);
+    setPrompt((prev) => `${prev}${prev && !prev.endsWith(" ") ? " " : ""}${names.map((n) => `@[附件:${n}]`).join(" ")} `);
+    toast.success(`已附加 ${names.join("、")}（待后端适配上传）`);
+    setOpenMenu(null);
+  };
+
+  const applyPresetPrompt = (text: string) => {
+    setPrompt(text);
+    setOpenMenu(null);
+  };
+
+  // 文件面板：列出画布上的图片输出节点
+  const outputNodes = snapshot.nodes.filter((node) => node.imageSrc || node.imageAssetId);
+
+  const newConversation = () => {
+    setMessages([]);
+    setThreadId(undefined);
+    setPendingAgentTool(null);
+    setWaiting(false);
+    setConversationId(crypto.randomUUID());
+    setOpenMenu(null);
+    setTab("chat");
+  };
+
+  const switchConversation = (conv: AgentConversation) => {
+    setMessages(conv.messages);
+    setConversationId(conv.id);
+    setThreadId(undefined);
+    setPendingAgentTool(null);
+    setWaiting(false);
+    setOpenMenu(null);
+    setTab("chat");
+  };
+
+  const deleteConversation = (id: string) => {
+    setConversations((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      persistConversations(projectId, next);
+      return next;
+    });
+    if (id === conversationId) newConversation();
+  };
+
+  const startResize = (event: React.PointerEvent) => {
+    event.preventDefault();
+    resizingRef.current = true;
+    const startX = event.clientX;
+    const startWidth = panelWidth;
+
+    const onMove = (e: PointerEvent) => {
+      if (!resizingRef.current) return;
+      const delta = startX - e.clientX;
+      const newWidth = Math.max(250, Math.min(600, startWidth + delta));
+      setPanelWidth(newWidth);
+    };
+
+    const onUp = () => {
+      resizingRef.current = false;
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+    };
+
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+  };
+
+  // 关闭时延迟卸载 220ms，让出场动画播完再移除 DOM
+  const [rendered, setRendered] = useState(open);
+  useEffect(() => {
+    if (open) {
+      setRendered(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setRendered(false), 220);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
+  if (!rendered) return null;
 
   return (
-    <aside className="agent-panel">
-      <div className="agent-panel-head">
-        <div className="agent-head-icons">
-          <button className={tab === "connect" ? "active" : ""} title="连接 / 设置" onClick={() => setTab("connect")}><PlugZap size={14} /></button>
-          <button className={tab === "chat" ? "active" : ""} title="对话" onClick={() => setTab("chat")}><MessageCircle size={14} /></button>
-        </div>
-        <div className="agent-head-right">
-          <div className="agent-status">
-            <i className={`status-dot ${channel === "online" ? textModel ? "connected" : "" : connected ? "connected" : ""}`} />
-          </div>
-          <button className="icon-button subtle" onClick={onClose} aria-label="关闭 Agent 面板" title="关闭">
-            <X size={14} />
+    <aside className={open ? "agent-panel" : "agent-panel closing"} style={{ width: panelWidth }}>
+      <div className="agent-panel-resizer" onPointerDown={startResize} />
+
+      {/* 顶部工具栏：左侧切换对话，右侧历史记录 / 文件 / 设置 / 关闭 */}
+      <div className="agent-toolbar">
+        <div className="agent-thread-switcher" data-agent-menu>
+          <button
+            className="agent-thread-trigger"
+            title="切换对话"
+            onClick={() => toggleMenu("threads")}
+          >
+            <MessagesSquare size={15} />
+            <span>{currentTitle}</span>
+            <ChevronDown size={13} />
           </button>
+          {openMenu === "threads" && (
+            <div className="agent-thread-menu">
+              <button type="button" className="agent-thread-new" onClick={newConversation}>
+                <Plus size={14} /> 新建对话
+              </button>
+              <div className="agent-thread-divider" />
+              {conversations.length === 0 ? (
+                <div className="agent-thread-empty">
+                  <History size={22} />
+                  <span>暂无历史记录</span>
+                </div>
+              ) : (
+                conversations.map((conv) => (
+                  <div
+                    key={conv.id}
+                    className={`agent-thread-item ${conv.id === conversationId ? "active" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      className="agent-thread-item-main"
+                      onClick={() => switchConversation(conv)}
+                    >
+                      <MessageCircle size={13} />
+                      <span className="agent-thread-item-title">{conv.title}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="agent-thread-item-delete"
+                      title="删除对话"
+                      onClick={() => deleteConversation(conv.id)}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
-      </div>
-      <div className="agent-channel-switch">
-        <button className={channel === "online" ? "active" : ""} onClick={() => { setChannel("online"); setTab("chat"); }}>
-          <Globe2 size={13} /> 在线助手
+        <div className="agent-toolbar-spacer" />
+        <button
+          className={`agent-toolbar-btn ${openMenu === "threads" ? "is-active" : ""}`}
+          title="历史记录"
+          onClick={() => toggleMenu("threads")}
+        >
+          <History size={16} />
         </button>
-        <button className={channel === "local" ? "active" : ""} onClick={() => { setChannel("local"); setTab("connect"); }}>
-          <Bot size={13} /> 本地 Agent
+        <div className="agent-toolbar-pop" data-agent-menu>
+          <button
+            className={`agent-toolbar-btn ${openMenu === "files" ? "is-active" : ""}`}
+            title="文件"
+            onClick={() => toggleMenu("files")}
+          >
+            <ImageIcon size={16} />
+          </button>
+          {openMenu === "files" && (
+            <div className="agent-files-menu">
+              <div className="agent-menu-title">文件</div>
+              {outputNodes.length === 0 ? (
+                <div className="agent-files-empty">
+                  <ImageIcon size={22} />
+                  <span>暂无输出</span>
+                </div>
+              ) : (
+                outputNodes.map((node) => (
+                  <div key={node.id} className="agent-file-item">
+                    {node.imageSrc ? (
+                      <img src={node.imageSrc} alt={node.title || node.type} />
+                    ) : (
+                      <span className="agent-file-thumb"><ImageIcon size={14} /></span>
+                    )}
+                    <span className="agent-file-name">{node.title?.trim() || node.id.slice(0, 8)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+        <button className="agent-toolbar-btn" title="设置" onClick={() => setTab(tab === "connect" ? "chat" : "connect")}>
+          <Settings size={16} />
         </button>
-      </div>
-      <div className="agent-safety-row">
-        <label>
-          <input type="checkbox" checked={confirmTools} onChange={(event) => setConfirmTools(event.target.checked)} />
-          <ShieldCheck size={13} /> 写操作需确认
-        </label>
-        <button type="button" onClick={() => void undoLastTool()} disabled={!canUndoOps || waiting} title="撤销上一次 Agent 画布操作">
-          <RotateCcw size={13} /> 撤销
+        <button className="agent-toolbar-btn" title="关闭对话" onClick={onClose}>
+          <X size={16} />
         </button>
       </div>
 
@@ -563,33 +801,64 @@ export default function AgentPanel({
             />
           </label>
           {connected
-            ? <button className="outline-button" onClick={disconnect}><Plug size={14} /> 断开连接</button>
+            ? <button className="outline-button" onClick={disconnect}><PlugZap size={14} /> 断开连接</button>
             : <button className="vermilion-button" onClick={connect}><PlugZap size={14} /> 连接本地Agent</button>
           }
         </div>
       ) : (
         <div className="agent-chat">
-          {channel === "online" && (
-            <label className="agent-field online-model">
-              <span className="field-label">文本模型</span>
-              <select value={textModel} onChange={(event) => setTextModel(event.target.value)}>
-                <option value="">{modelLoadError || "选择 Agent 文本模型"}</option>
-                {modelCatalog?.models.map((item) => <option key={item} value={item}>{imageModelLabel(item, modelCatalog)}</option>)}
-              </select>
-            </label>
-          )}
-          <div ref={listRef} className="agent-messages">
-            {messages.length === 0 && (
-              <div className="agent-empty">
-                <p>{channel === "online" ? modelLoadError || "在线助手会使用支持工具调用的 Agent 模型操作节点、连线和生成流程。" : "连接后可以让 Codex Agent 操作画布、生成资产或提供创作建议。"}</p>
+          {/* 欢迎消息 */}
+          {messages.length === 0 && (
+            <div className="agent-welcome">
+              <div className="agent-welcome-head">
+                <div className="agent-welcome-avatar">
+                  <Bot size={17} />
+                </div>
+                <span className="agent-welcome-hi">Hi {projectId.slice(0, 10)}!</span>
               </div>
-            )}
+              <h3>今天一起创作点什么？</h3>
+
+              <div className="agent-quick-actions">
+                <button
+                  className="agent-quick-card"
+                  onClick={() => setPrompt("讲清这个项目的创作思路：解释主题、画面选择和关键验证点。")}
+                >
+                  <span className="quick-card-top">
+                    <ChartColumn size={14} />
+                    <span className="quick-label">分析</span>
+                    <ChevronRight size={13} className="quick-arrow" />
+                  </span>
+                  <strong>讲清这个项目的创作思路</strong>
+                  <small>解释主题、画面选择和关键验证点。</small>
+                </button>
+                <button
+                  className="agent-quick-card"
+                  onClick={() => setPrompt("搭建可视化创作工作台：把世界观、人物和故事结构可视化。")}
+                >
+                  <span className="quick-card-top">
+                    <ScanSearch size={14} />
+                    <span className="quick-label">可视化</span>
+                    <ChevronRight size={13} className="quick-arrow" />
+                  </span>
+                  <strong>搭建可视化创作工作台</strong>
+                  <small>把世界观、人物和故事结构可视化。</small>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 消息列表 */}
+          <div ref={listRef} className="agent-messages">
             {messages.map((m) => (
               <div key={m.id} className={`agent-msg agent-msg-${m.role}`}>
                 {m.role !== "user" && (
-                  <span className="agent-msg-label">{m.role === "error" ? "错误" : m.role === "tool" ? "工具" : "Codex"}</span>
+                  <div className="agent-msg-avatar">
+                    <Bot size={16} />
+                  </div>
                 )}
-                <p>{m.text}</p>
+                <div className="agent-msg-content">
+                  <p>{m.text}</p>
+                </div>
               </div>
             ))}
             {pendingTool && (
@@ -611,11 +880,17 @@ export default function AgentPanel({
             )}
             {waiting && !pendingTool && (
               <div className="agent-msg agent-msg-assistant">
-                <span className="agent-msg-label">Codex</span>
-                <p className="agent-working"><span /><span /><span /></p>
+                <div className="agent-msg-avatar">
+                  <Bot size={16} />
+                </div>
+                <div className="agent-msg-content">
+                  <p className="agent-working"><span /><span /><span /></p>
+                </div>
               </div>
             )}
           </div>
+
+          {/* 底部输入区：一体化圆角容器，上输入下工具行 */}
           <div className="agent-composer">
             <textarea
               value={prompt}
@@ -623,18 +898,213 @@ export default function AgentPanel({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendPrompt(); }
               }}
-              placeholder={channel === "online" ? "询问在线助手…" : connected ? "询问 Codex，或让它操作画布…" : "先在「连接」标签页配置并连接本地 Agent"}
-              disabled={(channel === "online" && !textModel) || (channel === "local" && !connected) || waiting || Boolean(pendingTool)}
-              rows={3}
+              placeholder="描述创意或需求，/ 使用技能，@ 引用画布内容"
+              disabled={(channel === "online" && !effectiveModel) || (channel === "local" && !connected) || waiting || Boolean(pendingTool)}
+              rows={2}
             />
-            <button
-              className="vermilion-button"
-              onClick={() => void sendPrompt()}
-              disabled={(channel === "online" && !textModel) || (channel === "local" && !connected) || !prompt.trim() || waiting || Boolean(pendingTool)}
-              aria-label="发送"
-            >
-              <Send size={14} />
-            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => { handleAttachFile(e.target.files); e.target.value = ""; }}
+            />
+
+            <div className="agent-composer-footer">
+              <div className="agent-composer-left">
+                {/* 「+」菜单：从画布添加 / 上传附件 / 技能 / 头脑风暴 / 全部应用 */}
+                <div className="agent-ref-picker" data-agent-menu>
+                  <button
+                    type="button"
+                    className="agent-icon-btn"
+                    title="上传文件或引用画布内节点"
+                    onClick={() => toggleMenu("plus")}
+                  >
+                    <Plus size={15} />
+                  </button>
+                  {openMenu === "plus" && (
+                    <div className="agent-plus-menu">
+                      {plusView !== "root" && (
+                        <button type="button" className="agent-menu-back" onClick={() => setPlusView("root")}>
+                          <ArrowLeft size={13} />
+                          <span>{plusView === "canvas" ? "从画布添加" : plusView === "skills" ? "技能" : "全部应用"}</span>
+                        </button>
+                      )}
+                      {plusView === "root" && (
+                        <>
+                          <button type="button" className="agent-plus-item" onClick={() => setPlusView("canvas")}>
+                            <ImageIcon size={14} /> <span>从画布添加</span> <ChevronRight size={13} />
+                          </button>
+                          <button type="button" className="agent-plus-item" onClick={() => fileInputRef.current?.click()}>
+                            <Paperclip size={14} /> <span>上传附件</span>
+                          </button>
+                          <button type="button" className="agent-plus-item" onClick={() => setPlusView("skills")}>
+                            <Puzzle size={14} /> <span>技能</span> <ChevronRight size={13} />
+                          </button>
+                          <button type="button" className="agent-plus-item" onClick={() => applyPresetPrompt(BRAINSTORM_PROMPT)}>
+                            <Brain size={14} /> <span>头脑风暴</span>
+                          </button>
+                          <button type="button" className="agent-plus-item" onClick={() => setPlusView("apps")}>
+                            <LayoutGrid size={14} /> <span>全部应用</span> <ChevronRight size={13} />
+                          </button>
+                        </>
+                      )}
+                      {plusView === "canvas" && (
+                        snapshot.nodes.length === 0 ? (
+                          <div className="agent-ref-empty">画布暂无节点</div>
+                        ) : (
+                          snapshot.nodes.slice(0, 30).map((node) => (
+                            <button
+                              key={node.id}
+                              type="button"
+                              className="agent-ref-item"
+                              onClick={() => insertNodeReference(node)}
+                            >
+                              <span className="agent-ref-item-type">{node.type}</span>
+                              <span className="agent-ref-item-title">
+                                {node.title?.trim() || node.content?.trim().slice(0, 16) || node.id.slice(0, 8)}
+                              </span>
+                            </button>
+                          ))
+                        )
+                      )}
+                      {plusView === "skills" && (
+                        SKILL_PRESETS.map((skill) => (
+                          <button
+                            key={skill.name}
+                            type="button"
+                            className="agent-plus-item"
+                            onClick={() => applyPresetPrompt(skill.prompt)}
+                          >
+                            <Puzzle size={14} /> <span>{skill.name}</span>
+                          </button>
+                        ))
+                      )}
+                      {plusView === "apps" && (
+                        <div className="agent-ref-empty">暂无可用应用</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {/* 手动确认 / 自动生成 下拉 */}
+                <div className="agent-confirm-picker" data-agent-menu>
+                  <button
+                    type="button"
+                    className="agent-confirm-toggle"
+                    title="工具确认方式"
+                    onClick={() => toggleMenu("confirm")}
+                  >
+                    <ShieldCheck size={13} />
+                    <span>{confirmTools ? "手动确认" : "自动生成"}</span>
+                    <ChevronDown size={11} />
+                  </button>
+                  {openMenu === "confirm" && (
+                    <div className="agent-confirm-menu">
+                      <button
+                        type="button"
+                        className="agent-confirm-option"
+                        onClick={() => { setConfirmTools(true); setOpenMenu(null); }}
+                      >
+                        <strong>手动确认 {confirmTools && <Check size={13} />}</strong>
+                        <small>Agent 在执行生成前都会寻求您的确认</small>
+                      </button>
+                      <button
+                        type="button"
+                        className="agent-confirm-option"
+                        onClick={() => { setConfirmTools(false); setOpenMenu(null); }}
+                      >
+                        <strong>自动生成 {!confirmTools && <Check size={13} />}</strong>
+                        <small>Agent 会自主规划生成任务并自动执行</small>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="agent-composer-right">
+                {/* 模型选择面板：Auto 开关 + 精选推荐 + 更多模型 */}
+                <div className="agent-model-picker" data-agent-menu>
+                  <button
+                    type="button"
+                    className="agent-model-selector"
+                    title="切换模型配置"
+                    onClick={() => toggleMenu("models")}
+                  >
+                    <Sparkles size={13} />
+                    <span>{autoModel ? "Auto" : textModel ? modelDisplay(textModel) : "选择模型"}</span>
+                    <ChevronDown size={11} />
+                  </button>
+                  {openMenu === "models" && modelCatalog && (
+                    <div className="agent-model-menu">
+                      <div className="agent-model-auto">
+                        <span>Auto</span>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={autoModel}
+                          className={`agent-switch ${autoModel ? "on" : ""}`}
+                          onClick={() => setAutoModel((v) => !v)}
+                        >
+                          <i />
+                        </button>
+                      </div>
+                      <div className="agent-menu-label">精选推荐</div>
+                      {modelCatalog.models.slice(0, 3).map((model) => (
+                        <button
+                          key={model}
+                          type="button"
+                          className={`agent-model-item ${!autoModel && model === textModel ? "active" : ""}`}
+                          onClick={() => { setTextModel(model); setAutoModel(false); setOpenMenu(null); }}
+                        >
+                          <span><Sparkles size={12} /> {modelDisplay(model)}</span>
+                          {!autoModel && model === textModel && <Check size={14} />}
+                          <small>{modelCatalog.providerNames?.[model] || model}</small>
+                        </button>
+                      ))}
+                      {modelCatalog.models.length > 3 && (
+                        <>
+                          <button
+                            type="button"
+                            className="agent-model-more"
+                            onClick={() => setMoreModelsOpen((v) => !v)}
+                          >
+                            <span>更多模型</span>
+                            <ChevronDown size={13} className={moreModelsOpen ? "rotated" : ""} />
+                          </button>
+                          {moreModelsOpen && modelCatalog.models.slice(3).map((model) => (
+                            <button
+                              key={model}
+                              type="button"
+                              className={`agent-model-item ${!autoModel && model === textModel ? "active" : ""}`}
+                              onClick={() => { setTextModel(model); setAutoModel(false); setOpenMenu(null); }}
+                            >
+                              <span><Sparkles size={12} /> {modelDisplay(model)}</span>
+                              {!autoModel && model === textModel && <Check size={14} />}
+                              <small>{modelCatalog.providerNames?.[model] || model}</small>
+                            </button>
+                          ))}
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        className="agent-model-help"
+                        onClick={() => toast.info("Auto 会根据任务自动选择模型；也可以在列表中手动指定。")}
+                      >
+                        <Info size={12} /> 如何选择模型？
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <button
+                  className="agent-send-btn"
+                  onClick={() => void sendPrompt()}
+                  disabled={(channel === "online" && !effectiveModel) || (channel === "local" && !connected) || !prompt.trim() || waiting || Boolean(pendingTool)}
+                  aria-label="发送"
+                >
+                  <ArrowUp size={16} />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

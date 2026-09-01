@@ -25,6 +25,7 @@ import {
   RadioTower,
   Search,
   Settings2,
+  ShieldCheck,
   Sparkles,
   Tag,
   Terminal,
@@ -92,6 +93,9 @@ const systemNav: NavItem[] = [
   { label: "渲染队列", href: "/queue", icon: RadioTower },
   { label: "偏好设置", href: "/settings", icon: Settings2 },
 ];
+
+// 仅超级管理员可见的后台入口（侧边栏「系统」分组末尾）
+const adminNavItem: NavItem = { label: "管理后台", href: "/admin", icon: ShieldCheck };
 
 type ProjectCardData = {
   id?: string;
@@ -184,6 +188,7 @@ function SideRail({ currentPath, collapsed, onCollapse, data }: { currentPath: s
   const projectCount = data.projects.total ?? 0;
   const assetCount = data.assets.total ?? 0;
   const runningCount = data.jobs.total ?? 0;
+  const systemItems = user?.role === "super_admin" ? [...systemNav, adminNavItem] : systemNav;
   return (
     <aside className={`side-rail ${collapsed ? "is-collapsed" : ""}`}>
       <div className="side-head">
@@ -195,7 +200,7 @@ function SideRail({ currentPath, collapsed, onCollapse, data }: { currentPath: s
       <div className="side-nav">
         <NavGroup title="制作桌" items={creationNav} currentPath={currentPath} />
         <NavGroup title="素材与语言" items={libraryNav} currentPath={currentPath} />
-        <NavGroup title="系统" items={systemNav} currentPath={currentPath} />
+        <NavGroup title="系统" items={systemItems} currentPath={currentPath} />
       </div>
       <div className="side-foot">
         <div className="side-meter">

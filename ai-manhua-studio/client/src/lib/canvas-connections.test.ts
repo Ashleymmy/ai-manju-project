@@ -236,6 +236,35 @@ describe("canvas generation topology", () => {
       { nodeId: "child", type: "image", title: "child", content: "asset://image", assetId: undefined },
     ]);
   });
+
+  it("treats prompt text in metadata.content as text, never as a media reference", () => {
+    const nodes = [
+      { id: "target", kind: "prompt", title: "目标", content: "主体" },
+      // normalizeCanvasNode 会把顶层提示词回填进 metadata.content，这里模拟回填后的空图片节点
+      { id: "empty-image", kind: "image", title: "空图片", metadata: { content: "生成一个苹果", prompt: "生成一个苹果" } },
+    ];
+
+    expect(buildCanvasGenerationInputs("target", nodes, [{ from: "empty-image", to: "target" }])).toEqual([
+      { nodeId: "empty-image", type: "text", title: "空图片", text: "生成一个苹果" },
+    ]);
+    // 没有提示词的空媒体节点直接丢弃，不产生任何输入
+    const silent = [
+      { id: "target", kind: "prompt", title: "目标", content: "主体" },
+      { id: "blank", kind: "image", title: "空白图片" },
+    ];
+    expect(buildCanvasGenerationInputs("target", silent, [{ from: "blank", to: "target" }])).toEqual([]);
+  });
+
+  it("keeps asset:// metadata.content as a media reference", () => {
+    const nodes = [
+      { id: "target", kind: "prompt", title: "目标", content: "主体" },
+      { id: "material", kind: "video", title: "素材", metadata: { content: "asset://volcano-1" } },
+    ];
+
+    expect(buildCanvasGenerationInputs("target", nodes, [{ from: "material", to: "target" }])).toEqual([
+      { nodeId: "material", type: "video", title: "素材", content: "asset://volcano-1", assetId: undefined },
+    ]);
+  });
 });
 
 describe("canvas connection layer bounds", () => {

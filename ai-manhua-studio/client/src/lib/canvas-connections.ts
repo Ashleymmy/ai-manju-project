@@ -386,15 +386,18 @@ function generationInput(node: CanvasConnectionNode): CanvasGenerationInput | nu
     nodeId: node.id,
     type,
     title,
-    content: node.imageSrc || stringMetadata(node, "content") || undefined,
+    content: node.imageSrc || mediaContentMetadata(node) || undefined,
     assetId: node.imageAssetId || stringMetadata(node, "assetId") || undefined,
     assetScope: workspaceScopeMetadata(node, "assetScope"),
   };
 }
 
 function generationInputType(node: CanvasConnectionNode): CanvasGenerationInput["type"] | null {
-  if ((node.kind === "prompt" || node.kind === "text") && nodeText(node)) return "text";
+  // 媒体节点只有存在真实媒体资源（imageSrc / imageAssetId / metadata.assetId / 可读取的媒体引用）
+  // 才作为参考图/视频/音频；否则它的 content/prompt 只是提示词文本，按文本输入处理，
+  // 避免把"生成一个苹果"这类提示词当 URL 抓取后误传为图片资产。
   if ((node.kind === "image" || node.kind === "video" || node.kind === "audio") && hasMediaResource(node)) return node.kind;
+  if ((node.kind === "prompt" || node.kind === "text" || node.kind === "image" || node.kind === "video" || node.kind === "audio") && nodeText(node)) return "text";
   return null;
 }
 
@@ -403,7 +406,18 @@ function isDirectMediaResource(node: CanvasConnectionNode) {
 }
 
 function hasMediaResource(node: CanvasConnectionNode) {
-  return Boolean(node.imageSrc || node.imageAssetId || stringMetadata(node, "content") || stringMetadata(node, "assetId"));
+  return Boolean(node.imageSrc || node.imageAssetId || stringMetadata(node, "assetId") || mediaContentMetadata(node));
+}
+
+// metadata.content 只有在明显是媒体引用（asset:// 内部引用、data:/blob:/http(s):// URL、站内绝对路径）时
+// 才算媒体内容；普通提示词文本不算。
+function mediaContentMetadata(node: CanvasConnectionNode) {
+  const value = stringMetadata(node, "content");
+  return looksLikeMediaSource(value) ? value : "";
+}
+
+function looksLikeMediaSource(value: string) {
+  return /^(asset:|data:|blob:|https?:\/\/|\/)/i.test(value);
 }
 
 function nodeText(node: CanvasConnectionNode) {
