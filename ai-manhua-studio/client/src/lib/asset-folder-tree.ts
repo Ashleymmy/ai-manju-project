@@ -11,6 +11,12 @@ export type FolderLike = {
 export type FolderTreeRow<T extends FolderLike> = {
   folder: T;
   depth: number;
+  /** 是否有子文件夹（渲染展开/收起 chevron 用）。 */
+  hasChildren: boolean;
+  /** 自根到直接父级的祖先 id 链（折叠过滤用，不含自身）。 */
+  ancestorIds: string[];
+  /** 与 ancestorIds 等长：该层祖先是否为同级最后一个（画缩进参考线用，true = 该层不画竖线）。 */
+  ancestorLast: boolean[];
 };
 
 function compareFolders(a: FolderLike, b: FolderLike) {
@@ -28,14 +34,15 @@ export function flattenFolderTree<T extends FolderLike>(folders: T[]): Array<Fol
     byParent.set(parentId, bucket);
   });
   const rows: Array<FolderTreeRow<T>> = [];
-  const visit = (parentId: string, depth: number) => {
+  const visit = (parentId: string, depth: number, ancestorIds: string[], ancestorLast: boolean[]) => {
     const children = (byParent.get(parentId) || []).slice().sort(compareFolders);
-    children.forEach((folder) => {
-      rows.push({ folder, depth });
-      visit(folder.id, depth + 1);
+    children.forEach((folder, index) => {
+      const isLast = index === children.length - 1;
+      rows.push({ folder, depth, hasChildren: byParent.has(folder.id), ancestorIds, ancestorLast });
+      visit(folder.id, depth + 1, [...ancestorIds, folder.id], [...ancestorLast, isLast]);
     });
   };
-  visit("", 0);
+  visit("", 0, [], []);
   return rows;
 }
 

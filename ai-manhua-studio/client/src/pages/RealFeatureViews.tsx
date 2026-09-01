@@ -639,6 +639,30 @@ export function AssetLibraryView() {
   const filterRoots = showAllFilterTags ? roots : roots.slice(0, 8);
   const uploadTags = showAllUploadTags ? tags : tags.slice(0, 24);
   const folderRows = useMemo(() => flattenFolderTree(folders), [folders]);
+  const [collapsedFolderIds, setCollapsedFolderIds] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("ai-manju:asset-folder-collapsed") || "[]");
+      return Array.isArray(saved) ? saved.filter((item) => typeof item === "string") : [];
+    } catch {
+      return [];
+    }
+  });
+  const collapsedFolderSet = useMemo(() => new Set(collapsedFolderIds), [collapsedFolderIds]);
+  const visibleFolderRows = useMemo(
+    () => folderRows.filter((row) => !row.ancestorIds.some((id) => collapsedFolderSet.has(id))),
+    [folderRows, collapsedFolderSet],
+  );
+  const toggleFolderCollapsed = (folderId: string) => {
+    setCollapsedFolderIds((current) => {
+      const next = current.includes(folderId) ? current.filter((item) => item !== folderId) : [...current, folderId];
+      try {
+        localStorage.setItem("ai-manju:asset-folder-collapsed", JSON.stringify(next));
+      } catch {
+        /* localStorage 不可用时静默降级为会话内状态 */
+      }
+      return next;
+    });
+  };
   const folderSubtreeForMove = useMemo(() => folderMoveFor ? collectFolderSubtreeIds(folders, folderMoveFor) : new Set<string>(), [folderMoveFor, folders]);
 
   const refresh = useCallback(() => setRefreshKey((value) => value + 1), []);
@@ -1133,16 +1157,34 @@ export function AssetLibraryView() {
         <hr />
         <p className="field-label">FOLDERS</p>
         <button className={!activeFolderId ? "selected" : ""} onClick={() => setActiveFolderId("")}>全部目录</button>
-        {folderRows.map(({ folder, depth }) => {
+        {visibleFolderRows.map(({ folder, depth, hasChildren, ancestorLast }) => {
           const siblings = folders.filter((item) => (item.parent_id || "") === (folder.parent_id || ""));
           const siblingIndex = siblings.findIndex((item) => item.id === folder.id);
           const editable = folder.kind !== "system";
+          const collapsed = collapsedFolderSet.has(folder.id);
           return (
             <div key={folder.id} className="folder-row-wrap">
-              <button className={activeFolderId === folder.id ? "folder-row selected" : "folder-row"} style={{ paddingLeft: 10 + depth * 14 }} onClick={() => { setActiveFolderId(folder.id); setMoveFolderId(folder.id); }}>
-                {depth ? <ChevronRight size={12} /> : <FolderOpen size={13} />}
-                <span>{folder.name}</span>
-                <b>{folder.descendant_asset_count ?? folder.asset_count}</b>
+              <button className={activeFolderId === folder.id ? "folder-row selected" : "folder-row"} style={{ paddingLeft: 6 + depth * 14 }} title={folderPathLabel(folders, folder.id)} onClick={() => { setActiveFolderId(folder.id); setMoveFolderId(folder.id); }}>
+                {ancestorLast.map((isLast, level) => (isLast ? null : <i key={level} className="folder-guide" style={{ left: 6 + level * 14 + 6 }} />))}
+                {hasChildren ? (
+                  <span
+                    className="folder-toggle"
+                    role="button"
+                    aria-label={collapsed ? "展开子目录" : "收起子目录"}
+                    title={collapsed ? "展开子目录" : "收起子目录"}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleFolderCollapsed(folder.id);
+                    }}
+                  >
+                    <ChevronRight size={11} className={collapsed ? "" : "open"} />
+                  </span>
+                ) : (
+                  <span className="folder-toggle placeholder" />
+                )}
+                <FolderOpen size={12} className="folder-icon" />
+                <span className="folder-name">{folder.name}</span>
+                <b className="folder-count">{folder.descendant_asset_count ?? folder.asset_count}</b>
               </button>
               {editable ? (
                 <span className="folder-row-actions">

@@ -5140,6 +5140,76 @@ textarea.node-card-prompt {
 }
 .folder-row-actions button:hover:not(:disabled) { color: #fff; }
 .folder-row-actions button:disabled { opacity: 0.3; cursor: default; }
+
+/* ---- 资产库目录树分级 UI：index.css 的 .library-tree > button 只覆盖直接子按钮，
+   树行包在 .folder-row-wrap 里，基础样式在这里补齐；并加缩进参考线 / 折叠 chevron / 计数徽章 ---- */
+.library-tree .folder-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #9ba49e;
+  cursor: pointer;
+  font-size: 10px;
+  text-align: left;
+}
+.library-tree .folder-row:hover { background: rgba(255, 255, 255, 0.04); color: #e5e4db; }
+.library-tree .folder-row.selected { background: rgba(233, 81, 62, 0.14); color: #fff2eb; }
+
+/* 祖先层级的竖向参考线：非末尾祖先的子树范围内贯通 */
+.folder-row .folder-guide {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+
+/* 展开/收起 chevron；无子级的行用同宽占位保持图标对齐 */
+.folder-row .folder-toggle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  color: #77817b;
+}
+.folder-row .folder-toggle:not(.placeholder):hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.folder-row .folder-toggle svg { transition: transform 0.15s ease; }
+.folder-row .folder-toggle svg.open { transform: rotate(90deg); }
+
+.folder-row .folder-icon { flex: 0 0 auto; color: #6f7a74; }
+.folder-row.selected .folder-icon { color: #ef5a45; }
+
+.folder-row .folder-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 计数徽章与名称拉开，固定在行尾 */
+.folder-row .folder-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 5px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #77817b;
+  font: 8px/14px "IBM Plex Mono", monospace;
+}
+.folder-row.selected .folder-count { background: rgba(233, 81, 62, 0.25); color: #ffb3a6; }
+/* 悬浮操作按钮出现时遮住计数徽章，避免重叠（仅可编辑目录有操作按钮） */
+.folder-row-wrap:has(.folder-row-actions):hover .folder-count { visibility: hidden; }
 .folder-move-select {
   position: absolute;
   z-index: 30;
