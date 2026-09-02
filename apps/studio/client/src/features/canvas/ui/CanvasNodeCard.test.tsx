@@ -160,4 +160,39 @@ describe("CanvasNodeCard render boundary", () => {
     expect(movedImage?.getAttribute("src")).toBe("blob:canvas-node-media");
     expect(container.querySelector("article")?.getAttribute("data-node-id")).toBe("node-image");
   });
+
+  it.each(["video", "audio"] as const)(
+    "preserves the %s element, source, and playback state when only node position changes",
+    async (kind) => {
+      const actions = createActions();
+      const source = `blob:canvas-node-${kind}`;
+      const node = createNode({
+        id: `node-${kind}`,
+        kind,
+        title: kind === "video" ? "测试视频" : "测试音频",
+        imageSrc: source,
+      });
+
+      await act(async () => root.render(<CanvasNodeCard {...createProps(node, actions)} />));
+      const originalMedia = container.querySelector<HTMLMediaElement>(kind);
+      expect(originalMedia?.getAttribute("src")).toBe(source);
+
+      originalMedia!.currentTime = 12.5;
+      Object.defineProperty(originalMedia, "paused", {
+        configurable: true,
+        value: false,
+      });
+
+      await act(async () => root.render(
+        <CanvasNodeCard {...createProps({ ...node, x: 180, y: 140 }, actions)} />
+      ));
+
+      const movedMedia = container.querySelector<HTMLMediaElement>(kind);
+      expect(movedMedia).toBe(originalMedia);
+      expect(movedMedia?.getAttribute("src")).toBe(source);
+      expect(movedMedia?.currentTime).toBe(12.5);
+      expect(movedMedia?.paused).toBe(false);
+      expect(container.querySelector("article")?.getAttribute("data-node-id")).toBe(`node-${kind}`);
+    },
+  );
 });
