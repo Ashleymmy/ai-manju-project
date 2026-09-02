@@ -13,9 +13,11 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.test.json --noEmit && vitest run"
   },
   "devDependencies": {
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.2"
   }
 }
