@@ -37,6 +37,12 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspaceDashboardData } from "@/hooks/useWorkspaceDashboardData";
 import {
+  IMAGE_WORKBENCH_SIZE_OPTIONS,
+  resolveImageWorkbenchRequestOptions,
+  type ImageWorkbenchQuality,
+  type ImageWorkbenchSizeOption,
+} from "./image-workbench-options";
+import {
   bindAssetTags,
   bulkDeleteTags,
   bulkMoveAssets,
@@ -215,8 +221,8 @@ export function ImageWorkbenchView() {
   const [scope, setScope] = useState<WorkspaceScope>(() => initialScopeFromSearch());
   const [model, setModel] = useState("");
   const [catalog, setCatalog] = useState<ImageModelCatalog | null>(null);
-  const [size, setSize] = useState<"auto" | "1:1" | "3:2" | "2:3" | "4:3" | "3:4" | "16:9" | "9:16" | "1:1(2x)" | "16:9(2x)" | "9:16(2x)" | "16:9(4k)" | "9:16(4k)">("auto");
-  const [quality, setQuality] = useState<"auto" | "low" | "medium" | "high">("auto");
+  const [size, setSize] = useState<ImageWorkbenchSizeOption>("auto");
+  const [quality, setQuality] = useState<ImageWorkbenchQuality>("auto");
   const [count, setCount] = useState(1);
   const [width, setWidth] = useState(1024);
   const [height, setHeight] = useState(1024);
@@ -411,11 +417,11 @@ export function ImageWorkbenchView() {
     setSelectedResult(0);
     setJobProgress(0);
     try {
+      const requestOptions = resolveImageWorkbenchRequestOptions(size, quality);
       const generated = await generateImages({
         model,
         prompt,
-        size,
-        quality,
+        ...requestOptions,
         count: overrideCount ?? count,
         referenceFiles: references.map((item) => item.file),
         scope,
@@ -524,7 +530,7 @@ export function ImageWorkbenchView() {
                   </div>
                   <div className="history-item-info">
                     <p className="history-item-name">{asset.name}</p>
-                    <small className="history-item-meta">{new Date(asset.createdAt || Date.now()).toLocaleDateString()}</small>
+                    <small className="history-item-meta">{new Date(asset.created_at || Date.now()).toLocaleDateString()}</small>
                   </div>
                 </div>
               ))}
@@ -561,7 +567,7 @@ export function ImageWorkbenchView() {
         </div>
         <div className="composer-ratio-grid">
           <label>宽高比</label>
-          <div className="ratio-grid">{(["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "1:1(2x)", "16:9(2x)", "9:16(2x)", "16:9(4k)", "9:16(4k)", "auto"] as const).map((ratio) => <button key={ratio} className={size === ratio ? "active" : ""} onClick={() => setSize(ratio)}>{ratio}</button>)}</div>
+          <div className="ratio-grid">{IMAGE_WORKBENCH_SIZE_OPTIONS.map((ratio) => <button key={ratio} className={size === ratio ? "active" : ""} onClick={() => setSize(ratio)}>{ratio}</button>)}</div>
         </div>
         {generating && <div className="job-progress"><i style={{ width: `${jobProgress}%` }} /></div>}
         <div className="generate-row">

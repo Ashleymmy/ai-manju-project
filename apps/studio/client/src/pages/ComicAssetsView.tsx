@@ -9,6 +9,7 @@ import {
   createComicBatch,
   createComicAnalysisRevision,
   createComicAnalysisSession,
+  createComicProject,
   deleteComicAsset,
   deleteComicProject,
   downloadComicProjectSource,
@@ -627,11 +628,8 @@ export function ComicAssetsView() {
     try {
       await createComicProject({
         title: newProjectTitle,
-        scope,
         style_preset: newProjectStylePreset,
-        analysis_model: newProjectAnalysisModel,
-        instruction: newProjectInstruction
-      });
+      }, scope);
       toast.success("项目创建成功");
       setCreateDialogOpen(false);
       void reloadProjects();

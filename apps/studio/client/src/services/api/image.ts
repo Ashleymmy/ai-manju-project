@@ -22,7 +22,7 @@ export type ImageModelCatalog = {
 export type ImageGenerationInput = {
   prompt: string;
   model?: string;
-  size?: "auto" | "1:1" | "16:9" | "9:16" | "2:1";
+  size?: "auto" | "1:1" | "3:2" | "2:3" | "4:3" | "3:4" | "16:9" | "9:16" | "2:1";
   quality?: "auto" | "low" | "medium" | "high";
   count?: number;
   referenceFiles?: File[];
