@@ -1,4 +1,4 @@
-import { ComicAssetsView } from "@/pages/RealFeatureViews";
+import { ComicAssetsView } from "./ui/ComicAssetsView";
 
 import "./styles.css";
 
