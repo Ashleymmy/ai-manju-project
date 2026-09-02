@@ -7,13 +7,13 @@ import {
   mergeProviderModels,
   testModelProvider,
   type ModelProviderConfig,
-} from "./admin";
+} from "./adminApi";
+import { clearProviderSensitiveInputState } from "../model/provider";
+import { adminTabFromLocation } from "../model/routes";
 import {
-  adminTabFromLocation,
   buildSeedanceAssetListParams,
-  clearProviderSensitiveInputState,
   paginateSeedanceAssets,
-} from "../../pages/AdminWorkspaceView";
+} from "../model/seedance";
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>();

@@ -1,4 +1,4 @@
-import AdminWorkspaceView from "@/pages/AdminWorkspaceView";
+import AdminWorkspaceView from "./ui/AdminWorkspaceView";
 
 import "./styles.css";
 
