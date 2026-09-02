@@ -4,8 +4,8 @@
     {
       "name": "studio-dev",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--dir", "ai-manhua-studio", "dev"],
-      "port": 3000
+      "runtimeArgs": ["--dir", "apps/studio", "dev"],
+      "port": 3100
     },
     {
       "name": "web-dev",

@@ -10,9 +10,10 @@
 
 - **架构**：pnpm + turbo monorepo。
 - **后端 `apps/api`**（端口 3101）：Go 1.23 + Gin + GORM。入口 `cmd/server`；路由 `internal/router/router.go`；业务在 `internal/{handler,provider,repository,middleware,auth,config,response,model}`；统一响应信封见 `internal/response`。仓库层有 `Memory*`(dev/test) 与 `Gorm*`(生产，`STORAGE_DRIVER=postgres`) 两套实现。
-- **前端 `apps/web`**（端口 3100）：Next.js(App Router) + React + zustand + localforage(IndexedDB)。API 客户端统一走 `src/services/api/request.ts` 的 `requestApi`。画布核心在 `src/app/(user)/canvas/[id]/canvas-client-page.tsx`（大文件，定位要精确）。
-- **共享**：`packages/types`（类型）、`packages/config`（配置）。
-- **文档**：`docs/`（00-项目总览 … 04-验收报告）；大型修复见根目录 `FIX_PLAN.md`。
+- **前端 `apps/studio`**（端口 3100，workspace 包名 `ai-manhua-studio`）：Vite + React + Zustand + localForage。API 客户端位于 `client/src/services/api`；画布核心在 `client/src/pages/CanvasWorkspaceView.tsx`（大文件，定位要精确）。
+- **Worker `apps/worker`**：Python + Celery，处理图片、视频兼容任务和资产写入。
+- **Canvas Agent / Director Desk**：`apps/canvas-agent` 与 `apps/director-desk`；共享协议在 `packages/canvas-agent-protocol`。
+- **文档**：`docs/`（架构、验收、能力差距与发布说明）。
 
 ## 2. 专属硬约束（任何工单不得违反）
 
@@ -24,7 +25,9 @@
 ## 3. 每阶段验证命令（交付前必跑，报告贴实际输出）
 
 - 后端：`cd apps/api && go build ./... && go vet ./... && go test ./...`
-- 前端：`cd apps/web && pnpm tsc --noEmit && pnpm lint`（有 build 脚本则 `pnpm build`）
+- Studio：`pnpm --filter ai-manhua-studio check && pnpm --filter ai-manhua-studio test && pnpm --filter ai-manhua-studio build`
+- Canvas Agent / Director Desk：分别执行 `pnpm --filter @basketikun/canvas-agent test` 和 `pnpm --filter @ai-manju/director-desk test`
+- Worker：`cd apps/worker && python -m compileall worker && python -m unittest discover -s tests`
 
 ## 4. 提交信息约定（仅当被要求提交时）
 

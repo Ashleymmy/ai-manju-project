@@ -1,6 +1,7 @@
 packages:
-  - "apps/*"
-  - "packages/*"
-  - "ai-manhua-studio"
+  - "apps/studio"
+  - "apps/canvas-agent"
+  - "apps/director-desk"
+  - "packages/canvas-agent-protocol"
 allowBuilds:
   sharp: true

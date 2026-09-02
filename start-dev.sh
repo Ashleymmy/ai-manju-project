@@ -1,37 +1,29 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# 启动开发环境脚本
-# 同时启动前端 (Vite) 和后端 (Mock API)
+set -euo pipefail
 
-echo "🚀 启动 AI 漫剧工作室开发环境..."
-echo ""
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
 
-# 启动 Mock API 后端
-echo "📡 启动后端 API 服务器 (端口 3101)..."
-cd mock-api && npm start &
-BACKEND_PID=$!
+echo "启动 AI 漫剧工作室开发环境..."
+echo "请先通过 docker compose 启动 PostgreSQL、Redis 和 Worker。"
 
-# 等待后端启动
-sleep 3
+pnpm dev:api &
+API_PID=$!
+pnpm dev:web &
+WEB_PID=$!
+pnpm dev:agent &
+AGENT_PID=$!
 
-# 启动前端
-echo "🎨 启动前端开发服务器 (端口 3000)..."
-cd .. && pnpm dev &
-FRONTEND_PID=$!
+cleanup() {
+  kill "$API_PID" "$WEB_PID" "$AGENT_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
-echo ""
-echo "✅ 开发环境启动成功！"
-echo ""
-echo "📍 访问地址:"
-echo "   前端: http://localhost:3000"
-echo "   后端: http://localhost:3101"
-echo ""
-echo "🔐 默认登录凭证:"
-echo "   用户名: admin"
-echo "   密码: admin12345"
-echo ""
-echo "⚠️  按 Ctrl+C 停止所有服务"
-echo ""
+echo "前端: http://localhost:3100"
+echo "后端: http://localhost:3101"
+echo "用户名: admin"
+echo "密码: 请查看项目根目录 .env 中的 ADMIN_PASSWORD"
+echo "按 Ctrl+C 停止开发进程。"
 
-# 等待任意进程结束
-wait $BACKEND_PID $FRONTEND_PID
+wait "$API_PID" "$WEB_PID" "$AGENT_PID"

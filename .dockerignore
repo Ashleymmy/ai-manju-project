@@ -1,16 +1,36 @@
 .git
+.github
 .agents
+.ccg
 .claude
 .cache
 .codex-backups
 .codex-logs
 .codex
+.idea
 .packaging-work
+.pnpm-home
 .pnpm-store
 .turbo
+.workflow
 
 node_modules
 **/node_modules
+
+apps/*
+!apps/api
+!apps/api/**
+!apps/worker
+!apps/worker/**
+!apps/studio
+!apps/studio/**
+!apps/canvas-agent
+!apps/canvas-agent/**
+!apps/director-desk
+!apps/director-desk/**
+packages/*
+!packages/canvas-agent-protocol
+!packages/canvas-agent-protocol/**
 
 .next
 **/.next
@@ -21,15 +41,14 @@ node_modules
 apps/api/data
 apps/api/server.exe
 apps/api/*.local.ps1
+.env
+.env.*
+apps/studio/.modules-studio-isolated
 
 *.log
 tmp-*.pid
 tmp-*.log
 
-apps/web/design-prototypes
-apps/web/src/components/v2
-apps/web/src/app/**/v2-*
-apps/web/src/app/v2-*
 apps/api/tmp
 
 dist
@@ -37,4 +56,23 @@ build
 coverage
 artifacts
 deploy/updates
+demo
+old
+tmp
 tmp-sync-web-copy
+ui重构参考
+导演台
+apps/studio/.codex-canvas-parity-*
+apps/studio/.tmp-dependency-fetch
+
+# 镜像构建不读取仓库文档、E2E 或单元测试源码。
+docs
+deploy
+scripts
+playwright.config.ts
+apps/studio/e2e
+apps/director-desk/docs
+**/__tests__
+**/*.test.*
+apps/api/**/*_test.go
+apps/worker/tests

@@ -72,7 +72,7 @@
 
 | 约定 | 说明 |
 |------|------|
-| API Base URL | `NEXT_PUBLIC_API_URL`（默认 `http://localhost:3101`） |
+| API Base URL | `VITE_API_URL`（Docker 默认使用 Studio 同源 `http://localhost:3100`） |
 | 认证方式 | `Authorization: Bearer <token>`，token 存 localStorage / sessionStorage |
 | 响应格式 | `{ "success": true, "data": {...} }` / `{ "success": false, "error": "..." }` |
 | 请求追踪 | 每个请求携带 `X-Request-Id` header，便于日志关联 |
@@ -998,7 +998,7 @@ docker-compose.yml
 ```
 Docker Compose 管理: postgres + redis + api + worker + asset-export-worker
 本地运行: Next.js dev server  (port 3200, pnpm dev)
-NEXT_PUBLIC_API_URL=http://localhost:3101
+VITE_API_URL=http://localhost:3100
 FRONTEND_URLS=...,http://localhost:3200  (CORS 白名单)
 ```
 
@@ -1006,7 +1006,7 @@ FRONTEND_URLS=...,http://localhost:3200  (CORS 白名单)
 
 | 变量 | 说明 |
 |------|------|
-| `NEXT_PUBLIC_API_URL` | 前端访问后端的 URL |
+| `VITE_API_URL` | Studio 构建时注入的 API URL；默认同源并由 Nginx 转发 |
 | `FRONTEND_URLS` | 后端 CORS 白名单（逗号分隔） |
 | `APP_SECRET` | JWT 签发密钥 |
 | `DATABASE_URL` | PostgreSQL 连接串 |

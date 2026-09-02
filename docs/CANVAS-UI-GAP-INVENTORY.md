@@ -3,7 +3,7 @@
 ## 口径
 
 - 对照基线：提交 `c0349bdb50864bbcfbd2ec181f199830a1af174f` 中的旧 `apps/web`、Canvas Agent、Director Desk 和真实服务。
-- 当前 UI：`ai-manhua-studio/client/**`。本轮冻结该目录，只恢复和补齐后端、Worker、Agent、Director Desk、协议与运行链。
+- 当前 UI：`apps/studio/client/**`。该目录是唯一 Studio 前端实现。
 - 状态只使用：`已实现已验证`、`已实现待真实后端验证`、`部分实现`、`完全缺失`、`本轮排除`。
 - “待真实后端验证”表示 UI 代码和真实接口已经接线，但仍需在具备真实 Provider 凭据的环境执行媒体生成；不表示 UI 缺失。
 

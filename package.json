@@ -4,18 +4,26 @@
   "private": true,
   "scripts": {
     "dev": "turbo run dev",
-    "dev:web": "turbo run dev --filter=@ai-manju/web",
+    "dev:web": "pnpm --filter ai-manhua-studio dev",
+    "dev:studio": "pnpm --filter ai-manhua-studio dev",
+    "dev:agent": "pnpm --filter @basketikun/canvas-agent dev",
     "dev:api": "cd apps/api && go run ./cmd/server",
     "build:api": "cd apps/api && go build ./cmd/server",
+    "build:studio": "pnpm --filter ai-manhua-studio build",
+    "build:agent": "pnpm --filter @basketikun/canvas-agent build",
     "build": "turbo run build",
     "e2e": "node scripts/e2e-compose.mjs",
     "e2e:headed": "node scripts/e2e-compose.mjs --headed",
     "e2e:ci": "node scripts/e2e-compose.mjs --ci",
     "smoke:real-provider": "node scripts/real-provider-smoke.mjs",
+    "test:studio": "pnpm --filter ai-manhua-studio test",
+    "test:agent": "pnpm --filter @basketikun/canvas-agent test",
+    "test:director": "pnpm --filter @ai-manju/director-desk test",
     "lint": "turbo run lint",
     "clean": "turbo run clean && rm -rf node_modules"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "turbo": "^2.3.3",
@@ -25,5 +33,10 @@
   "engines": {
     "node": ">=20",
     "pnpm": ">=9"
+  },
+  "pnpm": {
+    "overrides": {
+      "tailwindcss>nanoid": "3.3.7"
+    }
   }
 }

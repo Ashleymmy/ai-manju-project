@@ -1,7 +1,0 @@
-2026/06/30 15:56:57 No .env file found
-2026/06/30 15:56:57 API listening on 0.0.0.0:3101
-2026/06/30 15:56:58 Local: http://localhost:3101
-2026/06/30 15:56:58 LAN:   http://<host-lan-ip>:3101
-[GIN-debug] [ERROR] listen tcp 0.0.0.0:3101: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.
-2026/06/30 15:56:58 listen tcp 0.0.0.0:3101: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.
-exit status 1

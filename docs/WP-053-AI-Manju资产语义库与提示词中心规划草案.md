@@ -721,9 +721,9 @@ R1 是资产标签和提示词标签的共同前置；R2 完成后才能验证�
 ```text
 cd apps/api && go build ./... && go vet ./... && go test ./...
 cd apps/worker && python -m unittest discover -s tests
-cd apps/web && pnpm tsc --noEmit && pnpm lint && pnpm build
-node apps/web/scripts/regression-asset-library.mjs
-node apps/web/scripts/regression-canvas-sync.mjs
+pnpm --filter ai-manhua-studio check
+pnpm --filter ai-manhua-studio test
+pnpm --filter ai-manhua-studio build
 ```
 
 新增标签、入库、统计、提示词迁移和个人主页专项回归；浏览器使用 Mock Provider 完成真实交互，不调用付费服务。

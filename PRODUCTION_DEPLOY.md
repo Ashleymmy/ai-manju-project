@@ -15,7 +15,7 @@ This package is intended to be uploaded to a Linux production server and built w
 3. Replace every `CHANGE_ME` value in `.env`.
 4. Confirm these production values:
    - `FRONTEND_URLS=https://aicavans.cc,https://www.aicavans.cc`
-   - `NEXT_PUBLIC_API_URL=https://aicavans.cc`
+   - `VITE_API_URL=https://aicavans.cc`
    - `COOKIE_SECURE=true`
    - `ALLOW_PUBLIC_SIGNUP=false`
    - `REQUIRE_PERSISTENT_STORAGE=true`
@@ -36,7 +36,7 @@ curl -f http://127.0.0.1:3101/health
 
 ## Important Notes
 
-- `NEXT_PUBLIC_API_URL` is compiled into the web image. If you change it, rebuild the web container.
+- `VITE_API_URL` is compiled into the Studio image. If you change it, rebuild the web container.
 - Postgres and uploaded assets are persisted in Docker volumes:
   - `ai-manju-postgres-data`
   - `ai-manju-assets`

@@ -7,10 +7,10 @@ This checklist is for the AI-Manju `0.3.0-beta.0` iteration release. It assumes 
 ## Pre-Release Checks
 
 - Confirm the release branch/worktree contains the expected version changes and `CHANGELOG.md`.
-- Confirm required environment variables are set before `docker compose up`: database credentials, `APP_SECRET`, `FRONTEND_URLS`, admin bootstrap values, `NEXT_PUBLIC_API_URL`, and public signup settings.
-- Confirm `NEXT_PUBLIC_API_URL` is browser-reachable. For local preview on default ports, use `http://127.0.0.1:3101`.
+- Confirm required environment variables are set before `docker compose up`: database credentials, `APP_SECRET`, `FRONTEND_URLS`, admin bootstrap values, `VITE_API_URL`, and public signup settings.
+- Confirm `VITE_API_URL` is browser-reachable. The default Docker topology uses the Studio origin (`http://127.0.0.1:3100`) and proxies API requests through Nginx.
 - Run backend validation from `apps/api`: `go build ./...`, `go vet ./...`, `go test ./...`.
-- Run frontend validation from `apps/web`: `pnpm tsc --noEmit`, `pnpm build`.
+- Run Studio validation from the repository root: `pnpm --filter ai-manhua-studio check`, `pnpm --filter ai-manhua-studio test`, and `pnpm --filter ai-manhua-studio build`.
 - Run worker validation from `apps/worker`: `python -m unittest discover -s tests`.
 - Run local Agent validation from the repository root: `pnpm --filter @basketikun/canvas-agent build` and `pnpm --filter @basketikun/canvas-agent test`.
 - Run full mock E2E from the repository root: `node scripts/e2e-compose.mjs --ci`.

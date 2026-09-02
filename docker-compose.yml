@@ -1,3 +1,5 @@
+name: ai-manju-project
+
 services:
   postgres:
     image: postgres:15
@@ -58,12 +60,16 @@ services:
       ADMIN_DISPLAY_NAME: ${ADMIN_DISPLAY_NAME:?set ADMIN_DISPLAY_NAME in .env}
       ASSET_STORAGE_DIR: /app/data/assets
       PUBLIC_ASSET_BASE_URL: ${PUBLIC_ASSET_BASE_URL:-}
-      MAX_ASSET_UPLOAD_BYTES: ${MAX_ASSET_UPLOAD_BYTES:-104857600}
+      # 视频素材通常明显大于图片；保持可配置，默认允许 512 MiB。
+      MAX_ASSET_UPLOAD_BYTES: ${MAX_ASSET_UPLOAD_BYTES:-536870912}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_QUEUE_NAME: ${CELERY_QUEUE_NAME:-celery}
       JOB_MAX_ATTEMPTS: ${JOB_MAX_ATTEMPTS:-3}
       JOB_DEFAULT_TIMEOUT: ${JOB_DEFAULT_TIMEOUT:-900}
+      WEBDAV_ALLOWED_HOSTS: ${WEBDAV_ALLOWED_HOSTS:-}
+      WEBDAV_PROXY_TIMEOUT_SECONDS: ${WEBDAV_PROXY_TIMEOUT_SECONDS:-120}
+      WEBDAV_MAX_REQUEST_BYTES: ${WEBDAV_MAX_REQUEST_BYTES:-104857600}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -108,6 +114,8 @@ services:
       WORKER_PROVIDER_RATE_LIMIT: ${WORKER_PROVIDER_RATE_LIMIT:-}
     expose:
       - "8101"
+    ports:
+      - "${WORKER_HEALTH_HOST_PORT:-8101}:8101"
     volumes:
       - ai-manju-assets:/app/data/assets
     user: root
@@ -160,19 +168,18 @@ services:
   web:
     build:
       context: .
-      dockerfile: ai-manhua-studio/Dockerfile
+      dockerfile: apps/studio/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://127.0.0.1:3100}
     depends_on:
       api:
         condition: service_healthy
       asset-export-worker:
         condition: service_healthy
-    environment:
-      PORT: 3100
-      HOSTNAME: 0.0.0.0
     ports:
       - "${WEB_HOST_PORT:-3100}:3100"
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3100').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/ >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 20

@@ -6,7 +6,7 @@
 ## 修改内容
 
 ### 1. 添加返回按钮
-**文件**: `ai-manhua-studio/client/src/pages/CanvasWorkspaceView.tsx`
+**文件**: `apps/studio/client/src/pages/CanvasWorkspaceView.tsx`
 
 在画布工坊项目列表页面顶部添加了返回按钮，点击后返回主页。
 
@@ -19,7 +19,7 @@
 - 将原有的 `.scope-switch` 移到 header 容器内
 
 ### 2. 让页面布局铺满屏幕
-**文件**: `ai-manhua-studio/client/src/index.css`
+**文件**: `apps/studio/client/src/index.css`
 
 添加了新的 CSS 样式类 `.canvas-workspace-full`，覆盖默认的 `max-width` 限制。
 
@@ -49,11 +49,11 @@
 - 保持了原有的范围切换功能（个人/团队）
 
 ## 访问路径
-http://localhost:3000/canvas
+http://localhost:3100/canvas
 
 ## 相关文件
-1. `ai-manhua-studio/client/src/pages/CanvasWorkspaceView.tsx` - 页面组件
-2. `ai-manhua-studio/client/src/index.css` - 全局样式
+1. `apps/studio/client/src/pages/CanvasWorkspaceView.tsx` - 页面组件
+2. `apps/studio/client/src/index.css` - 全局样式
 
 ## 注意事项
 - ⚠️ **未修改后端代码** - 严格遵守只修改前端界面的要求

@@ -13,7 +13,9 @@ running release while preparing a new build.
 3. Run verification before switching traffic:
    - `cd apps/api && go test ./...`
    - `cd apps/api && go build ./cmd/server`
-   - `cd apps/web && corepack pnpm build`
+   - `corepack pnpm --filter ai-manhua-studio test`
+   - `corepack pnpm --filter ai-manhua-studio build`
+   - `cd apps/worker && python -m unittest discover -s tests`
    - `docker compose --env-file .env config --quiet`
 4. Verify persistent runtime settings before startup:
    - `REQUIRE_PERSISTENT_STORAGE=true`
@@ -21,9 +23,10 @@ running release while preparing a new build.
    - `ALLOW_PUBLIC_SIGNUP=false` unless the beta explicitly opts in
    - `ASSET_STORAGE_DIR=/app/data/assets`
    - `MAX_ASSET_UPLOAD_BYTES` is not greater than the proxy body limit
-5. Confirm Compose keeps both persistent volumes:
+5. Confirm Compose keeps both persistent volumes and all current services:
    - `ai-manju-postgres-data`
    - `ai-manju-assets`
+   - `postgres`, `redis`, `api`, `worker`, `asset-export-worker`, `web`
 6. Get explicit approval before any start, restart, container recreation,
    proxy reload, or traffic switch.
 

@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
+import net from "node:net";
 import path from "node:path";
 
 const args = new Set(process.argv.slice(2));
 const isCI = args.has("--ci") || Boolean(process.env.CI);
-const composeProject = process.env.E2E_COMPOSE_PROJECT || "ai-manju-preview";
+const composeProject = process.env.E2E_COMPOSE_PROJECT || `ai-manju-preview-${process.pid}`;
+const postgresHostPort = process.env.POSTGRES_HOST_PORT || String(await findAvailablePort(55432));
+const redisHostPort = process.env.REDIS_HOST_PORT || String(await findAvailablePort(56379));
+const apiHostPort = process.env.API_HOST_PORT || String(await findAvailablePort(33101));
+const webHostPort = process.env.WEB_HOST_PORT || String(await findAvailablePort(33100));
+const workerHealthHostPort = process.env.WORKER_HEALTH_HOST_PORT || String(await findAvailablePort(58101));
 const playwrightBin = path.resolve(
-    "apps/web/node_modules/.bin",
+    "node_modules/.bin",
     process.platform === "win32" ? "playwright.CMD" : "playwright",
 );
 const playwrightArgs = ["test"];
@@ -23,24 +29,29 @@ const env = {
     DB_USER: process.env.DB_USER || process.env.POSTGRES_USER || "postgres",
     DB_PASSWORD: process.env.DB_PASSWORD || process.env.POSTGRES_PASSWORD || "e2e-postgres-password",
     DB_NAME: process.env.DB_NAME || process.env.POSTGRES_DB || "ai_manju",
-    FRONTEND_URLS: process.env.FRONTEND_URLS || "http://localhost:3100,http://127.0.0.1:3100",
+    FRONTEND_URLS:
+        process.env.FRONTEND_URLS ||
+        `http://localhost:${webHostPort},http://127.0.0.1:${webHostPort}`,
     APP_SECRET: process.env.APP_SECRET || "e2e-local-session-secret-change-before-prod",
     COOKIE_SECURE: process.env.COOKIE_SECURE || "false",
     ALLOW_PUBLIC_SIGNUP: process.env.ALLOW_PUBLIC_SIGNUP || "false",
     ADMIN_USERNAME: process.env.ADMIN_USERNAME || "admin",
     ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || "admin123456",
     ADMIN_DISPLAY_NAME: process.env.ADMIN_DISPLAY_NAME || "E2E Admin",
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3101",
-    NEXT_PUBLIC_PROJECT_STORAGE: process.env.NEXT_PUBLIC_PROJECT_STORAGE || "server",
-    NEXT_PUBLIC_ALLOW_PUBLIC_SIGNUP: process.env.NEXT_PUBLIC_ALLOW_PUBLIC_SIGNUP || "false",
-    API_HOST_PORT: process.env.API_HOST_PORT || "3101",
-    WEB_HOST_PORT: process.env.WEB_HOST_PORT || "3100",
-    WORKER_HEALTH_HOST_PORT: process.env.WORKER_HEALTH_HOST_PORT || "8101",
-    E2E_BASE_URL: process.env.E2E_BASE_URL || "http://127.0.0.1:3100",
-    E2E_API_URL: process.env.E2E_API_URL || "http://127.0.0.1:3101",
-    E2E_WORKER_URL: process.env.E2E_WORKER_URL || "http://127.0.0.1:8101",
+    POSTGRES_HOST_PORT: postgresHostPort,
+    REDIS_HOST_PORT: redisHostPort,
+    VITE_API_URL: process.env.VITE_API_URL || `http://127.0.0.1:${webHostPort}`,
+    API_HOST_PORT: apiHostPort,
+    WEB_HOST_PORT: webHostPort,
+    WORKER_HEALTH_HOST_PORT: workerHealthHostPort,
+    E2E_BASE_URL: process.env.E2E_BASE_URL || `http://127.0.0.1:${webHostPort}`,
+    E2E_API_URL: process.env.E2E_API_URL || `http://127.0.0.1:${apiHostPort}`,
+    E2E_WORKER_URL: process.env.E2E_WORKER_URL || `http://127.0.0.1:${workerHealthHostPort}`,
     E2E_ADMIN_ACCOUNT: process.env.E2E_ADMIN_ACCOUNT || process.env.ADMIN_USERNAME || "admin",
     E2E_ADMIN_PASSWORD: process.env.E2E_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || "admin123456",
+    WEBDAV_ALLOWED_HOSTS:
+        process.env.WEBDAV_ALLOWED_HOSTS ||
+        "host.docker.internal,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16",
 };
 
 let startedCompose = false;
@@ -52,7 +63,8 @@ try {
         startedCompose = true;
         await waitForStack();
     }
-    run(playwrightBin, playwrightArgs, { env, cwd: path.resolve("apps/web") });
+    playwrightArgs.push("--config", "playwright.config.ts");
+    run(playwrightBin, playwrightArgs, { env });
 } catch (error) {
     exitCode = typeof error === "object" && error && "exitCode" in error ? Number(error.exitCode) || 1 : 1;
     console.error(error instanceof Error ? error.message : error);
@@ -101,4 +113,24 @@ function run(command, commandArgs, options = {}) {
         throw error;
     }
     return result;
+}
+
+function findAvailablePort(preferredPort) {
+    return new Promise((resolve, reject) => {
+        const server = net.createServer();
+        server.unref();
+        server.once("error", () => {
+            const fallback = net.createServer();
+            fallback.unref();
+            fallback.once("error", reject);
+            fallback.listen(0, "127.0.0.1", () => {
+                const address = fallback.address();
+                const port = typeof address === "object" && address ? address.port : 0;
+                fallback.close((error) => error ? reject(error) : resolve(port));
+            });
+        });
+        server.listen(preferredPort, "127.0.0.1", () => {
+            server.close((error) => error ? reject(error) : resolve(preferredPort));
+        });
+    });
 }
