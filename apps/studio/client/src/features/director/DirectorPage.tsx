@@ -1,4 +1,4 @@
-import DirectorDeskView from "@/pages/DirectorDeskView";
+import DirectorDeskView from "./ui/DirectorDeskView";
 
 import "./styles.css";
 
