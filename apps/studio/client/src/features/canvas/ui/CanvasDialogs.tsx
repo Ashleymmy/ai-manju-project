@@ -18,7 +18,7 @@ import type {
   ImageCropRect,
   ImageCropResizeHandle,
   ImageUpscaleAlgorithm,
-} from "@/lib/canvas-image-data";
+} from "@/features/canvas/domain/imageData";
 import type { CanvasNodeData } from "@/features/canvas/domain/types";
 import type { CanvasImageToolMode } from "./CanvasNodeCard";
 

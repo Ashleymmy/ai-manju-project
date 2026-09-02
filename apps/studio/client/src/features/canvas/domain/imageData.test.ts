@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   MAX_UPSCALE_LONG_EDGE,
+  canvasAnglePrompt,
+  imageCropRectFromDraft,
+  imageToolDraftFromCropRect,
   moveImageCropRect,
   resizeImageCropRect,
   resolveUpscaleSize,
-} from "./canvas-image-data";
+} from "./imageData";
 
 describe("canvas image data", () => {
   it("preserves landscape and portrait aspect ratios while targeting the long edge", () => {
@@ -63,5 +66,29 @@ describe("canvas image data", () => {
       { width: 800, height: 400 },
     );
     expect(resized.width * 800).toBeCloseTo(resized.height * 400);
+  });
+
+  it("round trips crop percentages through the normalized crop rectangle", () => {
+    const draft = {
+      cropX: 12.34,
+      cropY: 8.76,
+      cropWidth: 70,
+      cropHeight: 60,
+    };
+
+    expect(imageToolDraftFromCropRect(imageCropRectFromDraft(draft))).toEqual(
+      draft,
+    );
+  });
+
+  it("describes the selected camera angle without browser dependencies", () => {
+    expect(
+      canvasAnglePrompt({
+        angleHorizontal: 90,
+        anglePitch: 45,
+        angleDistance: 4.8,
+        angleLens: "telephoto",
+      }),
+    ).toContain("右侧俯视视角");
   });
 });

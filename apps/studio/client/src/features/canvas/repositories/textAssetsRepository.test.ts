@@ -4,7 +4,7 @@ import {
   canvasTextAssetStorageKey,
   listCanvasTextAssets,
   saveCanvasTextAsset,
-} from "./canvas-text-assets";
+} from "./textAssetsRepository";
 
 function memoryStorage() {
   const values = new Map<string, unknown>();

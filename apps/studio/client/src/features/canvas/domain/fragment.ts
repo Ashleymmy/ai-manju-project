@@ -68,6 +68,14 @@ export type ProductionCanvasFragmentPackage = Omit<
   omitted_external_connections: Array<{ id: string; fromNodeId: string; toNodeId: string }>;
 };
 
+export function canvasFragmentGroups(
+  groups: readonly CanvasFragmentGroup[],
+): CanvasFragmentGroup[] {
+  return groups.map(group => ({
+    ...structuredClone(group),
+  }));
+}
+
 export function parseCanvasFragmentPackage(
   value: unknown,
   createGroupId: () => string,

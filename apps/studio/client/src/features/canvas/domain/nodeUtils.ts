@@ -224,6 +224,22 @@ export function defaultMediaMimeType(kind: "image" | "video" | "audio") {
   return "image/png";
 }
 
+export function fragmentMediaMimeType(kind: "image" | "video" | "audio") {
+  return defaultMediaMimeType(kind);
+}
+
+export function fragmentMediaFileName(
+  title: string,
+  kind: "image" | "video" | "audio",
+  contentType: string,
+) {
+  if (kind === "video") return videoFileName(title, contentType);
+  if (kind === "audio") {
+    return `${safeFragmentFileStem(title)}.${audioFileExtension(contentType)}`;
+  }
+  return imageFileName(title, contentType);
+}
+
 export function mediaFileName(name: string, kind: "image" | "video" | "audio", contentType: string) {
   if (kind === "image") return imageFileName(name, contentType);
   if (kind === "video") return videoFileName(name, contentType);
@@ -272,6 +288,16 @@ export function imageFileName(title: string, contentType: string) {
   if (/\.(png|jpe?g|webp|gif)$/i.test(clean)) return clean;
   const extension = contentType.includes("jpeg") ? "jpg" : contentType.includes("webp") ? "webp" : contentType.includes("gif") ? "gif" : "png";
   return `${clean}.${extension}`;
+}
+
+function safeFragmentFileStem(value: string) {
+  return (
+    value
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .replace(/\s+/g, " ")
+      .slice(0, 96) || "canvas-media"
+  );
 }
 
 export function isAbortError(error: unknown) {

@@ -207,6 +207,7 @@ import { buildCanvasMinimapModel, canvasMinimapWorldPoint, type CanvasMinimapMod
 import {
   buildCanvasFragmentPackage,
   canvasFragmentAssetIds,
+  canvasFragmentGroups,
   importCanvasFragmentPackage,
   parseCanvasFragmentPackage,
   serializeCanvasFragmentPackage,
@@ -221,14 +222,19 @@ import {
   createOutpaintSourceDataUrl,
   cropDataUrl,
   flipDataUrl,
-  moveImageCropRect,
-  resizeImageCropRect,
   splitDataUrl,
   upscaleDataUrl,
+} from "@/features/canvas/adapters/imageData";
+import {
+  canvasAnglePrompt,
+  imageCropRectFromDraft,
+  imageToolDraftFromCropRect,
+  moveImageCropRect,
+  resizeImageCropRect,
   type ImageCropRect,
   type ImageCropResizeHandle,
   type StoryboardLayout,
-} from "@/lib/canvas-image-data";
+} from "@/features/canvas/domain/imageData";
 import {
   buildCanvasTextRequestMessages,
   canvasTextComposerValue,
@@ -242,7 +248,7 @@ import {
   listCanvasTextAssets,
   saveCanvasTextAsset,
   type CanvasTextAsset,
-} from "@/lib/canvas-text-assets";
+} from "@/features/canvas/repositories/textAssetsRepository";
 import {
   canvasSeedanceVideoReferences,
   hydrateCanvasVideoReferences,
@@ -317,6 +323,8 @@ import {
   cloneCanvasNodes,
   defaultGenerationModeForKind,
   defaultMediaMimeType,
+  fragmentMediaFileName,
+  fragmentMediaMimeType,
   generationModeFromNode,
   imageCountFromNode,
   imageFileName,
@@ -7666,63 +7674,6 @@ function storyboardScenesFromNode(node: CanvasNodeData | undefined): StoryboardS
 
 function canvasImageToolLabel(mode: CanvasImageToolMode) {
   return ({ crop: "裁剪", focus: "聚焦提取", split: "切图", upscale: "放大", compress: "压缩", outpaint: "扩图", angle: "AI 多角度" } as const)[mode];
-}
-
-function imageCropRectFromDraft(draft: CanvasImageToolDraft): ImageCropRect {
-  const x = clamp(draft.cropX / 100, 0, 0.94);
-  const y = clamp(draft.cropY / 100, 0, 0.94);
-  return {
-    x,
-    y,
-    width: clamp(draft.cropWidth / 100, 0.06, 1 - x),
-    height: clamp(draft.cropHeight / 100, 0.06, 1 - y),
-  };
-}
-
-function imageToolDraftFromCropRect(crop: ImageCropRect) {
-  return {
-    cropX: Number((crop.x * 100).toFixed(2)),
-    cropY: Number((crop.y * 100).toFixed(2)),
-    cropWidth: Number((crop.width * 100).toFixed(2)),
-    cropHeight: Number((crop.height * 100).toFixed(2)),
-  };
-}
-
-function canvasFragmentGroups(groups: readonly CanvasGroupData[]): CanvasFragmentGroup[] {
-  return groups.map((group) => ({ ...structuredClone(group) } as CanvasFragmentGroup));
-}
-
-function fragmentMediaMimeType(kind: "image" | "video" | "audio") {
-  if (kind === "video") return "video/mp4";
-  if (kind === "audio") return "audio/mpeg";
-  return "image/png";
-}
-
-function fragmentMediaFileName(title: string, kind: "image" | "video" | "audio", contentType: string) {
-  if (kind === "video") return videoFileName(title, contentType);
-  if (kind === "audio") return `${safeFileStem(title)}.${audioFileExtension(contentType)}`;
-  return imageFileName(title, contentType);
-}
-
-function safeFileStem(value: string) {
-  return value.trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").slice(0, 96) || "canvas-media";
-}
-
-function canvasAnglePrompt(draft: CanvasImageToolDraft) {
-  const horizontal = draft.angleHorizontal < -150 || draft.angleHorizontal > 150
-    ? "背面"
-    : draft.angleHorizontal < -70
-      ? "左侧"
-      : draft.angleHorizontal < -15
-        ? "左前方"
-        : draft.angleHorizontal > 70
-          ? "右侧"
-          : draft.angleHorizontal > 15
-            ? "右前方"
-            : "正面";
-  const pitch = draft.anglePitch > 35 ? "俯视" : draft.anglePitch < -25 ? "仰视" : "平视";
-  const lens = draft.angleLens === "wide" ? "广角" : draft.angleLens === "telephoto" ? "长焦" : "标准";
-  return `基于参考图重新生成同一主体的${horizontal}${pitch}视角。保持人物或物体身份、服装、材质、光线、色彩和画风一致；镜头距离 ${draft.angleDistance.toFixed(1)}，使用${lens}镜头。不要把原图做二维拉伸或透视变形，而要生成真实的新机位画面。`;
 }
 
 function readCanvasImageSize(dataUrl: string) {

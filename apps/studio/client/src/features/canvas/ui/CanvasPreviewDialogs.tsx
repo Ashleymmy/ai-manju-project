@@ -20,7 +20,7 @@ import { imageSrcFromNode } from "@/features/canvas/domain/nodes";
 import { promptTextFromNode } from "@/features/canvas/domain/nodeUtils";
 import type { CanvasNodeData } from "@/features/canvas/domain/types";
 import { numberValue, stringValue } from "@/features/canvas/domain/value";
-import type { StoryboardLayout } from "@/lib/canvas-image-data";
+import type { StoryboardLayout } from "@/features/canvas/domain/imageData";
 
 export type CanvasAnnotationMaskDialogsProps = {
   annotation: ComponentProps<typeof CanvasImageAnnotationDialog>;

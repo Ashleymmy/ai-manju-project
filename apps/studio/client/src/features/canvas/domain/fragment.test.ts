@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCanvasFragmentPackage,
   canvasFragmentAssetIds,
+  canvasFragmentGroups,
   importCanvasFragmentPackage,
   parseCanvasFragmentPackage,
   serializeCanvasFragmentPackage,
@@ -16,6 +17,19 @@ const nodes: CanvasFragmentNode[] = [
 ];
 
 describe("canvas fragment", () => {
+  it("clones exported groups without retaining nested references", () => {
+    const source = [{
+      id: "group-1",
+      nodeIds: ["image-1"],
+      metadata: { color: "red" },
+    }];
+    const cloned = canvasFragmentGroups(source);
+
+    expect(cloned).toEqual(source);
+    expect(cloned[0]).not.toBe(source[0]);
+    expect(cloned[0].metadata).not.toBe(source[0].metadata);
+  });
+
   it("freezes selected nodes, internal edges and omitted boundary edges", () => {
     const fragment = buildCanvasFragmentPackage({
       nodes,
