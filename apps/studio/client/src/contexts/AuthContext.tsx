@@ -1,5 +1,20 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { clearStoredAuthSession, getCurrentUser, logout as logoutApi, type AuthUser } from "@/services/api";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+
+import {
+  clearStoredAuthSession,
+  getCurrentUser,
+  logout as logoutApi,
+  type AuthUser,
+} from "@/entities/auth";
 
 type AuthContextValue = {
   user: AuthUser | null;
@@ -11,8 +26,10 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const userIdRef = useRef<string | null | undefined>(undefined);
   const refreshSeqRef = useRef(0);
   const refreshControllerRef = useRef<AbortController | null>(null);
 
@@ -25,9 +42,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const u = await getCurrentUser({ signal: controller.signal });
       if (seq !== refreshSeqRef.current) return;
+      if (userIdRef.current !== u.id) {
+        queryClient.clear();
+      }
+      userIdRef.current = u.id;
       setUser(u);
     } catch {
       if (seq !== refreshSeqRef.current) return;
+      queryClient.clear();
+      userIdRef.current = null;
       clearStoredAuthSession();
       setUser(null);
     } finally {
@@ -36,7 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       }
     }
-  }, []);
+  }, [queryClient]);
 
   useEffect(() => {
     void refreshUser();
@@ -44,6 +67,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshSeqRef.current += 1;
       refreshControllerRef.current?.abort();
       refreshControllerRef.current = null;
+      queryClient.clear();
+      userIdRef.current = null;
       clearStoredAuthSession();
       setUser(null);
       setLoading(false);
@@ -55,17 +80,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshControllerRef.current = null;
       window.removeEventListener("ai-manju:auth-unauthorized", handleUnauthorized);
     };
-  }, [refreshUser]);
+  }, [queryClient, refreshUser]);
 
   const logout = useCallback(async () => {
     refreshSeqRef.current += 1;
     refreshControllerRef.current?.abort();
     refreshControllerRef.current = null;
     await logoutApi().catch(() => undefined);
+    queryClient.clear();
+    userIdRef.current = null;
     clearStoredAuthSession();
     setUser(null);
     setLoading(false);
-  }, []);
+  }, [queryClient]);
 
   return (
     <AuthContext.Provider value={{ user, loading, refreshUser, logout }}>

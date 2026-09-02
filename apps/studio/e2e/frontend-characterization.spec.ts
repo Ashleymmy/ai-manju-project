@@ -162,8 +162,45 @@ test("public, fallback and protected deep links retain their access policy", asy
   await page.goto("/assets?scope=team&filter=recent#library");
   await expect.poll(() => new URL(page.url()).pathname).toBe("/login");
   const next = new URL(page.url()).searchParams.get("next");
-  expect(next).toBe("/assets#library");
+  expect(next).toBe("/assets?scope=team&filter=recent#library");
   expect(next).not.toContain("//");
+});
+
+test("chat initial network excludes canvas, video, admin and director route code", async ({
+  page,
+}, testInfo) => {
+  const scriptBodies: Array<Promise<{ url: string; source: string }>> = [];
+  page.on("response", response => {
+    if (response.request().resourceType() !== "script") return;
+    scriptBodies.push(
+      response
+        .body()
+        .then(body => ({ url: response.url(), source: body.toString("utf8") }))
+    );
+  });
+
+  await page.goto("/chat?network=e2e");
+  await expect(page.getByPlaceholder(/输入你的创作想法/)).toBeVisible();
+  await page.waitForLoadState("networkidle");
+
+  const scripts = await Promise.all(scriptBodies);
+  const loadedSource = scripts.map(script => script.source).join("\n");
+  for (const routeSignature of [
+    "real-canvas-stage",
+    "wb-page",
+    "real-admin-page",
+    "director-frame-shell",
+  ]) {
+    expect(loadedSource).not.toContain(routeSignature);
+  }
+  await testInfo.attach("chat-initial-script-network.json", {
+    body: JSON.stringify(
+      scripts.map(script => ({ url: script.url, bytes: script.source.length })),
+      null,
+      2
+    ),
+    contentType: "application/json",
+  });
 });
 
 test("login keeps the token in the selected storage without changing key names", async ({
@@ -241,12 +278,15 @@ test("legacy aliases and tag deep links preserve their observable routing contra
     "#node"
   );
 
-  await page.goto("/tags/tag-%E6%B5%8B%E8%AF%95?scope=team&view=tree");
+  await page.goto(
+    "/tags/tag-%E6%B5%8B%E8%AF%95?scope=team&view=tree#tag-library"
+  );
   await expect.poll(() => new URL(page.url()).pathname).toBe("/tags");
   const tagUrl = new URL(page.url());
   expect(tagUrl.searchParams.get("scope")).toBe("team");
   expect(tagUrl.searchParams.get("view")).toBe("tree");
   expect(tagUrl.searchParams.get("tag_id")).toBe("tag-测试");
+  expect(tagUrl.hash).toBe("#tag-library");
 });
 
 test("authenticated routes keep the Studio, Canvas and Admin layout boundaries", async ({

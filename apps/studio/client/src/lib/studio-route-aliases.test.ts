@@ -31,8 +31,13 @@ describe("legacy studio route aliases", () => {
 
 describe("tag deep links", () => {
   it("maps the route parameter into tag_id while preserving other query parameters", () => {
-    expect(tagDeepLinkTarget("/tags/tag%20alpha", "scope=team&tag_id=old"))
-      .toBe("/tags?scope=team&tag_id=tag+alpha");
+    expect(
+      tagDeepLinkTarget(
+        "/tags/tag%20alpha",
+        "scope=team&tag_id=old",
+        "#library"
+      )
+    ).toBe("/tags?scope=team&tag_id=tag+alpha#library");
   });
 
   it("falls back to the tag library when the route parameter is absent", () => {

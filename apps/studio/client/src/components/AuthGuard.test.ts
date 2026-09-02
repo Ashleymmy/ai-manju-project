@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AUTH_ME_TIMEOUT_MS, getCurrentUser, type AuthUser } from "../services/api/auth";
-import { authGuardRedirectTarget, authNextFromLocation, defaultAuthPathForRole, loginRedirectForLocation } from "./AuthGuard";
+import {
+  authGuardRedirectTarget,
+  authNextFromLocation,
+  defaultAuthPathForRole,
+  loginRedirectForLocation,
+  routeLocationWithSearch,
+} from "./AuthGuard";
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>();
@@ -22,6 +28,12 @@ const member: AuthUser = {
 
 describe("auth guard routing", () => {
   it("保留受保护页面的路径、查询和 hash", () => {
+    expect(routeLocationWithSearch("/assets", "?scope=team&filter=recent")).toBe(
+      "/assets?scope=team&filter=recent"
+    );
+    expect(routeLocationWithSearch("/assets?scope=team", "?ignored=1")).toBe(
+      "/assets?scope=team"
+    );
     expect(authNextFromLocation("/admin/users?page=2", "#team")).toBe("/admin/users?page=2#team");
     expect(loginRedirectForLocation("/canvas/project-1?scope=team", "#node-2")).toBe("/login?next=%2Fcanvas%2Fproject-1%3Fscope%3Dteam%23node-2");
     expect(authNextFromLocation("https://evil.test/admin", "#x")).toBe("/canvas#x");

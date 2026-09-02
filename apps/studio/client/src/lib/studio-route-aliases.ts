@@ -27,11 +27,12 @@ export function legacyStudioRouteTarget(location: string) {
   return query ? `${target}?${query}` : target;
 }
 
-export function tagDeepLinkTarget(pathname: string, search = "") {
+export function tagDeepLinkTarget(pathname: string, search = "", hash = "") {
   const tagId = decodeURIComponent(pathname.split("/")[2] || "");
   if (!tagId) return "/tags";
 
   const query = new URLSearchParams(search);
   query.set("tag_id", tagId);
-  return `/tags?${query.toString()}`;
+  const safeHash = hash.startsWith("#") ? hash : "";
+  return `/tags?${query.toString()}${safeHash}`;
 }

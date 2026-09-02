@@ -1,7 +1,8 @@
 import { useEffect, type ReactNode } from "react";
 import { useLocation } from "wouter";
+
 import { useAuth } from "@/contexts/AuthContext";
-import type { AuthUser } from "@/services/api";
+import type { AuthUser } from "@/entities/auth";
 
 type AuthGuardProps = {
   children: ReactNode;
@@ -16,6 +17,12 @@ export function authNextFromLocation(location: string, hash = "") {
 
 export function loginRedirectForLocation(location: string, hash = "") {
   return `/login?next=${encodeURIComponent(authNextFromLocation(location, hash))}`;
+}
+
+export function routeLocationWithSearch(location: string, search = "") {
+  const locationWithoutHash = location.split("#", 1)[0];
+  if (locationWithoutHash.includes("?") || !search) return locationWithoutHash;
+  return `${locationWithoutHash}${search.startsWith("?") ? search : `?${search}`}`;
 }
 
 export function defaultAuthPathForRole(role: AuthUser["role"]) {
@@ -38,11 +45,15 @@ export function authGuardRedirectTarget(params: {
 export default function AuthGuard({ children, requiredRole }: AuthGuardProps) {
   const { user, loading } = useAuth();
   const [location, navigate] = useLocation();
+  const browserLocation = routeLocationWithSearch(
+    location,
+    typeof window === "undefined" ? "" : window.location.search
+  );
   const redirectTarget = authGuardRedirectTarget({
     loading,
     user,
     requiredRole,
-    location,
+    location: browserLocation,
     hash: typeof window === "undefined" ? "" : window.location.hash,
   });
 
