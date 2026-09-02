@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { paginateStoredVideoHistory } from "./video-history";
+import { paginateStoredVideoHistory } from "./historyRepository";
 
 describe("video history pagination", () => {
   const items = Array.from({ length: 45 }, (_, index) => `history-${index + 1}`);

@@ -6,7 +6,7 @@ import {
   pollVideoGenerationTask,
   videoGenerationResultToBlob,
   type VideoGenerationConfig,
-} from "./video";
+} from "./generationGateway";
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>();

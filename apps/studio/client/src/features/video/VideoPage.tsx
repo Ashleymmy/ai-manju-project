@@ -1,7 +1,7 @@
-import VideoWorkspaceView from "@/pages/VideoWorkspaceView";
+import VideoWorkbenchView from "./ui/VideoWorkbenchView";
 
 import "./styles.css";
 
 export default function VideoPage() {
-  return <VideoWorkspaceView />;
+  return <VideoWorkbenchView />;
 }
