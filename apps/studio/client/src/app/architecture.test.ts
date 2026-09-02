@@ -54,6 +54,16 @@ const presentationDirectories = new Set([
   "view",
   "views",
 ]);
+const resourceFeatureNames = new Set([
+  "assets",
+  "auth",
+  "image",
+  "profile",
+  "prompts",
+  "settings",
+  "skills",
+  "tags",
+]);
 
 function toPosix(filePath: string) {
   return filePath.replaceAll(path.sep, "/");
@@ -507,6 +517,58 @@ function presentationTransportViolations(
   return violations.sort((left, right) => left.localeCompare(right));
 }
 
+function resourceFeatureLegacyViolations(
+  modules: Map<string, ProductionModule>
+) {
+  const violations: string[] = [];
+  for (const module of modules.values()) {
+    const [layer, feature] = module.relativePath.split("/");
+    if (layer !== "features" || !resourceFeatureNames.has(feature)) continue;
+    for (const reference of module.references) {
+      const targetRelativePath =
+        modules.get(reference.targetPath ? pathKey(reference.targetPath) : "")
+          ?.relativePath ?? relativeInternalPath(reference.candidatePath);
+      if (
+        targetRelativePath === "pages/RealFeatureViews.tsx" ||
+        targetRelativePath === "pages/SystemViews.tsx" ||
+        targetRelativePath === "services/api/index.ts"
+      ) {
+        violations.push(
+          formatReference(
+            module,
+            reference,
+            "资源 feature 不得回引聚合页或全局 API barrel"
+          )
+        );
+      }
+    }
+  }
+  return violations.sort((left, right) => left.localeCompare(right));
+}
+
+function aggregatePageImplementationViolations() {
+  return ["pages/RealFeatureViews.tsx", "pages/SystemViews.tsx"].flatMap(
+    relativePath => {
+      const filePath = path.join(sourceRoot, relativePath);
+      const sourceFile = ts.createSourceFile(
+        filePath,
+        readFileSync(filePath, "utf8"),
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TSX
+      );
+      return sourceFile.statements
+        .filter(statement => !ts.isExportDeclaration(statement))
+        .map(statement => {
+          const { line } = sourceFile.getLineAndCharacterOfPosition(
+            statement.getStart(sourceFile)
+          );
+          return `${relativePath}:${line + 1} 旧聚合页只能保留兼容 re-export`;
+        });
+    }
+  );
+}
+
 describe("Studio architecture boundaries", () => {
   const modules = loadProductionModules();
 
@@ -569,6 +631,11 @@ describe("Studio architecture boundaries", () => {
 
   it("keeps page and render modules independent of the HTTP transport", () => {
     expect(presentationTransportViolations(modules)).toEqual([]);
+  });
+
+  it("keeps resource features independent from aggregate pages and the API barrel", () => {
+    expect(resourceFeatureLegacyViolations(modules)).toEqual([]);
+    expect(aggregatePageImplementationViolations()).toEqual([]);
   });
 });
 
