@@ -24,7 +24,8 @@ const server = http.createServer(async (request, response) => {
   }
   if (request.method === "POST" && ["/v1/images/generations", "/v1/images/edits"].includes(url.pathname)) {
     const body = (await readBody(request)).toString("utf8");
-    if (body.includes("e2e-slow")) await delay(5_000);
+    if (body.includes("e2e-characterization-slow")) await delay(30_000);
+    else if (body.includes("e2e-slow")) await delay(5_000);
     return json(response, 200, {
       created: Math.floor(Date.now() / 1000),
       model: "e2e-seedream-image-codex",

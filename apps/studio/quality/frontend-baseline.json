@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-02",
+  "source": {
+    "branch": "codex/frontend-decoupling",
+    "commit": "6a9c3aeff9b10814b67760f3464e54a55b62ffdd",
+    "description": "Wave 1 TypeScript-clean Studio baseline"
+  },
+  "environment": {
+    "platform": "win32",
+    "browser": "chromium",
+    "viewports": [
+      {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      {
+        "name": "mobile",
+        "width": 390,
+        "height": 844
+      }
+    ]
+  },
+  "tests": {
+    "vitest": {
+      "command": "pnpm --filter ai-manhua-studio test",
+      "files": 40,
+      "tests": 223,
+      "status": "passed"
+    },
+    "typescript": {
+      "command": "pnpm --filter ai-manhua-studio check",
+      "diagnostics": 0,
+      "status": "passed"
+    }
+  },
+  "bundle": {
+    "command": "pnpm --filter ai-manhua-studio build",
+    "entryJavaScript": {
+      "file": "assets/index-CD4eSl1-.js",
+      "rawBytes": 1224782,
+      "gzipBytes": 371606
+    },
+    "sharedCss": {
+      "file": "assets/index-CIHftFUS.css",
+      "rawBytes": 380080,
+      "gzipBytes": 63619
+    },
+    "chatInitialGraph": {
+      "firstPartyScriptRequests": 1,
+      "firstPartyStyleRequests": 1,
+      "routeChunks": 0,
+      "staticallyBundledFeatures": ["canvas", "video", "admin", "director"],
+      "targetJavaScriptGzipBytes": 185803,
+      "targetSharedCssRawBytes": 190040
+    }
+  },
+  "routes": {
+    "public": ["/login", "/v2-login", "/register", "/", "/chat"],
+    "authenticatedStudio": [
+      "/dashboard",
+      "/projects",
+      "/director",
+      "/comic-assets",
+      "/image",
+      "/video",
+      "/assets",
+      "/tags",
+      "/prompts",
+      "/skills",
+      "/profile",
+      "/queue",
+      "/settings"
+    ],
+    "authenticatedCanvas": ["/canvas", "/canvas/:id"],
+    "superAdmin": [
+      "/admin",
+      "/admin/users",
+      "/admin/model-provider",
+      "/admin/announcements",
+      "/admin/seedance-assets"
+    ],
+    "legacyAliases": {
+      "/v2-home": "/",
+      "/v2-projects": "/projects",
+      "/v2-canvas": "/canvas",
+      "/v2-assets": "/assets",
+      "/v2-prompts": "/prompts",
+      "/v2-settings": "/settings",
+      "/v2-queue": "/queue",
+      "/v2-image": "/image",
+      "/v2-video": "/video",
+      "/v2-preview": "/"
+    }
+  },
+  "storage": {
+    "localStorage": [
+      "theme",
+      "ai-manju:auth_account",
+      "ai-manju:auth_token",
+      "ai-manju:token-store",
+      "ai-manju:rail-open-groups",
+      "ai-manju:asset-folder-collapsed",
+      "ai-manju:seen_release",
+      "ai-manju:webdav_sync",
+      "ai-manju:canvas_skills",
+      "canvas-agent-url",
+      "canvas-agent-token",
+      "canvas-agent-conversations:${projectId}",
+      "ai-manhua-studio:video-generation-history",
+      "standalone-3d-director-desk-registry-v1",
+      "standalone-3d-director-desk-active-id-v1",
+      "storyai-3d-director-desk-demo",
+      "storyai-3d-director-desk-demo:${instanceId}",
+      "storyai-3d-director-local-model-library"
+    ],
+    "sessionStorage": [
+      "ai-manju:auth_token",
+      "ai-manju:canvas-bootstrap",
+      "ai-manju:image-prompt",
+      "ai-manju:image-reference-asset"
+    ],
+    "indexedDb": [
+      {
+        "database": "ai-manhua-studio",
+        "stores": [
+          "video_generation_history_v3",
+          "video_generation_media_v3",
+          "video_workbench_conversations_v1",
+          "video_workbench_media_v1"
+        ],
+        "fixedKeys": ["history", "legacy-local-storage-v1", "conversations"]
+      },
+      {
+        "database": "localforage",
+        "stores": ["keyvaluepairs"],
+        "dynamicKeys": [
+          "ai-manhua-studio:canvas-text-assets:${encodeURIComponent(userId)}:${scope}"
+        ]
+      },
+      {
+        "database": "storyai-3d-director-assets",
+        "version": 1,
+        "stores": ["binary-assets"],
+        "keyPath": "key"
+      }
+    ]
+  },
+  "canvasDomContracts": {
+    "stage": ".real-canvas-stage",
+    "node": ".real-canvas-node[data-node-id]",
+    "edge": ".real-canvas-edge-hit[data-edge-id]",
+    "sourceHandle": ".canvas-connection-handle.source.canvas-node-handle",
+    "targetHandle": ".canvas-connection-handle.target.canvas-node-handle",
+    "uiIsolationAttribute": "data-canvas-ui",
+    "mentionTokenExamples": ["@[node:<id>]", "@[asset:<id>]"]
+  },
+  "knownBaselineGaps": [
+    {
+      "id": "auth-next-search",
+      "description": "The current browser AuthGuard preserves pathname and hash but drops search parameters before encoding next.",
+      "plannedResolution": "REFACTOR-005 composes pathname + search + hash explicitly."
+    },
+    {
+      "id": "local-agent-environment",
+      "description": "The default E2E Compose stack does not start apps/canvas-agent.",
+      "plannedResolution": "Local bridge characterization runs when E2E_CANVAS_AGENT_URL and E2E_CANVAS_AGENT_TOKEN are supplied."
+    },
+    {
+      "id": "canvas-node-extension-roundtrip",
+      "description": "Unknown root snapshot fields and unknown node metadata fields round-trip, but an unknown field directly on a node is currently dropped by normalization.",
+      "plannedResolution": "The Canvas domain extraction must preserve node-level extension fields before its compatibility gate is finalized."
+    },
+    {
+      "id": "nginx-assets-directory-collision",
+      "description": "The production Nginx fallback treats the Studio /assets deep link as the built asset directory and redirects it to /assets/, changing the URL and auth next value.",
+      "plannedResolution": "The integration layer must remove the generic $uri/ fallback while preserving the dedicated /director-desk/ route."
+    }
+  ]
+}
