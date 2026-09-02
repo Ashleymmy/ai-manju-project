@@ -8,7 +8,7 @@ import {
   redoCanvasHistory,
   undoCanvasHistory,
   zoomCanvasViewportAtPoint,
-} from "./canvas-history";
+} from "./history";
 
 describe("canvas history", () => {
   it("captures only graph state and deep clones it", () => {

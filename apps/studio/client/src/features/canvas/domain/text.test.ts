@@ -8,7 +8,7 @@ import {
   isGeneratedCanvasText,
   updateCanvasNodeComposer,
   updateCanvasTextDisplay,
-} from "./canvas-text";
+} from "./text";
 
 describe("canvas text semantics", () => {
   it("keeps generated text separate from its next composer prompt", () => {

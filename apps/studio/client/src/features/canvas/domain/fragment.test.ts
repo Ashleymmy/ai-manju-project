@@ -7,7 +7,7 @@ import {
   parseCanvasFragmentPackage,
   serializeCanvasFragmentPackage,
   type CanvasFragmentNode,
-} from "./canvas-fragment";
+} from "./fragment";
 
 const nodes: CanvasFragmentNode[] = [
   { id: "image-1", kind: "image", title: "图", content: "", x: 0, y: 0, width: 200, height: 100, imageAssetId: "asset-old", metadata: { assetId: "asset-old" } },
@@ -53,6 +53,7 @@ describe("canvas fragment", () => {
       createId: (kind, index) => `${kind}-new-${index}`,
       createEdgeId: (index) => `edge-new-${index}`,
       createGroupId: (index) => `group-new-${index}`,
+      createDirectorInstanceId: () => "director-new",
     });
     expect(imported.nodes[0]).toMatchObject({ id: "image-new-0", imageAssetId: "asset-new" });
     expect(imported.nodes[0].metadata).toMatchObject({ assetId: "asset-new", content: "", mimeType: "image/png" });
@@ -81,7 +82,7 @@ describe("canvas fragment", () => {
       }],
       connections: [{ id: "edge-1", fromNodeId: "node-1", toNodeId: "node-1" }],
       omitted_external_connections: [],
-    });
+    }, () => "group-generated");
     expect(fragment.nodes[0]).toMatchObject({ id: "node-1", kind: "image", x: 12, y: 34, imageAssetId: "asset-1" });
     expect(fragment.connections[0]).toEqual({ id: "edge-1", from: "node-1", to: "node-1" });
   });

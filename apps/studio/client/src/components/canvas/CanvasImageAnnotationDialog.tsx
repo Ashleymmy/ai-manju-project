@@ -26,14 +26,14 @@ import {
   CANVAS_ANNOTATION_COLORS,
   canvasAnnotationBounds,
   cloneCanvasAnnotations,
-  exportCanvasAnnotations,
   isMeaningfulCanvasAnnotation,
   translateCanvasAnnotation,
   type CanvasAnnotationPoint,
   type CanvasAnnotationTool,
   type CanvasImageAnnotation,
   type CanvasTextAnnotation,
-} from "@/lib/canvas-annotation";
+} from "@/features/canvas/domain/annotation";
+import { exportCanvasAnnotations } from "@/features/canvas/adapters/annotationImage";
 
 export type CanvasImageAnnotationPayload = {
   dataUrl: string;

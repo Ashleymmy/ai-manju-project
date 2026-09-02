@@ -6,7 +6,7 @@ import {
   isMeaningfulCanvasAnnotation,
   translateCanvasAnnotation,
   type CanvasImageAnnotation,
-} from "./canvas-annotation";
+} from "./annotation";
 
 describe("canvas annotation", () => {
   it("detects meaningful shapes, brush strokes and text", () => {

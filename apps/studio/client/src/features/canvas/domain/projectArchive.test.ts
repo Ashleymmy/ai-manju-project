@@ -8,7 +8,7 @@ import {
   canvasArchiveStorageKey,
   parseCanvasProjectArchive,
   remapCanvasArchiveSnapshotAssets,
-} from "./canvas-project-archive";
+} from "./projectArchive";
 
 describe("canvas project archive", () => {
   it("builds and parses the production projects.json v3 shape", () => {

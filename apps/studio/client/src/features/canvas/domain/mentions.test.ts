@@ -9,7 +9,7 @@ import {
   serializeCanvasMentionEditorValue,
   splitCanvasMentionEditorDisplay,
   splitCanvasMentionText,
-} from "./canvas-mentions";
+} from "./mentions";
 
 const nodes = [
   { id: "prompt", kind: "prompt", title: "主提示", content: "生成画面" },

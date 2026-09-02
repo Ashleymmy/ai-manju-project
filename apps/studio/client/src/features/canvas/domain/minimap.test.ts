@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCanvasMinimapModel, canvasMinimapWorldPoint } from "./canvas-minimap";
+import { buildCanvasMinimapModel, canvasMinimapWorldPoint } from "./minimap";
 
 describe("canvas minimap", () => {
   it("includes both distant nodes and the current viewport in its world bounds", () => {

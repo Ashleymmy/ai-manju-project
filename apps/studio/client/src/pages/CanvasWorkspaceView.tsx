@@ -172,13 +172,10 @@ import { CanvasSeedanceMaterialDialog } from "@/components/canvas/CanvasSeedance
 import { CanvasResourceMentionTextarea } from "@/components/canvas/CanvasResourceMentionTextarea";
 import PixelLoadingOverlay from "@/components/canvas/PixelLoadingOverlay";
 import {
-  buildRoundTripCanvasSnapshot,
-  collectRoundTripCanvasEdges,
   extractProjectCanvasData,
   extractServerCanvasSnapshotData,
-  hasRoundTripCanvasGraph,
   type CanvasSnapshotBase,
-} from "@/lib/canvas-snapshot-roundtrip";
+} from "@/features/canvas/domain/snapshotRoundTrip";
 import { consumeCanvasBootstrap, peekCanvasBootstrap } from "@/lib/canvas-bootstrap";
 import {
   canvasNodesInSelectionRect,
@@ -190,8 +187,9 @@ import {
   toggleCanvasNodeSelection,
   type CanvasNodeOrigins,
   type CanvasPoint,
-} from "@/lib/canvas-selection";
-import { DEFAULT_CANVAS_SHORTCUTS, eventMatchesShortcut, isCanvasHotkeyEditingTarget, resolveCanvasShortcuts, type CanvasShortcutBindings } from "@/lib/canvas-hotkeys";
+} from "@/features/canvas/domain/selection";
+import { DEFAULT_CANVAS_SHORTCUTS, eventMatchesShortcut, resolveCanvasShortcuts, type CanvasShortcutBindings } from "@/features/canvas/domain/hotkeys";
+import { isCanvasHotkeyEditingTarget } from "@/features/canvas/adapters/hotkeyTarget";
 import { loadSkills, type CanvasSkill } from "@/lib/skill-library";
 import SkillLibraryDialog from "@/components/SkillLibraryDialog";
 import PromptPresetManagerDialog from "@/components/PromptPresetManagerDialog";
@@ -200,7 +198,7 @@ import {
   createCanvasClipboard,
   pasteCanvasClipboard,
   type CanvasClipboardPayload,
-} from "@/lib/canvas-clipboard";
+} from "@/features/canvas/domain/clipboard";
 import {
   addCanvasConnection,
   canvasActiveConnectionPath,
@@ -219,7 +217,7 @@ import {
   normalizeCanvasConnection,
   type CanvasGenerationInput,
   visibleCanvasConnectionNodes,
-} from "@/lib/canvas-connections";
+} from "@/features/canvas/domain/connections";
 import {
   CANVAS_ZOOM_MAX,
   CANVAS_ZOOM_MIN,
@@ -232,7 +230,7 @@ import {
   zoomCanvasViewportAtPoint,
   type CanvasHistoryEntry,
   type CanvasHistoryStack,
-} from "@/lib/canvas-history";
+} from "@/features/canvas/domain/history";
 import {
   createCanvasGroup,
   normalizeCanvasGroups,
@@ -240,7 +238,7 @@ import {
   resizeCanvasGroup,
   type CanvasGroupData,
   type CanvasGroupResizeCorner,
-} from "@/lib/canvas-groups";
+} from "@/features/canvas/domain/groups";
 import {
   buildCanvasArchiveProjectRecord,
   canvasArchiveAssetId,
@@ -252,8 +250,8 @@ import {
   type CanvasArchiveUploadedAsset,
   type CanvasProjectArchiveAsset,
   type CanvasProjectArchiveItem,
-} from "@/lib/canvas-project-archive";
-import { buildCanvasMinimapModel, canvasMinimapWorldPoint, type CanvasMinimapModel } from "@/lib/canvas-minimap";
+} from "@/features/canvas/domain/projectArchive";
+import { buildCanvasMinimapModel, canvasMinimapWorldPoint, type CanvasMinimapModel } from "@/features/canvas/domain/minimap";
 import {
   buildCanvasFragmentPackage,
   canvasFragmentAssetIds,
@@ -263,7 +261,7 @@ import {
   type CanvasFragmentGroup,
   type CanvasFragmentManifestRow,
   type CanvasFragmentPackage,
-} from "@/lib/canvas-fragment";
+} from "@/features/canvas/domain/fragment";
 import {
   compressDataUrl,
   composeStoryboardDataUrl,
@@ -289,7 +287,7 @@ import {
   isGeneratedCanvasText,
   updateCanvasNodeComposer,
   updateCanvasTextDisplay,
-} from "@/lib/canvas-text";
+} from "@/features/canvas/domain/text";
 import {
   listCanvasTextAssets,
   saveCanvasTextAsset,
@@ -301,14 +299,15 @@ import {
   mergeCanvasVideoReferences,
   videoResultPersistentMetadata,
   type CanvasVideoReferenceSnapshot,
-} from "@/lib/canvas-video";
+} from "@/features/canvas/domain/video";
+import { createBrowserFile } from "@/features/canvas/adapters/browserFile";
 import {
   buildCanvasMentionGenerationContext,
   buildCanvasMentionReferences,
   extractCanvasMentionTokens,
   type CanvasMentionAsset,
   type CanvasMentionReference,
-} from "@/lib/canvas-mentions";
+} from "@/features/canvas/domain/mentions";
 import {
   applyCanvasAgentOps,
   type CanvasAgentExecutionResult,
@@ -318,8 +317,102 @@ import {
   type CanvasAgentSnapshot,
 } from "@/lib/canvas-agent";
 import { createZip, readZip } from "@/lib/zip";
+import {
+  buildCanvasSnapshot,
+  canvasAgentSnapshotFromCanvas,
+  canvasViewportFromAgent,
+  parseCanvasSnapshot as parseSnapshot,
+} from "@/features/canvas/domain/snapshotCodec";
+import {
+  assetIdFromNode,
+  imageSrcFromNode,
+  looksLikeImageSource,
+  nodeKindTitle,
+  normalizeCanvasEdge,
+  normalizeCanvasNode,
+  normalizeCanvasNodeKind,
+} from "@/features/canvas/domain/nodes";
+import {
+  batchChildGridPosition,
+  refreshImageBatchRoot,
+  resetInterruptedCanvasGenerations,
+  snapImageBatchChildrenToGrid,
+} from "@/features/canvas/domain/batch";
+import { isRecord, numberValue, stringValue } from "@/features/canvas/domain/value";
+import {
+  canvasListHref,
+  canvasProjectHref,
+  isWorkspaceScope,
+  projectScopeFromServer,
+  workspaceScopeValue,
+} from "@/features/canvas/domain/workspace";
+import { scopeFromCanvasLocation as scopeFromLocation } from "@/features/canvas/adapters/workspaceLocation";
+import type {
+  CanvasBackgroundMode,
+  CanvasEdgeData,
+  CanvasGenerationMode,
+  CanvasImageReferenceSnapshot,
+  CanvasNodeData,
+  CanvasNodeKind,
+  CanvasNodeMetadata,
+  CanvasSnapshotState,
+  ImageQualityValue,
+  ImageSizeValue,
+} from "@/features/canvas/domain/types";
+import {
+  VIDEO_SUBMODES,
+  assetKindFromFile,
+  audioFileExtension,
+  canvasGenerationInputsFromVideoSnapshot,
+  canvasVideoReferenceSnapshot,
+  cloneCanvasEdges,
+  cloneCanvasNodes,
+  defaultGenerationModeForKind,
+  defaultMediaMimeType,
+  editableNodeKind,
+  generationModeFromNode,
+  generationModeLabel,
+  imageCountFromNode,
+  imageFileName,
+  imageReferenceSnapshots,
+  isAbortError,
+  isReadableMediaSource,
+  mediaFileName,
+  mediaKindFromNode,
+  mediaKindLabel,
+  modelFromNode,
+  nodeEditorTextFromNode,
+  nodeInlineEditPlaceholder,
+  nodeKindBadge,
+  promptTextFromNode,
+  qualityFromNode,
+  sizeFromNode,
+  toImageSizeValue,
+  videoConfigFromNode,
+  videoFileName,
+  videoProviderFromNode,
+  videoSubModeFromNode,
+  videoSubModePlaceholder,
+  audioConfigFromNode,
+} from "@/features/canvas/domain/nodeUtils";
+import type { VideoSubMode } from "@/features/canvas/domain/nodeUtils";
+import {
+  cubicCanvasPoint,
+  distanceToCanvasEdge,
+  distanceToCanvasSegment,
+  nearestCanvasEdgeIdAtPoint,
+} from "@/features/canvas/domain/geometry";
+import {
+  completeGeneratedAudioTarget,
+  completeGeneratedImageTarget,
+  completeGeneratedVideoTarget,
+  failGeneratedAudioTarget,
+  failGeneratedImageTarget,
+  failGeneratedTextTarget,
+  failGeneratedVideoTarget,
+  resolveGeneratedNode,
+} from "@/features/canvas/domain/generation";
 
-type CanvasNodeKind = "prompt" | "image" | "note" | "text" | "config" | "video" | "audio" | "director";
 type CanvasAssetPickerKind = "all" | "text" | "image" | "video" | "audio";
 type CanvasAssetPickerItem = {
   id: string;
@@ -333,69 +426,7 @@ type CanvasAssetPickerItem = {
   size?: number;
   contentType?: string;
 };
-type CanvasGenerationMode = "text" | "image" | "video" | "audio";
-type CanvasNodeStatus = "idle" | "loading" | "success" | "error";
 type CanvasSyncStatus = "loading" | "pending" | "saving" | "synced" | "error";
-type CanvasNodeMetadata = Record<string, unknown> & {
-  content?: string;
-  prompt?: string;
-  composerContent?: string;
-  status?: CanvasNodeStatus;
-  errorDetails?: string;
-  generationMode?: CanvasGenerationMode;
-  jobId?: string;
-  jobProgress?: number;
-  model?: string;
-  videoProvider?: VideoProvider;
-  size?: string;
-  resolution?: string;
-  seconds?: string;
-  videoSubMode?: string;
-  storyboardScenes?: Array<Record<string, unknown>>;
-  imageResolution?: string;
-  generateAudio?: boolean;
-  watermark?: boolean;
-  quality?: string;
-  count?: number;
-  assetId?: string;
-  assetScope?: WorkspaceScope;
-  storageKey?: string;
-  mimeType?: string;
-  bytes?: number;
-  captureTimeSeconds?: number;
-  promptPanelWidth?: number;
-  promptEditorHeight?: number;
-  generationType?: "generation" | "edit";
-  sourceNodeId?: string;
-  referenceInputs?: CanvasImageReferenceSnapshot[];
-  videoReferenceInputs?: CanvasVideoReferenceSnapshot;
-  audioVoice?: string;
-  audioFormat?: string;
-  audioSpeed?: string;
-  audioInstructions?: string;
-  isBatchRoot?: boolean;
-  batchChildIds?: string[];
-  batchRootId?: string;
-  /** 成员模型标记：根自身生成第 1 张；旧数据无此标记，加载时自动迁移 */
-  batchModelV2?: boolean;
-  primaryImageId?: string;
-  /** 批次基底节点自身的生成结果（imageAssetId/assetId 用于展示主图，会被聚合覆盖） */
-  ownAssetId?: string;
-  ownImageSrc?: string;
-  imageBatchExpanded?: boolean;
-  fontSize?: number;
-  seedanceMaterialAssets?: SeedanceMaterialAsset[];
-  seedanceVolcanoAssets?: SelectedSeedanceVolcanoAsset[];
-};
-
-type CanvasImageReferenceSnapshot = {
-  nodeId: string;
-  title: string;
-  assetId: string;
-  assetScope?: WorkspaceScope;
-  name: string;
-  contentType: string;
-};
 
 type CanvasGenerationRequest = {
   requestId: string;
@@ -467,26 +498,6 @@ type CanvasAudioTargetRunInput = {
   config: AudioGenerationConfig;
 };
 
-type CanvasNodeData = {
-  id: string;
-  kind: CanvasNodeKind;
-  title: string;
-  content: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  imageAssetId?: string;
-  imageSrc?: string;
-  metadata?: CanvasNodeMetadata;
-};
-
-type CanvasEdgeData = {
-  id: string;
-  from: string;
-  to: string;
-};
-
 type CanvasContextMenuState = {
   x: number;
   y: number;
@@ -517,7 +528,6 @@ type PendingConnectionCreateState = {
 };
 
 type CanvasPanMode = "idle" | "hold-pan" | "locked-pan";
-type CanvasBackgroundMode = "dots" | "lines" | "blank";
 
 type CanvasPanState = {
   mode: CanvasPanMode;
@@ -575,17 +585,6 @@ type CanvasGroupResizeState = {
   moved: boolean;
 };
 
-type CanvasSnapshotData = {
-  nodes?: CanvasNodeData[];
-  edges?: CanvasEdgeData[];
-  groups?: CanvasGroupData[];
-  zoom?: number;
-  panX?: number;
-  panY?: number;
-  backgroundMode?: CanvasBackgroundMode;
-  showImageInfo?: boolean;
-};
-
 const defaultPrompt = "雨夜，狭长街道，潮湿沥青反射红色招牌；人物在画面右侧停留，低机位缓慢推近，电影级冷暖对比。";
 const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用于 AI 生图的提示词。
 
@@ -615,56 +614,9 @@ const CONNECTION_NODE_HIT_PADDING = 28;
 const CONNECTION_HANDLE_HIT_RADIUS = 18;
 const CANVAS_EDGE_HIT_RADIUS = 22;
 
-function cubicCanvasPoint(t: number, p0: number, p1: number, p2: number, p3: number) {
-  const inverse = 1 - t;
-  return inverse ** 3 * p0 + 3 * inverse ** 2 * t * p1 + 3 * inverse * t ** 2 * p2 + t ** 3 * p3;
-}
 
-function distanceToCanvasSegment(point: CanvasPoint, start: CanvasPoint, end: CanvasPoint) {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const lengthSquared = dx * dx + dy * dy;
-  if (!lengthSquared) return Math.hypot(point.x - start.x, point.y - start.y);
-  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
-  return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
-}
 
-function distanceToCanvasEdge(point: CanvasPoint, from: CanvasNodeData, to: CanvasNodeData) {
-  const start = { x: from.x + from.width, y: from.y + from.height / 2 };
-  const end = { x: to.x, y: to.y + to.height / 2 };
-  const curvature = canvasConnectionCurvature(start.x, end.x);
-  const controlA = { x: start.x + curvature, y: start.y };
-  const controlB = { x: end.x - curvature, y: end.y };
-  let previous = start;
-  let best = Number.POSITIVE_INFINITY;
-  for (let i = 1; i <= 32; i += 1) {
-    const t = i / 32;
-    const current = {
-      x: cubicCanvasPoint(t, start.x, controlA.x, controlB.x, end.x),
-      y: cubicCanvasPoint(t, start.y, controlA.y, controlB.y, end.y),
-    };
-    best = Math.min(best, distanceToCanvasSegment(point, previous, current));
-    previous = current;
-  }
-  return best;
-}
 
-function nearestCanvasEdgeIdAtPoint(point: CanvasPoint, edges: CanvasEdgeData[], nodes: CanvasNodeData[], radius: number) {
-  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
-  let bestEdgeId = "";
-  let bestDistance = radius;
-  for (const edge of edges) {
-    const from = nodeMap.get(edge.from);
-    const to = nodeMap.get(edge.to);
-    if (!from || !to || isHiddenCanvasConnectionEndpoint(from, nodes) || isHiddenCanvasConnectionEndpoint(to, nodes)) continue;
-    const distance = distanceToCanvasEdge(point, from, to);
-    if (distance <= bestDistance) {
-      bestDistance = distance;
-      bestEdgeId = edge.id;
-    }
-  }
-  return bestEdgeId;
-}
 
 type CanvasImageToolMode = "crop" | "focus" | "split" | "upscale" | "compress" | "outpaint" | "angle";
 
@@ -719,26 +671,10 @@ const defaultCanvasImageToolDraft: CanvasImageToolDraft = {
 };
 const MIDDLE_PAN_DOUBLE_CLICK_MS = 260;
 
-function scopeFromLocation(location: string): WorkspaceScope {
-  const query = location.includes("?") ? location.slice(location.indexOf("?") + 1) : window.location.search.replace(/^\?/, "");
-  return new URLSearchParams(query).get("scope") === "team" ? "team" : "personal";
-}
 
-function canvasProjectHref(projectId: string, scope: WorkspaceScope) {
-  return `/canvas/${encodeURIComponent(projectId)}?scope=${encodeURIComponent(scope)}`;
-}
 
-function canvasListHref(scope: WorkspaceScope) {
-  return `/canvas?scope=${encodeURIComponent(scope)}`;
-}
 
-function isWorkspaceScope(value: unknown): value is WorkspaceScope {
-  return value === "personal" || value === "team";
-}
 
-function projectScopeFromServer(project: Pick<CanvasProject, "scope"> | null | undefined, fallback: WorkspaceScope) {
-  return isWorkspaceScope(project?.scope) ? project.scope : fallback;
-}
 
 async function getProjectFromCanonicalScope(projectId: string, preferredScope: WorkspaceScope) {
   try {
@@ -4908,6 +4844,7 @@ export default function CanvasWorkspaceView() {
     signal?: AbortSignal,
   ) => hydrateCanvasVideoReferences(inputs, {
     scope: activeScope,
+    createFile: createBrowserFile,
     resolveAssetBlob: async (input) => {
       const objectUrl = await getAssetContentObjectUrl(input.assetId, input.assetScope || activeScope, undefined, signal);
       try {
@@ -6757,7 +6694,10 @@ export default function CanvasWorkspaceView() {
       const zip = await readZip(file);
       const fragmentFile = zip.get("canvas-fragment.json");
       if (!fragmentFile) throw new Error("压缩包缺少 canvas-fragment.json");
-      const fragment = parseCanvasFragmentPackage(JSON.parse(await fragmentFile.text()));
+      const fragment = parseCanvasFragmentPackage(
+        JSON.parse(await fragmentFile.text()),
+        () => crypto.randomUUID(),
+      );
       const manifestFile = zip.get("manifest.json");
       const manifestPayload = manifestFile ? JSON.parse(await manifestFile.text()) as { assets?: CanvasFragmentManifestRow[] } : { assets: [] };
       const manifestById = new Map((manifestPayload.assets || []).map((row) => [row.asset_id, row]));
@@ -6797,6 +6737,7 @@ export default function CanvasWorkspaceView() {
         createId: (kind, index) => `${kind}-${Date.now()}-${index}-${crypto.randomUUID().slice(0, 6)}`,
         createEdgeId: (index) => `edge-${Date.now()}-${index}-${crypto.randomUUID().slice(0, 6)}`,
         createGroupId: (index) => `group-${Date.now()}-${index}-${crypto.randomUUID().slice(0, 6)}`,
+        createDirectorInstanceId: () => `director-${crypto.randomUUID()}`,
       });
       const nextNodes = [...nodesRef.current, ...imported.nodes as CanvasNodeData[]];
       const nextEdges = [...edgesRef.current, ...imported.connections as CanvasEdgeData[]];
@@ -8563,283 +8504,20 @@ export default function CanvasWorkspaceView() {
   );
 }
 
-type CanvasSnapshotState = CanvasHistoryEntry<CanvasNodeData, CanvasEdgeData> & {
-  groups: CanvasGroupData[];
-  backgroundMode: CanvasBackgroundMode;
-  showImageInfo: boolean;
-};
 
-type ImageSizeValue = "auto" | "1:1" | "16:9" | "9:16" | "2:1";
-type ImageQualityValue = "auto" | "low" | "medium" | "high";
 
-function parseSnapshot(value: unknown): CanvasSnapshotData | null {
-  if (!hasRoundTripCanvasGraph(value)) return null;
-  const data = value;
-  const nodes0 = Array.isArray(data.nodes) ? data.nodes.map(normalizeCanvasNode).filter(Boolean) as CanvasNodeData[] : [];
-  let edges = collectRoundTripCanvasEdges(data).map(normalizeCanvasEdge).filter(Boolean) as CanvasEdgeData[];
-  // 旧版批次迁移：旧模型是「纯封面根 + count 个子图」（共 count+1 张卡），新模型根自身生成第 1 张。
-  // 把首个子图的结果提升为根自身的图，移除该子节点，剩余子图按新网格重排。
-  let nodes = nodes0;
-  const migratedRootIds: string[] = [];
-  nodes.forEach((root) => {
-    const childIds = Array.isArray(root.metadata?.batchChildIds)
-      ? root.metadata.batchChildIds.filter((id): id is string => typeof id === "string")
-      : [];
-    if (!root.metadata?.isBatchRoot || !childIds.length) return;
-    if (root.metadata.batchModelV2) return;
-    if (stringValue(root.metadata.ownAssetId) || stringValue(root.metadata.ownImageSrc)) return;
-    const firstChild = nodes.find((item) => item.id === childIds[0]);
-    if (!firstChild) return;
-    const restIds = childIds.slice(1);
-    const promotedAssetId = assetIdFromNode(firstChild);
-    nodes = nodes
-      .filter((item) => item.id !== firstChild.id)
-      .map((item) => {
-        if (item.id === root.id) {
-          return {
-            ...item,
-            metadata: {
-              ...item.metadata,
-              batchModelV2: true,
-              batchChildIds: restIds.length ? restIds : undefined,
-              isBatchRoot: restIds.length > 0,
-              ownAssetId: promotedAssetId || undefined,
-              ownImageSrc: promotedAssetId ? undefined : firstChild.imageSrc || undefined,
-              status: firstChild.metadata?.status,
-            },
-          };
-        }
-        const restIndex = restIds.indexOf(item.id);
-        if (restIndex >= 0) {
-          // 新网格：根占左下格，子图先向上、再向右按两列铺开
-          const pos = batchChildGridPosition(root, restIndex);
-          return { ...item, x: pos.x, y: pos.y };
-        }
-        return item;
-      });
-    edges = edges.filter((edge) => edge.from !== firstChild.id && edge.to !== firstChild.id);
-    migratedRootIds.push(root.id);
-  });
-  migratedRootIds.forEach((rootId) => { nodes = refreshImageBatchRoot(nodes, rootId); });
-  // 清理旧版批次连线：根→子的边已由 metadata.batchChildIds/batchRootId 表达，展开时不再显示这簇连线
-  const batchChildIdsByRoot = new Map<string, Set<string>>();
-  nodes.forEach((node) => {
-    const childIds = node.metadata?.batchChildIds;
-    if (node.metadata?.isBatchRoot && Array.isArray(childIds)) batchChildIdsByRoot.set(node.id, new Set(childIds));
-  });
-  const cleanedEdges = batchChildIdsByRoot.size
-    ? edges.filter((edge) => !batchChildIdsByRoot.get(edge.from)?.has(edge.to))
-    : edges;
 
-  const viewport = isRecord(data.viewport) ? data.viewport : {};
-  const zoomFromViewport = numberValue(viewport.k);
-  const backgroundMode = stringValue(data.backgroundMode);
-  return {
-    nodes,
-    edges: cleanedEdges,
-    groups: normalizeCanvasGroups(data.groups, nodes),
-    zoom: numberValue(data.zoom) || (zoomFromViewport ? Math.round(zoomFromViewport * 100) : 90),
-    panX: numberValue(data.panX) ?? numberValue(viewport.x) ?? 0,
-    panY: numberValue(data.panY) ?? numberValue(viewport.y) ?? 0,
-    backgroundMode: backgroundMode === "dots" || backgroundMode === "blank" ? backgroundMode : "lines",
-    showImageInfo: data.showImageInfo === true,
-  };
-}
 
-function buildCanvasSnapshot(
-  base: CanvasSnapshotBase,
-  nodes: CanvasNodeData[],
-  edges: CanvasEdgeData[],
-  zoom: number,
-  panX: number,
-  panY: number,
-  groups: CanvasGroupData[] = [],
-  backgroundMode: CanvasBackgroundMode = "lines",
-  showImageInfo = false,
-) {
-  const serializedNodes = nodes.map(serializeCanvasNode);
-  const serializedEdges = edges.map(serializeCanvasEdge);
-  return buildRoundTripCanvasSnapshot(base, {
-    nodes: serializedNodes,
-    edges: serializedEdges,
-    groups: structuredClone(groups),
-    zoom,
-    panX,
-    panY,
-    backgroundMode,
-    showImageInfo,
-    defaultSchema: "ai-manhua-studio-canvas",
-    defaultVersion: 3,
-  });
-}
 
-function canvasAgentSnapshotFromCanvas(
-  projectId: string,
-  title: string,
-  nodes: CanvasNodeData[],
-  edges: CanvasEdgeData[],
-  selectedNodeIds: ReadonlySet<string>,
-  viewport: { zoom: number; panX: number; panY: number },
-): CanvasAgentSnapshot {
-  return {
-    projectId,
-    title,
-    nodes: nodes.map((node) => ({
-      ...serializeCanvasNode(node),
-      type: node.kind,
-      kind: node.kind,
-      position: { x: node.x, y: node.y },
-      metadata: { ...node.metadata },
-    })),
-    connections: edges.map((edge) => ({ id: edge.id, fromNodeId: edge.from, toNodeId: edge.to })),
-    selectedNodeIds: Array.from(selectedNodeIds),
-    viewport: { x: viewport.panX, y: viewport.panY, k: viewport.zoom / 100 },
-  };
-}
 
-function canvasViewportFromAgent(viewport: CanvasAgentSnapshot["viewport"]) {
-  return {
-    zoom: Math.max(CANVAS_ZOOM_MIN, Math.min(CANVAS_ZOOM_MAX, viewport.k * 100)),
-    panX: viewport.x,
-    panY: viewport.y,
-  };
-}
 
-function normalizeCanvasNode(value: unknown): CanvasNodeData | null {
-  if (!isRecord(value)) return null;
-  const id = stringValue(value.id);
-  if (!id) return null;
 
-  const kind = normalizeCanvasNodeKind(stringValue(value.kind) || stringValue(value.type) || "text");
-  const position = isRecord(value.position) ? value.position : {};
-  const metadata = (isRecord(value.metadata) ? { ...value.metadata } : {}) as CanvasNodeMetadata;
-  const topContent = stringValue(value.content);
-  const metaContent = stringValue(metadata.content);
-  const metaPrompt = stringValue(metadata.prompt);
-  const imageSrc = stringValue(value.imageSrc) || stringValue(value.src) || (looksLikeImageSource(metaContent) ? metaContent : "");
-  const content = topContent || metaPrompt || (looksLikeImageSource(metaContent) ? "" : metaContent);
-  const assetId = stringValue(value.imageAssetId) || stringValue(value.assetId) || stringValue(metadata.assetId);
 
-  return {
-    id,
-    kind,
-    title: stringValue(value.title) || nodeKindTitle(kind),
-    content,
-    x: numberValue(value.x) ?? numberValue(position.x) ?? 0,
-    y: numberValue(value.y) ?? numberValue(position.y) ?? 0,
-    width: numberValue(value.width) || (kind === "video" ? 420 : kind === "image" ? 320 : 300),
-    height: numberValue(value.height) || (kind === "audio" ? 120 : kind === "image" ? 238 : 170),
-    imageAssetId: assetId || undefined,
-    imageSrc: imageSrc || undefined,
-    metadata: {
-      ...metadata,
-      assetId: assetId || metadata.assetId,
-      content: metadata.content ?? (imageSrc || content),
-      prompt: metadata.prompt ?? content,
-      status: normalizeNodeStatus(metadata.status),
-    },
-  };
-}
 
-function normalizeCanvasEdge(value: unknown): CanvasEdgeData | null {
-  if (!isRecord(value)) return null;
-  const from = stringValue(value.from) || stringValue(value.fromNodeId);
-  const to = stringValue(value.to) || stringValue(value.toNodeId);
-  if (!from || !to || from === to) return null;
-  return { id: stringValue(value.id) || `${from}:${to}`, from, to };
-}
 
-function serializeCanvasNode(node: CanvasNodeData) {
-  const legacyType = legacyTypeForKind(node.kind);
-  const assetId = assetIdFromNode(node);
-  const imageSrc = imageSrcFromNode(node, {});
-  return {
-    id: node.id,
-    kind: node.kind,
-    type: legacyType,
-    title: node.title,
-    content: node.content,
-    x: node.x,
-    y: node.y,
-    position: { x: node.x, y: node.y },
-    width: node.width,
-    height: node.height,
-    imageAssetId: assetId || undefined,
-    imageSrc: imageSrc || undefined,
-    metadata: {
-      ...node.metadata,
-      assetId: assetId || node.metadata?.assetId,
-      content: node.metadata?.content ?? node.content,
-      prompt: node.metadata?.prompt ?? node.content,
-    },
-  };
-}
 
-function serializeCanvasEdge(edge: CanvasEdgeData) {
-  return { id: edge.id, from: edge.from, to: edge.to, fromNodeId: edge.from, toNodeId: edge.to };
-}
 
-function normalizeCanvasNodeKind(value: unknown): CanvasNodeKind {
-  const kind = stringValue(value).toLowerCase();
-  if (kind === "text") return "text";
-  if (kind === "config") return "config";
-  if (kind === "video") return "video";
-  if (kind === "audio") return "audio";
-  if (kind === "director") return "director";
-  if (kind === "image") return "image";
-  if (kind === "prompt" || kind === "note") return "text";
-  return "text";
-}
 
-function legacyTypeForKind(kind: CanvasNodeKind) {
-  if (kind === "prompt" || kind === "note") return "text";
-  return kind;
-}
-
-function nodeKindTitle(kind: CanvasNodeKind) {
-  const labels: Record<CanvasNodeKind, string> = {
-    prompt: "新提示词",
-    text: "剧本提示词",
-    note: "备注",
-    image: "图片占位",
-    config: "生成配置",
-    video: "视频片段",
-    audio: "音频轨道",
-    director: "3D 导演台",
-  };
-  return labels[kind] || "节点";
-}
-
-function nodeKindBadge(kind: CanvasNodeKind) {
-  const labels: Record<CanvasNodeKind, string> = {
-    prompt: "PROMPT",
-    text: "TEXT",
-    note: "NOTE",
-    image: "IMAGE",
-    config: "CONFIG",
-    video: "VIDEO",
-    audio: "AUDIO",
-    director: "DIRECTOR",
-  };
-  return labels[kind] || "NODE";
-}
-
-function editableNodeKind(kind: CanvasNodeKind) {
-  return kind !== "image" && kind !== "director";
-}
-
-function promptTextFromNode(node: CanvasNodeData) {
-  if (node.kind === "text") return canvasTextComposerValue(node);
-  const metadataPrompt = stringValue(node.metadata?.prompt);
-  if (metadataPrompt) return metadataPrompt;
-  if (node.content && !looksLikeImageSource(node.content)) return node.content;
-  const metadataContent = stringValue(node.metadata?.content);
-  return looksLikeImageSource(metadataContent) ? "" : metadataContent;
-}
-
-function nodeEditorTextFromNode(node: CanvasNodeData) {
-  return isGeneratedCanvasText(node) ? canvasTextDisplayValue(node) : promptTextFromNode(node);
-}
 
 /** 风格预设：分类标签 + 色块缩略图网格。 */
 const STYLE_CATEGORIES = [
@@ -8875,48 +8553,10 @@ const STYLE_PRESETS: Array<{ category: StyleCategoryValue; name: string; prompt:
   { category: "extra", name: "写实摄影", prompt: "写实摄影质感，真实光线与颗粒", gradient: "linear-gradient(135deg,#2b2b2b,#a3a3a3)" },
 ];
 
-function nodeInlineEditPlaceholder(kind: CanvasNodeKind) {
-  if (kind === "config") return "双击编辑配置";
-  if (kind === "text") return "双击编辑文本";
-  if (kind === "video") return "双击编辑视频提示";
-  if (kind === "audio") return "双击编辑音频提示";
-  if (kind === "note") return "双击编辑备注";
-  return "双击编辑节点内容";
-}
 
 /** 视频节点的生成方式标签（对应参考的标签组，首位帧替代动作模仿）。 */
-const VIDEO_SUBMODES = [
-  { value: "text", label: "文生视频" },
-  { value: "reference", label: "全能参考" },
-  { value: "edit", label: "视频编辑" },
-  { value: "extend", label: "视频延长" },
-  { value: "first-last", label: "首位帧" },
-  { value: "camera", label: "运镜" },
-] as const;
 
-type VideoSubMode = (typeof VIDEO_SUBMODES)[number]["value"];
 
-function videoSubModeFromNode(node: CanvasNodeData): VideoSubMode {
-  const value = stringValue(node.metadata?.videoSubMode);
-  return VIDEO_SUBMODES.some((sub) => sub.value === value) ? value as VideoSubMode : "text";
-}
-
-function videoSubModePlaceholder(mode: VideoSubMode) {
-  switch (mode) {
-    case "reference":
-      return "输入文字或 @ 参考内容，自由组合图、文、音、视频元素。例如：@图片1 模仿 @视频1 的动作，音色参考 @音频1。";
-    case "edit":
-      return "描述你想要对视频进行的编辑操作，例如：将背景替换为海滩场景。";
-    case "extend":
-      return "描述视频延长的画面走向。例如：延长 @视频1，镜头继续向前推进。";
-    case "first-last":
-      return "上传首帧与尾帧图片后，描述中间的运动过程…";
-    case "camera":
-      return "描述运镜方式，例如：镜头缓慢推近主体，轻微环绕…";
-    default:
-      return "请输入视频描述…";
-  }
-}
 
 /** 读取节点上保存的分镜场景列表。 */
 function storyboardScenesFromNode(node: CanvasNodeData | undefined): StoryboardScene[] {
@@ -8946,37 +8586,11 @@ function nodeKindCenterIcon(kind: CanvasNodeKind) {
   return <ImageIcon {...props} />;
 }
 
-function assetIdFromNode(node: CanvasNodeData) {
-  return node.imageAssetId || stringValue(node.metadata?.assetId);
-}
 
-function imageSrcFromNode(node: CanvasNodeData, previews: Record<string, string>) {
-  const assetId = assetIdFromNode(node);
-  if (assetId && previews[assetId]) return previews[assetId];
-  const candidate = node.imageSrc || stringValue(node.metadata?.content);
-  return looksLikeImageSource(candidate) ? candidate : "";
-}
 
-function modelFromNode(node: CanvasNodeData, fallback: string) {
-  return stringValue(node.metadata?.model) || fallback;
-}
 
-function defaultGenerationModeForKind(kind: CanvasNodeKind): CanvasGenerationMode {
-  if (kind === "text") return "text";
-  if (kind === "video") return "video";
-  if (kind === "audio") return "audio";
-  return "image";
-}
 
-function generationModeFromNode(node: CanvasNodeData): CanvasGenerationMode {
-  const mode = stringValue(node.metadata?.generationMode);
-  if (mode === "text" || mode === "image" || mode === "video" || mode === "audio") return mode;
-  return defaultGenerationModeForKind(node.kind);
-}
 
-function generationModeLabel(mode: CanvasGenerationMode) {
-  return ({ text: "文本", image: "图片", video: "视频", audio: "音频" } as const)[mode];
-}
 
 function canvasImageToolLabel(mode: CanvasImageToolMode) {
   return ({ crop: "裁剪", focus: "聚焦提取", split: "切图", upscale: "放大", compress: "压缩", outpaint: "扩图", angle: "AI 多角度" } as const)[mode];
@@ -9083,249 +8697,26 @@ function readCanvasFileDataUrl(file: File, signal?: AbortSignal) {
   });
 }
 
-function sizeFromNode(node: CanvasNodeData): string {
-  return stringValue(node.metadata?.size).toLowerCase() || "auto";
-}
 
 /** 生成时把扩展比例（5:4/全景图等）回落到后端支持的值。 */
-function toImageSizeValue(size: string): ImageSizeValue {
-  return size === "1:1" || size === "16:9" || size === "9:16" || size === "2:1" || size === "auto" ? size : "auto";
-}
 
-function qualityFromNode(node: CanvasNodeData): ImageQualityValue {
-  const value = stringValue(node.metadata?.quality).toLowerCase();
-  return value === "low" || value === "medium" || value === "high" || value === "auto" ? value : "auto";
-}
 
-function imageCountFromNode(node: CanvasNodeData) {
-  const value = typeof node.metadata?.count === "number" ? node.metadata.count : Number(node.metadata?.count || 1);
-  return Math.max(1, Math.min(15, Number.isFinite(value) ? Math.floor(value) : 1));
-}
 
-function videoConfigFromNode(node: CanvasNodeData, fallbackModel: string): VideoGenerationConfig {
-  return normalizeVideoGenerationConfig({
-    model: modelFromNode(node, fallbackModel),
-    size: stringValue(node.metadata?.size) || "auto",
-    resolution: stringValue(node.metadata?.resolution) || "720p",
-    seconds: stringValue(node.metadata?.seconds) || "5",
-    generateAudio: Boolean(node.metadata?.generateAudio),
-    watermark: Boolean(node.metadata?.watermark),
-  });
-}
 
-function audioConfigFromNode(node: CanvasNodeData, fallbackModel: string) {
-  return normalizeAudioGenerationConfig({
-    model: modelFromNode(node, fallbackModel),
-    voice: stringValue(node.metadata?.audioVoice) || "alloy",
-    format: stringValue(node.metadata?.audioFormat) || "mp3",
-    speed: stringValue(node.metadata?.audioSpeed) || "1",
-    instructions: stringValue(node.metadata?.audioInstructions),
-  });
-}
 
-function videoProviderFromNode(node: CanvasNodeData, model: string): VideoProvider {
-  const provider = stringValue(node.metadata?.videoProvider);
-  if (provider === "openai" || provider === "seedance") return provider;
-  return isSeedanceVideoModel(model) ? "seedance" : "openai";
-}
 
-function canvasVideoReferenceSnapshot(value: unknown): CanvasVideoReferenceSnapshot {
-  if (!isRecord(value) || !Array.isArray(value.items)) return { items: [] };
-  return { items: value.items.filter(isRecord) as CanvasVideoReferenceSnapshot["items"] };
-}
 
-function canvasGenerationInputsFromVideoSnapshot(
-  snapshot: CanvasVideoReferenceSnapshot,
-  nodes: readonly CanvasNodeData[],
-): CanvasGenerationInput[] {
-  return snapshot.items.map((item) => {
-    if (item.type === "text") {
-      return {
-        nodeId: item.nodeId,
-        type: "text" as const,
-        title: item.title,
-        text: item.text,
-      };
-    }
-    const node = nodes.find((candidate) => candidate.id === item.nodeId);
-    const assetId = item.assetId || (node ? assetIdFromNode(node) : undefined);
-    const content = !assetId && node
-      ? node.imageSrc || stringValue(node.metadata?.content) || undefined
-      : undefined;
-    return {
-      nodeId: item.nodeId,
-      type: item.type,
-      title: item.title,
-      assetId,
-      assetScope: item.scope || (node ? workspaceScopeValue(node.metadata?.assetScope) : undefined),
-      content: content && isReadableMediaSource(content) ? content : undefined,
-    };
-  });
-}
 
-function mediaKindFromNode(node: CanvasNodeData): "image" | "video" | "audio" {
-  if (node.kind === "video" || node.kind === "audio") return node.kind;
-  const mimeType = stringValue(node.metadata?.mimeType).toLowerCase();
-  if (mimeType.startsWith("video/")) return "video";
-  if (mimeType.startsWith("audio/")) return "audio";
-  return "image";
-}
 
-function assetKindFromFile(file: File): "image" | "video" | "audio" | null {
-  if (file.type.startsWith("image/")) return "image";
-  if (file.type.startsWith("video/")) return "video";
-  if (file.type.startsWith("audio/")) return "audio";
-  return null;
-}
 
-function mediaKindLabel(kind: "image" | "video" | "audio") {
-  if (kind === "video") return "视频";
-  if (kind === "audio") return "音频";
-  return "图片";
-}
 
-function defaultMediaMimeType(kind: "image" | "video" | "audio") {
-  if (kind === "video") return "video/mp4";
-  if (kind === "audio") return "audio/mpeg";
-  return "image/png";
-}
 
-function mediaFileName(name: string, kind: "image" | "video" | "audio", contentType: string) {
-  if (kind === "image") return imageFileName(name, contentType);
-  if (kind === "video") return videoFileName(name, contentType);
-  const clean = name.trim().replace(/[\\/:*?"<>|]+/g, "-").slice(0, 80) || "canvas-audio";
-  return /\.(mp3|wav|opus|aac|flac)$/i.test(clean) ? clean : `${clean}.${audioFileExtension(contentType)}`;
-}
 
-function videoFileName(name: string, contentType: string) {
-  const clean = name.trim().replace(/[\\/:*?"<>|]+/g, "-").slice(0, 80) || "generated-video";
-  if (/\.(mp4|mov|webm)$/i.test(clean)) return clean;
-  const extension = contentType.includes("quicktime") ? "mov" : contentType.includes("webm") ? "webm" : "mp4";
-  return `${clean}.${extension}`;
-}
 
-function audioFileExtension(mimeType: string) {
-  if (mimeType.includes("wav")) return "wav";
-  if (mimeType.includes("opus")) return "opus";
-  if (mimeType.includes("aac")) return "aac";
-  if (mimeType.includes("flac")) return "flac";
-  if (mimeType.includes("pcm")) return "pcm";
-  return "mp3";
-}
 
-function completeGeneratedAudioTarget(
-  nodes: CanvasNodeData[],
-  targetNodeId: string,
-  asset: Asset,
-  prompt: string,
-  config: ReturnType<typeof normalizeAudioGenerationConfig>,
-  sourceNodeId: string,
-  scope: WorkspaceScope,
-) {
-  return nodes.map((node) => node.id === targetNodeId ? {
-    ...node,
-    kind: "audio" as const,
-    title: asset.name || "生成音频",
-    content: prompt,
-    imageAssetId: undefined,
-    imageSrc: undefined,
-    metadata: {
-      ...node.metadata,
-      assetId: asset.id,
-      assetScope: scope,
-      content: prompt,
-      prompt,
-      generationMode: "audio" as const,
-      model: config.model,
-      audioVoice: config.voice,
-      audioFormat: config.format,
-      audioSpeed: config.speed,
-      audioInstructions: config.instructions,
-      sourceNodeId,
-      status: "success" as const,
-      errorDetails: undefined,
-      jobId: undefined,
-      jobProgress: undefined,
-      mimeType: asset.content_type || audioMimeType(config.format),
-      bytes: asset.size,
-    },
-  } : node);
-}
 
-function failGeneratedAudioTarget(nodes: CanvasNodeData[], targetNodeId: string, message: string) {
-  return nodes.map((node) => node.id === targetNodeId ? {
-    ...node,
-    title: "音频生成失败",
-    metadata: {
-      ...node.metadata,
-      generationMode: "audio" as const,
-      status: "error" as const,
-      errorDetails: message,
-      jobId: undefined,
-      jobProgress: undefined,
-    },
-  } : node);
-}
 
-function completeGeneratedVideoTarget(
-  nodes: CanvasNodeData[],
-  targetNodeId: string,
-  asset: Asset,
-  persistentResult: ReturnType<typeof videoResultPersistentMetadata>,
-  prompt: string,
-  config: VideoGenerationConfig,
-  task: VideoGenerationTask,
-  sourceNodeId: string,
-  referenceInputs: CanvasVideoReferenceSnapshot | undefined,
-  scope: WorkspaceScope,
-) {
-  return nodes.map((node) => node.id === targetNodeId ? {
-    ...node,
-    kind: "video" as const,
-    title: asset.name || "生成视频",
-    content: prompt,
-    imageAssetId: undefined,
-    imageSrc: undefined,
-    metadata: {
-      ...node.metadata,
-      assetId: persistentResult.assetId || asset.id,
-      assetScope: persistentResult.scope || scope,
-      content: prompt,
-      prompt,
-      generationMode: "video" as const,
-      videoProvider: task.provider,
-      model: task.model || config.model,
-      size: config.size,
-      resolution: config.resolution,
-      seconds: config.seconds,
-      generateAudio: config.generateAudio,
-      watermark: config.watermark,
-      sourceNodeId,
-      videoReferenceInputs: referenceInputs,
-      status: "success" as const,
-      errorDetails: undefined,
-      jobId: undefined,
-      jobProgress: undefined,
-      mimeType: persistentResult.mimeType || asset.content_type || "video/mp4",
-      bytes: persistentResult.bytes || asset.size,
-    },
-  } : node);
-}
 
-function failGeneratedVideoTarget(nodes: CanvasNodeData[], targetNodeId: string, message: string) {
-  return nodes.map((node) => node.id === targetNodeId ? {
-    ...node,
-    title: "视频生成失败",
-    metadata: {
-      ...node.metadata,
-      generationMode: "video" as const,
-      status: "error" as const,
-      errorDetails: message,
-      jobId: undefined,
-      jobProgress: undefined,
-    },
-  } : node);
-}
 
 function waitForCanvasPoll(signal: AbortSignal, delayMs = 1_500) {
   return new Promise<void>((resolve, reject) => {
@@ -9345,9 +8736,6 @@ function waitForCanvasPoll(signal: AbortSignal, delayMs = 1_500) {
   });
 }
 
-function isReadableMediaSource(value: string) {
-  return /^(blob:|data:|https?:\/\/)/i.test(value.trim());
-}
 
 function readImageFileMetadata(file: File) {
   return new Promise<{ width: number; height: number }>((resolve, reject) => {
@@ -9410,204 +8798,22 @@ function readTimedMediaMetadata(file: File, kind: "video" | "audio") {
   });
 }
 
-function resolveGeneratedNode(nodes: CanvasNodeData[], childId: string, generated: GeneratedImage | undefined, prompt: string) {
-  return nodes.map((node) => {
-    if (node.id !== childId) return node;
-    return {
-      ...node,
-      title: generated?.name || "生成图片",
-      imageAssetId: generated?.assetId,
-      imageSrc: generated?.assetId ? undefined : generated?.src,
-      metadata: {
-        ...node.metadata,
-        assetId: generated?.assetId,
-        // 批次根节点自身也是生成目标：把"自己的"结果单独留档，避免主图切换后被覆盖丢失
-        ...(node.metadata?.isBatchRoot ? { ownAssetId: generated?.assetId, ownImageSrc: generated?.assetId ? undefined : generated?.src } : {}),
-        content: generated?.assetId ? prompt : generated?.src || prompt,
-        prompt,
-        status: generated ? "success" as const : "error" as const,
-        jobId: undefined,
-        jobProgress: undefined,
-        errorDetails: generated ? undefined : "任务已完成，但没有返回图片",
-        mimeType: generated?.contentType,
-      },
-    };
-  });
-}
 
-function completeGeneratedImageTarget(nodes: CanvasNodeData[], targetNodeId: string, generated: GeneratedImage, prompt: string) {
-  const next = resolveGeneratedNode(nodes, targetNodeId, generated, prompt);
-  const target = next.find((node) => node.id === targetNodeId);
-  // 子节点完成刷所属根；根节点（基底）自身完成也触发聚合
-  const rootId = stringValue(target?.metadata?.batchRootId) || (target?.metadata?.isBatchRoot ? target.id : "");
-  if (!rootId) return next;
-  return refreshImageBatchRoot(next, rootId);
-}
 
-function failGeneratedImageTarget(nodes: CanvasNodeData[], targetNodeId: string, message: string) {
-  let next = nodes.map((node) => node.id === targetNodeId ? {
-    ...node,
-    title: "生成失败",
-    metadata: {
-      ...node.metadata,
-      status: "error" as const,
-      errorDetails: message,
-      jobId: undefined,
-      jobProgress: undefined,
-    },
-  } : node);
-  const target = next.find((node) => node.id === targetNodeId);
-  const rootId = stringValue(target?.metadata?.batchRootId) || (target?.metadata?.isBatchRoot ? target.id : "");
-  if (rootId) next = refreshImageBatchRoot(next, rootId);
-  return next;
-}
 
-function failGeneratedTextTarget(nodes: CanvasNodeData[], targetNodeId: string, message: string) {
-  return nodes.map((node) => node.id === targetNodeId ? {
-    ...node,
-    title: "文本生成失败",
-    metadata: {
-      ...node.metadata,
-      generationMode: "text" as const,
-      status: "error" as const,
-      errorDetails: message,
-      jobId: undefined,
-      jobProgress: undefined,
-    },
-  } : node);
-}
 
 /** 批次展开网格间距（卡片间留白，画布单位） */
-const BATCH_GRID_GAP = 36;
 
 /** 批次子图的网格位：根占左下格，子图先向上、再向右按两列铺开（上 → 右上 → 右 → …） */
-function batchChildGridPosition(root: CanvasNodeData, index: number) {
-  const col = index === 0 ? 0 : 1 + Math.floor((index - 1) / 2);
-  const row = index === 0 ? -1 : ((index - 1) % 2 === 0 ? -1 : 0);
-  return {
-    x: root.x + col * (root.width + BATCH_GRID_GAP),
-    y: root.y + row * (root.height + BATCH_GRID_GAP),
-  };
-}
 
 /** 把批次子图吸附回以基底节点为基点的网格位（展开时调用，防止手动拖动后错位） */
-function snapImageBatchChildrenToGrid(nodes: CanvasNodeData[], rootId: string) {
-  const root = nodes.find((node) => node.id === rootId);
-  const childIds = Array.isArray(root?.metadata?.batchChildIds)
-    ? root.metadata.batchChildIds.filter((id): id is string => typeof id === "string")
-    : [];
-  if (!root || !childIds.length) return nodes;
-  return nodes.map((node) => {
-    const index = childIds.indexOf(node.id);
-    if (index < 0) return node;
-    const pos = batchChildGridPosition(root, index);
-    return node.x === pos.x && node.y === pos.y ? node : { ...node, x: pos.x, y: pos.y };
-  });
-}
 
-function refreshImageBatchRoot(nodes: CanvasNodeData[], rootId: string) {
-  const root = nodes.find((node) => node.id === rootId);
-  const childIds = Array.isArray(root?.metadata?.batchChildIds)
-    ? root.metadata.batchChildIds.filter((id): id is string => typeof id === "string")
-    : [];
-  if (!root || !childIds.length) return nodes;
-  const children = childIds.map((id) => nodes.find((node) => node.id === id)).filter((node): node is CanvasNodeData => Boolean(node));
-  // 基底节点自身也是批次成员（它生成第 1 张），状态聚合与主图选择都要包含根
-  const members = [root, ...children];
-  const loading = members.some((node) => node.metadata?.status === "loading");
-  const succeeded = members.filter((node) => node.metadata?.status === "success");
-  const failed = members.filter((node) => node.metadata?.status === "error");
-  // 根自身的生成结果存在 ownAssetId/ownImageSrc（imageAssetId/assetId 字段用于展示主图，会被覆盖）
-  const rootOwnAssetId = stringValue(root.metadata?.ownAssetId);
-  const rootOwnImageSrc = stringValue(root.metadata?.ownImageSrc);
-  const rootOwnReady = root.metadata?.status === "success" && Boolean(rootOwnAssetId || rootOwnImageSrc);
-  // 主图优先级：用户显式指定 > 根自身结果 > 第一个成功成员（兼容旧批次：根无自身结果时落到子图）
-  const explicitPrimaryId = stringValue(root.metadata?.primaryImageId);
-  const primary = members.find((node) => node.id === explicitPrimaryId)
-    || (rootOwnReady ? root : undefined)
-    || succeeded[0];
-  const primaryIsRoot = primary?.id === rootId;
-  const primaryAssetId = primary ? (primaryIsRoot ? rootOwnAssetId : assetIdFromNode(primary) || "") : "";
-  const primaryImageSrc = primary ? (primaryIsRoot ? rootOwnImageSrc : primary.imageSrc || "") : "";
-  const total = members.length;
-  const status: CanvasNodeStatus = loading ? "loading" : succeeded.length ? "success" : "error";
-  const errorDetails = loading || !failed.length
-    ? undefined
-    : succeeded.length
-      ? `${failed.length} 个结果失败，可单独重试。`
-      : "全部图片生成失败，可重试。";
-  return nodes.map((node) => node.id === rootId ? {
-    ...node,
-    title: loading ? "批量生成中…" : succeeded.length ? `批量图片 ${succeeded.length}/${total}` : "批量生成失败",
-    imageAssetId: primaryIsRoot ? rootOwnAssetId || undefined : primaryAssetId || node.imageAssetId,
-    imageSrc: primaryIsRoot
-      ? (rootOwnAssetId ? undefined : rootOwnImageSrc || undefined)
-      : primaryAssetId ? undefined : primaryImageSrc || node.imageSrc,
-    metadata: {
-      ...node.metadata,
-      assetId: primaryAssetId || node.metadata?.assetId,
-      primaryImageId: primary && !primaryIsRoot ? primary.id : undefined,
-      status,
-      errorDetails,
-      jobId: undefined,
-      jobProgress: undefined,
-    },
-  } : node);
-}
 
-function resetInterruptedCanvasGenerations(nodes: CanvasNodeData[]) {
-  const loadingJobIds = new Set(nodes
-    .filter((node) => node.metadata?.status === "loading" && stringValue(node.metadata?.jobId))
-    .map((node) => node.id));
-  return nodes.map((node) => {
-    if (node.metadata?.status !== "loading" || stringValue(node.metadata?.jobId)) return node;
-    const batchChildren = Array.isArray(node.metadata?.batchChildIds)
-      ? node.metadata.batchChildIds.filter((id): id is string => typeof id === "string")
-      : [];
-    if (node.metadata?.isBatchRoot && batchChildren.some((id) => loadingJobIds.has(id))) return node;
-    return {
-      ...node,
-      title: node.metadata?.isBatchRoot ? "批量生成已中断" : "生成已中断",
-      metadata: { ...node.metadata, status: "error" as const, errorDetails: "页面刷新后生成已中断，请重新生成。" },
-    };
-  });
-}
 
-function imageReferenceSnapshots(value: unknown): CanvasImageReferenceSnapshot[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (!isRecord(item)) return [];
-    const assetId = stringValue(item.assetId);
-    if (!assetId) return [];
-    return [{
-      nodeId: stringValue(item.nodeId),
-      title: stringValue(item.title) || "参考图",
-      assetId,
-      name: stringValue(item.name) || "reference.png",
-      contentType: stringValue(item.contentType) || "image/png",
-    }];
-  });
-}
 
-function imageFileName(title: string, contentType: string) {
-  const clean = title.trim().replace(/[\\/:*?"<>|]+/g, "-").slice(0, 80) || "image";
-  if (/\.(png|jpe?g|webp|gif)$/i.test(clean)) return clean;
-  const extension = contentType.includes("jpeg") ? "jpg" : contentType.includes("webp") ? "webp" : contentType.includes("gif") ? "gif" : "png";
-  return `${clean}.${extension}`;
-}
 
-function isAbortError(error: unknown) {
-  return error instanceof DOMException && error.name === "AbortError"
-    || error instanceof Error && (error.name === "AbortError" || error.message === "请求超时或已取消");
-}
 
-function cloneCanvasNodes(nodes: CanvasNodeData[]) {
-  return nodes.map((node) => ({ ...node, metadata: node.metadata ? { ...node.metadata } : undefined }));
-}
 
-function cloneCanvasEdges(edges: CanvasEdgeData[]) {
-  return edges.map((edge) => ({ ...edge }));
-}
 
 function sortPromptPresets(presets: PromptPreset[]) {
   const rank: Record<PromptPreset["priority"], number> = { pinned: 0, high: 1, normal: 2, low: 3 };
@@ -9630,21 +8836,10 @@ async function waitForAssetExportReady(exportId: string, scope: WorkspaceScope) 
   throw new Error("导出任务等待超时，请稍后到资产库导出面板下载");
 }
 
-function normalizeNodeStatus(value: unknown): CanvasNodeStatus {
-  return value === "loading" || value === "success" || value === "error" ? value : "idle";
-}
 
-function looksLikeImageSource(value: string) {
-  return value.startsWith("data:image/") || value.startsWith("blob:") || /^https?:\/\//i.test(value) || value.startsWith("/");
-}
 
-function stringValue(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
-}
 
-function workspaceScopeValue(value: unknown): WorkspaceScope | undefined {
-  return value === "personal" || value === "team" ? value : undefined;
-}
+
 
 function CanvasImageToolGrid({ node, imageToolBusy, storyboardBusy, openImageToolDialog, setImageAnnotationNodeId, setImageMaskNodeId, setImageToolError, flipCanvasImageNode, generatePanoramaCanvasImage, generateStoryboard, createImageReversePromptNodes, setImagePreviewNodeId, setReplaceImageNodeId, replaceImageInputRef, archiveCanvasMediaNode }: {
   node: CanvasNodeData;
@@ -9738,18 +8933,11 @@ function sizeToRatioLabel(size: string) {
   return `${w / d}:${h / d}`;
 }
 
-function numberValue(value: unknown) {
-  const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-  return Number.isFinite(number) ? number : undefined;
-}
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
 
 function wait(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms));

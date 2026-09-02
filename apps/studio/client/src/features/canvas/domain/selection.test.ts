@@ -8,7 +8,7 @@ import {
   normalizeCanvasSelectionRect,
   shouldSuppressCanvasNodeClickAfterPointerSelection,
   toggleCanvasNodeSelection,
-} from "./canvas-selection";
+} from "./selection";
 
 const nodes = [
   { id: "a", x: 10, y: 10, width: 40, height: 30 },

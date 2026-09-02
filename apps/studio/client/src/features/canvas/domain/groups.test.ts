@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createCanvasGroup, normalizeCanvasGroups, removeNodesFromCanvasGroups, resizeCanvasGroup } from "./canvas-groups";
+import { createCanvasGroup, normalizeCanvasGroups, removeNodesFromCanvasGroups, resizeCanvasGroup } from "./groups";
 
 const nodes = [
   { id: "a", x: 100, y: 80, width: 200, height: 120 },

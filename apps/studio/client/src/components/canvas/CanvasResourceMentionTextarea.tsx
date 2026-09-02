@@ -28,7 +28,7 @@ import {
   splitCanvasMentionEditorDisplay,
   type CanvasMentionEditorSegment,
   type CanvasMentionReference,
-} from "@/lib/canvas-mentions";
+} from "@/features/canvas/domain/mentions";
 
 type Props = Omit<ComponentProps<"textarea">, "onChange" | "value"> & {
   value: string;

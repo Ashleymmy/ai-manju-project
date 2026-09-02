@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createCanvasClipboard, pasteCanvasClipboard } from "./canvas-clipboard";
+import { createCanvasClipboard, pasteCanvasClipboard } from "./clipboard";
 
 const nodes = [
   { id: "a", title: "A", x: 0, y: 0, width: 100, height: 80, metadata: { nested: { value: 1 }, sourceNodeId: "b", batchChildIds: ["b", "c"] } },

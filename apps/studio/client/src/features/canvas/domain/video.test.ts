@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { CanvasGenerationInput } from "./canvas-connections";
+import type { CanvasGenerationInput } from "./connections";
 import {
   canvasSeedanceVideoReferences,
   hydrateCanvasVideoReferences,
   mergeCanvasVideoReferences,
   videoResultPersistentMetadata,
   type CanvasVideoReferenceHydrators,
-} from "./canvas-video";
+} from "./video";
 
 function blob(content: string, type: string) {
   return new Blob([content], { type });
@@ -26,6 +26,7 @@ function hydrators(
   };
   return {
     scope: "team",
+    createFile: (source, name, mime) => new File([source], name, { type: mime }),
     resolveAssetBlob: vi.fn(async input => assetBlobs[input.assetId]),
     resolveNodeBlob: vi.fn(async input => nodeBlobs[input.nodeId]),
     readImageMetadata: vi.fn(async () => ({ width: 1280, height: 720 })),

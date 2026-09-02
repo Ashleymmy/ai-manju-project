@@ -18,7 +18,7 @@ import {
   normalizeCanvasConnection,
   promptFromCanvasTopology,
   visibleCanvasConnectionNodes,
-} from "./canvas-connections";
+} from "./connections";
 
 const nodes = [
   { id: "prompt", kind: "prompt" },

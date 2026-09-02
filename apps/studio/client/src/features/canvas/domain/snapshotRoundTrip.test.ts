@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildRoundTripCanvasSnapshot,
+  collectRoundTripCanvasEdgeEntries,
   collectRoundTripCanvasEdges,
   extractProjectCanvasData,
   extractServerCanvasSnapshotData,
   hasRoundTripCanvasGraph,
   normalizeRoundTripCanvasEdge,
-} from "./canvas-snapshot-roundtrip";
+} from "./snapshotRoundTrip";
 
 describe("canvas snapshot round trip", () => {
   it("preserves production extensions while replacing managed fields", () => {
@@ -126,5 +127,38 @@ describe("canvas snapshot round trip", () => {
       { id: "edge-1", from: "text-1", to: "config-1" },
       { id: "edge-2", from: "config-1", to: "image-1" },
     ]);
+  });
+
+  it("merges duplicate edge representations without dropping extension fields", () => {
+    const [entry] = collectRoundTripCanvasEdgeEntries({
+      connections: [{
+        id: "connection-primary",
+        fromNodeId: "text-1",
+        toNodeId: "config-1",
+        metadata: { connectionOnly: true, shared: "connection" },
+      }],
+      edges: [{
+        id: "edge-secondary",
+        from: "text-1",
+        to: "config-1",
+        edgeStyle: "dashed",
+        metadata: { edgeOnly: true, shared: "edge" },
+      }],
+    });
+
+    expect(entry.edge).toEqual({
+      id: "connection-primary",
+      from: "text-1",
+      to: "config-1",
+    });
+    expect(entry.base).toMatchObject({
+      id: "connection-primary",
+      edgeStyle: "dashed",
+      metadata: {
+        connectionOnly: true,
+        edgeOnly: true,
+        shared: "connection",
+      },
+    });
   });
 });

@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { canvasMaskBrushSize, canvasMaskPoint, type CanvasMaskPoint } from "@/lib/canvas-mask";
+import { canvasMaskBrushSize, canvasMaskPoint, type CanvasMaskPoint } from "@/features/canvas/domain/mask";
 
 export type CanvasImageMaskPayload = {
   maskDataUrl: string;

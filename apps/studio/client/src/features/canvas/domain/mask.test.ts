@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { canvasMaskBrushSize, canvasMaskPoint } from "./canvas-mask";
+import { canvasMaskBrushSize, canvasMaskPoint } from "./mask";
 
 describe("canvas mask", () => {
   it("maps rendered pointer coordinates into image pixels", () => {
