@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const directorRoot = path.dirname(fileURLToPath(import.meta.url));
+const sourceRoot = path.resolve(directorRoot, "../..");
 
 function productionSources(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
@@ -26,10 +27,31 @@ describe("Director feature boundary", () => {
     expect(routeSource).not.toContain("@/pages/");
   });
 
-  it("keeps the public entry route-only", () => {
+  it("keeps the public entry explicit and limited to the route and snapshot adapter", () => {
+    const publicEntry = readFileSync(
+      path.join(directorRoot, "index.ts"),
+      "utf8"
+    );
+    expect(publicEntry).toContain('export { default } from "./DirectorPage";');
+    expect(publicEntry).toContain('from "./model/canvasSnapshot";');
+    expect(publicEntry).not.toContain("export *");
+  });
+
+  it("keeps legacy Director paths as thin feature forwarders", () => {
     expect(
-      readFileSync(path.join(directorRoot, "index.ts"), "utf8").trim()
-    ).toBe('export { default } from "./DirectorPage";');
+      readFileSync(
+        path.join(sourceRoot, "pages/DirectorDeskView.tsx"),
+        "utf8"
+      ).trim()
+    ).toBe('export { default } from "@/features/director";');
+
+    const canvasForwarder = readFileSync(
+      path.join(sourceRoot, "lib/director-canvas.ts"),
+      "utf8"
+    );
+    expect(canvasForwarder).toContain('from "@/features/director";');
+    expect(canvasForwarder).not.toContain("function ");
+    expect(canvasForwarder).not.toContain("@/services/api");
   });
 
   it("does not depend on the global API barrel or Canvas implementation", () => {

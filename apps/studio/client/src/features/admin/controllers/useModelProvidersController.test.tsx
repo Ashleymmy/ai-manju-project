@@ -34,7 +34,7 @@ describe("model provider controller secrets", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    serviceMocks.listModelProviders.mockReset().mockResolvedValue([
+    serviceMocks.listModelProviders.mockReset().mockImplementation(async () => [
       {
         id: "provider-1",
         name: "Provider One",
@@ -93,6 +93,27 @@ describe("model provider controller secrets", () => {
 
     await render(false);
 
+    expect(latest.apiKey).toBe("");
+    expect(latest.providerSecrets).toEqual({});
+    expect(latest.providerTestResult).toBeNull();
+  });
+
+  it("clears sensitive inputs when a deep-equal provider list is reloaded", async () => {
+    await render(true);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    await act(async () => {
+      latest.setApiKey("temporary-api-key");
+      latest.setProviderSecrets({ asset_key: "temporary-asset-key" });
+    });
+
+    await act(async () => {
+      await latest.reload();
+    });
+
+    expect(serviceMocks.listModelProviders).toHaveBeenCalledTimes(2);
     expect(latest.apiKey).toBe("");
     expect(latest.providerSecrets).toEqual({});
     expect(latest.providerTestResult).toBeNull();

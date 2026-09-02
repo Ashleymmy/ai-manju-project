@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -77,6 +77,7 @@ export function useSeedanceAssetsController() {
   const [appliedFilters, setAppliedFilters] = useState<SeedanceAssetFilters>({});
   const [page, setPage] = useState(1);
   const [listLoading, setListLoading] = useState(false);
+  const initialAssetsLoadStarted = useRef(false);
   const params = useMemo(
     () => buildSeedanceAssetListParams(appliedFilters),
     [appliedFilters]
@@ -84,6 +85,7 @@ export function useSeedanceAssetsController() {
   const assetsQuery = useQuery({
     queryKey: assetQueryKeys.seedanceAdmin(params),
     queryFn: () => listAdminSeedanceAssets(params),
+    enabled: false,
     placeholderData: previous => previous,
   });
   const readinessQuery = useQuery({
@@ -162,8 +164,10 @@ export function useSeedanceAssetsController() {
       const nextParams = buildSeedanceAssetListParams(filters);
       setListLoading(true);
       try {
-        const result = await listAdminSeedanceAssets(nextParams);
-        setAssetsForParams(nextParams, result);
+        await queryClient.fetchQuery({
+          queryKey: assetQueryKeys.seedanceAdmin(nextParams),
+          queryFn: () => listAdminSeedanceAssets(nextParams),
+        });
         setAppliedFilters(filters);
         setPage(1);
       } catch (error) {
@@ -172,21 +176,36 @@ export function useSeedanceAssetsController() {
         setListLoading(false);
       }
     },
-    [search, setAssetsForParams, status, tagId, type]
+    [queryClient, search, status, tagId, type]
   );
 
+  useEffect(() => {
+    if (initialAssetsLoadStarted.current) return;
+    initialAssetsLoadStarted.current = true;
+    void loadAssets({});
+  }, [loadAssets]);
+
   const refreshSeedance = useCallback(async () => {
-    const [nextReadiness, nextAssets, nextTags] = await Promise.all([
+    const [nextReadiness, nextAssets, nextTags] = await Promise.allSettled([
       getSeedanceAssetReadiness(),
       listAdminSeedanceAssets(params),
       listSeedanceAssetTags(),
     ]);
-    queryClient.setQueryData(
-      assetQueryKeys.seedanceReadiness(),
-      nextReadiness
-    );
-    setAssetsForParams(params, nextAssets);
-    queryClient.setQueryData(assetQueryKeys.seedanceTags(), nextTags);
+    if (nextReadiness.status === "fulfilled") {
+      queryClient.setQueryData(
+        assetQueryKeys.seedanceReadiness(),
+        nextReadiness.value
+      );
+    }
+    if (nextAssets.status === "fulfilled") {
+      setAssetsForParams(params, nextAssets.value);
+    }
+    if (nextTags.status === "fulfilled") {
+      queryClient.setQueryData(
+        assetQueryKeys.seedanceTags(),
+        nextTags.value
+      );
+    }
     setPage(1);
   }, [params, queryClient, setAssetsForParams]);
 

@@ -269,8 +269,9 @@ export function useModelProvidersController(active: boolean) {
   };
 
   const reload = useCallback(async () => {
+    clearSensitiveInputs();
     await Promise.allSettled([providersQuery.refetch(), presetsQuery.refetch()]);
-  }, [presetsQuery, providersQuery]);
+  }, [clearSensitiveInputs, presetsQuery, providersQuery]);
 
   return {
     activeProvider,
