@@ -16,8 +16,9 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { legacyStudioRoutePaths, legacyStudioRouteTarget, tagDeepLinkTarget } from "./lib/studio-route-aliases";
 
-// 注："/" 已作为首次进入的聊天界面（ChatView），不再归属 Home 工作台路由组
+// 注："/" 已作为首次进入的聊天界面（ChatView）；原工作台首页（今日片场 Dashboard）移至 "/dashboard"
 const studioRoutes = [
+  "/dashboard",
   "/projects",
   "/canvas",
   "/director",

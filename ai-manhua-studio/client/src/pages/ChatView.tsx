@@ -264,7 +264,7 @@ export default function ChatView() {
           {/* Center: Navigation Tabs */}
           <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2">
             <button
-              onClick={() => navigate("/projects")}
+              onClick={() => navigate("/dashboard")}
               className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all hover:opacity-80"
               style={{
                 background: "var(--secondary)",

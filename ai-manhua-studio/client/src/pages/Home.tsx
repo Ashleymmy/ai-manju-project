@@ -73,7 +73,7 @@ type Icon = typeof Grid2X2;
 type NavItem = { label: string; href: string; icon: Icon; shortcut?: string };
 
 const creationNav: NavItem[] = [
-  { label: "工作台", href: "/", icon: Grid2X2, shortcut: "G D" },
+  { label: "工作台", href: "/dashboard", icon: Grid2X2, shortcut: "G D" },
   { label: "全部项目", href: "/projects", icon: FolderKanban, shortcut: "G P" },
   { label: "画布工坊", href: "/canvas", icon: Compass, shortcut: "G C" },
   { label: "3D 导演台", href: "/director", icon: Box },
@@ -134,7 +134,9 @@ async function createAndOpenProject(navigate: (path: string) => void) {
 }
 
 const pageTitles: Record<string, { code: string; title: string; subtitle: string }> = {
+  // "/" 现在是聊天入口页；工作台首页（今日片场）挂在 "/dashboard"。保留 "/" 键作为 PageIntro 兜底。
   "/": { code: "DESK / 01", title: "今日片场", subtitle: "在同一张工作桌上收拢灵感、镜头和等待落地的任务。" },
+  "/dashboard": { code: "DESK / 01", title: "今日片场", subtitle: "在同一张工作桌上收拢灵感、镜头和等待落地的任务。" },
   "/projects": { code: "ARCHIVE / 12", title: "全部项目", subtitle: "画布、角色与分镜在这里留下持续可回看的版本。" },
   "/canvas": { code: "CANVAS / WS", title: "无限画布", subtitle: "节点、连线和生成结果都会保存到服务端快照。" },
   "/director": { code: "DIRECTOR / BETA", title: "3D 导演台", subtitle: "用可控机位先排布构图，再将镜头交还给生成流程。" },
@@ -472,7 +474,7 @@ function Dashboard() {
 
   return (
     <div className="page-content dashboard-page">
-      <PageIntro path="/" action={<button className="outline-button" onClick={() => navigate("/projects")}>打开项目归档 <ArrowUpRight size={16} /></button>} />
+      <PageIntro path="/dashboard" action={<button className="outline-button" onClick={() => navigate("/projects")}>打开项目归档 <ArrowUpRight size={16} /></button>} />
       <StatStrip data={data} />
       <div className="desk-layout">
         <section className="spotlight-card">
@@ -863,7 +865,7 @@ export default function Home() {
   const isCanvasRoute = locationPath === "/canvas" || locationPath.startsWith("/canvas/");
   const path = normalizeShellPath(locationPath);
   const renderPage = () => {
-    if (path === "/") return <Dashboard />;
+    if (path === "/" || path === "/dashboard") return <Dashboard />;
     if (path === "/projects") return <Projects />;
     if (path === "/canvas") return <CanvasWorkspaceView />;
     if (path === "/director") return <DirectorDeskView />;

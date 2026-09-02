@@ -7034,7 +7034,7 @@ export default function CanvasWorkspaceView() {
         <input ref={projectArchiveInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectArchiveBusy || projectBatchBusy} onChange={(event) => void importCanvasProjectArchive(event.target.files?.[0])} />
         <div className="page-content canvas-workspace-full">
           <div className="canvas-workspace-header">
-            <button className="outline-button small" onClick={() => navigate("/")} disabled={switching}>
+            <button className="outline-button small" onClick={() => navigate("/dashboard")} disabled={switching}>
               <ChevronLeft size={16} /> 返回
             </button>
             <div className="scope-switch canvas-scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => void switchCanvasScope(item.value)} disabled={switching}>{item.label}</button>)}</div>
@@ -7356,7 +7356,7 @@ export default function CanvasWorkspaceView() {
           </div>
         </div>
         <div className="canvas-head-actions">
-          <button className="outline-button small canvas-home-button" onClick={() => navigate("/")} title="返回首页" aria-label="返回首页"><Home size={15} /> 首页</button>
+          <button className="outline-button small canvas-home-button" onClick={() => navigate("/dashboard")} title="返回首页" aria-label="返回首页"><Home size={15} /> 首页</button>
           <div className="scope-switch mini-scope">{scopeOptions.map((item) => <button key={item.value} className={currentProjectDisplayScope === item.value ? "active" : ""} onClick={() => void switchCanvasScope(item.value)} disabled={projectActionDisabled}>{item.label}</button>)}</div>
           <button className="outline-button small canvas-icon-button" title="撤销" aria-label="撤销" onClick={() => void undoCanvas()} disabled={!canUndo || projectActionDisabled}><Undo2 size={15} /></button>
           <button className="outline-button small canvas-icon-button" title="重做" aria-label="重做" onClick={() => void redoCanvas()} disabled={!canRedo || projectActionDisabled}><Redo2 size={15} /></button>
