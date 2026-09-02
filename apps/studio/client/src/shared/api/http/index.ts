@@ -7,5 +7,5 @@ export {
   getCollection,
   request,
   setAuthToken,
-} from "@/shared/api/http";
-export type { ApiEnvelope, ApiRequestOptions } from "@/shared/api/http";
+} from "./request";
+export type { ApiEnvelope, ApiRequestOptions } from "./request";
