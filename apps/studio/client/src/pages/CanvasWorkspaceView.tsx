@@ -1,74 +1,26 @@
 import {
   Archive,
-  ArrowRight,
-  ArrowUp,
-  BookOpen,
-  Boxes,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ClipboardPaste,
-  CloudUpload,
   Copy,
-  Camera,
-  Crop,
   Download,
   Eraser,
-  Eye,
-  Expand,
-  Film,
-  FlipHorizontal,
-  FlipVertical,
-  FolderOpen,
   Palette,
-  Zap,
-  BadgeCheck,
-  BookMarked,
-  Bot,
-  Grid2X2,
-  Grid3x3,
-  GalleryHorizontalEnd,
-  GitMerge,
   Home,
-  Image as ImageIcon,
-  Images,
-  Link2,
   Loader2,
-  Lock,
-  LockOpen,
-  Map as MapIcon,
-  Maximize2,
-  Minimize2,
-  Music2,
-  MousePointer2,
   MoreHorizontal,
-  PenLine,
   PanelRight,
-  Pin,
   Plus,
   Redo2,
   Save,
-  Scissors,
-  SlidersHorizontal,
-  Square,
-  Sparkles,
-  RotateCcw,
   Search,
-  Star,
-  Minus,
   Trash2,
-  Type,
   Undo2,
-  Ungroup,
   Upload,
-  UserRound,
-  UserRoundCog,
-  WandSparkles,
-  X,
-  ZoomIn,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type MouseEvent as ReactMouseEvent, type MutableRefObject, type PointerEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
@@ -162,15 +114,21 @@ import {
   type VideoProvider,
   type WorkspaceScope,
 } from "@/services/api";
-import AgentPanel from "@/components/AgentPanel";
-import MetaBallOrb from "@/components/MetaBallOrb";
-import PromptLibraryDialog from "@/components/PromptLibraryDialog";
-import { CanvasImageAnnotationDialog, type CanvasImageAnnotationPayload } from "@/components/canvas/CanvasImageAnnotationDialog";
-import { CanvasImageMaskDialog, type CanvasImageMaskPayload } from "@/components/canvas/CanvasImageMaskDialog";
-import { CanvasSeedanceAssetDialog, type SelectedSeedanceVolcanoAsset } from "@/components/canvas/CanvasSeedanceAssetDialog";
-import { CanvasSeedanceMaterialDialog } from "@/components/canvas/CanvasSeedanceMaterialDialog";
-import { CanvasResourceMentionTextarea } from "@/components/canvas/CanvasResourceMentionTextarea";
-import PixelLoadingOverlay from "@/components/canvas/PixelLoadingOverlay";
+import type { CanvasImageAnnotationPayload } from "@/components/canvas/CanvasImageAnnotationDialog";
+import type { CanvasImageMaskPayload } from "@/components/canvas/CanvasImageMaskDialog";
+import type { SelectedSeedanceVolcanoAsset } from "@/components/canvas/CanvasSeedanceAssetDialog";
+import {
+  type CanvasImageToolMode,
+  type CanvasNodeCardActions,
+} from "@/features/canvas/ui/CanvasNodeCard";
+import { CanvasInspector } from "@/features/canvas/ui/CanvasInspector";
+import {
+  defaultCanvasImageToolDraft,
+  type CanvasImageToolDraft,
+} from "@/features/canvas/ui/CanvasDialogs";
+import { CanvasWorkspaceDialogHost } from "@/features/canvas/ui/CanvasWorkspaceDialogHost";
+import { CanvasStage } from "@/features/canvas/ui/CanvasStage";
+import { CanvasDialogHost } from "@/features/canvas/ui/CanvasDialogHost";
 import {
   extractProjectCanvasData,
   extractServerCanvasSnapshotData,
@@ -191,9 +149,7 @@ import {
 import { DEFAULT_CANVAS_SHORTCUTS, eventMatchesShortcut, resolveCanvasShortcuts, type CanvasShortcutBindings } from "@/features/canvas/domain/hotkeys";
 import { isCanvasHotkeyEditingTarget } from "@/features/canvas/adapters/hotkeyTarget";
 import { loadSkills, type CanvasSkill } from "@/lib/skill-library";
-import SkillLibraryDialog from "@/components/SkillLibraryDialog";
-import PromptPresetManagerDialog from "@/components/PromptPresetManagerDialog";
-import StoryboardEditorDialog, { type StoryboardScene } from "@/components/StoryboardEditorDialog";
+import type { StoryboardScene } from "@/components/StoryboardEditorDialog";
 import {
   createCanvasClipboard,
   pasteCanvasClipboard,
@@ -205,7 +161,6 @@ import {
   buildCanvasGenerationInputs,
   buildCanvasConnectionLayerBounds,
   canvasClientPointToWorld,
-  canvasConnectionCurvature,
   connectableCanvasNodesToConfig,
   connectCanvasNodesToConfig,
   createConnectedCanvasGraph,
@@ -213,10 +168,7 @@ import {
   findCanvasConnectionDropTarget,
   isActiveCanvasConnectionPointer,
   isHiddenCanvasBatchChild,
-  isHiddenCanvasConnectionEndpoint,
   normalizeCanvasConnection,
-  type CanvasGenerationInput,
-  visibleCanvasConnectionNodes,
 } from "@/features/canvas/domain/connections";
 import {
   CANVAS_ZOOM_MAX,
@@ -273,10 +225,8 @@ import {
   resizeImageCropRect,
   splitDataUrl,
   upscaleDataUrl,
-  type ImageCompressionFormat,
   type ImageCropRect,
   type ImageCropResizeHandle,
-  type ImageUpscaleAlgorithm,
   type StoryboardLayout,
 } from "@/lib/canvas-image-data";
 import {
@@ -350,7 +300,6 @@ import { scopeFromCanvasLocation as scopeFromLocation } from "@/features/canvas/
 import type {
   CanvasBackgroundMode,
   CanvasEdgeData,
-  CanvasGenerationMode,
   CanvasImageReferenceSnapshot,
   CanvasNodeData,
   CanvasNodeKind,
@@ -360,7 +309,6 @@ import type {
   ImageSizeValue,
 } from "@/features/canvas/domain/types";
 import {
-  VIDEO_SUBMODES,
   assetKindFromFile,
   audioFileExtension,
   canvasGenerationInputsFromVideoSnapshot,
@@ -369,9 +317,7 @@ import {
   cloneCanvasNodes,
   defaultGenerationModeForKind,
   defaultMediaMimeType,
-  editableNodeKind,
   generationModeFromNode,
-  generationModeLabel,
   imageCountFromNode,
   imageFileName,
   imageReferenceSnapshots,
@@ -382,8 +328,6 @@ import {
   mediaKindLabel,
   modelFromNode,
   nodeEditorTextFromNode,
-  nodeInlineEditPlaceholder,
-  nodeKindBadge,
   promptTextFromNode,
   qualityFromNode,
   sizeFromNode,
@@ -391,11 +335,8 @@ import {
   videoConfigFromNode,
   videoFileName,
   videoProviderFromNode,
-  videoSubModeFromNode,
-  videoSubModePlaceholder,
   audioConfigFromNode,
 } from "@/features/canvas/domain/nodeUtils";
-import type { VideoSubMode } from "@/features/canvas/domain/nodeUtils";
 import {
   cubicCanvasPoint,
   distanceToCanvasEdge,
@@ -618,57 +559,7 @@ const CANVAS_EDGE_HIT_RADIUS = 22;
 
 
 
-type CanvasImageToolMode = "crop" | "focus" | "split" | "upscale" | "compress" | "outpaint" | "angle";
 
-const imageCropResizeHandles: ImageCropResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
-
-type CanvasImageToolDraft = {
-  cropX: number;
-  cropY: number;
-  cropWidth: number;
-  cropHeight: number;
-  splitRows: number;
-  splitColumns: number;
-  upscaleLongEdge: number;
-  upscaleAlgorithm: ImageUpscaleAlgorithm;
-  compressionFormat: ImageCompressionFormat;
-  compressionQuality: number;
-  compressionMaxDimension: number;
-  compressionTargetKb: number;
-  outpaintTop: number;
-  outpaintRight: number;
-  outpaintBottom: number;
-  outpaintLeft: number;
-  outpaintPrompt: string;
-  angleHorizontal: number;
-  anglePitch: number;
-  angleDistance: number;
-  angleLens: "wide" | "standard" | "telephoto";
-};
-
-const defaultCanvasImageToolDraft: CanvasImageToolDraft = {
-  cropX: 12,
-  cropY: 12,
-  cropWidth: 76,
-  cropHeight: 76,
-  splitRows: 2,
-  splitColumns: 2,
-  upscaleLongEdge: 2048,
-  upscaleAlgorithm: "high",
-  compressionFormat: "image/jpeg",
-  compressionQuality: 82,
-  compressionMaxDimension: 2048,
-  compressionTargetKb: 0,
-  outpaintTop: 22,
-  outpaintRight: 22,
-  outpaintBottom: 22,
-  outpaintLeft: 22,
-  outpaintPrompt: "延展画面边缘，保持主体、光线、材质和画风一致",
-  angleHorizontal: 0,
-  anglePitch: 8,
-  angleDistance: 4.8,
-  angleLens: "standard",
-};
 const MIDDLE_PAN_DOUBLE_CLICK_MS = 260;
 
 
@@ -7371,1135 +7262,367 @@ export default function CanvasWorkspaceView() {
       </div>
 
       <div className={`canvas-workspace real-canvas-workspace ${inspectorOpen && !projectActionDisabled ? "inspector-open" : ""} ${agentOpen && !projectActionDisabled ? "agent-open" : ""} ${connectFrom ? "connecting" : ""}`}>
-        <section
-          ref={stageRef}
-          className={`canvas-stage real-canvas-stage canvas-background-${backgroundMode}`}
-          style={{ "--canvas-grid-size": `${40 * zoom / 100}px`, "--canvas-grid-x": `${panX}px`, "--canvas-grid-y": `${panY}px` } as CSSProperties}
-          onPointerDown={handleStagePointerDown}
-          onContextMenu={(event) => { if (projectActionDisabled) { event.preventDefault(); return; } openCanvasContextMenu(event); }}
-          onDoubleClick={(event) => { if (!projectActionDisabled) handleCanvasDoubleClick(event); }}
-          onDragOver={(event) => { if (!projectActionDisabled) event.preventDefault(); }}
-          onDrop={(event) => { event.preventDefault(); if (!projectActionDisabled) void uploadFilesAsNodes(event.dataTransfer.files); }}
-        >
-          <div className="canvas-top-tools" data-canvas-ui data-canvas-no-zoom>
-            <div className="tool-cluster">
-              <button title="选择" disabled={projectActionDisabled}><MousePointer2 size={16} /></button>
-              <button title={connectFrom ? "选择目标节点完成连接" : "从当前节点开始连接"} className={connectFrom ? "active" : ""} onClick={() => selectedNode && activateConnectionMode(selectedNode.id)} disabled={projectActionDisabled}><Link2 size={16} /></button>
-              <button title="撤销" onClick={() => void undoCanvas()} disabled={!canUndo || projectActionDisabled}><Undo2 size={16} /></button>
-              <button title="重做" onClick={() => void redoCanvas()} disabled={!canRedo || projectActionDisabled}><Redo2 size={16} /></button>
-              <i className="tool-divider" />
-              <button title="添加文本" onClick={() => addNode("text")} disabled={projectActionDisabled}><Type size={16} /></button>
-              <button title="添加图片" onClick={() => addNode("image")} disabled={projectActionDisabled}><ImageIcon size={16} /></button>
-              <button title="添加视频" onClick={() => addNode("video")} disabled={projectActionDisabled}><Film size={16} /></button>
-              <button title="添加音频" onClick={() => addNode("audio")} disabled={projectActionDisabled}><Music2 size={16} /></button>
-              <button title="添加配置" onClick={() => addNode("config")} disabled={projectActionDisabled}><SlidersHorizontal size={16} /></button>
-              <button title="添加导演台" onClick={() => addNode("director")} disabled={projectActionDisabled}><Camera size={16} /></button>
-              <i className="tool-divider" />
-              <button title="上传素材" onClick={() => fileInputRef.current?.click()} disabled={uploading || projectActionDisabled}><Upload size={16} /></button>
-              <button title="从资产库插入" onClick={openAssetPicker} disabled={projectActionDisabled}><FolderOpen size={16} /></button>
-              <i className="tool-divider" />
-              <button title="将所选节点创建为分组" onClick={createGroupFromSelected} disabled={projectActionDisabled || selectedNodeIds.size < 2}><Boxes size={16} /></button>
-              <button title="将所选节点连接到新配置或已有配置" onClick={() => setConnectSelectionOpen(true)} disabled={projectActionDisabled || selectedNodeIds.size < 2}><GitMerge size={16} /></button>
-              <button title="按顺序执行当前分组中的可生成节点" onClick={() => selectedGroupId && void runCanvasGroupGeneration(selectedGroupId)} disabled={projectActionDisabled || !selectedGroupId || Boolean(runningGroupId)}>{runningGroupId === selectedGroupId ? <Loader2 className="spin" size={16} /> : <WandSparkles size={16} />}</button>
-              <button title="解散当前分组（保留节点）" onClick={() => selectedGroupId && ungroupCanvasGroup(selectedGroupId)} disabled={projectActionDisabled || !selectedGroupId}><Ungroup size={16} /></button>
-              {selectedNodeIds.size ? (
-                <>
-                  <i className="tool-divider" />
-                  <button title="导出选中节点" onClick={() => void exportSelectedCanvasFragment()} disabled={fragmentBusy || projectActionDisabled}><Download size={16} /></button>
-                  <button title="删除选中节点" onClick={() => removeNodes(selectedNodeIdsRef.current)} disabled={projectActionDisabled}><Trash2 size={16} /></button>
-                </>
-              ) : null}
-            </div>
-            <div className="canvas-agent-pills" data-canvas-ui data-canvas-no-zoom>
-              <button title="数字人（Seedance 素材）" onClick={() => selectedNode && setSeedanceAssetNodeId(selectedNode.id)} disabled={!selectedNode || projectActionDisabled}><UserRoundCog size={14} /></button>
-              <button title="数字资产（资产库）" onClick={openAssetPicker} disabled={projectActionDisabled}><FolderOpen size={14} /></button>
-              <button title="原型对话 Agent（服务侧）" onClick={() => setAgentOpen((value) => !value)} className={agentOpen ? "active" : ""} disabled={projectActionDisabled}><Sparkles size={14} /></button>
-              <button title="画布对话 Agent（本机桥接）" onClick={() => setAgentOpen((value) => !value)} className={agentOpen ? "active" : ""} disabled={projectActionDisabled}><Bot size={14} /></button>
-            </div>
-          </div>
-
-          {canvasInteractionBlocked ? (
-            <div className="empty-output"><Loader2 className="spin" size={28} /><p>{switching ? "正在保存当前画布，切换完成前请勿操作…" : projectScopePending ? "正在确认项目工作区，暂不可操作画布…" : "正在读取画布快照…"}</p></div>
-          ) : (
-            <div className="real-canvas-grid" ref={gridRef}
-              style={{ transform: `translate(${panX}px, ${panY}px) scale(${zoom / 100})` }}
-            >
-              {groups.map((group) => (
-                <section
-                  key={group.id}
-                  className={`canvas-group-frame ${selectedGroupId === group.id ? "selected" : ""}`}
-                  data-group-id={group.id}
-                  style={{
-                    left: group.position.x,
-                    top: group.position.y,
-                    width: group.width,
-                    height: group.height,
-                    "--canvas-group-color": group.color,
-                  } as CSSProperties}
-                  onClick={(event) => { event.stopPropagation(); selectCanvasGroup(group); }}
-                  onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); selectCanvasGroup(group); }}
-                  onPointerDown={(event) => startGroupDrag(event, group)}
-                  onPointerMove={moveGroupDrag}
-                  onPointerUp={endGroupDrag}
-                  onPointerCancel={endGroupDrag}
-                >
-                  <div className="canvas-group-header">
-                    <Boxes size={14} />
-                    <b>{group.title}</b>
-                    <span>{group.nodeIds.length} 节点</span>
-                  </div>
-                  {(["top-left", "top-right", "bottom-left", "bottom-right"] as CanvasGroupResizeCorner[]).map((corner) => (
-                    <button
-                      type="button"
-                      key={corner}
-                      className={`canvas-group-resize-handle ${corner}`}
-                      title="调整分组尺寸"
-                      aria-label={`调整分组尺寸：${corner}`}
-                      onPointerDown={(event) => startGroupResize(event, group, corner)}
-                      onPointerMove={moveGroupResize}
-                      onPointerUp={endGroupResize}
-                      onPointerCancel={endGroupResize}
-                    />
-                  ))}
-                </section>
-              ))}
-              {selectionBoxStyle ? <div className="canvas-selection-box" style={selectionBoxStyle} /> : null}
-              <svg
-                className="real-canvas-lines"
-                aria-hidden="true"
-                style={{
-                  left: connectionLayerBounds.left,
-                  top: connectionLayerBounds.top,
-                  width: connectionLayerBounds.width,
-                  height: connectionLayerBounds.height,
-                }}
-                viewBox={connectionLayerBounds.viewBox}
-                onPointerDown={handleCanvasLinesPointerDown}
-                onPointerMove={handleCanvasLinesPointerMove}
-                onPointerLeave={handleCanvasLinesPointerLeave}
-                onClick={handleCanvasLinesClick}
-                onDoubleClick={handleCanvasLinesDoubleClick}
-                onContextMenu={handleCanvasLinesContextMenu}
-              >
-                {edges.map((edge) => {
-                  const from = nodeMap.get(edge.from);
-                  const to = nodeMap.get(edge.to);
-                  if (!from || !to || isHiddenCanvasConnectionEndpoint(from, nodes) || isHiddenCanvasConnectionEndpoint(to, nodes)) return null;
-                  const x1 = from.x + from.width;
-                  const y1 = from.y + from.height / 2;
-                  const x2 = to.x;
-                  const y2 = to.y + to.height / 2;
-                  const curvature = canvasConnectionCurvature(x1, x2);
-                  const path = `M ${x1} ${y1} C ${x1 + curvature} ${y1}, ${x2 - curvature} ${y2}, ${x2} ${y2}`;
-                  const active = selectedEdgeId === edge.id || hoveredEdgeId === edge.id;
-                  return (
-                <g key={edge.id} className={selectedEdgeId === edge.id ? "selected-canvas-edge" : ""}>
-                      <path
-                        className="real-canvas-edge-hit"
-                        data-edge-id={edge.id}
-                        d={path}
-                        fill="none"
-                        stroke="transparent"
-                        strokeWidth={16}
-                        style={{ cursor: "pointer", pointerEvents: "stroke" }}
-                        onClick={(event) => { event.stopPropagation(); handleEdgeClick(edge.id); }}
-                        onDoubleClick={(event) => { event.stopPropagation(); removeEdge(edge.id); }}
-                        onMouseEnter={() => setHoveredEdgeId(edge.id)}
-                        onMouseLeave={() => setHoveredEdgeId("")}
-                        onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); const point = clientToStagePoint(event.clientX, event.clientY); const canvasPoint = screenToCanvasPoint(event.clientX, event.clientY); handleEdgeClick(edge.id); setContextMenu({ x: point.x, y: point.y, canvasX: canvasPoint.x, canvasY: canvasPoint.y, edgeId: edge.id }); }}
-                      />
-                      <path
-                        className="real-canvas-edge-visible"
-                        d={path}
-                        fill="none"
-                        pointerEvents="none"
-                        style={active ? { stroke: "#7dd3fc", strokeWidth: 2.4, filter: "drop-shadow(0 0 8px rgba(125, 211, 252, .45))" } : undefined}
-                      />
-                    </g>
-                  );
-                })}
-                {connectionPreviewPath ? <path className="real-canvas-edge-preview" d={connectionPreviewPath} fill="none" pointerEvents="none" /> : null}
-              </svg>
-              {renderedNodes.map((node) => (
-                <CanvasNodeCard
-                  key={node.id}
-                  node={node}
-                  previews={previews}
-                  isSelected={selectedNodeIds.has(node.id)}
-                  isSelectedSingle={selectedId === node.id}
-                  isHovered={hoveredId === node.id}
-                  isConnectionTarget={connectionTargetId === node.id}
-                  isConnecting={Boolean(connectFrom)}
-                  connectActiveTarget={connectFrom === node.id && connectHandleType === "target"}
-                  connectActiveSource={connectFrom === node.id && connectHandleType === "source"}
-                  isTitleEditing={titleEditingNodeId === node.id}
-                  titleDraft={titleEditingNodeId === node.id ? titleDraft : ""}
-                  isInlineEditing={editingInlineNodeId === node.id}
-                  isRunning={runningNodeIds.has(node.id)}
-                  progress={jobProgressByNode[node.id] || 0}
-                  isPinned={pinnedToolbarNodeId === node.id}
-                  captureBusy={Boolean(captureFrameNodeId)}
-                  isCapturingFrame={captureFrameNodeId === node.id}
-                  showImageInfo={showImageInfo}
-                  imageToolBusy={imageToolBusy}
-                  storyboardBusy={storyboardBusy}
-                  actions={nodeCardActions}
-                />
-              ))}
-            </div>
-          )}
-
-          <div className="canvas-bottom-tools" data-canvas-ui data-canvas-no-zoom>
-            <button title="手动同步到服务端快照（占位，自动同步已开启）" onClick={() => void persistSnapshot()} disabled={saving || syncStatus === "saving" || projectActionDisabled || !snapshotWriteReady}><CloudUpload size={15} /></button>
-            <span />
-            <button onClick={() => zoomCanvasAroundCenter(viewportRef.current.zoom - 10)} disabled={projectActionDisabled}>−</button>
-            <b>{zoom}%</b>
-            <button onClick={() => zoomCanvasAroundCenter(viewportRef.current.zoom + 10)} disabled={projectActionDisabled}>+</button>
-            <span />
-            <button className={minimapOpen ? "active" : ""} title={minimapOpen ? "关闭缩略导航" : "打开缩略导航"} onClick={() => setMinimapOpen((open) => !open)} disabled={projectActionDisabled}><MapIcon size={15} /></button>
-            <button onClick={fitCanvasToContent} disabled={projectActionDisabled} title="适配"><Maximize2 size={15} /></button>
-            <span />
-            <button title="显示或隐藏图片信息" className={showImageInfo ? "active" : ""} onClick={() => setShowImageInfo((value) => !value)} disabled={projectActionDisabled}><Eye size={15} /></button>
-            <button title="点阵背景" className={backgroundMode === "dots" ? "active" : ""} onClick={() => setBackgroundMode("dots")} disabled={projectActionDisabled}><Grid3x3 size={15} /></button>
-            <button title="网格背景" className={backgroundMode === "lines" ? "active" : ""} onClick={() => setBackgroundMode("lines")} disabled={projectActionDisabled}><Grid2X2 size={15} /></button>
-            <button title="空白背景" className={backgroundMode === "blank" ? "active" : ""} onClick={() => setBackgroundMode("blank")} disabled={projectActionDisabled}><Square size={14} /></button>
-          </div>
-          <button
-            className={`canvas-agent-fab ${agentOpen ? "is-active" : ""}`}
-            onClick={() => setAgentOpen((value) => !value)}
-            disabled={projectActionDisabled}
-            title={agentOpen ? "关闭 Agent" : "打开 Agent"}
-            data-canvas-ui
-            data-canvas-no-zoom
-          >
-            <MetaBallOrb className="canvas-agent-fab-orb" />
-            <Sparkles size={20} />
-          </button>
-          {minimapOpen && !projectActionDisabled ? (
-            <div className="canvas-minimap" data-canvas-ui data-canvas-no-zoom onPointerDown={(event) => event.stopPropagation()}>
-              <div><span>MINIMAP</span><b>{visibleNodes.length} NODES</b></div>
-              <svg
-                viewBox={`0 0 ${minimapModel.width} ${minimapModel.height}`}
-                role="img"
-                aria-label="画布缩略导航，点击可移动当前视口"
-                onClick={navigateFromMinimap}
-              >
-                {minimapModel.nodes.map((node) => (
-                  <rect
-                    key={node.id}
-                    className={selectedNodeIds.has(node.id) ? "selected" : ""}
-                    x={node.x}
-                    y={node.y}
-                    width={node.width}
-                    height={node.height}
-                    rx={1.5}
-                  />
-                ))}
-                <rect
-                  className="viewport"
-                  x={minimapModel.viewport.x}
-                  y={minimapModel.viewport.y}
-                  width={minimapModel.viewport.width}
-                  height={minimapModel.viewport.height}
-                />
-              </svg>
-            </div>
-          ) : null}
-          {contextMenu && !projectActionDisabled ? (
-            <div className={`canvas-context-menu${contextMenuFlipX ? " flip-x" : ""}`} data-canvas-ui data-canvas-no-zoom style={contextMenuStyle} onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>
-              {contextMenu.nodeId || contextMenu.edgeId ? (
-                <div className="inspector-head">
-                  <div><p className="eyebrow">MENU</p><h3>{contextMenu.edgeId ? "连线操作" : "节点操作"}</h3></div>
-                </div>
-              ) : null}
-              <div className={`canvas-context-menu-list${contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? " has-submenus" : ""}`}>
-                {contextMenu.nodeId ? (
-                  <>
-                    <button className="full-outline" onClick={() => { chooseNode(contextMenu.nodeId!); setContextMenu(null); }}>选中节点</button>
-                    <button className="full-outline" onClick={() => { applyNodeSelection([contextMenu.nodeId!], contextMenu.nodeId!, true); activateConnectionMode(contextMenu.nodeId!); }}>从此节点连接</button>
-                    <button className="full-outline" onClick={() => { copySelectedNodes(); setContextMenu(null); }}>复制所选节点</button>
-                    {selectedNodeIds.size >= 2 ? <button className="full-outline" onClick={() => { setConnectSelectionOpen(true); setContextMenu(null); }}>连接所选节点到配置</button> : null}
-                    <button className="full-outline" onClick={() => { void duplicateSelectedNode(contextMenu.nodeId!); setContextMenu(null); }}>复制节点</button>
-                    {contextMenuNode?.kind === "director" ? <button className="full-outline" onClick={() => { void openDirectorNode(contextMenuNode); setContextMenu(null); }}>打开导演台</button> : null}
-                    {contextMenuNode?.kind !== "director" ? <button className="full-outline" onClick={() => { void generateFromNode(contextMenu.nodeId!); setContextMenu(null); }}>生成当前模式</button> : null}
-                    {contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? (
-                      <>
-                        {renderCanvasSubmenu("image-edit", <Scissors size={14} />, "图片处理", (
-                          <>
-                            <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "crop"); setContextMenu(null); }}>裁剪图片</button>
-                            <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "focus"); setContextMenu(null); }}>聚焦提取</button>
-                            <button className="full-outline" onClick={() => { setImageAnnotationNodeId(contextMenuNode.id); setContextMenu(null); }}>图片标注</button>
-                            <button className="full-outline" onClick={() => { setImageMaskNodeId(contextMenuNode.id); setImageToolError(""); setContextMenu(null); }}>蒙版编辑</button>
-                            <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "outpaint"); setContextMenu(null); }}>扩图</button>
-                            <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "split"); setContextMenu(null); }}>切分图片</button>
-                            <button className="full-outline" onClick={() => { void flipCanvasImageNode(contextMenuNode, "horizontal"); setContextMenu(null); }}>水平翻转</button>
-                            <button className="full-outline" onClick={() => { void flipCanvasImageNode(contextMenuNode, "vertical"); setContextMenu(null); }}>垂直翻转</button>
-                            <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "upscale"); setContextMenu(null); }}>放大图片</button>
-                            <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "compress"); setContextMenu(null); }}>压缩图片</button>
-                          </>
-                        ))}
-                        {renderCanvasSubmenu("image-ai", <Sparkles size={14} />, "AI 生成", (
-                          <>
-                            <button className="full-outline" onClick={() => { void generatePanoramaCanvasImage(contextMenuNode); setContextMenu(null); }}>生成全景图</button>
-                            <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "angle"); setContextMenu(null); }}>AI 多角度</button>
-                            <button className="full-outline" onClick={() => { toast.info("AI 超分依赖管理员配置的模型服务，本地暂未实现"); setContextMenu(null); }}>AI 超分</button>
-                            <button className="full-outline" onClick={() => { void createImageReversePromptNodes(contextMenuNode); setContextMenu(null); }}>反推提示词</button>
-                            <button className="full-outline" onClick={() => { setStoryboardNodeId(contextMenuNode.id); setContextMenu(null); }}>故事板导出</button>
-                          </>
-                        ))}
-                        {renderCanvasSubmenu("image-asset", <Images size={14} />, "素材与文件", (
-                          <>
-                            <button className="full-outline" onClick={() => { setImagePreviewNodeId(contextMenuNode.id); setContextMenu(null); }}>查看图片</button>
-                            <button className="full-outline" onClick={() => { void copyCanvasImagePrompt(contextMenuNode); setContextMenu(null); }}>复制提示词</button>
-                            <button className="full-outline" onClick={() => { setReplaceImageNodeId(contextMenuNode.id); replaceImageInputRef.current?.click(); setContextMenu(null); }}>替换图片</button>
-                            <button className="full-outline" onClick={() => { void archiveCanvasMediaNode(contextMenuNode); setContextMenu(null); }}>加入素材库</button>
-                          </>
-                        ))}
-                      </>
-                    ) : null}
-                    {contextMenuNode?.kind === "video" ? <button className="full-outline" disabled={Boolean(captureFrameNodeId)} onClick={() => { void captureVideoFrameNode(contextMenuNode); setContextMenu(null); }}>当前帧创建图片</button> : null}
-                    {contextMenuNode?.kind === "video" || contextMenuNode?.kind === "audio" ? <button className="full-outline" onClick={() => { void archiveCanvasMediaNode(contextMenuNode); setContextMenu(null); }}>加入素材库</button> : null}
-                    {contextMenuNode?.kind === "text" ? <button className="full-outline" onClick={() => { void archiveCanvasTextNode(contextMenuNode); setContextMenu(null); }}>加入素材库</button> : null}
-                    <hr className="canvas-menu-divider" />
-                    <button className="full-outline danger" onClick={() => { removeNode(contextMenu.nodeId!); }}>删除节点</button>
-                  </>
-                ) : contextMenu.edgeId ? (
-                  <>
-                    <button className="full-outline" onClick={() => { handleEdgeClick(contextMenu.edgeId!); setContextMenu(null); }}>选中连线</button>
-                    <button className="full-outline danger" onClick={() => { removeEdge(contextMenu.edgeId!); }}>删除连线</button>
-                  </>
-                ) : (
-                  <>
-                    <button className="full-outline" onClick={() => { addNode("image", { x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}><ImageIcon size={14} /> 新建图片</button>
-                    <button className="full-outline" onClick={() => { addNode("video", { x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}><Film size={14} /> 新建视频</button>
-                    <button className="full-outline" onClick={() => { addNode("text", { x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}><Type size={14} /> 新建文本</button>
-                    <button className="full-outline" onClick={() => { addNode("audio", { x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}><Music2 size={14} /> 新建音频</button>
-                    <button className="full-outline" onClick={() => { addNode("config", { x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}><SlidersHorizontal size={14} /> 新建配置</button>
-                    <hr className="canvas-menu-divider" />
-                    <button className="full-outline" onClick={() => { pasteCopiedNodes(); setContextMenu(null); }}><ClipboardPaste size={14} /> 粘贴节点</button>
-                  </>
-                )}
-              </div>
-            </div>
-          ) : null}
-          {pendingConnectionCreate && !projectActionDisabled ? (
-            <div className="canvas-context-menu canvas-connection-create-menu" data-canvas-ui data-canvas-no-zoom style={pendingConnectionMenuStyle} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>
-              <div className="inspector-head">
-                <div><p className="eyebrow">CONNECT</p><h3>新建节点并连接</h3></div>
-              </div>
-              <div className="canvas-context-menu-list">
-                <button className="full-outline" onClick={() => createNodeFromConnectionDraft("text", pendingConnectionCreate)}>新建文本</button>
-                <button className="full-outline" onClick={() => createNodeFromConnectionDraft("image", pendingConnectionCreate)}>新建图片</button>
-                <button className="full-outline" onClick={() => createNodeFromConnectionDraft("config", pendingConnectionCreate)}>新建配置</button>
-                <button className="full-outline" onClick={() => createNodeFromConnectionDraft("video", pendingConnectionCreate)}>新建视频</button>
-                <button className="full-outline" onClick={() => createNodeFromConnectionDraft("audio", pendingConnectionCreate)}>新建音频</button>
-                <button className="full-outline danger" onClick={() => cancelPendingConnectionCreate()}>取消连接</button>
-              </div>
-            </div>
-          ) : null}
-        </section>
-
-        <aside ref={panelRef} className={`inspector-panel canvas-floating-inspector${selectedNode && !selectedGroup ? " inspector-floating" : ""}`} data-canvas-ui data-canvas-no-zoom style={selectedNode && !selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedPanelStyle ? selectedPanelStyle : { display: "none" }) : ((selectedNode || selectedGroup) && inspectorOpen && !projectActionDisabled ? undefined : { display: "none" })} onClick={(event) => event.stopPropagation()}>
-          <div className="inspector-head">
-            <div><p className="eyebrow">INSPECTOR</p><div className="inspector-title-row"><h3>{selectedGroup?.title || selectedNode?.title || "未选择节点"}</h3>{selectedNode && !selectedGroup && selectedNode.kind === "video" ? <span className="video-submode-badge inspector-submode-badge">{VIDEO_SUBMODES.find((sub) => sub.value === videoSubModeFromNode(selectedNode))?.label || "文生视频"}</span> : null}</div></div>
-            {selectedNode && !selectedGroup ? (
-              <div className="node-card-head-actions">
-                {selectedNode.kind === "video" ? (
-                  <button className="icon-button subtle" title="素材校验" onClick={() => setMaterialNodeId(selectedNode.id)}><BadgeCheck size={15} /></button>
-                ) : null}
-                <button
-                  className="icon-button subtle"
-                  title="一键复制提示词内容"
-                  onClick={() => {
-                    const text = promptTextFromNode(selectedNode);
-                    if (!text.trim()) return toast.info("当前节点没有提示词");
-                    void navigator.clipboard.writeText(text).then(() => toast.success("提示词已复制"));
-                  }}
-                ><Copy size={15} /></button>
-                <button className="icon-button subtle node-card-close" title="关闭面板" onClick={() => setInspectorOpen(false)}><X size={15} /></button>
-              </div>
-            ) : null}
-          </div>
-          {selectedGroup ? (
-            <>
-              <div className="inspector-block">
-                <span className="field-label">分组名称</span>
-                <input value={selectedGroup.title} maxLength={80} onChange={(event) => updateCanvasGroup(selectedGroup.id, { title: event.target.value })} />
-              </div>
-              <div className="inspector-block">
-                <span className="field-label">分组颜色</span>
-                <label className="canvas-group-color-row">
-                  <input type="color" value={selectedGroup.color} onChange={(event) => updateCanvasGroup(selectedGroup.id, { color: event.target.value })} />
-                  <b>{selectedGroup.color.toUpperCase()}</b>
-                </label>
-              </div>
-              <div className="inspector-block">
-                <span className="field-label">成员</span>
-                <p className="prompt-copy">包含 {selectedGroup.nodeIds.length} 个节点。拖动分组可整体移动，四角控制点可调整边界。</p>
-              </div>
-              <button className="full-outline" onClick={() => void runCanvasGroupGeneration(selectedGroup.id)} disabled={Boolean(runningGroupId)}>{runningGroupId === selectedGroup.id ? <Loader2 className="spin" size={16} /> : <WandSparkles size={16} />} 批量执行分组</button>
-              <button className="full-outline" onClick={() => ungroupCanvasGroup(selectedGroup.id)}><Ungroup size={16} /> 解散分组</button>
-            </>
-          ) : selectedNode ? (
-            <>
-              <div className="node-card-body">
-                {selectedNode.kind === "video" ? (
-                  <div className="video-submode-header">
-                    {(() => {
-                      const mode = videoSubModeFromNode(selectedNode);
-                      const incomingEdges = edges.filter((edge) => edge.to === selectedNode.id);
-                      const sourceNodes = incomingEdges.map((edge) => nodes.find((n) => n.id === edge.from)).filter((n): n is CanvasNodeData => n !== undefined);
-
-                      if (mode === "text") return null; // 文生视频无需输入源
-
-                      const requiredType = (mode === "reference" || mode === "first-last") ? "image" : (mode === "edit" || mode === "extend") ? "video" : null;
-                      const validSources = sourceNodes.filter((n) => n.kind === requiredType);
-
-                      // 全能参考支持多图，其它模式固定数量
-                      const minCount = mode === "first-last" ? 2 : 1;
-                      const displayCount = mode === "reference" ? Math.max(validSources.length, 1) : minCount;
-
-                      return (
-                        <div className="video-input-sources" data-count={displayCount}>
-                          {Array.from({ length: displayCount }).map((_, index) => {
-                            const source = validSources[index];
-                            const preview = source ? (source.kind === "image" ? imageSrcFromNode(source, previews) : source.metadata?.preview as string | undefined) : null;
-                            return (
-                              <div key={index} className="video-input-slot">
-                                {preview && source ? (
-                                  source.kind === "image" ? (
-                                    <img src={preview} alt="" onClick={() => setImagePreviewNodeId(source.id)} style={{ cursor: "pointer" }} />
-                                  ) : (
-                                    <video src={preview} muted onClick={() => setImagePreviewNodeId(source.id)} style={{ cursor: "pointer" }} />
-                                  )
-                                ) : (
-                                  <button type="button" title={`连接${requiredType === "image" ? "图片" : "视频"}节点`}>
-                                    <Plus size={14} />
-                                  </button>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                ) : null}
-                <CanvasResourceMentionTextarea
-                  className="prompt-copy node-card-prompt"
-                  value={promptTextFromNode(selectedNode)}
-                  references={mentionReferencesForNode(selectedNode.id)}
-                  placeholder={selectedNode.kind === "video" ? videoSubModePlaceholder(videoSubModeFromNode(selectedNode)) : "输入 @ 可引用已连接节点或资产…，Enter 提交生成"}
-                  onMentionQueryChange={queueMentionAssetSearch}
-                  onSubmit={() => void generateFromNode(selectedNode.id)}
-                  onChange={(value) => updateNodePrompt(selectedNode.id, value)}
-                  thumbnailForReference={mentionThumbnailFor}
-                  onPreviewReference={previewMentionReference}
-                  onLocateReference={locateMentionReference}
-                />
-                {editableNodeKind(selectedNode.kind) && visiblePromptPresets.length ? (
-                  <div className="canvas-preset-strip">
-                    {visiblePromptPresets.map((preset) => (
-                      <button key={preset.id} title={preset.prompt} onClick={() => updateNodePrompt(selectedNode.id, preset.prompt)}>
-                        {presetPriorityLabel(preset.priority)} · {preset.title}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="node-card-chips">
-                {/* 素材库/图片工具并入 chip 行，与模型、参数同一排 */}
-                <div className="node-card-tools in-chips">
-                {selectedNode.kind !== "director" ? (
-                  <button type="button" title="素材库" onClick={openAssetPicker}><FolderOpen size={15} /></button>
-                ) : null}
-                {selectedNode.kind === "image" && imageSrcFromNode(selectedNode, previews) ? (
-                  <>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button type="button" title="图片工具"><WandSparkles size={15} /></button>
-                      </PopoverTrigger>
-                      <PopoverContent className="node-pop-card node-pop-wide" align="start" sideOffset={8}>
-                        <p className="eyebrow">图片工具</p>
-                        <CanvasImageToolGrid node={selectedNode} imageToolBusy={imageToolBusy} storyboardBusy={storyboardBusy} openImageToolDialog={openImageToolDialog} setImageAnnotationNodeId={setImageAnnotationNodeId} setImageMaskNodeId={setImageMaskNodeId} setImageToolError={setImageToolError} flipCanvasImageNode={flipCanvasImageNode} generatePanoramaCanvasImage={generatePanoramaCanvasImage} generateStoryboard={(n) => setStoryboardNodeId(n.id)} createImageReversePromptNodes={createImageReversePromptNodes} setImagePreviewNodeId={setImagePreviewNodeId} setReplaceImageNodeId={setReplaceImageNodeId} replaceImageInputRef={replaceImageInputRef} archiveCanvasMediaNode={archiveCanvasMediaNode} />
-
-                      </PopoverContent>
-                    </Popover>
-                  </>
-                ) : null}
-                </div>
-                {selectedNode.kind === "video" ? (
-                  <>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button type="button" className="node-chip">{VIDEO_SUBMODES.find((sub) => sub.value === videoSubModeFromNode(selectedNode))?.label || "文生视频"} <ChevronDown size={12} /></button>
-                      </PopoverTrigger>
-                      <PopoverContent className="node-pop-card" align="start" sideOffset={8}>
-                        <p className="eyebrow">视频模式</p>
-                        {VIDEO_SUBMODES.map((sub) => (
-                          <button
-                            key={sub.value}
-                            type="button"
-                            className={videoSubModeFromNode(selectedNode) === sub.value ? "node-pop-item active" : "node-pop-item"}
-                            onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), videoSubMode: sub.value } })}
-                          >{sub.label}</button>
-                        ))}
-                      </PopoverContent>
-                    </Popover>
-                  </>
-                ) : null}
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button type="button" className="node-chip node-chip-model" title={selectedGenerationModel}>{(textModelLabels[selectedGenerationModel] || selectedGenerationModel || "选择模型").split("::").at(-1)} <ChevronDown size={12} /></button>
-                  </PopoverTrigger>
-                  <PopoverContent className="node-pop-card" align="start" sideOffset={8}>
-                    <p className="eyebrow">模型</p>
-                    <div className="node-pop-scroll">
-                      {(selectedGenerationMode === "text"
-                        ? textModels.map((item) => ({ value: item, label: textModelLabels[item] || item }))
-                        : selectedGenerationMode === "image"
-                          ? (modelCatalog?.models || []).map((item) => ({ value: item, label: imageModelLabel(item, modelCatalog || undefined) }))
-                          : selectedGenerationMode === "video"
-                            ? videoModels.map((item) => ({ value: item, label: textModelLabels[item] || item }))
-                            : audioModels.map((item) => ({ value: item, label: textModelLabels[item] || item }))
-                      ).map((option) => (
-                        <button key={option.value} className={selectedGenerationModel === option.value ? "node-pop-item active" : "node-pop-item"} onClick={() => {
-                          if (selectedGenerationMode === "text") setTextModel(option.value);
-                          if (selectedGenerationMode === "image") setImageModel(option.value);
-                          if (selectedGenerationMode === "video") setVideoModel(option.value);
-                          if (selectedGenerationMode === "audio") setAudioModel(option.value);
-                          updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), model: option.value } });
-                        }}>{option.label}</button>
-                      ))}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button type="button" className="node-chip" title="详细参数"><SlidersHorizontal size={13} /> 参数</button>
-                  </PopoverTrigger>
-                  <PopoverContent className="node-pop-card node-pop-params" align="start" sideOffset={8}>
-                    <p className="eyebrow">详细参数</p>
-                    {selectedGenerationMode === "image" ? <>
-                      <div className="param-group"><span className="param-group-label">画质</span>
-                        <div className="param-segments param-segments-wide">
-                          {["1K", "2K", "4K"].map((value) => (
-                            <button key={value} type="button" className={(selectedNode.metadata?.imageResolution || "2K") === value ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), imageResolution: value } })}>{value}</button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="param-group"><span className="param-group-label">比例</span>
-                        <div className="param-ratio-grid">
-                          <button type="button" className={sizeFromNode(selectedNode) === "auto" ? "param-ratio active" : "param-ratio"} title="AUTO 自适应" onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: "auto" } })}>
-                            <i className="param-ratio-icon" style={ratioIconStyle("auto")} />
-                            <span>自适应</span>
-                          </button>
-                          {["1:1", "2:1", "4:3", "3:4", "5:4", "4:5", "3:2", "2:3", "21:9", "9:21", "16:9", "9:16"].map((ratio) => (
-                            <button key={ratio} type="button" className={sizeFromNode(selectedNode) === ratio ? "param-ratio active" : "param-ratio"} title={ratio} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: ratio } })}>
-                              <i className="param-ratio-icon" style={ratioIconStyle(ratio)} />
-                              <span>{ratio}</span>
-                            </button>
-                          ))}
-                          <button type="button" className={sizeFromNode(selectedNode) === "panorama" ? "param-ratio active" : "param-ratio"} title="全景图" onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: "panorama" } })}>
-                            <i className="param-ratio-icon param-ratio-panorama" style={ratioIconStyle("panorama")} />
-                            <span>全景图</span>
-                          </button>
-                        </div>
-                      </div>
-                      <div className="param-group"><span className="param-group-label">精细度</span>
-                        <div className="param-segments">
-                          {[["low", "低"], ["medium", "中"], ["high", "高"]].map(([value, label]) => (
-                            <button key={value} type="button" className={qualityFromNode(selectedNode) === value || (value === "medium" && qualityFromNode(selectedNode) === "auto") ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), quality: value } })}>{label}</button>
-                          ))}
-                        </div>
-                      </div>
-                    </> : null}
-                    {selectedVideoConfig ? <>
-                      <div className="param-group"><span className="param-group-label">时长 <b>{selectedVideoConfig.seconds === "-1" ? "自动" : `${selectedVideoConfig.seconds} 秒`}</b></span>
-                        {(() => {
-                          const durations = selectedVideoSeedance ? (isLongSeedanceVideoModel(selectedVideoConfig.model) ? videoModelSettings.seedanceLongDurations : videoModelSettings.seedanceDurations) : videoModelSettings.openAiDurations;
-                          const index = Math.max(0, durations.findIndex((item) => String(item) === String(selectedVideoConfig.seconds)));
-                          return (
-                            <>
-                              <input type="range" className="param-range" min={0} max={durations.length - 1} step={1} value={index} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), seconds: String(durations[Number(event.target.value)]) } })} />
-                              <div className="param-range-ticks">{durations.map((item) => <span key={String(item)}>{item === -1 ? "自动" : `${item}s`}</span>)}</div>
-                            </>
-                          );
-                        })()}
-                      </div>
-                      <div className="param-group"><span className="param-group-label">分辨率</span>
-                        <div className="param-segments">
-                          {(selectedVideoSeedance ? videoModelSettings.seedanceResolutions : videoModelSettings.openAiResolutions).map((item) => (
-                            <button key={item} type="button" className={selectedVideoConfig.resolution === item ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), resolution: item } })}>{item}</button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="param-group"><span className="param-group-label">宽高比</span>
-                        <div className="param-ratio-grid">
-                          {(selectedVideoSeedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes.map(sizeToRatioLabel)).map((ratio) => (
-                            <button key={ratio} type="button" className={selectedVideoConfig.size === ratio || sizeToRatioLabel(selectedVideoConfig.size) === ratio ? "param-ratio active" : "param-ratio"} title={ratio} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: ratio } })}>
-                              <i className="param-ratio-icon" style={ratioIconStyle(ratio)} />
-                              <span>{ratio === "adaptive" ? "自适应" : ratio}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      {selectedVideoSeedance ? <>
-                        <label className="parameter-row"><span>生成音频</span><input type="checkbox" checked={selectedVideoConfig.generateAudio} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), generateAudio: event.target.checked } })} /></label>
-                        <label className="parameter-row"><span>添加水印</span><input type="checkbox" checked={selectedVideoConfig.watermark} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), watermark: event.target.checked } })} /></label>
-                      </> : null}
-                    </> : null}
-                    {selectedAudioConfig ? <>
-                      <div className="parameter-row"><span>音色</span><select value={selectedAudioConfig.voice} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), audioVoice: event.target.value } })}>{audioVoiceOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                      <div className="parameter-row"><span>格式</span><select value={selectedAudioConfig.format} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), audioFormat: event.target.value } })}>{audioFormatOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-                      <label className="parameter-row audio-speed-row"><span>语速 {selectedAudioConfig.speed}x</span><input type="range" min="0.25" max="4" step="0.25" value={selectedAudioConfig.speed} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), audioSpeed: event.target.value } })} /></label>
-                      <div className="audio-instructions"><span className="field-label">朗读指令</span><textarea className="prompt-copy" value={selectedAudioConfig.instructions} placeholder="可选，例如：温和、自然地朗读" onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), audioInstructions: event.target.value } })} /></div>
-                    </> : null}
-                    {!selectedVideoConfig && !selectedAudioConfig && selectedGenerationMode !== "image" && selectedNode.kind !== "config" ? <p className="prompt-copy">当前模式没有额外参数。</p> : null}
-                  </PopoverContent>
-                </Popover>
-                <div className="node-card-primary">
-                  {/* 数量/积分 chip 挪到生成按钮旁 */}
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button type="button" className="node-chip node-credit-chip" title="生成数量与积分消耗（1:1）"><Zap size={12} /> ×{imageCountFromNode(selectedNode)}</button>
-                    </PopoverTrigger>
-                    <PopoverContent className="node-pop-card" align="end" sideOffset={8}>
-                      <p className="eyebrow">数量 / 积分</p>
-                      <div className="param-segments">
-                        {[1, 2, 4, 6].map((count) => (
-                          <button key={count} type="button" className={imageCountFromNode(selectedNode) === count ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), count } })}>×{count}</button>
-                        ))}
-                      </div>
-                      <p className="node-pop-hint">当前暂定所有类型生成积分消耗与数量 1:1</p>
-                    </PopoverContent>
-                  </Popover>
-                  {selectedNode.kind === "director" ? (
-                    <button className="node-send-button" onClick={() => void openDirectorNode(selectedNode)}><ArrowRight size={15} /> 导演台</button>
-                  ) : runningNodeIds.has(selectedNode.id) ? (
-                    <div className="node-send-running">
-                      <button className="node-send-button is-running" disabled><Loader2 className="spin" size={14} /> 生成中</button>
-                      <button className="node-send-button node-send-cancel" title="取消任务" onClick={() => stopGenerationByNodeId(selectedNode.id)}><Square size={13} /> 取消</button>
-                    </div>
-                  ) : selectedNode.metadata?.status === "error" ? (
-                    <button className="node-send-button" onClick={() => {
-                      if (selectedGenerationMode === "image") void retryImageNode(selectedNode);
-                      else if (selectedGenerationMode === "video") void retryVideoNode(selectedNode);
-                      else if (selectedGenerationMode === "audio") void retryAudioNode(selectedNode);
-                      else void retryTextNode(selectedNode);
-                    }}><RotateCcw size={14} /> 重试</button>
-                  ) : (
-                    <button className="node-send-button" onClick={() => void generateFromNode()}><ArrowUp size={15} /> 生成</button>
-                  )}
-                </div>
-              </div>
-
-              <div className="node-card-ops">
-                <button title="从此节点连接" onClick={() => activateConnectionMode(selectedNode.id)}><Link2 size={14} /></button>
-                <button title="复制节点（仅入边）" onClick={() => void duplicateSelectedNode()}><Copy size={14} /></button>
-                <button title="删除节点" onClick={() => removeNode(selectedNode.id)}><Trash2 size={14} /></button>
-                <button title="清空输入框内容" disabled={!promptTextFromNode(selectedNode).trim()} onClick={() => updateNodePrompt(selectedNode.id, "")}><Eraser size={14} /></button>
-                {selectedNode.kind !== "director" ? <button title="提示词库" onClick={() => setPromptLibraryNodeId(selectedNode.id)}><BookOpen size={14} /></button> : null}
-                {selectedNode.kind === "image" ? (
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button title="风格"><Palette size={14} /></button>
-                    </PopoverTrigger>
-                    <PopoverContent className="node-pop-card node-pop-wide" align="end" sideOffset={8}>
-                      <p className="eyebrow">风格</p>
-                      <div className="style-preset-tabs">
-                        {STYLE_CATEGORIES.map((category) => (
-                          <button key={category.value} type="button" className={styleCategory === category.value ? "active" : ""} onClick={() => setStyleCategory(category.value)}>{category.label}</button>
-                        ))}
-                      </div>
-                      <div className="style-preset-grid">
-                        {STYLE_PRESETS.filter((item) => item.category === styleCategory).map((item) => (
-                          <button key={item.name} type="button" className="style-preset-card" title={item.prompt} onClick={() => {
-                            const base = promptTextFromNode(selectedNode).trim();
-                            updateNodePrompt(selectedNode.id, base ? `${base}，${item.prompt}` : item.prompt);
-                          }}>
-                            <i className="style-preset-thumb" style={{ background: item.gradient }} />
-                            <span>{item.name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                ) : null}
-                {selectedNode.kind === "video" ? <button title="分镜栏编辑" onClick={() => setStoryboardEditorNodeId(selectedNode.id)}><GalleryHorizontalEnd size={14} /></button> : null}
-                {selectedNode.kind === "image" ? <button title="我的提示词预设" onClick={() => setPresetManagerOpen(true)}><BookMarked size={14} /></button> : null}
-                {selectedNode.kind !== "director" ? (
-                  <Popover onOpenChange={(open) => { if (open) setEnabledSkills(loadSkills().filter((skill) => skill.enabled)); }}>
-                    <PopoverTrigger asChild>
-                      <button title="优化提示词" disabled={promptOptimizing}>{promptOptimizing ? <Loader2 className="spin" size={14} /> : <WandSparkles size={14} />}</button>
-                    </PopoverTrigger>
-                    <PopoverContent className="node-pop-card" align="end" sideOffset={8}>
-                      <p className="eyebrow">选择优化技能</p>
-                      <button className="node-pop-item" disabled={promptOptimizing} onClick={() => void optimizeNodePrompt(selectedNode)}><WandSparkles size={13} /> 默认优化</button>
-                      {enabledSkills.map((skill) => (
-                        <button key={skill.id} className="node-pop-item" disabled={promptOptimizing} title={skill.description || skill.prompt} onClick={() => void optimizeNodePrompt(selectedNode, skill.prompt)}><Bot size={13} /> {skill.title}</button>
-                      ))}
-                      <button className="node-pop-item" onClick={() => setSkillLibraryOpen(true)}><Plus size={13} /> 管理技能库…</button>
-                    </PopoverContent>
-                  </Popover>
-                ) : null}
-                <button title="skill 库" onClick={() => setSkillLibraryOpen(true)}><Bot size={14} /></button>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button title="更多操作"><MoreHorizontal size={14} /></button>
-                  </PopoverTrigger>
-                  <PopoverContent className="node-pop-card" align="end" sideOffset={8}>
-                    <p className="eyebrow">节点</p>
-                    <div className="node-pop-field">
-                      <span className="field-label">节点标题</span>
-                      <input value={selectedNode.title} onChange={(event) => updateNode(selectedNode.id, { title: event.target.value })} />
-                    </div>
-                    {selectedVideoSeedance ? (
-                      <>
-                        <button className="node-pop-item" onClick={() => setMaterialNodeId(selectedNode.id)}><UserRound size={14} /> 活体授权素材 {selectedNode.metadata?.seedanceMaterialAssets?.length || 0}</button>
-                        <button className="node-pop-item" onClick={() => setSeedanceAssetNodeId(selectedNode.id)}><UserRoundCog size={14} /> 拟真人素材 {selectedNode.metadata?.seedanceVolcanoAssets?.length || 0}</button>
-                      </>
-                    ) : null}
-                    {selectedNode.kind === "text" ? <button className="node-pop-item" onClick={() => void archiveCanvasTextNode(selectedNode)}><Archive size={14} /> 加入素材库</button> : null}
-                    {selectedNode.kind === "video" ? <button className="node-pop-item" onClick={() => void captureVideoFrameNode(selectedNode)} disabled={Boolean(captureFrameNodeId)}><Camera size={14} /> {captureFrameNodeId === selectedNode.id ? "创建中…" : "当前帧创建图片"}</button> : null}
-                    {selectedNode.kind === "video" || selectedNode.kind === "audio" ? <button className="node-pop-item" onClick={() => void archiveCanvasMediaNode(selectedNode)}><Archive size={14} /> 加入素材库</button> : null}
-                    {selectedNode.kind === "image" || selectedNode.kind === "video" || selectedNode.kind === "audio" ? <button className="node-pop-item" onClick={() => void downloadSelectedMedia()}><Download size={14} /> 下载 / 导出当前媒体</button> : null}
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </>
-          ) : <div className="empty-output"><p>选择一个节点后编辑。</p></div>}
-          {selectedNode && !selectedGroup ? (
-            <button className="node-panel-resize" title="拖动调整面板宽度" aria-label="拖动调整面板宽度" onPointerDown={(event) => startPanelWidthResize(event, selectedNode)} />
-          ) : null}
-        </aside>
-        <AgentPanel
-          projectId={projectId}
-          open={agentOpen && !projectActionDisabled}
-          onClose={() => setAgentOpen(false)}
-          snapshot={agentSnapshot}
-          canUndoOps={Boolean(agentUndoSnapshot)}
-          onApplyOps={applyAgentOperations}
-          onExecuteWorkspaceTool={executeAgentWorkspaceTool}
-          onUndoOps={undoAgentOperations}
-          initialPrompt={initialPrompt}
-        />
-        <SkillLibraryDialog open={skillLibraryOpen} onOpenChange={setSkillLibraryOpen} />
-        <PromptPresetManagerDialog open={presetManagerOpen} onOpenChange={setPresetManagerOpen} />
-        <StoryboardEditorDialog
-          open={Boolean(storyboardEditorNodeId)}
-          onOpenChange={(open) => { if (!open) setStoryboardEditorNodeId(""); }}
-          title={nodes.find((item) => item.id === storyboardEditorNodeId)?.title || ""}
-          scenes={storyboardScenesFromNode(nodes.find((item) => item.id === storyboardEditorNodeId))}
-          onSave={(scenes) => {
-            const node = nodes.find((item) => item.id === storyboardEditorNodeId);
-            if (node) updateNode(node.id, { metadata: { ...(node.metadata || {}), storyboardScenes: scenes as unknown as Record<string, unknown>[] } });
+        <CanvasStage
+          stageRef={stageRef}
+          gridRef={gridRef}
+          backgroundMode={backgroundMode}
+          zoom={zoom}
+          panX={panX}
+          panY={panY}
+          projectActionDisabled={projectActionDisabled}
+          topToolbar={{
+            disabled: projectActionDisabled,
+            connecting: Boolean(connectFrom),
+            selectedNodeId: selectedNode?.id,
+            canUndo,
+            canRedo,
+            uploading,
+            selectedNodeCount: selectedNodeIds.size,
+            selectedGroupId,
+            selectedGroupRunning: runningGroupId === selectedGroupId,
+            groupRunning: Boolean(runningGroupId),
+            fragmentBusy,
+            agentOpen,
+            onActivateConnection: activateConnectionMode,
+            onUndo: () => void undoCanvas(),
+            onRedo: () => void redoCanvas(),
+            onAddNode: addNode,
+            onUpload: () => fileInputRef.current?.click(),
+            onOpenAssets: openAssetPicker,
+            onCreateGroup: createGroupFromSelected,
+            onConnectSelection: () => setConnectSelectionOpen(true),
+            onRunGroup: (groupId) => void runCanvasGroupGeneration(groupId),
+            onUngroup: ungroupCanvasGroup,
+            onExportSelection: () => void exportSelectedCanvasFragment(),
+            onRemoveSelection: () => removeNodes(selectedNodeIdsRef.current),
+            onOpenSeedanceAssets: setSeedanceAssetNodeId,
+            onToggleAgent: () => setAgentOpen((value) => !value),
+          }}
+          bottomToolbar={{
+            disabled: projectActionDisabled,
+            saving,
+            syncSaving: syncStatus === "saving",
+            snapshotWriteReady,
+            zoom,
+            minimapOpen,
+            showImageInfo,
+            backgroundMode,
+            onPersist: () => void persistSnapshot(),
+            onZoomOut: () => zoomCanvasAroundCenter(viewportRef.current.zoom - 10),
+            onZoomIn: () => zoomCanvasAroundCenter(viewportRef.current.zoom + 10),
+            onToggleMinimap: () => setMinimapOpen((open) => !open),
+            onFit: fitCanvasToContent,
+            onToggleImageInfo: () => setShowImageInfo((value) => !value),
+            onSetBackground: setBackgroundMode,
+          }}
+          canvasInteractionBlocked={canvasInteractionBlocked}
+          switching={switching}
+          projectScopePending={projectScopePending}
+          groups={groups}
+          selectedGroupId={selectedGroupId}
+          selectionBoxStyle={selectionBoxStyle}
+          connectionLayerBounds={connectionLayerBounds}
+          edges={edges}
+          nodes={nodes}
+          nodeMap={nodeMap}
+          selectedEdgeId={selectedEdgeId}
+          hoveredEdgeId={hoveredEdgeId}
+          connectionPreviewPath={connectionPreviewPath}
+          renderedNodes={renderedNodes}
+          nodeCardProps={(node) => ({
+            node,
+            previews,
+            isSelected: selectedNodeIds.has(node.id),
+            isSelectedSingle: selectedId === node.id,
+            isHovered: hoveredId === node.id,
+            isConnectionTarget: connectionTargetId === node.id,
+            isConnecting: Boolean(connectFrom),
+            connectActiveTarget: connectFrom === node.id && connectHandleType === "target",
+            connectActiveSource: connectFrom === node.id && connectHandleType === "source",
+            isTitleEditing: titleEditingNodeId === node.id,
+            titleDraft: titleEditingNodeId === node.id ? titleDraft : "",
+            isInlineEditing: editingInlineNodeId === node.id,
+            isRunning: runningNodeIds.has(node.id),
+            progress: jobProgressByNode[node.id] || 0,
+            isPinned: pinnedToolbarNodeId === node.id,
+            captureBusy: Boolean(captureFrameNodeId),
+            isCapturingFrame: captureFrameNodeId === node.id,
+            showImageInfo,
+            imageToolBusy,
+            storyboardBusy,
+            actions: nodeCardActions,
+          })}
+          agentOpen={agentOpen}
+          minimapOpen={minimapOpen}
+          visibleNodeCount={visibleNodes.length}
+          minimapModel={minimapModel}
+          selectedNodeIds={selectedNodeIds}
+          contextMenu={contextMenu}
+          contextMenuFlipX={contextMenuFlipX}
+          contextMenuStyle={contextMenuStyle}
+          contextMenuNode={contextMenuNode}
+          previews={previews}
+          captureFrameNodeId={captureFrameNodeId}
+          pendingConnectionCreate={pendingConnectionCreate}
+          pendingConnectionMenuStyle={pendingConnectionMenuStyle}
+          actions={{
+            handleStagePointerDown,
+            openCanvasContextMenu,
+            handleCanvasDoubleClick,
+            uploadFilesAsNodes,
+            selectCanvasGroup,
+            startGroupDrag,
+            moveGroupDrag,
+            endGroupDrag,
+            startGroupResize,
+            moveGroupResize,
+            endGroupResize,
+            handleCanvasLinesPointerDown,
+            handleCanvasLinesPointerMove,
+            handleCanvasLinesPointerLeave,
+            handleCanvasLinesClick,
+            handleCanvasLinesDoubleClick,
+            handleCanvasLinesContextMenu,
+            handleEdgeClick,
+            removeEdge,
+            setHoveredEdgeId,
+            clientToStagePoint,
+            screenToCanvasPoint,
+            setContextMenu,
+            toggleAgent: () => setAgentOpen((value) => !value),
+            navigateFromMinimap,
+            node: nodeCardActions,
+            activateConnectionMode,
+            copySelectedNodes,
+            openConnectSelection: () => setConnectSelectionOpen(true),
+            generateFromNode,
+            renderCanvasSubmenu,
+            copyCanvasImagePrompt,
+            addNode,
+            pasteCopiedNodes,
+            createNodeFromConnectionDraft,
+            cancelPendingConnectionCreate,
           }}
         />
-        <PromptLibraryDialog
-          open={Boolean(promptLibraryNodeId)}
-          onOpenChange={(open) => { if (!open) setPromptLibraryNodeId(""); }}
-          onSelect={(prompt) => {
-            if (promptLibraryNodeId) updateNodePrompt(promptLibraryNodeId, prompt);
+
+        <CanvasInspector
+          panelRef={panelRef}
+          selectedNode={selectedNode}
+          selectedGroup={selectedGroup}
+          inspectorOpen={inspectorOpen}
+          projectActionDisabled={projectActionDisabled}
+          selectedPanelStyle={selectedPanelStyle}
+          edges={edges}
+          nodes={nodes}
+          previews={previews}
+          visiblePromptPresets={visiblePromptPresets}
+          imageToolBusy={imageToolBusy}
+          storyboardBusy={storyboardBusy}
+          selectedGenerationMode={selectedGenerationMode}
+          selectedGenerationModel={selectedGenerationModel}
+          selectedGenerationModelLabel={(textModelLabels[selectedGenerationModel] || selectedGenerationModel || "选择模型").split("::").at(-1) || "选择模型"}
+          generationModelOptions={selectedGenerationMode === "text"
+            ? textModels.map((item) => ({ value: item, label: textModelLabels[item] || item }))
+            : selectedGenerationMode === "image"
+              ? (modelCatalog?.models || []).map((item) => ({ value: item, label: imageModelLabel(item, modelCatalog || undefined) }))
+              : selectedGenerationMode === "video"
+                ? videoModels.map((item) => ({ value: item, label: textModelLabels[item] || item }))
+                : audioModels.map((item) => ({ value: item, label: textModelLabels[item] || item }))}
+          selectedVideoConfig={selectedVideoConfig || null}
+          selectedVideoSeedance={selectedVideoSeedance}
+          selectedVideoDurations={selectedVideoConfig
+            ? selectedVideoSeedance
+              ? isLongSeedanceVideoModel(selectedVideoConfig.model)
+                ? videoModelSettings.seedanceLongDurations
+                : videoModelSettings.seedanceDurations
+              : videoModelSettings.openAiDurations
+            : []}
+          selectedVideoResolutions={selectedVideoSeedance ? videoModelSettings.seedanceResolutions : videoModelSettings.openAiResolutions}
+          selectedVideoRatios={selectedVideoSeedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes.map(sizeToRatioLabel)}
+          selectedAudioConfig={selectedAudioConfig || null}
+          audioVoiceOptions={audioVoiceOptions}
+          audioFormatOptions={audioFormatOptions}
+          runningGroupId={runningGroupId}
+          runningNodeIds={runningNodeIds}
+          captureFrameNodeId={captureFrameNodeId}
+          styleCategory={styleCategory}
+          promptOptimizing={promptOptimizing}
+          enabledSkills={enabledSkills}
+          actions={{
+            node: nodeCardActions,
+            setInspectorOpen,
+            activateConnectionMode,
+            updateCanvasGroup,
+            runCanvasGroupGeneration,
+            ungroupCanvasGroup,
+            updateNode,
+            generateFromNode,
+            openAssetPicker,
+            selectGenerationModel: (value) => {
+              if (!selectedNode) return;
+              if (selectedGenerationMode === "text") setTextModel(value);
+              if (selectedGenerationMode === "image") setImageModel(value);
+              if (selectedGenerationMode === "video") setVideoModel(value);
+              if (selectedGenerationMode === "audio") setAudioModel(value);
+              updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), model: value } });
+            },
+            setPromptLibraryNodeId,
+            setStyleCategory,
+            setStoryboardEditorNodeId,
+            setPresetManagerOpen,
+            onSkillsOpen: () => setEnabledSkills(loadSkills().filter((skill) => skill.enabled)),
+            optimizeNodePrompt,
+            setSkillLibraryOpen,
+            setSeedanceAssetNodeId,
+            downloadSelectedMedia,
+            startPanelWidthResize,
           }}
         />
-        <CanvasSeedanceMaterialDialog
-          open={Boolean(materialNodeId)}
-          selectedAssets={materialNode?.metadata?.seedanceMaterialAssets || []}
-          onClose={() => setMaterialNodeId("")}
-          onSelect={selectSeedanceMaterial}
-          onRemove={removeSeedanceMaterial}
-        />
-        <CanvasSeedanceAssetDialog
-          open={Boolean(seedanceAssetNodeId)}
-          selectedAssets={seedanceAssetNode?.metadata?.seedanceVolcanoAssets || []}
-          onClose={() => setSeedanceAssetNodeId("")}
-          onSelect={selectSeedanceVolcanoAsset}
-          onRemove={removeSeedanceVolcanoAsset}
+        <CanvasWorkspaceDialogHost
+          agent={{
+            projectId,
+            open: agentOpen && !projectActionDisabled,
+            onClose: () => setAgentOpen(false),
+            snapshot: agentSnapshot,
+            canUndoOps: Boolean(agentUndoSnapshot),
+            onApplyOps: applyAgentOperations,
+            onExecuteWorkspaceTool: executeAgentWorkspaceTool,
+            onUndoOps: undoAgentOperations,
+            initialPrompt,
+          }}
+          skillLibrary={{ open: skillLibraryOpen, onOpenChange: setSkillLibraryOpen }}
+          presetManager={{ open: presetManagerOpen, onOpenChange: setPresetManagerOpen }}
+          storyboardEditor={{
+            open: Boolean(storyboardEditorNodeId),
+            onOpenChange: (open) => { if (!open) setStoryboardEditorNodeId(""); },
+            title: nodes.find((item) => item.id === storyboardEditorNodeId)?.title || "",
+            scenes: storyboardScenesFromNode(nodes.find((item) => item.id === storyboardEditorNodeId)),
+            onSave: (scenes) => {
+              const node = nodes.find((item) => item.id === storyboardEditorNodeId);
+              if (node) updateNode(node.id, { metadata: { ...(node.metadata || {}), storyboardScenes: scenes as unknown as Record<string, unknown>[] } });
+            },
+          }}
+          promptLibrary={{
+            open: Boolean(promptLibraryNodeId),
+            onOpenChange: (open) => { if (!open) setPromptLibraryNodeId(""); },
+            onSelect: (prompt) => { if (promptLibraryNodeId) updateNodePrompt(promptLibraryNodeId, prompt); },
+          }}
+          seedanceMaterial={{
+            open: Boolean(materialNodeId),
+            selectedAssets: materialNode?.metadata?.seedanceMaterialAssets || [],
+            onClose: () => setMaterialNodeId(""),
+            onSelect: selectSeedanceMaterial,
+            onRemove: removeSeedanceMaterial,
+          }}
+          seedanceAsset={{
+            open: Boolean(seedanceAssetNodeId),
+            selectedAssets: seedanceAssetNode?.metadata?.seedanceVolcanoAssets || [],
+            onClose: () => setSeedanceAssetNodeId(""),
+            onSelect: selectSeedanceVolcanoAsset,
+            onRemove: removeSeedanceVolcanoAsset,
+          }}
         />
       </div>
-      <Dialog
-        open={Boolean(imageToolDialog)}
-        onOpenChange={(open) => {
-          if (!open && imageToolBusy) return;
-          if (!open) {
-            setImageToolDialog(null);
-            setImageToolError("");
-          }
+      <CanvasDialogHost
+        imageTool={{
+          dialog: imageToolDialog, busy: imageToolBusy, error: imageToolError, preview: imageToolPreview,
+          node: imageToolNode, crop: imageToolCrop, cropStageRef: imageCropStageRef, draft: imageToolDraft,
+          cropLocked: imageCropLocked,
+          onOpenChange: (open) => {
+            if (!open && imageToolBusy) return;
+            if (!open) { setImageToolDialog(null); setImageToolError(""); }
+          },
+          onStartCropPointer: startImageCropPointer,
+          onSelectMode: (mode) => setImageToolDialog((current) => current ? { ...current, mode } : current),
+          onDraftChange: setImageToolDraft,
+          onToggleCropLock: () => setImageCropLocked((locked) => !locked),
+          onCancel: () => { setImageToolDialog(null); setImageToolError(""); },
+          onRun: () => void runCanvasImageTool(),
         }}
-      >
-        <DialogContent
-          className="sm:max-w-[720px] canvas-image-tool-dialog"
-          showCloseButton={!imageToolBusy}
-          onEscapeKeyDown={(event) => { if (imageToolBusy) event.preventDefault(); }}
-          onPointerDownOutside={(event) => { if (imageToolBusy) event.preventDefault(); }}
-          onInteractOutside={(event) => { if (imageToolBusy) event.preventDefault(); }}
-        >
-          <DialogHeader>
-            <DialogTitle>{imageToolDialog ? `图片${canvasImageToolLabel(imageToolDialog.mode)}` : "图片工具"}</DialogTitle>
-            <DialogDescription>处理结果会上传到当前工作区，并以子节点连接到原图片；水平/垂直翻转直接更新原节点。</DialogDescription>
-          </DialogHeader>
-          <div className="canvas-image-tool-layout">
-            <div className="canvas-image-tool-preview">
-              {imageToolPreview ? imageToolDialog?.mode === "crop" || imageToolDialog?.mode === "focus" ? (
-                <div ref={imageCropStageRef} className="canvas-image-crop-stage">
-                  <img src={imageToolPreview} alt={imageToolNode?.title || "待处理图片"} draggable={false} />
-                  <div className="canvas-image-crop-mask top" style={{ height: `${imageToolCrop.y * 100}%` }} />
-                  <div className="canvas-image-crop-mask bottom" style={{ height: `${(1 - imageToolCrop.y - imageToolCrop.height) * 100}%` }} />
-                  <div className="canvas-image-crop-mask left" style={{ top: `${imageToolCrop.y * 100}%`, width: `${imageToolCrop.x * 100}%`, height: `${imageToolCrop.height * 100}%` }} />
-                  <div className="canvas-image-crop-mask right" style={{ top: `${imageToolCrop.y * 100}%`, width: `${(1 - imageToolCrop.x - imageToolCrop.width) * 100}%`, height: `${imageToolCrop.height * 100}%` }} />
-                  <div
-                    className="canvas-image-crop-box"
-                    style={{ left: `${imageToolCrop.x * 100}%`, top: `${imageToolCrop.y * 100}%`, width: `${imageToolCrop.width * 100}%`, height: `${imageToolCrop.height * 100}%` }}
-                    onPointerDown={(event) => startImageCropPointer(event, "move")}
-                  >
-                    <span className="canvas-image-crop-rule horizontal first" />
-                    <span className="canvas-image-crop-rule horizontal second" />
-                    <span className="canvas-image-crop-rule vertical first" />
-                    <span className="canvas-image-crop-rule vertical second" />
-                    {imageCropResizeHandles.map((handle) => (
-                      <button
-                        key={handle}
-                        type="button"
-                        className="canvas-image-crop-handle"
-                        style={imageCropHandleStyle(handle)}
-                        onPointerDown={(event) => startImageCropPointer(event, "resize", handle)}
-                        aria-label={`从 ${handle} 方向调整裁剪框`}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ) : <img src={imageToolPreview} alt={imageToolNode?.title || "待处理图片"} /> : <div className="empty-output"><ImageIcon size={28} /><p>原图暂不可预览</p></div>}
-            </div>
-            <div className="canvas-image-tool-controls">
-              <div className="canvas-image-tool-tabs">
-                {(["crop", "focus", "split", "upscale", "compress", "outpaint", "angle"] as const).map((mode) => (
-                  <button key={mode} type="button" className={imageToolDialog?.mode === mode ? "active" : ""} onClick={() => setImageToolDialog((current) => current ? { ...current, mode } : current)} disabled={imageToolBusy}>
-                    {canvasImageToolLabel(mode)}
-                  </button>
-                ))}
-              </div>
-              {imageToolDialog?.mode === "crop" || imageToolDialog?.mode === "focus" ? <div className="canvas-image-tool-fields">
-                <label>左侧起点（%）<input type="number" min={0} max={99} value={imageToolDraft.cropX} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, cropX: Number(event.target.value) }))} /></label>
-                <label>顶部起点（%）<input type="number" min={0} max={99} value={imageToolDraft.cropY} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, cropY: Number(event.target.value) }))} /></label>
-                <label>裁剪宽度（%）<input type="number" min={1} max={100} value={imageToolDraft.cropWidth} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, cropWidth: Number(event.target.value) }))} /></label>
-                <label>裁剪高度（%）<input type="number" min={1} max={100} value={imageToolDraft.cropHeight} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, cropHeight: Number(event.target.value) }))} /></label>
-                <div className="canvas-image-crop-actions">
-                  <button type="button" className="outline-button small" onClick={() => setImageCropLocked((locked) => !locked)} disabled={imageToolBusy}>
-                    {imageCropLocked ? <Lock size={14} /> : <LockOpen size={14} />}{imageCropLocked ? "锁定比例" : "自由比例"}
-                  </button>
-                  <button type="button" className="outline-button small" onClick={() => setImageToolDraft((draft) => ({ ...draft, cropX: 12, cropY: 12, cropWidth: 76, cropHeight: 76 }))} disabled={imageToolBusy}>重置裁剪框</button>
-                </div>
-              </div> : null}
-              {imageToolDialog?.mode === "split" ? <div className="canvas-image-tool-fields">
-                <label>行数<input type="number" min={1} max={6} value={imageToolDraft.splitRows} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, splitRows: Number(event.target.value) }))} /></label>
-                <label>列数<input type="number" min={1} max={6} value={imageToolDraft.splitColumns} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, splitColumns: Number(event.target.value) }))} /></label>
-              </div> : null}
-              {imageToolDialog?.mode === "upscale" ? <div className="canvas-image-tool-fields">
-                <label>目标长边<select value={imageToolDraft.upscaleLongEdge} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, upscaleLongEdge: Number(event.target.value) }))}><option value={1024}>1024 px</option><option value={2048}>2048 px</option><option value={3072}>3072 px</option><option value={4096}>4096 px</option></select></label>
-                <label>缩放算法<select value={imageToolDraft.upscaleAlgorithm} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, upscaleAlgorithm: event.target.value as ImageUpscaleAlgorithm }))}><option value="high">高质量分步</option><option value="bilinear">双线性</option><option value="nearest">最近邻</option></select></label>
-              </div> : null}
-              {imageToolDialog?.mode === "compress" ? <div className="canvas-image-tool-fields">
-                <label>输出格式<select value={imageToolDraft.compressionFormat} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, compressionFormat: event.target.value as ImageCompressionFormat }))}><option value="image/jpeg">JPEG</option><option value="image/webp">WebP</option></select></label>
-                <label>质量（%）<input type="number" min={30} max={95} value={imageToolDraft.compressionQuality} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, compressionQuality: Number(event.target.value) }))} /></label>
-                <label>最大长边<input type="number" min={512} max={4096} step={128} value={imageToolDraft.compressionMaxDimension} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, compressionMaxDimension: Number(event.target.value) }))} /></label>
-                <label>目标体积（KB）<input type="number" min={0} max={20480} step={100} value={imageToolDraft.compressionTargetKb} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, compressionTargetKb: Number(event.target.value) }))} placeholder="0 表示不限制" /></label>
-              </div> : null}
-              {imageToolDialog?.mode === "outpaint" ? <div className="canvas-image-tool-fields canvas-image-tool-fields-wide">
-                <label>上方扩展（%）<input type="number" min={0} max={75} value={imageToolDraft.outpaintTop} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, outpaintTop: Number(event.target.value) }))} /></label>
-                <label>右侧扩展（%）<input type="number" min={0} max={75} value={imageToolDraft.outpaintRight} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, outpaintRight: Number(event.target.value) }))} /></label>
-                <label>下方扩展（%）<input type="number" min={0} max={75} value={imageToolDraft.outpaintBottom} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, outpaintBottom: Number(event.target.value) }))} /></label>
-                <label>左侧扩展（%）<input type="number" min={0} max={75} value={imageToolDraft.outpaintLeft} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, outpaintLeft: Number(event.target.value) }))} /></label>
-                <label className="canvas-image-tool-span">扩图要求<textarea value={imageToolDraft.outpaintPrompt} maxLength={500} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, outpaintPrompt: event.target.value }))} /></label>
-              </div> : null}
-              {imageToolDialog?.mode === "angle" ? <div className="canvas-image-tool-fields canvas-image-tool-fields-wide">
-                <label>左右角度（°）<input type="range" min={-180} max={180} step={1} value={imageToolDraft.angleHorizontal} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, angleHorizontal: Number(event.target.value) }))} /><b>{imageToolDraft.angleHorizontal}°</b></label>
-                <label>俯仰角度（°）<input type="range" min={-90} max={90} step={1} value={imageToolDraft.anglePitch} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, anglePitch: Number(event.target.value) }))} /><b>{imageToolDraft.anglePitch}°</b></label>
-                <label>镜头距离<input type="range" min={1} max={10} step={0.1} value={imageToolDraft.angleDistance} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, angleDistance: Number(event.target.value) }))} /><b>{imageToolDraft.angleDistance.toFixed(1)}</b></label>
-                <label>镜头<select value={imageToolDraft.angleLens} onChange={(event) => setImageToolDraft((draft) => ({ ...draft, angleLens: event.target.value as CanvasImageToolDraft["angleLens"] }))}><option value="wide">广角</option><option value="standard">标准</option><option value="telephoto">长焦</option></select></label>
-              </div> : null}
-              {imageToolError ? <p className="canvas-image-tool-error">{imageToolError}</p> : null}
-            </div>
-          </div>
-          <DialogFooter>
-            <button className="outline-button small" type="button" onClick={() => { setImageToolDialog(null); setImageToolError(""); }} disabled={imageToolBusy}>取消</button>
-            <button className="vermilion-button" type="button" onClick={() => void runCanvasImageTool()} disabled={imageToolBusy || !imageToolNode || !imageToolPreview}>
-              {imageToolBusy ? "处理中…" : <><Scissors size={15} /> 执行{imageToolDialog ? canvasImageToolLabel(imageToolDialog.mode) : "处理"}</>}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <CanvasImageAnnotationDialog
-        dataUrl={imageAnnotationPreview}
-        open={Boolean(imageAnnotationNode && imageAnnotationPreview)}
-        onClose={() => setImageAnnotationNodeId("")}
-        onConfirm={annotateCanvasImage}
-      />
-      <CanvasImageMaskDialog
-        dataUrl={imageMaskPreview}
-        open={Boolean(imageMaskNode && imageMaskPreview)}
-        busy={imageToolBusy}
-        error={imageToolError}
-        onClose={() => { setImageMaskNodeId(""); setImageToolError(""); }}
-        onConfirm={maskEditCanvasImage}
-      />
-      <Dialog open={Boolean(storyboardNodeId)} onOpenChange={(open) => { if (!open && !storyboardBusy) setStoryboardNodeId(""); }}>
-        <DialogContent className="sm:max-w-[560px] canvas-storyboard-dialog" showCloseButton={!storyboardBusy}>
-          <DialogHeader>
-            <DialogTitle>故事板导出</DialogTitle>
-            <DialogDescription>使用当前所选图片生成一张带标题与提示词备注的故事板 PNG。</DialogDescription>
-          </DialogHeader>
-          <div className="canvas-storyboard-layouts">
-            {([
-              ["grid-2x2", "2 × 2", "最多 4 格"],
-              ["grid-3x3", "3 × 3", "最多 9 格"],
-              ["strip-horizontal", "横向条带", "最多 6 格"],
-              ["strip-vertical", "纵向条带", "最多 6 格"],
-            ] as const).map(([value, label, description]) => (
-              <button key={value} type="button" className={storyboardLayout === value ? "active" : ""} onClick={() => setStoryboardLayout(value)} disabled={storyboardBusy}>
-                <b>{label}</b><span>{description}</span>
-              </button>
-            ))}
-          </div>
-          <p className="canvas-storyboard-count">将导出当前选择中的 {storyboardSelectedCount} 张图片；没有多选时仅使用当前图片。</p>
-          <DialogFooter>
-            <button className="outline-button small" type="button" onClick={() => setStoryboardNodeId("")} disabled={storyboardBusy}>取消</button>
-            <button className="vermilion-button" type="button" onClick={() => void exportCanvasStoryboard()} disabled={storyboardBusy || !storyboardSelectedCount}><GalleryHorizontalEnd size={15} /> {storyboardBusy ? "合成中…" : "导出故事板"}</button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={Boolean(imagePreviewNode && imagePreviewSrc)} onOpenChange={(open) => { if (!open) setImagePreviewNodeId(""); }}>
-        <DialogContent className="sm:max-w-[1120px] canvas-image-preview-dialog">
-          <DialogHeader>
-            <DialogTitle>{imagePreviewNode?.title || "图片预览"}</DialogTitle>
-            <DialogDescription>节点产物的详细预览，底部缩略图或键盘 ← → 可切换同组图片。</DialogDescription>
-          </DialogHeader>
-          {imagePreviewNode ? (
-            <div className="preview-detail-layout">
-              <div className="preview-detail-main">
-                <div className="canvas-image-preview-stage">
-                  {imagePreviewSrc ? <img src={imagePreviewSrc} alt={imagePreviewNode.title || "画布图片"} /> : null}
-                  {imagePreviewSiblings.length > 1 ? (
-                    <div className="preview-detail-pager">
-                      <button type="button" title="上一张" onClick={() => {
-                        const ids = imagePreviewSiblings.map((item) => item.id);
-                        const index = ids.indexOf(imagePreviewNodeId);
-                        setImagePreviewNodeId(ids[(index - 1 + ids.length) % ids.length]);
-                      }}><ChevronLeft size={14} /></button>
-                      <b>{imagePreviewSiblings.findIndex((item) => item.id === imagePreviewNodeId) + 1} / {imagePreviewSiblings.length}</b>
-                      <button type="button" title="下一张" onClick={() => {
-                        const ids = imagePreviewSiblings.map((item) => item.id);
-                        const index = ids.indexOf(imagePreviewNodeId);
-                        setImagePreviewNodeId(ids[(index + 1) % ids.length]);
-                      }}><ChevronRight size={14} /></button>
-                    </div>
-                  ) : null}
-                </div>
-                {imagePreviewSiblings.length > 1 ? (
-                  <div className="preview-detail-thumbs">
-                    {imagePreviewSiblings.map((sibling) => (
-                      <button key={sibling.id} type="button" className={sibling.id === imagePreviewNodeId ? "selected" : ""} onClick={() => setImagePreviewNodeId(sibling.id)} title={sibling.title}>
-                        {imageSrcFromNode(sibling, previews) ? <img src={imageSrcFromNode(sibling, previews)} alt={sibling.title} /> : <ImageIcon size={16} />}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-              <aside className="preview-detail-info">
-                <h4>提示词</h4>
-                <p className="preview-detail-prompt">{promptTextFromNode(imagePreviewNode) || "—"}</p>
-                <h4>信息</h4>
-                <div className="preview-detail-rows">
-                  <div><span>模型</span><b>{imageModelLabel(modelFromNode(imagePreviewNode, imageModel), modelCatalog || undefined)}</b></div>
-                  <div><span>质量</span><b>{stringValue(imagePreviewNode.metadata?.quality) || "auto"}</b></div>
-                  <div><span>宽高比</span><b>{stringValue(imagePreviewNode.metadata?.size) || "auto"}</b></div>
-                  <div><span>文件大小</span><b>{numberValue(imagePreviewNode.metadata?.bytes) ? formatBytes(numberValue(imagePreviewNode.metadata?.bytes) as number) : "—"}</b></div>
-                  <div><span>日期</span><b>{previewAssetMeta.createdAt ? new Date(previewAssetMeta.createdAt).toLocaleString("zh-CN") : "—"}</b></div>
-                  <div><span>创建者</span><b>{user?.display_name || user?.username || "—"}</b></div>
-                </div>
-                <div className="preview-detail-actions">
-                  {imagePreviewNode.metadata?.batchRootId ? (
-                    <button className="outline-button small" type="button" onClick={() => { setBatchPrimaryNode(imagePreviewNode); }}>设为主图</button>
-                  ) : null}
-                  <button className="outline-button small" type="button" onClick={() => {
-                    if (imagePreviewNode.metadata?.batchRootId) detachBatchChildToCanvas(imagePreviewNode);
-                    setImagePreviewNodeId("");
-                  }}>应用到画布</button>
-                  <button className="vermilion-button" type="button" onClick={() => void downloadNodeMedia(imagePreviewNode)}><Download size={15} /> 下载</button>
-                </div>
-              </aside>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
-      <Dialog open={Boolean(mentionMediaPreview)} onOpenChange={(open) => { if (!open) closeMentionMediaPreview(); }}>
-        <DialogContent className="sm:max-w-[860px] canvas-mention-preview-dialog">
-          <DialogHeader>
-            <DialogTitle>{mentionMediaPreview?.title || "素材预览"}</DialogTitle>
-            <DialogDescription>@ 引用的素材详情预览。</DialogDescription>
-          </DialogHeader>
-          {mentionMediaPreview ? (
-            <div className="canvas-image-preview-stage">
-              {mentionMediaPreview.kind === "video" ? (
-                <video src={mentionMediaPreview.url} controls autoPlay />
-              ) : mentionMediaPreview.kind === "audio" ? (
-                <audio src={mentionMediaPreview.url} controls autoPlay />
-              ) : (
-                <img src={mentionMediaPreview.url} alt={mentionMediaPreview.title} />
-              )}
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={assetPickerOpen}
-        onOpenChange={(open) => {
-          if (!open && assetPickerInsertBusy) return;
-          setAssetPickerOpen(open);
-          if (!open) {
-            assetPickerAbortRef.current?.abort();
+        annotationMask={{
+          annotation: {
+            dataUrl: imageAnnotationPreview,
+            open: Boolean(imageAnnotationNode && imageAnnotationPreview),
+            onClose: () => setImageAnnotationNodeId(""),
+            onConfirm: annotateCanvasImage,
+          },
+          mask: {
+            dataUrl: imageMaskPreview, open: Boolean(imageMaskNode && imageMaskPreview),
+            busy: imageToolBusy, error: imageToolError,
+            onClose: () => { setImageMaskNodeId(""); setImageToolError(""); },
+            onConfirm: maskEditCanvasImage,
+          },
+        }}
+        storyboard={{
+          nodeId: storyboardNodeId, busy: storyboardBusy, layout: storyboardLayout,
+          selectedCount: storyboardSelectedCount,
+          onClose: () => setStoryboardNodeId(""),
+          onLayoutChange: setStoryboardLayout,
+          onExport: () => void exportCanvasStoryboard(),
+        }}
+        imagePreview={{
+          node: imagePreviewNode, source: imagePreviewSrc, siblings: imagePreviewSiblings,
+          selectedNodeId: imagePreviewNodeId, previews,
+          modelLabel: imagePreviewNode ? imageModelLabel(modelFromNode(imagePreviewNode, imageModel), modelCatalog || undefined) : "—",
+          createdAt: previewAssetMeta.createdAt,
+          creatorLabel: user?.display_name || user?.username || "—",
+          onSelectNode: setImagePreviewNodeId,
+          onSetBatchPrimary: setBatchPrimaryNode,
+          onDetachBatchChild: detachBatchChildToCanvas,
+          onDownload: (node) => void downloadNodeMedia(node),
+          onClose: () => setImagePreviewNodeId(""),
+        }}
+        mentionPreview={{ preview: mentionMediaPreview, onClose: closeMentionMediaPreview }}
+        assetPicker={{
+          open: assetPickerOpen, insertBusy: assetPickerInsertBusy, scopeOptions, scope: assetPickerScope,
+          loading: assetPickerLoading, query: assetPickerQuery, kind: assetPickerKind,
+          error: assetPickerError, items: assetPickerItems, selectedIds: assetPickerSelectedIds,
+          onOpenChange: (open) => {
+            if (!open && assetPickerInsertBusy) return;
+            setAssetPickerOpen(open);
+            if (!open) {
+              assetPickerAbortRef.current?.abort();
+              setAssetPickerSelectedIds([]);
+              setAssetPickerError("");
+            }
+          },
+          onScopeChange: (scope) => {
+            setAssetPickerScope(scope);
             setAssetPickerSelectedIds([]);
-            setAssetPickerError("");
-          }
+            void loadAssetPicker(scope, assetPickerQuery, assetPickerKind);
+          },
+          onKindChange: (kind) => {
+            setAssetPickerKind(kind);
+            setAssetPickerSelectedIds([]);
+            void loadAssetPicker(assetPickerScope, assetPickerQuery, kind);
+          },
+          onQueryChange: setAssetPickerQuery,
+          onSearch: () => void loadAssetPicker(assetPickerScope, assetPickerQuery, assetPickerKind),
+          onToggleItem: (itemId) => setAssetPickerSelectedIds((ids) => ids.includes(itemId) ? ids.filter((id) => id !== itemId) : [...ids, itemId]),
+          onCancel: () => setAssetPickerOpen(false),
+          onInsert: () => void insertAssetPickerSelection(),
         }}
-      >
-        <DialogContent className="sm:max-w-[820px] canvas-asset-picker-dialog" showCloseButton={!assetPickerInsertBusy}>
-          <DialogHeader>
-            <DialogTitle>从资产库插入节点</DialogTitle>
-            <DialogDescription>支持本地持久化文本以及服务端图片、视频和音频。跨工作区插入文本会复制内容，媒体保留原资产引用。</DialogDescription>
-          </DialogHeader>
-          <div className="canvas-asset-picker-toolbar">
-            <div className="scope-switch">
-              {scopeOptions.map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  className={assetPickerScope === item.value ? "active" : ""}
-                  disabled={assetPickerLoading || assetPickerInsertBusy}
-                  onClick={() => {
-                    setAssetPickerScope(item.value);
-                    setAssetPickerSelectedIds([]);
-                    void loadAssetPicker(item.value, assetPickerQuery, assetPickerKind);
-                  }}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <div className="scope-switch canvas-asset-kind-switch">
-              {(["all", "text", "image", "video", "audio"] as CanvasAssetPickerKind[]).map((kind) => (
-                <button
-                  key={kind}
-                  type="button"
-                  className={assetPickerKind === kind ? "active" : ""}
-                  disabled={assetPickerLoading || assetPickerInsertBusy}
-                  onClick={() => {
-                    setAssetPickerKind(kind);
-                    setAssetPickerSelectedIds([]);
-                    void loadAssetPicker(assetPickerScope, assetPickerQuery, kind);
-                  }}
-                >
-                  {kind === "all" ? "全部" : kind === "text" ? "文本" : kind === "image" ? "图片" : kind === "video" ? "视频" : "音频"}
-                </button>
-              ))}
-            </div>
-            <label>
-              <Search size={15} />
-              <input
-                value={assetPickerQuery}
-                placeholder="按名称、备注或标签搜索"
-                disabled={assetPickerInsertBusy}
-                onChange={(event) => setAssetPickerQuery(event.target.value)}
-                onKeyDown={(event) => { if (event.key === "Enter") void loadAssetPicker(assetPickerScope, assetPickerQuery, assetPickerKind); }}
-              />
-            </label>
-            <button className="outline-button small" type="button" onClick={() => void loadAssetPicker(assetPickerScope, assetPickerQuery, assetPickerKind)} disabled={assetPickerLoading || assetPickerInsertBusy}>
-              {assetPickerLoading ? <Loader2 className="spin" size={15} /> : <Search size={15} />} 搜索
-            </button>
-          </div>
-          {assetPickerError ? <p className="canvas-asset-picker-error">{assetPickerError}</p> : null}
-          <div className="canvas-asset-picker-list">
-            {assetPickerItems.map((asset) => {
-              const selected = assetPickerSelectedIds.includes(asset.id);
-              const Icon = asset.type === "text" ? BookOpen : asset.type === "image" ? ImageIcon : asset.type === "video" ? Film : Music2;
-              return (
-                <button
-                  type="button"
-                  key={asset.id}
-                  className={selected ? "selected" : ""}
-                  disabled={assetPickerInsertBusy}
-                  onClick={() => setAssetPickerSelectedIds((ids) => ids.includes(asset.id) ? ids.filter((id) => id !== asset.id) : [...ids, asset.id])}
-                >
-                  <span><Icon size={19} /></span>
-                  <b>{asset.name}</b>
-                  <small>{asset.type === "text" ? `文本 · ${asset.source === "local-text" ? "本地持久化" : "资产库"}` : `${asset.type} · ${asset.category || "未分类"} · ${asset.size ? formatBytes(asset.size) : "未知体积"}`}</small>
-                  <i>{selected ? <Check size={14} /> : null}</i>
-                </button>
-              );
-            })}
-            {!assetPickerLoading && !assetPickerItems.length && !assetPickerError ? <div className="empty-output"><FolderOpen size={26} /><p>当前筛选下没有资产</p></div> : null}
-          </div>
-          <DialogFooter>
-            <button className="outline-button small" type="button" onClick={() => setAssetPickerOpen(false)} disabled={assetPickerInsertBusy}>取消</button>
-            <button className="vermilion-button" type="button" onClick={() => void insertAssetPickerSelection()} disabled={!assetPickerSelectedIds.length || assetPickerInsertBusy}>
-              {assetPickerInsertBusy ? "插入中…" : `插入 ${assetPickerSelectedIds.length || ""} 个资产`}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={connectSelectionOpen} onOpenChange={setConnectSelectionOpen}>
-        <DialogContent className="sm:max-w-[560px]">
-          <DialogHeader>
-            <DialogTitle>连接所选节点到配置</DialogTitle>
-            <DialogDescription>将当前选中的 {selectedNodeIds.size} 个节点连接到一个配置节点。隐藏的批量子节点、配置到配置和重复连线会自动跳过。</DialogDescription>
-          </DialogHeader>
-          <div className="canvas-config-target-list">
-            <button type="button" className="full-outline" onClick={() => connectSelectedNodesToConfig()} disabled={selectedNodeIds.size < 2 || projectActionDisabled}>
-              <Plus size={16} /> 新建配置节点并连接
-            </button>
-            {nodes.filter((node) => node.kind === "config" && !isHiddenCanvasBatchChild(node, nodes)).map((node) => (
-              <button key={node.id} type="button" className="full-outline" onClick={() => connectSelectedNodesToConfig(node.id)} disabled={selectedNodeIds.size < 2 || projectActionDisabled}>
-                <Link2 size={16} /> {node.title || `配置 ${node.id.slice(-6)}`}
-              </button>
-            ))}
-            {!nodes.some((node) => node.kind === "config" && !isHiddenCanvasBatchChild(node, nodes)) ? <p className="prompt-copy">当前画布还没有已有配置，可直接新建。</p> : null}
-          </div>
-          <DialogFooter>
-            <button className="outline-button small" type="button" onClick={() => setConnectSelectionOpen(false)}>取消</button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <AlertDialog open={clearCanvasOpen} onOpenChange={(open) => { if (!clearCanvasBusy) { setClearCanvasOpen(open); if (!open) setClearCanvasError(""); } }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>清空当前画布？</AlertDialogTitle>
-            <AlertDialogDescription>将清除当前项目的全部节点、连线和分组。项目本身、画布背景设置以及独立资产库内容都会保留，完成后仍可撤销。</AlertDialogDescription>
-          </AlertDialogHeader>
-          {clearCanvasError ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{clearCanvasError}</p> : null}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={clearCanvasBusy}>取消</AlertDialogCancel>
-            <AlertDialogAction disabled={clearCanvasBusy} onClick={(event) => { event.preventDefault(); void clearCurrentCanvas(); }}>
-              {clearCanvasBusy ? "正在清空" : "确认清空"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <AlertDialog open={deleteProjectOpen} onOpenChange={(open) => { if (!deleteProjectBusy) setDeleteProjectOpen(open); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>删除当前画布</AlertDialogTitle>
-            <AlertDialogDescription>将永久删除“{projectTitle || "未命名画布"}”及其服务端快照。资产库中的独立素材不会被删除。</AlertDialogDescription>
-          </AlertDialogHeader>
-          {deleteProjectError ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{deleteProjectError}</p> : null}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteProjectBusy}>取消</AlertDialogCancel>
-            <AlertDialogAction disabled={deleteProjectBusy} onClick={(event) => { event.preventDefault(); void removeCurrentProject(); }}>
-              {deleteProjectBusy ? "正在删除" : "确认删除"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        connectSelection={{
+          open: connectSelectionOpen, selectedNodeCount: selectedNodeIds.size,
+          disabled: projectActionDisabled, nodes,
+          onOpenChange: setConnectSelectionOpen,
+          onConnect: connectSelectedNodesToConfig,
+        }}
+        destructive={{
+          clearOpen: clearCanvasOpen, clearBusy: clearCanvasBusy, clearError: clearCanvasError,
+          deleteOpen: deleteProjectOpen, deleteBusy: deleteProjectBusy, deleteError: deleteProjectError,
+          projectTitle,
+          onClearOpenChange: (open) => {
+            if (!clearCanvasBusy) {
+              setClearCanvasOpen(open);
+              if (!open) setClearCanvasError("");
+            }
+          },
+          onClear: () => void clearCurrentCanvas(),
+          onDeleteOpenChange: (open) => { if (!deleteProjectBusy) setDeleteProjectOpen(open); },
+          onDelete: () => void removeCurrentProject(),
+        }}
+      />
     </div>
   );
 }
@@ -8517,41 +7640,6 @@ export default function CanvasWorkspaceView() {
 
 
 
-
-
-/** 风格预设：分类标签 + 色块缩略图网格。 */
-const STYLE_CATEGORIES = [
-  { value: "anime", label: "动漫" },
-  { value: "digital", label: "数字艺术" },
-  { value: "director", label: "致敬导演" },
-  { value: "drama", label: "戏剧张力" },
-  { value: "extra", label: "扩展" },
-] as const;
-
-type StyleCategoryValue = (typeof STYLE_CATEGORIES)[number]["value"];
-
-const STYLE_PRESETS: Array<{ category: StyleCategoryValue; name: string; prompt: string; gradient: string }> = [
-  { category: "anime", name: "日系动画", prompt: "日系动画风格，赛璐璐上色，干净线条", gradient: "linear-gradient(135deg,#3b4a6b,#c98b9e)" },
-  { category: "anime", name: "吉卜力手绘", prompt: "吉卜力手绘动画风，温暖水彩底色", gradient: "linear-gradient(135deg,#5a7a5c,#d9c9a3)" },
-  { category: "anime", name: "新海诚光影", prompt: "新海诚式天空光影，高饱和云层与光斑", gradient: "linear-gradient(135deg,#2b4a7a,#8fb8d9)" },
-  { category: "anime", name: "像素艺术", prompt: "像素艺术，复古游戏画面", gradient: "linear-gradient(135deg,#4a3b6b,#d98bb0)" },
-  { category: "digital", name: "赛博朋克霓虹", prompt: "赛博朋克霓虹，高对比冷暖光", gradient: "linear-gradient(135deg,#1b1f3b,#e0457b)" },
-  { category: "digital", name: "蒸汽波", prompt: "蒸汽波，粉紫色调与复古网格", gradient: "linear-gradient(135deg,#3b2b5b,#e08bb8)" },
-  { category: "digital", name: "故障艺术", prompt: "故障艺术，错位色块与扫描线", gradient: "linear-gradient(135deg,#123,#0fa)" },
-  { category: "digital", name: "低多边形", prompt: "低多边形 3D 插画", gradient: "linear-gradient(135deg,#2a4a3b,#8bc98b)" },
-  { category: "director", name: "韦斯·安德森", prompt: "韦斯·安德森式对称构图，柔和粉彩", gradient: "linear-gradient(135deg,#c9a3a3,#e8d9b8)" },
-  { category: "director", name: "王家卫", prompt: "王家卫式抽帧拖影，潮湿霓虹与旧香港色调", gradient: "linear-gradient(135deg,#3b2b1b,#c96b3b)" },
-  { category: "director", name: "诺兰冷峻", prompt: "诺兰式冷峻写实，灰蓝色调与大景深", gradient: "linear-gradient(135deg,#1b2530,#7a8b99)" },
-  { category: "director", name: "沙丘废土", prompt: "沙丘式废土美学，橙黄沙暴与巨物感", gradient: "linear-gradient(135deg,#6b4a2b,#d9a35b)" },
-  { category: "drama", name: "电影感光影", prompt: "电影感光影，戏剧性明暗对比", gradient: "linear-gradient(135deg,#14181d,#c9853b)" },
-  { category: "drama", name: "黑色电影", prompt: "黑色电影，硬朗侧光与长阴影", gradient: "linear-gradient(135deg,#0d0d0f,#5b5b66)" },
-  { category: "drama", name: "舞台聚光", prompt: "舞台聚光灯下的主体，深色背景", gradient: "linear-gradient(135deg,#12090f,#8b3b6b)" },
-  { category: "drama", name: "雨夜霓虹", prompt: "雨夜霓虹反射，潮湿街道与冷暖对比", gradient: "linear-gradient(135deg,#0d1b2a,#3b6bc9)" },
-  { category: "extra", name: "水彩插画", prompt: "水彩插画，纸张纹理与晕染", gradient: "linear-gradient(135deg,#a3c9c9,#e8e0d0)" },
-  { category: "extra", name: "油画厚涂", prompt: "油画厚涂，可见笔触与颜料堆叠", gradient: "linear-gradient(135deg,#4a3b2b,#c9853b)" },
-  { category: "extra", name: "极简扁平", prompt: "极简扁平插画，大色块与留白", gradient: "linear-gradient(135deg,#e8e0d0,#8bc9c9)" },
-  { category: "extra", name: "写实摄影", prompt: "写实摄影质感，真实光线与颗粒", gradient: "linear-gradient(135deg,#2b2b2b,#a3a3a3)" },
-];
 
 
 /** 视频节点的生成方式标签（对应参考的标签组，首位帧替代动作模仿）。 */
@@ -8576,22 +7664,6 @@ function storyboardScenesFromNode(node: CanvasNodeData | undefined): StoryboardS
   }));
 }
 
-/** 空节点中央的按类型大图标（对齐空图片节点的形态）。 */
-function nodeKindCenterIcon(kind: CanvasNodeKind) {
-  const props = { size: 30, strokeWidth: 1.2 };
-  if (kind === "video") return <Film {...props} />;
-  if (kind === "audio") return <Music2 {...props} />;
-  if (kind === "config") return <SlidersHorizontal {...props} />;
-  if (kind === "text" || kind === "note" || kind === "prompt") return <Type {...props} />;
-  return <ImageIcon {...props} />;
-}
-
-
-
-
-
-
-
 function canvasImageToolLabel(mode: CanvasImageToolMode) {
   return ({ crop: "裁剪", focus: "聚焦提取", split: "切图", upscale: "放大", compress: "压缩", outpaint: "扩图", angle: "AI 多角度" } as const)[mode];
 }
@@ -8614,12 +7686,6 @@ function imageToolDraftFromCropRect(crop: ImageCropRect) {
     cropWidth: Number((crop.width * 100).toFixed(2)),
     cropHeight: Number((crop.height * 100).toFixed(2)),
   };
-}
-
-function imageCropHandleStyle(handle: ImageCropResizeHandle): CSSProperties {
-  const top = handle.includes("n") ? "-6px" : handle.includes("s") ? "calc(100% - 6px)" : "calc(50% - 6px)";
-  const left = handle.includes("w") ? "-6px" : handle.includes("e") ? "calc(100% - 6px)" : "calc(50% - 6px)";
-  return { top, left, cursor: `${handle}-resize` };
 }
 
 function canvasFragmentGroups(groups: readonly CanvasGroupData[]): CanvasFragmentGroup[] {
@@ -8820,10 +7886,6 @@ function sortPromptPresets(presets: PromptPreset[]) {
   return [...presets].sort((a, b) => rank[a.priority] - rank[b.priority] || a.sort_order - b.sort_order || a.title.localeCompare(b.title, "zh-CN"));
 }
 
-function presetPriorityLabel(priority: PromptPreset["priority"]) {
-  return priority === "pinned" ? "置顶" : priority === "high" ? "高频" : priority === "low" ? "低频" : "常用";
-}
-
 async function waitForAssetExportReady(exportId: string, scope: WorkspaceScope) {
   for (let attempt = 0; attempt < 120; attempt += 1) {
     const state = await getAssetExport(exportId, scope);
@@ -8840,88 +7902,6 @@ async function waitForAssetExportReady(exportId: string, scope: WorkspaceScope) 
 
 
 
-
-function CanvasImageToolGrid({ node, imageToolBusy, storyboardBusy, openImageToolDialog, setImageAnnotationNodeId, setImageMaskNodeId, setImageToolError, flipCanvasImageNode, generatePanoramaCanvasImage, generateStoryboard, createImageReversePromptNodes, setImagePreviewNodeId, setReplaceImageNodeId, replaceImageInputRef, archiveCanvasMediaNode }: {
-  node: CanvasNodeData;
-  imageToolBusy: boolean;
-  storyboardBusy: boolean;
-  openImageToolDialog: (nodeId: string, mode?: CanvasImageToolMode) => void;
-  setImageAnnotationNodeId: (id: string) => void;
-  setImageMaskNodeId: (id: string) => void;
-  setImageToolError: (v: string) => void;
-  flipCanvasImageNode: (node: CanvasNodeData, dir: "horizontal" | "vertical") => Promise<unknown>;
-  generatePanoramaCanvasImage: (node: CanvasNodeData) => Promise<unknown>;
-  generateStoryboard: (node: CanvasNodeData) => void;
-  createImageReversePromptNodes: (node: CanvasNodeData) => Promise<unknown>;
-  setImagePreviewNodeId: (id: string) => void;
-  setReplaceImageNodeId: (id: string) => void;
-  replaceImageInputRef: React.RefObject<HTMLInputElement | null>;
-  archiveCanvasMediaNode: (node: CanvasNodeData) => Promise<unknown>;
-}) {
-  return (
-    <div className="canvas-image-tool-list">
-      <button title="扩展图片画布并使用 AI 补全" onClick={() => openImageToolDialog(node.id, "outpaint")} disabled={imageToolBusy}><Expand size={14} /> 扩图</button>
-      <button title="擦除图片上的指定区域" disabled><Eraser size={14} /> 擦除 <span className="tool-soon">即将上线</span></button>
-      <button title="在图片上绘制形状、箭头、画笔和文字" onClick={() => setImageAnnotationNodeId(node.id)} disabled={imageToolBusy}><PenLine size={14} /> 标注</button>
-      <button title="AI 增强画质" disabled><Sparkles size={14} /> 增强 <span className="tool-soon">即将上线</span></button>
-      <button title="调整图片像素尺寸" disabled><Grid2X2 size={14} /> 调整像素 <span className="tool-soon">即将上线</span></button>
-      <button title="涂抹区域并使用 AI 局部修改（抠图）" onClick={() => { setImageMaskNodeId(node.id); setImageToolError(""); }} disabled={imageToolBusy}><Scissors size={14} /> 抠图</button>
-      <div className="tool-split-row">
-        <span className="tool-split-label"><Grid2X2 size={13} /> 快速切分</span>
-        <div className="tool-split-options">
-          {[2, 3, 4].map((grid) => (
-            <button key={grid} title={`按 ${grid}×${grid} 切分`} onClick={() => openImageToolDialog(node.id, "split")} disabled={imageToolBusy}>{grid}×{grid}</button>
-          ))}
-        </div>
-      </div>
-      <button title="Seedance 2.0 合规验证" disabled><BadgeCheck size={14} /> Seedance 2.0 合规验证 <span className="tool-soon">即将上线</span></button>
-      <div className="tool-list-divider" />
-      <button title="裁剪图片" onClick={() => openImageToolDialog(node.id, "crop")} disabled={imageToolBusy}><Crop size={14} /> 裁剪</button>
-      <button title="提取图片局部区域" onClick={() => openImageToolDialog(node.id, "focus")} disabled={imageToolBusy}><Eye size={14} /> 聚焦</button>
-      <button title="水平翻转当前图片" onClick={() => void flipCanvasImageNode(node, "horizontal")} disabled={imageToolBusy}><FlipHorizontal size={14} /> 水平翻转</button>
-      <button title="垂直翻转当前图片" onClick={() => void flipCanvasImageNode(node, "vertical")} disabled={imageToolBusy}><FlipVertical size={14} /> 垂直翻转</button>
-      <button title="放大图片分辨率" onClick={() => openImageToolDialog(node.id, "upscale")} disabled={imageToolBusy}><ZoomIn size={14} /> 放大</button>
-      <button title="压缩图片体积" onClick={() => openImageToolDialog(node.id, "compress")} disabled={imageToolBusy}><Minimize2 size={14} /> 压缩</button>
-      <button title="基于原图生成 2:1 全景图" onClick={() => void generatePanoramaCanvasImage(node)} disabled={imageToolBusy}><Images size={14} /> 全景图</button>
-      <button title="基于原图重新生成其他机位" onClick={() => openImageToolDialog(node.id, "angle")} disabled={imageToolBusy}><Camera size={14} /> 多角度</button>
-      <button title="AI 超分依赖管理员配置的模型服务" onClick={() => toast.info("AI 超分依赖管理员配置的模型服务，本地暂未实现")}><Sparkles size={14} /> AI 超分</button>
-      <button title="把所选图片排成故事板 PNG" onClick={() => generateStoryboard(node)} disabled={storyboardBusy}><GalleryHorizontalEnd size={14} /> 故事板</button>
-      <button title="创建反推提示词的文本配置节点" onClick={() => void createImageReversePromptNodes(node)}><WandSparkles size={14} /> 反推提示词</button>
-      <button title="查看原图" onClick={() => setImagePreviewNodeId(node.id)}><Maximize2 size={14} /> 查看原图</button>
-      <button title="替换当前图片" onClick={() => { setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}><Upload size={14} /> 替换图片</button>
-      <button title="确认图片已归档到素材库" onClick={() => void archiveCanvasMediaNode(node)}><Archive size={14} /> 存入素材库</button>
-    </div>
-  );
-}
-
-function formatBytes(value: number) {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
-  return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
-}
-
-/** 比例图标的小矩形样式（参数卡的图标按钮用）。 */
-function ratioIconStyle(ratio: string): CSSProperties {
-  const sizeMap: Record<string, [number, number]> = {
-    "1:1": [16, 16],
-    "16:9": [22, 12],
-    "9:16": [12, 22],
-    "21:9": [24, 10],
-    "9:21": [10, 24],
-    "3:4": [14, 19],
-    "4:3": [19, 14],
-    "5:4": [19, 15],
-    "4:5": [15, 19],
-    "3:2": [21, 14],
-    "2:3": [14, 21],
-    "2:1": [22, 11],
-    "1:2": [11, 22],
-    "panorama": [26, 10],
-  };
-  const [w, h] = sizeMap[ratio] || [17, 17];
-  return { width: w, height: h, borderStyle: ratio === "auto" || ratio === "adaptive" ? "dashed" : "solid" };
-}
 
 /** OpenAI 尺寸值转宽高比标签（1280x720 → 16:9）。 */
 function sizeToRatioLabel(size: string) {
@@ -8942,503 +7922,3 @@ function clamp(value: number, min: number, max: number) {
 function wait(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 }
-
-
-// ─── 节点卡片（性能关键路径） ────────────────────────────────────────────────
-// 平移 / 缩放 / 框选期间父组件每帧重渲染；memo 比较器只比数据 props、刻意忽略 actions
-// （handler 均基于 ref / 函数式 setState，数据相等时旧闭包行为等价），使节点子树零重渲染。
-type CanvasNodeCardActions = {
-  chooseNode: (id: string, event?: ReactMouseEvent<HTMLElement>) => boolean;
-  openNodeContextMenu: (event: ReactMouseEvent<HTMLElement>, nodeId: string) => void;
-  toggleCanvasBatch: (nodeId: string) => void;
-  openDirectorNode: (node: CanvasNodeData) => Promise<unknown>;
-  applyNodeSelection: (ids: Iterable<string>, primaryId?: string, openInspector?: boolean) => void;
-  beginInlineNodeEdit: (nodeId: string) => void;
-  handleNodeHoverStart: (id: string) => void;
-  handleNodeHoverEnd: (id: string) => void;
-  startDrag: (event: PointerEvent<HTMLElement>, node: CanvasNodeData) => void;
-  moveDrag: (event: PointerEvent<HTMLElement>) => void;
-  endDrag: () => void;
-  registerConnectionHandle: (nodeId: string, side: "source" | "target", element: HTMLElement | null) => void;
-  beginConnection: (event: PointerEvent<HTMLElement>, nodeId: string, handleType: ConnectionHandleType) => void;
-  commitNodeTitle: (node: CanvasNodeData) => void;
-  setTitleDraft: Dispatch<SetStateAction<string>>;
-  setTitleEditingNodeId: Dispatch<SetStateAction<string>>;
-  setReplaceImageNodeId: Dispatch<SetStateAction<string>>;
-  setImagePreviewNodeId: Dispatch<SetStateAction<string>>;
-  setEditingInlineNodeId: Dispatch<SetStateAction<string>>;
-  setPinnedToolbarNodeId: Dispatch<SetStateAction<string>>;
-  setMaterialNodeId: Dispatch<SetStateAction<string>>;
-  setImageAnnotationNodeId: Dispatch<SetStateAction<string>>;
-  setImageMaskNodeId: Dispatch<SetStateAction<string>>;
-  setImageToolError: Dispatch<SetStateAction<string>>;
-  setStoryboardNodeId: Dispatch<SetStateAction<string>>;
-  replaceMediaNodeIdRef: MutableRefObject<string>;
-  replaceMediaInputRef: RefObject<HTMLInputElement | null>;
-  replaceImageInputRef: RefObject<HTMLInputElement | null>;
-  toggleCanvasNodeFavorite: (node: CanvasNodeData) => Promise<unknown>;
-  detachBatchChildToCanvas: (node: CanvasNodeData) => void;
-  downloadNodeMedia: (node: CanvasNodeData) => Promise<unknown>;
-  setBatchPrimaryNode: (node: CanvasNodeData) => void;
-  captureVideoFrameNode: (node: CanvasNodeData) => Promise<unknown>;
-  updateNodeTextContent: (id: string, content: string) => void;
-  updateNodePrompt: (id: string, content: string) => void;
-  mentionReferencesForNode: (nodeId: string) => ReturnType<typeof buildCanvasMentionReferences>;
-  queueMentionAssetSearch: (query: string) => void;
-  mentionThumbnailFor: (reference: CanvasMentionReference) => string;
-  previewMentionReference: (reference: CanvasMentionReference) => void;
-  locateMentionReference: (reference: CanvasMentionReference) => void;
-  startResize: (event: PointerEvent<HTMLButtonElement>, node: CanvasNodeData) => void;
-  moveResize: (event: PointerEvent<HTMLButtonElement>) => void;
-  endResize: () => void;
-  stopGenerationByNodeId: (nodeId: string) => void;
-  duplicateSelectedNode: (targetId?: string) => Promise<unknown>;
-  adjustNodeFontSize: (node: CanvasNodeData, delta: number) => void;
-  openImageToolDialog: (nodeId: string, mode?: CanvasImageToolMode) => void;
-  flipCanvasImageNode: (node: CanvasNodeData, direction: "horizontal" | "vertical") => Promise<void>;
-  generatePanoramaCanvasImage: (node: CanvasNodeData) => Promise<unknown>;
-  createImageReversePromptNodes: (node: CanvasNodeData) => Promise<unknown>;
-  generateImageFromTextNode: (node: CanvasNodeData) => Promise<unknown>;
-  archiveCanvasMediaNode: (node: CanvasNodeData) => Promise<unknown>;
-  archiveCanvasTextNode: (node: CanvasNodeData) => Promise<unknown>;
-  retryImageNode: (node: CanvasNodeData) => Promise<unknown>;
-  retryTextNode: (node: CanvasNodeData) => Promise<unknown>;
-  retryAudioNode: (node: CanvasNodeData) => Promise<unknown>;
-  retryVideoNode: (node: CanvasNodeData) => Promise<unknown>;
-  removeNode: (id: string) => void;
-};
-
-type CanvasNodeCardProps = {
-  node: CanvasNodeData;
-  previews: Record<string, string>;
-  isSelected: boolean;
-  isSelectedSingle: boolean;
-  isHovered: boolean;
-  isConnectionTarget: boolean;
-  isConnecting: boolean;
-  connectActiveTarget: boolean;
-  connectActiveSource: boolean;
-  isTitleEditing: boolean;
-  titleDraft: string;
-  isInlineEditing: boolean;
-  isRunning: boolean;
-  progress: number;
-  isPinned: boolean;
-  captureBusy: boolean;
-  isCapturingFrame: boolean;
-  showImageInfo: boolean;
-  imageToolBusy: boolean;
-  storyboardBusy: boolean;
-  actions: CanvasNodeCardActions;
-};
-
-function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHovered, isConnectionTarget, isConnecting, connectActiveTarget, connectActiveSource, isTitleEditing, titleDraft, isInlineEditing, isRunning, progress, isPinned, captureBusy, isCapturingFrame, showImageInfo, imageToolBusy, storyboardBusy, actions }: CanvasNodeCardProps) {
-  const preview = imageSrcFromNode(node, previews);
-  const previewKind = mediaKindFromNode(node);
-  const nodeText = nodeEditorTextFromNode(node);
-  const generatedTextNode = isGeneratedCanvasText(node);
-  const isBatchRootNode = Boolean(node.metadata?.isBatchRoot && (node.metadata?.batchChildIds?.length || 0) > 0);
-  const batchExpanded = Boolean(node.metadata?.imageBatchExpanded);
-  const isBatchChildNode = Boolean(node.metadata?.batchRootId);
-  // 空媒体节点（未上传/未生成内容）走参考图的极简形态：无标题栏、类型标签 + 居中图标、悬停出上传按钮
-  const isEmptyMediaNode = (node.kind === "image" || node.kind === "video" || node.kind === "audio") && !preview;
-  const {
-    chooseNode, openNodeContextMenu, toggleCanvasBatch, openDirectorNode, applyNodeSelection, beginInlineNodeEdit,
-    handleNodeHoverStart, handleNodeHoverEnd, startDrag, moveDrag, endDrag, registerConnectionHandle, beginConnection,
-    commitNodeTitle, setTitleDraft, setTitleEditingNodeId, setReplaceImageNodeId, setImagePreviewNodeId,
-    setEditingInlineNodeId, setPinnedToolbarNodeId, setMaterialNodeId, setImageAnnotationNodeId, setImageMaskNodeId,
-    setImageToolError, setStoryboardNodeId, replaceMediaNodeIdRef, replaceMediaInputRef, replaceImageInputRef,
-    toggleCanvasNodeFavorite, detachBatchChildToCanvas, downloadNodeMedia, setBatchPrimaryNode, captureVideoFrameNode,
-    updateNodeTextContent, updateNodePrompt, mentionReferencesForNode, queueMentionAssetSearch,
-    mentionThumbnailFor, previewMentionReference, locateMentionReference,
-    startResize, moveResize, endResize, stopGenerationByNodeId, duplicateSelectedNode, adjustNodeFontSize,
-    openImageToolDialog, flipCanvasImageNode, generatePanoramaCanvasImage, createImageReversePromptNodes,
-    generateImageFromTextNode, archiveCanvasMediaNode, archiveCanvasTextNode,
-    retryImageNode, retryTextNode, retryAudioNode, retryVideoNode, removeNode,
-  } = actions;
-  return (
-    <article
-      className={`real-canvas-node ${node.kind} ${isBatchRootNode ? "batch-root" : ""} ${isSelected ? "selected" : ""} ${isConnectionTarget ? "connection-target" : ""} ${isRunning ? "running" : ""} ${isConnecting ? "connecting-mode" : ""}`}
-      data-node-id={node.id}
-      style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
-      onClick={(event) => {
-        if (isConnecting) return; // 连线模式下不触发点击
-        const selected = chooseNode(node.id, event);
-        // 批次基底节点：单击卡片本体即展开/收起图片组（拖拽后的点击已被 chooseNode 抑制，不会误触）
-        if (selected && isBatchRootNode) toggleCanvasBatch(node.id);
-      }}
-      onContextMenu={(event) => openNodeContextMenu(event, node.id)}
-      onDoubleClick={(event) => {
-        event.stopPropagation();
-        if (isConnecting) return; // 连线模式下不触发双击
-        if ((event.target as HTMLElement).closest("[data-node-title-editor]")) return;
-        if (node.kind === "director") {
-          void openDirectorNode(node);
-          return;
-        }
-        if (node.kind === "image" && preview) {
-          setImagePreviewNodeId(node.id);
-          return;
-        }
-        if ((event.target as HTMLElement).closest(".node-inline-editor")) {
-          return;
-        }
-        if (editableNodeKind(node.kind)) {
-          applyNodeSelection([node.id], node.id, true);
-          beginInlineNodeEdit(node.id);
-          return;
-        }
-        applyNodeSelection([node.id], node.id, true);
-      }}
-      onMouseEnter={() => handleNodeHoverStart(node.id)}
-      onMouseLeave={() => handleNodeHoverEnd(node.id)}
-      onPointerDown={(event) => startDrag(event, node)}
-      onPointerMove={moveDrag}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
-    >
-      <button
-        ref={(element) => registerConnectionHandle(node.id, "target", element)}
-        type="button"
-        className={`canvas-connection-handle target canvas-node-handle ${connectActiveTarget ? "active" : ""}`}
-        aria-label="连接到此节点"
-        title="拖到另一节点，或单击后再点目标节点"
-        onClick={(event) => event.stopPropagation()}
-        onPointerDown={(event) => {
-          event.stopPropagation();
-          beginConnection(event, node.id, "target");
-        }}
-      />
-      <button
-        ref={(element) => registerConnectionHandle(node.id, "source", element)}
-        type="button"
-        className={`canvas-connection-handle source canvas-node-handle ${connectActiveSource ? "active" : ""}`}
-        aria-label="从此节点连接"
-        title="拖到另一节点，或单击后再点目标节点"
-        onClick={(event) => event.stopPropagation()}
-        onPointerDown={(event) => {
-          event.stopPropagation();
-          beginConnection(event, node.id, "source");
-        }}
-      />
-      <div
-        className="node-float-label"
-        data-node-title-editor
-        onPointerDown={(event) => event.stopPropagation()}
-      >
-        <span className="node-float-kind">{nodeKindBadge(node.kind)}</span>
-        {isTitleEditing ? (
-          <input
-            className="node-title-input node-float-title-input"
-            value={titleDraft}
-            autoFocus
-            onChange={(event) => setTitleDraft(event.target.value)}
-            onBlur={() => commitNodeTitle(node)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") commitNodeTitle(node);
-              if (event.key === "Escape") setTitleEditingNodeId("");
-            }}
-            onPointerDown={(event) => event.stopPropagation()}
-          />
-        ) : (
-          <b
-            title="双击重命名节点"
-            onDoubleClick={(event) => {
-              event.stopPropagation();
-              setTitleDraft(node.title);
-              setTitleEditingNodeId(node.id);
-            }}
-          >{node.title}</b>
-        )}
-      </div>
-      {isEmptyMediaNode && (node.kind === "image" || node.kind === "video") && isHovered && !isRunning ? (
-        <button
-          type="button"
-          className="node-upload-pill"
-          onClick={(event) => {
-            event.stopPropagation();
-            if (node.kind === "video") {
-              replaceMediaNodeIdRef.current = node.id;
-              replaceMediaInputRef.current?.click();
-            } else {
-              setReplaceImageNodeId(node.id);
-              replaceImageInputRef.current?.click();
-            }
-          }}
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          <Upload size={13} /> {node.kind === "video" ? "上传视频" : "上传"}
-        </button>
-      ) : null}
-      {isBatchRootNode ? (
-        <button
-          type="button"
-          className={`canvas-batch-badge ${batchExpanded ? "open" : ""}`}
-          title={batchExpanded ? "收起图片组" : "展开图片组"}
-          onClick={(event) => { event.stopPropagation(); toggleCanvasBatch(node.id); }}
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          {(node.metadata?.batchChildIds?.length || 0) + 1} <ChevronRight size={12} />
-        </button>
-      ) : null}
-      {node.kind === "image" && preview && isSelectedSingle ? (
-        <button
-          type="button"
-          className={`canvas-node-favorite ${node.metadata?.assetFavorited ? "active" : ""}`}
-          title={node.metadata?.assetFavorited ? "取消收藏" : "收藏到素材库"}
-          onClick={(event) => { event.stopPropagation(); void toggleCanvasNodeFavorite(node); }}
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          <Star size={13} fill={node.metadata?.assetFavorited ? "currentColor" : "none"} />
-        </button>
-      ) : null}
-      {isBatchChildNode && node.imageAssetId ? (
-        <>
-          <div className="canvas-batch-child-tools">
-            <button
-              type="button"
-              className={node.metadata?.assetFavorited ? "active" : ""}
-              title={node.metadata?.assetFavorited ? "取消收藏" : "收藏到素材库"}
-              onClick={(event) => { event.stopPropagation(); void toggleCanvasNodeFavorite(node); }}
-              onPointerDown={(event) => event.stopPropagation()}
-            >
-              <Star size={13} fill={node.metadata?.assetFavorited ? "currentColor" : "none"} />
-            </button>
-            <button
-              type="button"
-              title="应用到画布（拆出为独立节点）"
-              onClick={(event) => { event.stopPropagation(); detachBatchChildToCanvas(node); }}
-              onPointerDown={(event) => event.stopPropagation()}
-            >
-              <ImageIcon size={13} />
-            </button>
-            <button
-              type="button"
-              title="下载"
-              onClick={(event) => { event.stopPropagation(); void downloadNodeMedia(node); }}
-              onPointerDown={(event) => event.stopPropagation()}
-            >
-              <Download size={13} />
-            </button>
-          </div>
-          <button
-            type="button"
-            className="canvas-batch-primary"
-            title="设为图片组主图"
-            onClick={(event) => { event.stopPropagation(); setBatchPrimaryNode(node); }}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            <Star size={13} /> 设为主图
-          </button>
-        </>
-      ) : null}
-      {preview && previewKind === "video" ? (
-        <>
-          <video
-            src={preview}
-            controls
-            preload="metadata"
-            data-testid="canvas-node-video"
-            data-canvas-no-zoom
-            onPointerDown={(event) => {
-              // 仅拦截播放控制条区域（底部 36px），其余画面放行给节点拖拽
-              const rect = event.currentTarget.getBoundingClientRect();
-              if (event.clientY > rect.bottom - 36) event.stopPropagation();
-            }}
-          />
-          <button
-            type="button"
-            className="node-video-capture"
-            title="截取当前帧为图片节点"
-            disabled={captureBusy}
-            onClick={(event) => { event.stopPropagation(); void captureVideoFrameNode(node); }}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            <Camera size={12} /> {isCapturingFrame ? "截取中…" : "截取当前帧"}
-          </button>
-        </>
-      ) : preview && previewKind === "audio" ? (
-        <audio
-          src={preview}
-          controls
-          preload="metadata"
-          data-testid="canvas-node-audio"
-          data-canvas-no-zoom
-          onPointerDown={(event) => event.stopPropagation()}
-        />
-      ) : preview ? (
-        <img src={preview} alt={node.title} draggable={false} />
-      ) : editableNodeKind(node.kind) ? (
-        isInlineEditing ? (
-          generatedTextNode ? (
-          <textarea
-            className="node-inline-editor"
-            data-node-inline-editor-id={node.id}
-            value={nodeText}
-            placeholder="在节点内直接编辑文本…"
-            onPointerDown={(event) => event.stopPropagation()}
-            onBlur={() => setEditingInlineNodeId((current) => current === node.id ? "" : current)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                setEditingInlineNodeId("");
-                event.currentTarget.blur();
-              }
-            }}
-            onChange={(event) => updateNodeTextContent(node.id, event.target.value)}
-          />
-          ) : (
-          <CanvasResourceMentionTextarea
-            className="node-inline-editor"
-            data-node-inline-editor-id={node.id}
-            value={nodeText}
-            references={mentionReferencesForNode(node.id)}
-            placeholder="输入 @ 可引用已连接节点或资产…"
-            onPointerDown={(event) => event.stopPropagation()}
-            thumbnailForReference={mentionThumbnailFor}
-            onPreviewReference={previewMentionReference}
-            onLocateReference={locateMentionReference}
-            onBlur={() => setEditingInlineNodeId((current) => current === node.id ? "" : current)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                setEditingInlineNodeId("");
-                event.currentTarget.blur();
-              }
-            }}
-            onMentionQueryChange={queueMentionAssetSearch}
-            onChange={(value) => updateNodePrompt(node.id, value)}
-          />
-          )
-        ) : (
-          <div className={nodeText.trim() ? "prompt-body" : "prompt-body prompt-body-empty"} title="双击编辑节点内容">
-            {nodeText.trim() ? null : <span className="prompt-body-type-icon">{nodeKindCenterIcon(node.kind)}</span>}
-            <p style={node.metadata?.fontSize ? { fontSize: `${node.metadata.fontSize}px`, lineHeight: 1.65 } : undefined}>{nodeText || nodeInlineEditPlaceholder(node.kind)}</p>
-          </div>
-        )
-      ) : isEmptyMediaNode ? (
-        <div className="prompt-body node-empty-body">
-          {/* 生成中由像素罩层接管视觉，中央占位图标隐藏 */}
-          {!isRunning && <ImageIcon size={30} strokeWidth={1.2} />}
-        </div>
-      ) : (
-        <div className="prompt-body">{node.kind === "image" ? <ImageIcon size={22} /> : <Sparkles size={18} />}<p>{node.content || "空节点"}</p></div>
-      )}
-      {showImageInfo && node.kind === "image" && preview ? (
-        <div className="canvas-node-image-info">
-          {Math.round(numberValue(node.metadata?.naturalWidth) || node.width)} × {Math.round(numberValue(node.metadata?.naturalHeight) || node.height)}
-          {numberValue(node.metadata?.bytes) ? ` · ${formatBytes(numberValue(node.metadata?.bytes) || 0)}` : ""}
-        </div>
-      ) : null}
-      {node.metadata?.status === "error" && node.metadata.errorDetails ? (
-        <div className="node-error-box">
-          <p title={node.metadata.errorDetails}>{node.metadata.errorDetails}</p>
-          <button
-            type="button"
-            className="node-error-retry"
-            onClick={(event) => {
-              event.stopPropagation();
-              const mode = generationModeFromNode(node);
-              if (mode === "image") void retryImageNode(node);
-              else if (mode === "video") void retryVideoNode(node);
-              else if (mode === "audio") void retryAudioNode(node);
-              else void retryTextNode(node);
-            }}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            <RotateCcw size={12} /> 重试
-          </button>
-        </div>
-      ) : null}
-      {(isSelected || isHovered) && <button className="node-resize-handle" title="调整尺寸" onPointerDown={(event) => startResize(event, node)} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} />}
-      {isRunning && <div className="node-running"><i style={{ width: `${progress}%` }} /></div>}
-      {isRunning ? (
-        <div className="node-loading-overlay is-pixel">
-          <PixelLoadingOverlay />
-        </div>
-      ) : null}
-      {isRunning ? <span className="node-progress-badge">{progress > 0 ? `${progress}%` : "…"}</span> : null}
-      {(isSelectedSingle || isPinned) && !isEmptyMediaNode && (
-        <div className="node-toolbar-wrap" data-canvas-ui data-canvas-no-zoom>
-          <button
-            type="button"
-            className={`node-toolbar-pin ${isPinned ? "active" : ""}`}
-            title={isPinned ? "取消固定" : "固定工具条"}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); setPinnedToolbarNodeId((current) => current === node.id ? "" : node.id); }}
-          >
-            <Pin size={10} fill={isPinned ? "currentColor" : "none"} /> Pin
-          </button>
-          <div className="node-hover-toolbar">
-          {isRunning ? (
-            <button title="停止生成" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); stopGenerationByNodeId(node.id); }}><Square size={12} /></button>
-          ) : (
-            <>
-               <button title="复制" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void duplicateSelectedNode(node.id); }}><Copy size={13} /></button>
-               {node.kind === "director" ? <button title="打开导演台" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void openDirectorNode(node); }}><ArrowRight size={13} /></button> : null}
-               {node.kind === "text" ? <button title="用文本生图" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void generateImageFromTextNode(node); }}><ImageIcon size={13} /></button> : null}
-               {node.kind === "text" ? (
-                 <>
-                   <button title="减小字号" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); adjustNodeFontSize(node, -2); }}><Minus size={13} /></button>
-                   <button title="增大字号" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); adjustNodeFontSize(node, 2); }}><Plus size={13} /></button>
-                 </>
-               ) : null}
-               {node.kind === "image" && preview ? (
-                 <Popover>
-                   <PopoverTrigger asChild>
-                     <button title="图片工具（更多）" onPointerDown={(e) => e.stopPropagation()}><SlidersHorizontal size={13} /></button>
-                   </PopoverTrigger>
-                   <PopoverContent className="node-pop-card node-pop-wide" align="center" side="top" sideOffset={10}>
-                     <p className="eyebrow">图片工具</p>
-                     <CanvasImageToolGrid node={node} imageToolBusy={imageToolBusy} storyboardBusy={storyboardBusy} openImageToolDialog={openImageToolDialog} setImageAnnotationNodeId={setImageAnnotationNodeId} setImageMaskNodeId={setImageMaskNodeId} setImageToolError={setImageToolError} flipCanvasImageNode={flipCanvasImageNode} generatePanoramaCanvasImage={generatePanoramaCanvasImage} generateStoryboard={(n) => setStoryboardNodeId(n.id)} createImageReversePromptNodes={createImageReversePromptNodes} setImagePreviewNodeId={setImagePreviewNodeId} setReplaceImageNodeId={setReplaceImageNodeId} replaceImageInputRef={replaceImageInputRef} archiveCanvasMediaNode={archiveCanvasMediaNode} />
-                   </PopoverContent>
-                 </Popover>
-               ) : null}
-               {node.kind === "image" && !preview ? <button title="上传图片" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}><Upload size={13} /></button> : null}
-               {node.kind === "video" && preview ? <button title="从当前播放帧创建图片节点" disabled={captureBusy} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void captureVideoFrameNode(node); }}><Camera size={13} /></button> : null}
-               {node.kind === "video" && preview ? <button title="AI 超分（依赖管理员配置的模型服务）" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); toast.info("视频超分依赖管理员配置的模型服务，本地暂未实现"); }}><Sparkles size={13} /></button> : null}
-               {node.kind === "video" && preview ? <button title="素材校验" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setMaterialNodeId(node.id); }}><BadgeCheck size={13} /></button> : null}
-               {node.kind === "video" && preview ? <button title="全屏播放" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); document.querySelector<HTMLVideoElement>(`.real-canvas-node[data-node-id="${node.id}"] video`)?.requestFullscreen?.(); }}><Maximize2 size={13} /></button> : null}
-               {preview || node.kind === "text" ? <button title="加入素材库" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void (node.kind === "text" ? archiveCanvasTextNode(node) : archiveCanvasMediaNode(node)); }}><FolderOpen size={13} /></button> : null}
-               {preview ? <button title="下载" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void downloadNodeMedia(node); }}><Download size={13} /></button> : null}
-              {node.metadata?.status === "error" && generationModeFromNode(node) === "image" ? (
-                <button title="重试生成" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void retryImageNode(node); }}><RotateCcw size={13} /></button>
-              ) : node.metadata?.status === "error" && generationModeFromNode(node) === "text" ? (
-                <button title="重试文本" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void retryTextNode(node); }}><RotateCcw size={13} /></button>
-              ) : node.metadata?.status === "error" && generationModeFromNode(node) === "video" ? (
-                <button title="重试视频" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void retryVideoNode(node); }}><RotateCcw size={13} /></button>
-              ) : node.metadata?.status === "error" && generationModeFromNode(node) === "audio" ? (
-                <button title="重试音频" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); void retryAudioNode(node); }}><RotateCcw size={13} /></button>
-              ) : node.kind === "director" ? null : null}
-              <button className="danger" title="删除" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); removeNode(node.id); }}><Trash2 size={13} /></button>
-            </>
-          )}
-          </div>
-        </div>
-      )}
-    </article>
-  );
-}
-
-const CanvasNodeCard = memo(CanvasNodeCardView, (prev, next) => (
-  prev.node === next.node
-  && prev.previews === next.previews
-  && prev.isSelected === next.isSelected
-  && prev.isSelectedSingle === next.isSelectedSingle
-  && prev.isHovered === next.isHovered
-  && prev.isConnectionTarget === next.isConnectionTarget
-  && prev.isConnecting === next.isConnecting
-  && prev.connectActiveTarget === next.connectActiveTarget
-  && prev.connectActiveSource === next.connectActiveSource
-  && prev.isTitleEditing === next.isTitleEditing
-  && prev.titleDraft === next.titleDraft
-  && prev.isInlineEditing === next.isInlineEditing
-  && prev.isRunning === next.isRunning
-  && prev.progress === next.progress
-  && prev.isPinned === next.isPinned
-  && prev.captureBusy === next.captureBusy
-  && prev.isCapturingFrame === next.isCapturingFrame
-  && prev.showImageInfo === next.showImageInfo
-  && prev.imageToolBusy === next.imageToolBusy
-  && prev.storyboardBusy === next.storyboardBusy
-));
