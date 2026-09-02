@@ -1,26 +1,9 @@
+import { fetchModelCatalog, fetchTextModelCatalog, normalizeModelList } from "@/entities/model";
+import type { CapabilityModelCatalog } from "@/entities/model";
 import { ApiError, request } from "./request";
 
-export type AiModelsResponse = {
-  text_models?: Array<string | { id?: string; name?: string }>;
-  agent_text_models?: Array<string | { id?: string; name?: string }>;
-  image_models?: Array<string | { id?: string; name?: string }>;
-  video_models?: Array<string | { id?: string; name?: string }>;
-  audio_models?: Array<string | { id?: string; name?: string }>;
-  models?: Array<string | { id?: string; name?: string }>;
-  default_text_model?: string | { id?: string; name?: string };
-  default_image_model?: string | { id?: string; name?: string };
-  default_video_model?: string | { id?: string; name?: string };
-  default_audio_model?: string | { id?: string; name?: string };
-  model_labels?: Record<string, string>;
-  model_provider_names?: Record<string, string>;
-};
-
-export type TextModelCatalog = {
-  models: string[];
-  defaultModel: string;
-  labels: Record<string, string>;
-  providerNames: Record<string, string>;
-};
+export type { AiModelsResponse } from "@/entities/model";
+export type TextModelCatalog = CapabilityModelCatalog;
 
 export type ResponseMessageContent = string | Array<{ type?: string; text?: string; image_url?: { url?: string } }>;
 
@@ -77,46 +60,14 @@ export class AiRequestError extends Error {
 
 export async function fetchAiModels() {
   try {
-    const data = await request<AiModelsResponse>("/api/ai/models");
-    const models = normalizeModelList(data.models);
-    const textModels = normalizeModelList(data.text_models?.length ? data.text_models : data.models);
-    const agentTextModels = data.agent_text_models === undefined ? textModels : normalizeModelList(data.agent_text_models);
-    const defaultTextModel = normalizeModelValue(data.default_text_model);
-    const defaultImageModel = normalizeModelValue(data.default_image_model);
-    const defaultVideoModel = normalizeModelValue(data.default_video_model);
-    const defaultAudioModel = normalizeModelValue(data.default_audio_model);
-    const imageModels = normalizeModelList([...(data.image_models || []), ...(defaultImageModel ? [defaultImageModel] : [])]);
-    const videoModels = normalizeModelList([...(data.video_models || []), ...(defaultVideoModel ? [defaultVideoModel] : [])]);
-    const audioModels = normalizeModelList([...(data.audio_models || []), ...(defaultAudioModel ? [defaultAudioModel] : [])]);
-    return {
-      models,
-      textModels,
-      agentTextModels,
-      imageModels,
-      videoModels,
-      audioModels,
-      defaultTextModel: defaultTextModel && textModels.includes(defaultTextModel) ? defaultTextModel : textModels[0] || "",
-      defaultImageModel: defaultImageModel && imageModels.includes(defaultImageModel) ? defaultImageModel : imageModels[0] || "",
-      defaultVideoModel: defaultVideoModel && videoModels.includes(defaultVideoModel) ? defaultVideoModel : videoModels[0] || "",
-      defaultAudioModel: defaultAudioModel && audioModels.includes(defaultAudioModel) ? defaultAudioModel : audioModels[0] || "",
-      modelLabels: normalizeStringRecord(data.model_labels),
-      modelProviderNames: normalizeStringRecord(data.model_provider_names),
-    };
+    return await fetchModelCatalog();
   } catch (error) {
     throw new Error(formatPublicAiError(error));
   }
 }
 
 export async function fetchTextModels(): Promise<TextModelCatalog> {
-  const data = await request<AiModelsResponse>("/api/ai/models");
-  const defaultModel = normalizeModelValue(data.default_text_model);
-  const models = normalizeModelList([...(data.text_models || []), ...(data.models || []), ...(defaultModel ? [defaultModel] : [])]);
-  return {
-    models,
-    defaultModel: defaultModel && models.includes(defaultModel) ? defaultModel : models[0] || "",
-    labels: normalizeStringRecord(data.model_labels),
-    providerNames: normalizeStringRecord(data.model_provider_names),
-  };
+  return fetchTextModelCatalog({ includeGenericModels: true, normalizeMetadata: true });
 }
 
 export async function requestAiText(body: AiTextRequest, signal?: AbortSignal) {
@@ -149,25 +100,7 @@ export async function requestAiText(body: AiTextRequest, signal?: AbortSignal) {
   }
 }
 
-export function normalizeModelList(value?: Array<string | { id?: string; name?: string }>) {
-  const models = (value || []).map(normalizeModelValue).filter(Boolean);
-  return Array.from(new Set(models));
-}
-
-function normalizeModelValue(value?: string | { id?: string; name?: string }) {
-  if (typeof value === "string") return value.trim();
-  if (!value || typeof value !== "object") return "";
-  return (value.id || value.name || "").trim();
-}
-
-function normalizeStringRecord(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value)
-      .map(([key, item]) => [key.trim(), typeof item === "string" ? item.trim() : ""])
-      .filter(([key, item]) => key && item),
-  ) as Record<string, string>;
-}
+export { normalizeModelList };
 
 function messagesToPrompt(messages: ResponseInputMessage[]) {
   return messages

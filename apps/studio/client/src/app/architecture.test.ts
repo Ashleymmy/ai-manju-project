@@ -367,6 +367,39 @@ function crossFeatureBoundaryViolations(
   return violations.sort((left, right) => left.localeCompare(right));
 }
 
+function entityBoundaryViolations(modules: Map<string, ProductionModule>) {
+  const violations: string[] = [];
+  for (const module of modules.values()) {
+    const [sourceLayer, sourceEntity] = module.relativePath.split("/");
+    if (sourceLayer !== "entities" || !sourceEntity) continue;
+
+    for (const reference of module.references) {
+      const targetModule = reference.targetPath
+        ? (modules.get(pathKey(reference.targetPath)) ?? null)
+        : null;
+      const targetRelativePath =
+        targetModule?.relativePath ??
+        relativeInternalPath(reference.candidatePath);
+      if (!targetRelativePath) continue;
+      if (
+        targetRelativePath.startsWith(`entities/${sourceEntity}/`) ||
+        targetRelativePath.startsWith("shared/")
+      ) {
+        continue;
+      }
+
+      violations.push(
+        formatReference(
+          module,
+          reference,
+          `entity 只能依赖自身目录或 shared，当前越界到 ${targetRelativePath}`
+        )
+      );
+    }
+  }
+  return violations.sort((left, right) => left.localeCompare(right));
+}
+
 function isWithinDirectory(directory: string, candidatePath: string) {
   const relativePath = path.relative(directory, candidatePath);
   return (
@@ -488,6 +521,10 @@ describe("Studio architecture boundaries", () => {
 
   it("routes cross-feature dependencies through the target public index.ts", () => {
     expect(crossFeatureBoundaryViolations(modules)).toEqual([]);
+  });
+
+  it("keeps each entity independent from other entities and legacy modules", () => {
+    expect(entityBoundaryViolations(modules)).toEqual([]);
   });
 
   it("keeps public index.ts re-exports inside their owning directory", () => {

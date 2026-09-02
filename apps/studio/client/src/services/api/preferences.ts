@@ -1,16 +1,7 @@
 import { request } from "./request";
+import type { PromptPreset } from "@/entities/prompt";
 
-export type PromptPresetPriority = "pinned" | "high" | "normal" | "low";
-export type PromptPreset = {
-  id: string;
-  title: string;
-  prompt: string;
-  tags: string[];
-  priority: PromptPresetPriority;
-  sort_order: number;
-  createdAt: string;
-  updatedAt: string;
-};
+export type { PromptPreset, PromptPresetPriority } from "@/entities/prompt";
 
 /**
  * 字段名必须与后端 sanitizeGeneration 白名单一致（apps/api/internal/handler/user_preference.go），

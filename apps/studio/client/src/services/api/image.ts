@@ -1,23 +1,11 @@
 import { getJob, isTerminalJob, jobErrorMessage, type Job } from "./jobs";
 import { API_BASE_URL, ApiError, getAuthToken, request } from "./request";
+import { fetchImageModelCatalog, fetchTextModelCatalog, modelLabel } from "@/entities/model";
+import type { CapabilityModelCatalog } from "@/entities/model";
 
-export type AiModelsResponse = {
-  image_models?: Array<string | { id?: string; name?: string }>;
-  default_image_model?: string | { id?: string; name?: string };
-  text_models?: Array<string | { id?: string; name?: string }>;
-  default_text_model?: string | { id?: string; name?: string };
-  model_labels?: Record<string, string>;
-  model_provider_names?: Record<string, string>;
-};
-
-export type TextModelCatalog = ImageModelCatalog;
-
-export type ImageModelCatalog = {
-  models: string[];
-  defaultModel: string;
-  labels: Record<string, string>;
-  providerNames: Record<string, string>;
-};
+export type { AiModelsResponse } from "@/entities/model";
+export type ImageModelCatalog = CapabilityModelCatalog;
+export type TextModelCatalog = CapabilityModelCatalog;
 
 export type ImageGenerationInput = {
   prompt: string;
@@ -51,33 +39,15 @@ export type GenerationCallbacks = {
 const imagePollIntervalMs = 2_500;
 
 export async function fetchImageModels(): Promise<ImageModelCatalog> {
-  const data = await request<AiModelsResponse>("/api/ai/models");
-  const defaultModel = normalizeModel(data.default_image_model);
-  const models = uniqueModels([...(data.image_models || []).map(normalizeModel), defaultModel]);
-  return {
-    models,
-    defaultModel: defaultModel && models.includes(defaultModel) ? defaultModel : models[0] || "",
-    labels: data.model_labels || {},
-    providerNames: data.model_provider_names || {},
-  };
+  return fetchImageModelCatalog({ normalizeMetadata: false });
 }
 
 export async function fetchTextModels(): Promise<TextModelCatalog> {
-  const data = await request<AiModelsResponse>("/api/ai/models");
-  const defaultModel = normalizeModel(data.default_text_model);
-  const models = uniqueModels([...(data.text_models || []).map(normalizeModel), defaultModel]);
-  return {
-    models,
-    defaultModel: defaultModel && models.includes(defaultModel) ? defaultModel : models[0] || "",
-    labels: data.model_labels || {},
-    providerNames: data.model_provider_names || {},
-  };
+  return fetchTextModelCatalog({ includeGenericModels: false, normalizeMetadata: false });
 }
 
 export function imageModelLabel(model: string, catalog?: Pick<ImageModelCatalog, "labels" | "providerNames">) {
-  const modelName = catalog?.labels[model] || model.split("::").at(-1) || model;
-  const provider = catalog?.providerNames[model];
-  return provider ? `${modelName} · ${provider}` : modelName;
+  return modelLabel(model, catalog);
 }
 
 export async function submitImageGeneration(input: ImageGenerationInput, signal?: AbortSignal) {
@@ -188,14 +158,6 @@ export function publicApiError(error: unknown, fallback = "请求失败") {
     return `${error.message}${error.requestId ? `（request_id: ${error.requestId}）` : ""}`;
   }
   return error instanceof Error && error.message ? error.message : fallback;
-}
-
-function normalizeModel(value: string | { id?: string; name?: string } | undefined) {
-  return typeof value === "string" ? value.trim() : (value?.id || value?.name || "").trim();
-}
-
-function uniqueModels(values: string[]) {
-  return Array.from(new Set(values.filter(Boolean)));
 }
 
 function imageItems(result: unknown): Array<Record<string, unknown>> {

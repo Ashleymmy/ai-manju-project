@@ -25,4 +25,4 @@ export const apiContract = {
   preferences: "PUT /api/user/preferences",
 } as const;
 
-export type JobState = "queued" | "running" | "succeeded" | "failed" | "canceled";
+export type { JobState } from "@/entities/job";

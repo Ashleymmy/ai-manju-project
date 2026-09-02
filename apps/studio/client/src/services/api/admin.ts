@@ -261,6 +261,10 @@ export async function fetchAdminMonitoring(hours = 24) {
   return normalizeAdminMonitoringData(result, hours);
 }
 
+export function getAdminMonitoring() {
+  return request<unknown>("/api/admin/monitoring");
+}
+
 function normalizeModelProviderConfig(config: ModelProviderConfig): ModelProviderConfig {
   return {
     ...config,
