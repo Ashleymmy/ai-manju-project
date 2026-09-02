@@ -177,6 +177,7 @@ import {
   hasRoundTripCanvasGraph,
   type CanvasSnapshotBase,
 } from "@/lib/canvas-snapshot-roundtrip";
+import { consumeCanvasBootstrap, peekCanvasBootstrap } from "@/lib/canvas-bootstrap";
 import {
   canvasNodesInSelectionRect,
   captureCanvasNodeOrigins,
@@ -876,6 +877,10 @@ export default function CanvasWorkspaceView() {
   const [clearCanvasError, setClearCanvasError] = useState("");
   const [connectSelectionOpen, setConnectSelectionOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
+  // 聊天台引导流程：覆盖层从首屏接管（步骤2），用户输入原文在加载完成后交接给 Agent 面板（步骤5）
+  const [bootstrapActive, setBootstrapActive] = useState(() => Boolean(projectId && peekCanvasBootstrap(projectId)));
+  const [initialPrompt, setInitialPrompt] = useState("");
+  const bootstrapPromptRef = useRef("");
   const [agentUndoSnapshot, setAgentUndoSnapshot] = useState<CanvasAgentSnapshot | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [pinnedToolbarNodeId, setPinnedToolbarNodeId] = useState("");
@@ -2050,6 +2055,16 @@ export default function CanvasWorkspaceView() {
     return () => { disposed = true; };
   }, []);
 
+  // 聊天台引导流程：项目切换时消费一次引导信息（步骤5的用户原文），无引导则收起覆盖层
+  useEffect(() => {
+    // 切换项目时先清掉上一个项目残留的交接内容，避免串项目误发
+    setInitialPrompt("");
+    if (!projectId) return;
+    const prompt = consumeCanvasBootstrap(projectId);
+    bootstrapPromptRef.current = prompt;
+    if (!prompt) setBootstrapActive(false);
+  }, [projectId]);
+
   useEffect(() => {
     const requestScope = scope;
     const requestKey = `${requestScope}:${projectId}`;
@@ -2186,12 +2201,23 @@ export default function CanvasWorkspaceView() {
         if (writableBase === null) {
           toast.warning("未取得完整原始快照，保存已暂停以保护现有画布数据");
         }
+        // SOP 步骤3-5：相关节点已随画布数据渲染（步骤3）→ 唤出 Agent 对话卡片（步骤4）→ 交接用户输入（步骤5由 AgentPanel 同步发送）
+        const pendingBootstrapPrompt = bootstrapPromptRef.current;
+        if (pendingBootstrapPrompt) {
+          bootstrapPromptRef.current = "";
+          setInitialPrompt(pendingBootstrapPrompt);
+          setAgentOpen(true);
+        }
+        setBootstrapActive(false);
       } catch (error) {
         if (!disposed && projectLoadKeyRef.current === requestKey) {
           const message = publicApiError(error, "读取画布项目失败");
           setSyncStatus("error");
           setSyncError(message);
           toast.error(message);
+          // 加载失败：放弃本次引导（不自动唤出 Agent），收起覆盖层交还操作
+          bootstrapPromptRef.current = "";
+          setBootstrapActive(false);
         }
       } finally {
         if (!disposed && projectLoadKeyRef.current === requestKey) {
@@ -7254,6 +7280,21 @@ export default function CanvasWorkspaceView() {
 
   return (
     <div className="canvas-page real-canvas-page">
+      {/* 步骤2：聊天台跳转过来的加载覆盖层 —— 从首屏接管覆盖，直到项目快照加载完成（步骤3-5就绪后撤下） */}
+      {bootstrapActive && (
+        <div
+          className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-4"
+          style={{
+            background: "rgba(10, 12, 13, 0.9)",
+            backdropFilter: "blur(18px)",
+            WebkitBackdropFilter: "blur(18px)",
+          }}
+        >
+          <Loader2 className="spin" size={40} style={{ color: "var(--primary)" }} />
+          <p className="text-sm font-medium" style={{ color: "var(--foreground)" }}>正在打开画布…</p>
+          <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>正在同步画布内容与创作指令</p>
+        </div>
+      )}
       <input ref={fileInputRef} type="file" accept="image/*,video/*,audio/*" multiple hidden disabled={projectActionDisabled} onChange={(event) => event.target.files && void uploadFilesAsNodes(event.target.files)} />
       <input ref={replaceImageInputRef} type="file" accept="image/*" hidden disabled={projectActionDisabled} onChange={(event) => void replaceCanvasImage(event.target.files?.[0])} />
       <input ref={replaceMediaInputRef} type="file" accept="video/*,audio/*" hidden disabled={projectActionDisabled} onChange={(event) => { const file = event.target.files?.[0]; const kind = file?.type.startsWith("video/") ? "video" as const : "audio" as const; void uploadMediaToNode(replaceMediaNodeIdRef.current, file, kind); }} />
@@ -8041,6 +8082,7 @@ export default function CanvasWorkspaceView() {
           onApplyOps={applyAgentOperations}
           onExecuteWorkspaceTool={executeAgentWorkspaceTool}
           onUndoOps={undoAgentOperations}
+          initialPrompt={initialPrompt}
         />
         <SkillLibraryDialog open={skillLibraryOpen} onOpenChange={setSkillLibraryOpen} />
         <PromptPresetManagerDialog open={presetManagerOpen} onOpenChange={setPresetManagerOpen} />

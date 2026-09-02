@@ -87,6 +87,7 @@ export default function AgentPanel({
   onApplyOps,
   onExecuteWorkspaceTool,
   onUndoOps,
+  initialPrompt,
 }: {
   projectId: string;
   open: boolean;
@@ -96,6 +97,8 @@ export default function AgentPanel({
   onApplyOps: (ops: CanvasAgentOp[]) => Promise<CanvasAgentExecutionResult>;
   onExecuteWorkspaceTool: (name: string, input: Record<string, unknown>) => Promise<AgentToolResult>;
   onUndoOps: () => Promise<CanvasAgentSnapshot | null>;
+  /** 聊天台引导流程交接的用户输入原文（步骤5：同步为一条用户消息并发送，仅一次） */
+  initialPrompt?: string;
 }) {
   const [tab, setTab] = useState<"connect" | "chat">("chat");
   const [channel, setChannel] = useState<"online" | "local">("online");
@@ -671,6 +674,28 @@ export default function AgentPanel({
     const timer = window.setTimeout(() => setRendered(false), 220);
     return () => window.clearTimeout(timer);
   }, [open]);
+
+  // 步骤5：面板就绪后，把聊天台交接的用户输入同步为一条用户消息并自动发送（仅一次）。
+  // 纯响应式条件（无定时器）：面板展开 + 有待同步输入 + 未发送过 + 空闲 + 当前会话无消息。
+  const initialPromptSentRef = useRef(false);
+  useEffect(() => {
+    if (!open || !initialPrompt || initialPromptSentRef.current || waiting || messages.length > 0) return;
+    if (channel !== "online") return;
+    if (!effectiveModel) {
+      // 模型目录加载失败：仍将用户输入同步进对话（步骤5），并展示真实错误
+      if (modelLoadError) {
+        initialPromptSentRef.current = true;
+        setMessages((prev) => [
+          ...prev,
+          { id: `u-${Date.now()}`, role: "user", text: initialPrompt },
+          { id: `err-${Date.now()}`, role: "error", text: modelLoadError },
+        ]);
+      }
+      return; // 模型目录仍在加载：effectiveModel 就绪后本 effect 会再次触发
+    }
+    initialPromptSentRef.current = true;
+    void sendOnlinePrompt(initialPrompt);
+  }, [open, initialPrompt, waiting, messages.length, channel, effectiveModel, modelLoadError, sendOnlinePrompt]);
 
   if (!rendered) return null;
 

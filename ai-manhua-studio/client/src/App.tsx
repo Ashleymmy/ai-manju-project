@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import AuthGuard from "@/components/AuthGuard";
 import CanvasWorkspaceView from "@/pages/CanvasWorkspaceView";
+import ChatView from "@/pages/ChatView";
 import Home from "@/pages/Home";
 import { AuthView } from "@/pages/SystemViews";
 import NotFound from "@/pages/NotFound";
@@ -15,8 +16,8 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { legacyStudioRoutePaths, legacyStudioRouteTarget, tagDeepLinkTarget } from "./lib/studio-route-aliases";
 
+// 注："/" 已作为首次进入的聊天界面（ChatView），不再归属 Home 工作台路由组
 const studioRoutes = [
-  "/",
   "/projects",
   "/canvas",
   "/director",
@@ -100,6 +101,9 @@ function Router() {
       <Route path="/login" component={AuthView} />
       <Route path="/v2-login" component={AuthView} />
       <Route path="/register" component={AuthView} />
+      {/* 首次进入的聊天界面：/ 与 /chat 均落地 ChatView（页内自行处理未登录引导） */}
+      <Route path="/" component={ChatView} />
+      <Route path="/chat" component={ChatView} />
       <Route path="/v2-canvas/:id" component={LegacyStudioRouteRedirect} />
       {legacyStudioRoutePaths.map((path) => (
         <Route key={path} path={path} component={LegacyStudioRouteRedirect} />
