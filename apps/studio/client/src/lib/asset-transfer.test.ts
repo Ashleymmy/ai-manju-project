@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { assetPackageUploadMetadata, createAssetPackage, readAssetPackage } from "./asset-transfer";
-import type { Asset } from "@/services/api";
+import type { Asset } from "@/entities/asset";
 
 function asset(overrides: Partial<Asset> = {}): Asset {
   return {

@@ -4,4 +4,4 @@ export { ProfileView } from "@/features/profile";
 export { PromptLibraryView } from "@/features/prompts";
 export { SkillLibraryView } from "@/features/skills";
 export { TagLibraryView } from "@/features/tags";
-export { ComicAssetsView } from "./ComicAssetsView";
+export { default as ComicAssetsView } from "@/features/comic";
