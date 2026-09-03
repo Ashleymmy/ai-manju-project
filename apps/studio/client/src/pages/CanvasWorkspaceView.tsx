@@ -54,66 +54,49 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { ApiError } from "@/shared/api/http";
+import { publicApiError } from "@/shared/api/errors";
+import type { WorkspaceScope } from "@/shared/config";
 import {
-  ApiError,
-  audioFileName,
-  audioFormatOptions,
-  audioMimeType,
-  audioVoiceOptions,
   createProject,
-  createAssetExport,
-  createVideoGenerationTask,
-  cancelJob,
   deleteProject,
-  downloadAssetExport,
-  fetchAiModels,
-  fetchImageModels,
-  generateImages,
-  generatedImagesFromJob,
-  getAsset,
-  getAssetLibrary,
-  getAssetContentObjectUrl,
-  getJobs,
-  getAssetExport,
-  getPreferences,
   getProject,
   getProjects,
-  updateProject,
   getProjectSnapshot,
-  imageModelLabel,
-  isLongSeedanceVideoModel,
-  isSeedanceVideoModel,
-  jobErrorMessage,
-  normalizeVideoGenerationConfig,
-  normalizeAudioGenerationConfig,
-  pollVideoGenerationTask,
-  publicApiError,
-  requestAudioGeneration,
-  requestAiText,
   saveProjectSnapshot,
-  uploadAsset,
+  updateProject,
+  type CanvasProject,
+} from "@/entities/project";
+import {
+  createAssetExport,
+  downloadAssetExport,
+  getAsset,
+  getAssetContentObjectUrl,
+  getAssetExport,
+  getAssetLibrary,
   updateAssetUserState,
-  videoGenerationResultToBlob,
-  videoModelSettings,
-  waitForImageJob,
+  uploadAsset,
   type Asset,
   type AssetCategory,
   type AssetSourceType,
-  type AudioGenerationConfig,
-  type CanvasProject,
-  type GeneratedImage,
-  type ImageModelCatalog,
-  type PromptPreset,
-  type ResponseInputMessage,
   type SeedanceAsset,
-  type SeedanceMaterialAsset,
-  type VideoGenerationConfig,
-  type VideoGenerationReferences,
-  type VideoGenerationResult,
-  type VideoGenerationTask,
-  type VideoProvider,
-  type WorkspaceScope,
-} from "@/services/api";
+} from "@/entities/asset";
+import { cancelJob, getJobs } from "@/entities/job";
+import type { PromptPreset } from "@/entities/prompt";
+import { fetchAiModels } from "@/services/api/ai";
+import { audioFormatOptions, audioVoiceOptions } from "@/services/api/audio";
+import type { SeedanceMaterialAsset } from "@/services/api/material";
+import {
+  fetchImageModels,
+  imageModelLabel,
+  type ImageModelCatalog,
+} from "@/features/image/api";
+import { getPreferences } from "@/features/settings/api";
+import {
+  isLongSeedanceVideoModel,
+  isSeedanceVideoModel,
+  videoModelSettings,
+} from "@/features/video";
 import type { CanvasImageAnnotationPayload } from "@/components/canvas/CanvasImageAnnotationDialog";
 import type { CanvasImageMaskPayload } from "@/components/canvas/CanvasImageMaskDialog";
 import type { SelectedSeedanceVolcanoAsset } from "@/components/canvas/CanvasSeedanceAssetDialog";
@@ -153,6 +136,8 @@ import {
   type CanvasContextMenuState,
   type PendingConnectionCreateState,
 } from "@/features/canvas/controllers/stage-interaction";
+import { CanvasGenerationJobsController } from "@/features/canvas/controllers/generation-jobs";
+import { useCanvasAssetsMentions } from "@/features/canvas/controllers/assets-mentions";
 import {
   extractProjectCanvasData,
   extractServerCanvasSnapshotData,
@@ -232,34 +217,15 @@ import {
   type StoryboardLayout,
 } from "@/features/canvas/domain/imageData";
 import {
-  buildCanvasTextRequestMessages,
   canvasTextComposerValue,
   canvasTextDisplayValue,
-  canvasTextRequestPrompt,
   isGeneratedCanvasText,
   updateCanvasNodeComposer,
   updateCanvasTextDisplay,
 } from "@/features/canvas/domain/text";
 import {
-  listCanvasTextAssets,
   saveCanvasTextAsset,
-  type CanvasTextAsset,
 } from "@/features/canvas/repositories/textAssetsRepository";
-import {
-  canvasSeedanceVideoReferences,
-  hydrateCanvasVideoReferences,
-  mergeCanvasVideoReferences,
-  videoResultPersistentMetadata,
-  type CanvasVideoReferenceSnapshot,
-} from "@/features/canvas/domain/video";
-import { createBrowserFile } from "@/features/canvas/adapters/browserFile";
-import {
-  buildCanvasMentionGenerationContext,
-  buildCanvasMentionReferences,
-  extractCanvasMentionTokens,
-  type CanvasMentionAsset,
-  type CanvasMentionReference,
-} from "@/features/canvas/domain/mentions";
 import {
   applyCanvasAgentOps,
   type CanvasAgentExecutionResult,
@@ -349,90 +315,7 @@ import {
   resolveGeneratedNode,
 } from "@/features/canvas/domain/generation";
 
-type CanvasAssetPickerKind = "all" | "text" | "image" | "video" | "audio";
-type CanvasAssetPickerItem = {
-  id: string;
-  type: Exclude<CanvasAssetPickerKind, "all">;
-  name: string;
-  scope: WorkspaceScope;
-  source: "server" | "local-text";
-  serverAsset?: Asset;
-  textAsset?: CanvasTextAsset;
-  category?: string;
-  size?: number;
-  contentType?: string;
-};
 type CanvasSyncStatus = "loading" | "pending" | "saving" | "synced" | "error";
-
-type CanvasGenerationRequest = {
-  requestId: string;
-  targetNodeId: string;
-  originNodeId: string;
-  runningNodeId: string;
-  projectKey: string;
-  scope: WorkspaceScope;
-  controller: AbortController;
-  jobId?: string;
-  provider?: VideoProvider;
-};
-
-type CanvasGenerationPreparation = {
-  id: string;
-  projectKey: string;
-  originNodeId: string;
-  targetNodeId?: string;
-  referenceNodeIds: string[];
-  controller: AbortController;
-};
-
-type CanvasImageTargetRunInput = {
-  targetNodeId: string;
-  originNodeId: string;
-  runningNodeId: string;
-  projectKey: string;
-  scope: WorkspaceScope;
-  prompt: string;
-  model: string;
-  size: ImageSizeValue;
-  quality: ImageQualityValue;
-  referenceFiles: File[];
-  maskFile?: File;
-  existingJobId?: string;
-};
-
-type CanvasTextTargetRunInput = {
-  targetNodeId: string;
-  originNodeId: string;
-  runningNodeId: string;
-  projectKey: string;
-  scope: WorkspaceScope;
-  prompt: string;
-  model: string;
-  messages?: ResponseInputMessage[];
-};
-
-type CanvasVideoTargetRunInput = {
-  targetNodeId: string;
-  originNodeId: string;
-  runningNodeId: string;
-  projectKey: string;
-  scope: WorkspaceScope;
-  prompt: string;
-  config: VideoGenerationConfig;
-  references: VideoGenerationReferences;
-  referenceInputs?: CanvasVideoReferenceSnapshot;
-  existingTask?: VideoGenerationTask;
-};
-
-type CanvasAudioTargetRunInput = {
-  targetNodeId: string;
-  originNodeId: string;
-  runningNodeId: string;
-  projectKey: string;
-  scope: WorkspaceScope;
-  prompt: string;
-  config: AudioGenerationConfig;
-};
 
 const defaultPrompt = "雨夜，狭长街道，潮湿沥青反射红色招牌；人物在画面右侧停留，低机位缓慢推近，电影级冷暖对比。";
 const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用于 AI 生图的提示词。
@@ -639,24 +522,10 @@ function CanvasWorkspaceContent() {
   const setRunningGroupId = canvasCommands.generation.setRunningGroupId;
   const jobProgressByNode = useCanvasStore((state) => state.generation.jobProgressByNode);
   const setJobProgressByNode = canvasCommands.generation.setJobProgressByNode;
-  const [previews, setPreviews] = useState<Record<string, string>>({});
-  // 媒体 Object URL 持久缓存：key = `${scope}:${kind}:${assetId}`。
-  // 拖动只改节点坐标、资产集合不变 → 不重新请求、不更换 blob URL，<img>/<video> 的 src 保持稳定。
-  const previewObjectUrlCacheRef = useRef(new Map<string, { assetId: string; url: string }>());
   const [uploading, setUploading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [fragmentBusy, setFragmentBusy] = useState(false);
   const [projectArchiveBusy, setProjectArchiveBusy] = useState(false);
-  const [canvasAssets, setCanvasAssets] = useState<Array<Asset & { scope: WorkspaceScope }>>([]);
-  const [assetPickerOpen, setAssetPickerOpen] = useState(false);
-  const [assetPickerScope, setAssetPickerScope] = useState<WorkspaceScope>(scope);
-  const [assetPickerQuery, setAssetPickerQuery] = useState("");
-  const [assetPickerKind, setAssetPickerKind] = useState<CanvasAssetPickerKind>("all");
-  const [assetPickerItems, setAssetPickerItems] = useState<CanvasAssetPickerItem[]>([]);
-  const [assetPickerSelectedIds, setAssetPickerSelectedIds] = useState<string[]>([]);
-  const [assetPickerLoading, setAssetPickerLoading] = useState(false);
-  const [assetPickerError, setAssetPickerError] = useState("");
-  const [assetPickerInsertBusy, setAssetPickerInsertBusy] = useState(false);
   const [captureFrameNodeId, setCaptureFrameNodeId] = useState("");
   const hoveredId = useCanvasStore((state) => state.ui.hoveredNodeId);
   const setHoveredId = canvasCommands.ui.setHoveredNodeId;
@@ -712,9 +581,7 @@ function CanvasWorkspaceContent() {
   const replaceMediaNodeIdRef = useRef("");
   const fragmentInputRef = useRef<HTMLInputElement>(null);
   const projectArchiveInputRef = useRef<HTMLInputElement>(null);
-  const assetCatalogAbortRef = useRef<AbortController | null>(null);
-  const assetPickerAbortRef = useRef<AbortController | null>(null);
-  const assetSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toggleCanvasBatchRef = useRef<(nodeId: string) => void>(() => undefined);
   const imageCropStageRef = useRef<HTMLDivElement>(null);
   const [historyController] = useState(() => new CanvasHistoryController());
   const [autosaveController] = useState(() => new CanvasAutosaveController());
@@ -724,9 +591,25 @@ function CanvasWorkspaceContent() {
   const [stageInteractionController] = useState(
     () => new CanvasStageInteractionController(),
   );
-  const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
-  const generationPreparationsRef = useRef(new Map<string, CanvasGenerationPreparation>());
-  const recoveredJobIdsRef = useRef(new Set<string>());
+  const [generationController] = useState(() => new CanvasGenerationJobsController());
+  const {
+    abortAllGenerationRequests,
+    cancelForRemovedNodes,
+    generateAudioFromNode,
+    generateFromNode,
+    generateImageFromNode,
+    generateTextFromNode,
+    generateVideoFromNode,
+    optimizeNodePrompt,
+    recoverPendingJobs,
+    retryAudioNode,
+    retryImageNode,
+    retryTextNode,
+    retryVideoNode,
+    runImageTarget,
+    runSelectedGeneration,
+    stopGenerationByNodeId,
+  } = generationController;
   const uploadingRef = useRef(false);
   const stageRef = useRef<HTMLElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -792,91 +675,68 @@ function CanvasWorkspaceContent() {
     }));
   }, [canvasCommands]);
 
-  const syncGenerationRequestState = useCallback(() => {
-    const running = new Set<string>();
-    generationRequestsRef.current.forEach((request) => {
-      running.add(request.targetNodeId);
-      running.add(request.runningNodeId);
-    });
-    setRunningNodeIds(running);
-    setJobProgressByNode((current) => Object.fromEntries(
-      Object.entries(current).filter(([nodeId]) => running.has(nodeId)),
-    ));
-  }, []);
-
-  const abortGenerationPreparations = useCallback(() => {
-    generationPreparationsRef.current.forEach((preparation) => preparation.controller.abort());
-    generationPreparationsRef.current.clear();
-  }, []);
-
-  const abortAllGenerationRequests = useCallback(() => {
-    abortGenerationPreparations();
-    generationRequestsRef.current.forEach((request) => request.controller.abort());
-    generationRequestsRef.current.clear();
-    recoveredJobIdsRef.current.clear();
-    setRunningNodeIds(new Set());
-    setJobProgressByNode({});
-  }, [abortGenerationPreparations]);
-
-  const startGenerationPreparation = useCallback((input: Omit<CanvasGenerationPreparation, "id" | "controller">) => {
-    const preparation: CanvasGenerationPreparation = {
-      ...input,
-      id: crypto.randomUUID(),
-      referenceNodeIds: Array.from(new Set(input.referenceNodeIds)),
-      controller: new AbortController(),
-    };
-    generationPreparationsRef.current.set(preparation.id, preparation);
-    return preparation;
-  }, []);
-
-  const finishGenerationPreparation = useCallback((id: string) => {
-    generationPreparationsRef.current.delete(id);
-  }, []);
-
-  const generationPreparationIsCurrent = useCallback((preparation: CanvasGenerationPreparation) => {
-    if (preparation.controller.signal.aborted || projectSessionController.canonicalKey !== preparation.projectKey) return false;
-    const nodeIds = new Set(nodesRef.current.map((node) => node.id));
-    return nodeIds.has(preparation.originNodeId)
-      && (!preparation.targetNodeId || nodeIds.has(preparation.targetNodeId))
-      && preparation.referenceNodeIds.every((nodeId) => nodeIds.has(nodeId));
-  }, []);
-
-  const startGenerationRequest = useCallback((input: Omit<CanvasGenerationRequest, "requestId" | "controller"> & { controller?: AbortController }) => {
-    const previous = generationRequestsRef.current.get(input.targetNodeId);
-    previous?.controller.abort();
-    const request: CanvasGenerationRequest = {
-      ...input,
-      requestId: crypto.randomUUID(),
-      controller: input.controller || new AbortController(),
-    };
-    generationRequestsRef.current.set(input.targetNodeId, request);
-    syncGenerationRequestState();
-    return request;
-  }, [syncGenerationRequestState]);
-
-  const currentGenerationRequest = useCallback((targetNodeId: string, requestId: string, projectKey: string) => {
-    const request = generationRequestsRef.current.get(targetNodeId);
-    return request?.requestId === requestId && request.projectKey === projectKey && projectSessionController.canonicalKey === projectKey
-      ? request
-      : null;
-  }, []);
-
-  const finishGenerationRequest = useCallback((targetNodeId: string, requestId: string, projectKey: string) => {
-    if (!currentGenerationRequest(targetNodeId, requestId, projectKey)) return false;
-    generationRequestsRef.current.delete(targetNodeId);
-    syncGenerationRequestState();
-    return true;
-  }, [currentGenerationRequest, syncGenerationRequestState]);
-
-  const updateGenerationProgress = useCallback((request: CanvasGenerationRequest, progress: number) => {
-    if (!currentGenerationRequest(request.targetNodeId, request.requestId, request.projectKey)) return;
-    const normalized = Math.max(0, Math.min(100, Math.round(progress || 0)));
-    setJobProgressByNode((current) => ({
-      ...current,
-      [request.targetNodeId]: normalized,
-      [request.runningNodeId]: normalized,
-    }));
-  }, [currentGenerationRequest]);
+  const currentMentionScope = projectId ? canonicalProjectScope ?? scope : scope;
+  const {
+    controller: assetsMentionsController,
+    snapshot: assetsMentionsSnapshot,
+  } = useCanvasAssetsMentions({
+    projectId,
+    canonicalScope: canonicalProjectScope,
+    fallbackScope: scope,
+    mentionScope: currentMentionScope,
+    nodes,
+    getUserId: () => user?.id || "",
+    getProjectId: () => projectId,
+    getCanonicalScope: () => projectSessionController.canonicalScope,
+    getFallbackScope: () => scope,
+    getMentionScope: () => currentMentionScope,
+    getNodes: () => nodesRef.current,
+    getEdges: () => edgesRef.current,
+    setNodes: nextNodes => { nodesRef.current = nextNodes; setNodes(nextNodes); },
+    applyNodeSelection,
+    getCanvasCenter: stageInteractionController.getCanvasCenter,
+    setImagePreviewNodeId,
+    toggleCanvasBatch: nodeId => toggleCanvasBatchRef.current(nodeId),
+    focusNodeInViewport: stageInteractionController.focusNodeInViewport,
+    executeAssets: canvasCommands.services.assets,
+    onSuccess: message => toast.success(message),
+    onError: message => toast.error(message),
+  });
+  const {
+    assets: canvasAssets,
+    previews,
+    picker: assetPicker,
+    mentionPreview: mentionMediaPreview,
+  } = assetsMentionsSnapshot;
+  const {
+    cancelAssetPicker,
+    closeMentionPreview: closeMentionMediaPreview,
+    insertAssetPickerSelection,
+    locateMentionReference,
+    mentionReferencesForNode,
+    mentionThumbnailFor,
+    mergeAssets: mergeCanvasAssetCatalog,
+    openAssetPicker,
+    previewMentionReference,
+    queueMentionAssetSearch,
+    searchAssetPicker,
+    setAssetPickerKind,
+    setAssetPickerOpen,
+    setAssetPickerQuery,
+    setAssetPickerScope,
+    toggleAssetPickerItem,
+  } = assetsMentionsController;
+  const {
+    open: assetPickerOpen,
+    insertBusy: assetPickerInsertBusy,
+    scope: assetPickerScope,
+    loading: assetPickerLoading,
+    query: assetPickerQuery,
+    kind: assetPickerKind,
+    error: assetPickerError,
+    items: assetPickerItems,
+    selectedIds: assetPickerSelectedIds,
+  } = assetPicker;
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
 
@@ -1017,15 +877,6 @@ function CanvasWorkspaceContent() {
     : null;
   const currentProjectDisplayScope = projectId ? canonicalProjectScope ?? scope : scope;
   const projectListScope = projectId ? canonicalProjectScope ?? scope : scope;
-  const currentMentionScope = currentProjectDisplayScope;
-  const mentionAssets = useMemo<CanvasMentionAsset[]>(
-    () => canvasAssets.filter((asset) => asset.scope === currentMentionScope),
-    [canvasAssets, currentMentionScope],
-  );
-  const mentionReferencesForNode = useCallback(
-    (nodeId: string) => buildCanvasMentionReferences(nodeId, nodes, edges, mentionAssets, currentMentionScope),
-    [currentMentionScope, edges, mentionAssets, nodes],
-  );
   const projectScopePending = Boolean(projectId && !canonicalProjectScope);
   const projectActionDisabled = loading || switching || projectScopePending;
   const canvasInteractionBlocked = projectActionDisabled;
@@ -1236,190 +1087,6 @@ function CanvasWorkspaceContent() {
     showImageInfo,
   }), [backgroundMode, showImageInfo]);
 
-  const mergeCanvasAssetCatalog = useCallback((items: Asset[], targetScope: WorkspaceScope) => {
-    setCanvasAssets((current) => {
-      const byKey = new Map(current.map((asset) => [`${asset.scope}:${asset.id}`, asset]));
-      items.forEach((asset) => byKey.set(`${targetScope}:${asset.id}`, { ...asset, scope: targetScope }));
-      return Array.from(byKey.values());
-    });
-  }, []);
-
-  const loadMentionAssetCatalog = useCallback(async (keyword = "", targetScope = currentMentionScope) => {
-    assetCatalogAbortRef.current?.abort();
-    const controller = new AbortController();
-    assetCatalogAbortRef.current = controller;
-    try {
-      const result = await getAssetLibrary(targetScope, {
-        keyword: keyword.trim() || undefined,
-        page: 1,
-        pageSize: 100,
-        sort: "created_at_desc",
-      }, controller.signal);
-      if (!controller.signal.aborted) mergeCanvasAssetCatalog(result.items || [], targetScope);
-    } catch (error) {
-      if (!controller.signal.aborted) console.warn("读取画布引用资产失败", error);
-    } finally {
-      if (assetCatalogAbortRef.current === controller) assetCatalogAbortRef.current = null;
-    }
-  }, [currentMentionScope, mergeCanvasAssetCatalog]);
-
-  const queueMentionAssetSearch = useCallback((query: string) => {
-    if (assetSearchTimerRef.current) clearTimeout(assetSearchTimerRef.current);
-    assetSearchTimerRef.current = setTimeout(() => {
-      assetSearchTimerRef.current = null;
-      void loadMentionAssetCatalog(query);
-    }, 240);
-  }, [loadMentionAssetCatalog]);
-
-  const loadAssetPicker = useCallback(async (
-    targetScope = assetPickerScope,
-    keyword = assetPickerQuery,
-    targetKind = assetPickerKind,
-  ) => {
-    assetPickerAbortRef.current?.abort();
-    const controller = new AbortController();
-    assetPickerAbortRef.current = controller;
-    setAssetPickerLoading(true);
-    setAssetPickerError("");
-    try {
-      const [serverResult, textResult] = await Promise.allSettled([
-        targetKind === "text"
-          ? Promise.resolve({ items: [] as Asset[] })
-          : getAssetLibrary(targetScope, {
-            keyword: keyword.trim() || undefined,
-            page: 1,
-            pageSize: 60,
-            sort: "created_at_desc",
-          }, controller.signal),
-        user?.id ? listCanvasTextAssets(user.id, targetScope) : Promise.resolve([]),
-      ]);
-      if (controller.signal.aborted) return;
-      const query = keyword.trim().toLowerCase();
-      const serverAssets = serverResult.status === "fulfilled" ? serverResult.value.items || [] : [];
-      const textAssets = textResult.status === "fulfilled" ? textResult.value : [];
-      const mediaItems: CanvasAssetPickerItem[] = serverAssets
-        .filter((asset) => targetKind === "all" || asset.type === targetKind)
-        .map((asset) => ({
-          id: `server:${asset.id}`,
-          type: asset.type,
-          name: asset.name || `资产 ${asset.id.slice(-8)}`,
-          scope: targetScope,
-          source: "server",
-          serverAsset: asset,
-          category: asset.category,
-          size: asset.size,
-          contentType: asset.content_type,
-        }));
-      const localTextItems: CanvasAssetPickerItem[] = textAssets
-        .filter((asset) => targetKind === "all" || targetKind === "text")
-        .filter((asset) => !query || `${asset.title} ${asset.content}`.toLowerCase().includes(query))
-        .map((asset) => ({
-          id: `text:${asset.id}`,
-          type: "text",
-          name: asset.title,
-          scope: targetScope,
-          source: "local-text",
-          textAsset: asset,
-        }));
-      setAssetPickerItems([...localTextItems, ...mediaItems]);
-      if (serverAssets.length) mergeCanvasAssetCatalog(serverAssets, targetScope);
-      if (serverResult.status === "rejected") {
-        setAssetPickerError(textAssets.length ? "服务端媒体资产读取失败，本地文本资产仍可使用" : publicApiError(serverResult.reason, "读取资产库失败"));
-      } else if (textResult.status === "rejected") {
-        setAssetPickerError("本地文本资产读取失败，服务端媒体资产仍可使用");
-      }
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      setAssetPickerItems([]);
-      setAssetPickerError(publicApiError(error, "读取资产库失败"));
-    } finally {
-      if (assetPickerAbortRef.current === controller) assetPickerAbortRef.current = null;
-      if (!controller.signal.aborted) setAssetPickerLoading(false);
-    }
-  }, [assetPickerKind, assetPickerQuery, assetPickerScope, mergeCanvasAssetCatalog, user?.id]);
-
-  const openAssetPicker = useCallback(() => {
-    const targetScope = projectSessionController.canonicalScope || scope;
-    setAssetPickerScope(targetScope);
-    setAssetPickerQuery("");
-    setAssetPickerKind("all");
-    setAssetPickerSelectedIds([]);
-    setAssetPickerOpen(true);
-    void loadAssetPicker(targetScope, "", "all");
-  }, [loadAssetPicker, scope]);
-
-  const insertAssetPickerSelection = useCallback(async () => {
-    if (assetPickerInsertBusy || !assetPickerSelectedIds.length) return;
-    const activeScope = projectSessionController.canonicalScope;
-    if (!activeScope) return;
-    const selected = assetPickerItems.filter((asset) => assetPickerSelectedIds.includes(asset.id));
-    if (!selected.length) return;
-    const crossScopeText = selected.some((asset) => asset.type === "text");
-    if (assetPickerScope !== activeScope && !window.confirm(`将${assetPickerScope === "team" ? "团队" : "个人"}素材插入当前${activeScope === "team" ? "团队" : "个人"}画布。${crossScopeText ? "文本会复制内容，媒体仍引用原资产。" : "媒体会保留原资产引用。"}是否继续？`)) return;
-    setAssetPickerInsertBusy(true);
-    try {
-      const center = getCanvasCenter();
-      const created = selected.flatMap((item, index): CanvasNodeData[] => {
-        const position = {
-          x: center.x + (index % 3) * 80 - 120,
-          y: center.y + Math.floor(index / 3) * 70 - 80,
-        };
-        if (item.type === "text" && item.textAsset) {
-          return [{
-            id: crypto.randomUUID(),
-            kind: "text",
-            title: item.name || "文本资产",
-            content: item.textAsset.content,
-            x: position.x,
-            y: position.y,
-            width: 320,
-            height: 190,
-            metadata: {
-              content: item.textAsset.content,
-              prompt: "",
-              composerContent: "",
-              generationMode: "text",
-              status: "success",
-              textAssetId: item.textAsset.id,
-              textAssetScope: item.scope,
-            },
-          }];
-        }
-        const asset = item.serverAsset;
-        if (!asset) return [];
-        return [{
-          id: crypto.randomUUID(),
-          kind: asset.type,
-          title: item.name,
-          content: "",
-          x: position.x,
-          y: position.y,
-          width: asset.type === "video" ? 420 : 320,
-          height: asset.type === "audio" ? 120 : asset.type === "video" ? 260 : 238,
-          metadata: {
-            assetId: asset.id,
-            assetScope: item.scope,
-            mimeType: item.contentType,
-            bytes: item.size,
-            generationMode: asset.type,
-            status: "success",
-            sourceNodeId: undefined,
-          },
-        }];
-      });
-      if (!created.length) throw new Error("所选资产已失效，请刷新后重试");
-      const next = [...nodesRef.current, ...created];
-      nodesRef.current = next;
-      setNodes(next);
-      applyNodeSelection(created.map((node) => node.id), created[0]?.id || "", created.length === 1);
-      setAssetPickerOpen(false);
-      setAssetPickerSelectedIds([]);
-      toast.success(`已插入 ${created.length} 个资产节点`);
-    } finally {
-      setAssetPickerInsertBusy(false);
-    }
-  }, [applyNodeSelection, assetPickerInsertBusy, assetPickerItems, assetPickerScope, assetPickerSelectedIds, getCanvasCenter]);
-
   const copySelectedNodes = useCallback(() => {
     const clipboard = createCanvasClipboard(
       nodesRef.current,
@@ -1468,17 +1135,6 @@ function CanvasWorkspaceContent() {
   useEffect(() => {
     setScope(scopeFromLocation(location));
   }, [location]);
-
-  useEffect(() => {
-    if (projectId && !canonicalProjectScope) return;
-    void loadMentionAssetCatalog("", currentMentionScope);
-  }, [canonicalProjectScope, currentMentionScope, loadMentionAssetCatalog, projectId]);
-
-  useEffect(() => () => {
-    assetCatalogAbortRef.current?.abort();
-    assetPickerAbortRef.current?.abort();
-    if (assetSearchTimerRef.current) clearTimeout(assetSearchTimerRef.current);
-  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -1593,98 +1249,6 @@ function CanvasWorkspaceContent() {
     };
   }, [abortAllGenerationRequests, projectId, projectSessionController, scope]);
 
-  // 预览加载只依赖"资产集合签名"（assetId + scope + kind），与节点坐标/尺寸无关：
-  // 拖动改变 nodes 引用但签名不变，effect 不会重跑，媒体 src 保持稳定。
-  const previewAssetSignature = useMemo(() => {
-    const keys: string[] = [];
-    const seen = new Set<string>();
-    for (const node of nodes) {
-      const id = assetIdFromNode(node);
-      if (!id) continue;
-      const assetScope = workspaceScopeValue(node.metadata?.assetScope) || canonicalProjectScope || scope;
-      const key = `${assetScope}:${mediaKindFromNode(node)}:${id}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        keys.push(key);
-      }
-    }
-    return keys.sort().join("|");
-  }, [canonicalProjectScope, nodes, scope]);
-
-  useEffect(() => {
-    const cache = previewObjectUrlCacheRef.current;
-    if (projectId && !canonicalProjectScope) {
-      cache.forEach((entry) => URL.revokeObjectURL(entry.url));
-      cache.clear();
-      setPreviews((prev) => Object.keys(prev).length ? {} : prev);
-      return;
-    }
-    // 用 nodesRef 重建当前资产集合（effect 触发时一定是最新值，避免闭包捕获拖动中的过期 nodes）
-    const needed = new Map<string, { id: string; kind: "image" | "video" | "audio"; scope: WorkspaceScope }>();
-    for (const node of nodesRef.current) {
-      const id = assetIdFromNode(node);
-      if (!id) continue;
-      const descriptor = {
-        id,
-        kind: mediaKindFromNode(node),
-        scope: workspaceScopeValue(node.metadata?.assetScope) || canonicalProjectScope || scope,
-      };
-      const key = `${descriptor.scope}:${descriptor.kind}:${id}`;
-      if (!needed.has(key)) needed.set(key, descriptor);
-    }
-    // 只释放已移除资产的 Object URL，其余复用
-    cache.forEach((entry, key) => {
-      if (!needed.has(key)) {
-        URL.revokeObjectURL(entry.url);
-        cache.delete(key);
-      }
-    });
-    // 集合无变化时同步一次 previews（去掉已移除项），无变化则保持原引用，memo 缓存不受影响
-    const syncPreviews = () => setPreviews((prev) => {
-      const next: Record<string, string> = {};
-      needed.forEach((descriptor, key) => {
-        const entry = cache.get(key);
-        if (entry) next[descriptor.id] = entry.url;
-      });
-      const prevKeys = Object.keys(prev);
-      const nextKeys = Object.keys(next);
-      if (prevKeys.length === nextKeys.length && nextKeys.every((id) => prev[id] === next[id])) return prev;
-      return next;
-    });
-    const missing = Array.from(needed.entries()).filter(([key]) => !cache.has(key));
-    if (!missing.length) {
-      syncPreviews();
-      return;
-    }
-    let disposed = false;
-    Promise.all(missing.map(async ([key, descriptor]) => {
-      try {
-        const url = await getAssetContentObjectUrl(descriptor.id, descriptor.scope, descriptor.kind === "image" ? 640 : undefined);
-        return [key, descriptor.id, url] as const;
-      } catch {
-        return [key, descriptor.id, ""] as const;
-      }
-    })).then((items) => {
-      if (disposed) {
-        items.forEach(([, , url]) => { if (url) URL.revokeObjectURL(url); });
-        return;
-      }
-      items.forEach(([key, assetId, url]) => { if (url) cache.set(key, { assetId, url }); });
-      syncPreviews();
-    });
-    return () => { disposed = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- nodes 由 previewAssetSignature 代表，effect 内读取 nodesRef 最新值
-  }, [canonicalProjectScope, previewAssetSignature, projectId, scope]);
-
-  // 组件卸载时释放全部缓存的 Object URL
-  useEffect(() => {
-    const cache = previewObjectUrlCacheRef.current;
-    return () => {
-      cache.forEach((entry) => URL.revokeObjectURL(entry.url));
-      cache.clear();
-    };
-  }, []);
-
   useEffect(() => {
     uploadingRef.current = uploading;
   }, [uploading]);
@@ -1732,6 +1296,48 @@ function CanvasWorkspaceContent() {
     expectedKey: persistProjectKey,
   }), [autosaveController, backgroundMode, persistProjectKey, showImageInfo]);
 
+  generationController.updateBindings({
+    getProjectId: () => projectId,
+    getProjectTitle: () => projectTitle,
+    getProjectKey: () => projectSessionController.canonicalKey,
+    getScope: () => projectSessionController.canonicalScope,
+    isSwitching: () => projectSessionController.switching,
+    isLoading: () => loading,
+    getNodes: () => nodesRef.current,
+    setNodes: nextNodes => { nodesRef.current = nextNodes; setNodes(nextNodes); },
+    getEdges: () => edgesRef.current,
+    setEdges: nextEdges => { edgesRef.current = nextEdges; setEdges(nextEdges); },
+    getSelectedNodeId: () => canvasStore.getState().graph.selectedNodeId,
+    getSelectedNodeIds: () => selectedNodeIdsRef.current,
+    getCanvasAssets: () => canvasAssets,
+    mergeCanvasAssets: mergeCanvasAssetCatalog,
+    getImageModel: () => imageModel,
+    getTextModel: () => textModel,
+    getVideoModel: () => videoModel,
+    getAudioModel: () => audioModel,
+    isPromptOptimizing: () => promptOptimizing,
+    setPromptOptimizing,
+    getViewportZoom: () => viewportRef.current.zoom,
+    setRunningNodeIds,
+    setJobProgressByNode,
+    applyNodeSelection,
+    persistSnapshot,
+    executeGeneration: canvasCommands.services.generation,
+    executeAssets: canvasCommands.services.assets,
+    onMessage: message => toast(message),
+    onSuccess: message => toast.success(message),
+    onWarning: message => toast.warning(message),
+    onError: message => toast.error(message),
+  });
+
+  useEffect(() => {
+    runSelectedGenerationRef.current = runSelectedGeneration;
+  }, [runSelectedGeneration]);
+
+  useEffect(() => {
+    recoverPendingJobs();
+  }, [canonicalProjectScope, imageModel, loading, nodes, recoverPendingJobs, switching, videoModel]);
+
   useEffect(() => {
     return autosaveController.observe(
       Boolean(projectId && !loading && !switching && snapshotWriteReady),
@@ -1765,7 +1371,6 @@ function CanvasWorkspaceContent() {
     isUploading: () => uploadingRef.current,
     onReset: targetProjectId => {
       abortAllGenerationRequests();
-      recoveredJobIdsRef.current.clear();
       stageInteractionController.prepareProjectReset();
       setSelectedGroupId("");
       setCanonicalProjectScope(null);
@@ -1788,7 +1393,6 @@ function CanvasWorkspaceContent() {
         session: { loading: false, projectTitle: "", switching: false },
         ui: { editingInlineNodeId: "", inspectorOpen: false },
       });
-      setPreviews({});
     },
     onProjectResolved: project => setProjectTitle(project.title),
     onSnapshotWarning: message => toast.warning(message),
@@ -1862,9 +1466,10 @@ function CanvasWorkspaceContent() {
   });
 
   useEffect(() => () => {
+    generationController.dispose();
     stageInteractionController.dispose();
     void projectSessionController.dispose();
-  }, [projectSessionController, stageInteractionController]);
+  }, [generationController, projectSessionController, stageInteractionController]);
 
   const switchCanvasProject = useCallback(async (targetProjectId: string) => {
     const activeScope = projectSessionController.canonicalScope || scope;
@@ -3114,23 +2719,7 @@ function CanvasWorkspaceContent() {
         if (typeof childId === "string") deleteIds.add(childId);
       });
     });
-    generationPreparationsRef.current.forEach((preparation, preparationId) => {
-      const relatedNodeDeleted = deleteIds.has(preparation.originNodeId)
-        || Boolean(preparation.targetNodeId && deleteIds.has(preparation.targetNodeId))
-        || preparation.referenceNodeIds.some((nodeId) => deleteIds.has(nodeId));
-      if (!relatedNodeDeleted) return;
-      generationPreparationsRef.current.delete(preparationId);
-      preparation.controller.abort();
-    });
-    const canceledTargetIds = new Set<string>();
-    Array.from(generationRequestsRef.current.values()).forEach((request) => {
-      if (!deleteIds.has(request.targetNodeId) && !deleteIds.has(request.originNodeId) && !deleteIds.has(request.runningNodeId)) return;
-      generationRequestsRef.current.delete(request.targetNodeId);
-      canceledTargetIds.add(request.targetNodeId);
-      request.controller.abort();
-      if (request.jobId && request.provider !== "seedance") void cancelJob(request.jobId, request.scope).catch(() => undefined);
-    });
-    syncGenerationRequestState();
+    const canceledTargetIds = cancelForRemovedNodes(deleteIds);
     const affectedRootIds = new Set<string>();
     let sourceNodes = nodesRef.current.map((node) => {
       const rootId = stringValue(node.metadata?.batchRootId);
@@ -3224,1362 +2813,10 @@ function CanvasWorkspaceContent() {
     onWarning: message => toast.warning(message),
   });
 
-  const updateGenerationNodes = useCallback((updater: (current: CanvasNodeData[]) => CanvasNodeData[]) => {
-    const next = updater(nodesRef.current);
-    nodesRef.current = next;
-    setNodes(next);
-    return next;
-  }, []);
-
-  const referenceFile = useCallback(async (
-    input: { title: string; assetId?: string; assetScope?: WorkspaceScope; content?: string },
-    activeScope: WorkspaceScope,
-    signal?: AbortSignal,
-  ) => {
-    let url = input.content || "";
-    let objectUrl = "";
-    if (input.assetId) {
-      objectUrl = await getAssetContentObjectUrl(input.assetId, input.assetScope || activeScope, undefined, signal);
-      url = objectUrl;
-    }
-    if (!url) throw new Error(`参考图“${input.title}”没有可读取内容`);
-    // 防御：content 必须是明确的媒体引用/URL，避免把提示词文本 fetch 成 HTML 后以 type=image 上传
-    if (!input.assetId && !/^(asset:|data:|blob:|https?:\/\/|\/)/i.test(url)) {
-      throw new Error(`参考图“${input.title}”的内容不是可读取的媒体地址`);
-    }
-    try {
-      const response = await fetch(url, { signal });
-      if (!response.ok) throw new Error(`读取参考图“${input.title}”失败（${response.status}）`);
-      const blob = await response.blob();
-      const contentType = blob.type || "image/png";
-      return new File([blob], imageFileName(input.title, contentType), { type: contentType });
-    } finally {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    }
-  }, []);
-
-  const prepareImageReferences = useCallback(async (
-    inputs: ReturnType<typeof buildCanvasGenerationInputs>,
-    activeScope: WorkspaceScope,
-    sourceNodeId: string,
-    projectKey: string,
-    signal?: AbortSignal,
-  ) => {
-    const files: File[] = [];
-    const snapshots: CanvasImageReferenceSnapshot[] = [];
-    for (const input of inputs.filter((item) => item.type === "image")) {
-      if (signal?.aborted || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
-      const file = await referenceFile(input, activeScope, signal);
-      let assetId = input.assetId || "";
-      let name = file.name;
-      let contentType = file.type || "image/png";
-      if (!assetId) {
-        const asset = await uploadAsset(file, {
-          type: "image",
-          name: file.name,
-          category: "reference",
-          source_type: "canvas",
-          source_project_id: projectId,
-          source_project_name: projectTitle,
-          source_metadata: JSON.stringify({ canvas_node_id: input.nodeId, generation_source_node_id: sourceNodeId }),
-        }, activeScope, signal);
-        assetId = asset.id;
-        name = asset.name || name;
-        contentType = asset.content_type || contentType;
-        if (signal?.aborted || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
-        updateGenerationNodes((current) => current.map((node) => node.id === input.nodeId ? {
-          ...node,
-          content: looksLikeImageSource(node.content) ? "" : node.content,
-          imageAssetId: assetId,
-          imageSrc: undefined,
-          metadata: { ...node.metadata, assetId, content: looksLikeImageSource(node.content) ? "" : node.content },
-        } : node));
-      }
-      if (signal?.aborted || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
-      files.push(file);
-      snapshots.push({ nodeId: input.nodeId, title: input.title, assetId, assetScope: input.assetScope || activeScope, name, contentType });
-    }
-    return { files, snapshots };
-  }, [projectId, projectTitle, referenceFile, updateGenerationNodes]);
-
-  const prepareVideoReferences = useCallback(async (
-    inputs: ReturnType<typeof buildCanvasGenerationInputs>,
-    activeScope: WorkspaceScope,
-    signal?: AbortSignal,
-  ) => hydrateCanvasVideoReferences(inputs, {
-    scope: activeScope,
-    createFile: createBrowserFile,
-    resolveAssetBlob: async (input) => {
-      const objectUrl = await getAssetContentObjectUrl(input.assetId, input.assetScope || activeScope, undefined, signal);
-      try {
-        const response = await fetch(objectUrl, { signal });
-        if (!response.ok) throw new Error(`读取引用“${input.title}”失败（${response.status}）`);
-        return response.blob();
-      } finally {
-        URL.revokeObjectURL(objectUrl);
-      }
-    },
-    resolveNodeBlob: async (input) => {
-      if (!isReadableMediaSource(input.content)) return null;
-      const response = await fetch(input.content, { signal });
-      if (!response.ok) throw new Error(`读取引用“${input.title}”失败（${response.status}）`);
-      return response.blob();
-    },
-    readImageMetadata: readImageFileMetadata,
-    readVideoMetadata: readVideoFileMetadata,
-    readAudioMetadata: readAudioFileMetadata,
-  }), []);
-
-  const filesFromReferenceSnapshots = useCallback(async (
-    snapshots: CanvasImageReferenceSnapshot[],
-    activeScope: WorkspaceScope,
-    signal?: AbortSignal,
-  ) => Promise.all(snapshots.map((snapshot) => referenceFile({
-    title: snapshot.title,
-    assetId: snapshot.assetId,
-    assetScope: snapshot.assetScope,
-  }, activeScope, signal))), [referenceFile]);
-
-  const resolveMentionGenerationContext = useCallback(async (
-    sourceNode: CanvasNodeData,
-    currentNodes: CanvasNodeData[],
-    currentEdges: CanvasEdgeData[],
-  ) => {
-    const activeScope = projectSessionController.canonicalScope;
-    if (!activeScope) throw new Error("正在确认项目工作区");
-    const ownPrompt = promptTextFromNode(sourceNode) || sourceNode.title;
-    const assetIds = extractCanvasMentionTokens(ownPrompt)
-      .filter((token) => token.source === "asset")
-      .map((token) => token.targetId);
-    const known = new Set(canvasAssets.filter((asset) => asset.scope === activeScope).map((asset) => asset.id));
-    const missingAssets = Array.from(new Set(assetIds.filter((id) => !known.has(id))));
-    const fetched = (await Promise.allSettled(missingAssets.map((id) => getAsset(id, activeScope))))
-      .flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
-    if (fetched.length) mergeCanvasAssetCatalog(fetched, activeScope);
-    const assets = [
-      ...canvasAssets.filter((asset) => asset.scope === activeScope),
-      ...fetched.map((asset) => ({ ...asset, scope: activeScope })),
-    ];
-    return buildCanvasMentionGenerationContext(sourceNode.id, currentNodes, currentEdges, ownPrompt, assets, activeScope);
-  }, [canvasAssets, mergeCanvasAssetCatalog]);
-
-  const archiveGeneratedImage = useCallback(async (
-    generated: GeneratedImage,
-    request: CanvasGenerationRequest,
-    prompt: string,
-  ): Promise<GeneratedImage> => {
-    if (generated.assetId) {
-      if (generated.src.startsWith("blob:")) URL.revokeObjectURL(generated.src);
-      return { ...generated, src: "" };
-    }
-    if (!generated.src) throw new Error("生成任务没有返回可归档的图片内容");
-    const temporaryObjectUrl = generated.src.startsWith("blob:") ? generated.src : "";
-    try {
-      const response = await fetch(generated.src, { signal: request.controller.signal });
-      if (!response.ok) throw new Error(`读取生成结果失败（${response.status}）`);
-      const blob = await response.blob();
-      const contentType = blob.type || generated.contentType || "image/png";
-      const file = new File([blob], imageFileName(generated.name || "generated-image", contentType), { type: contentType });
-      const asset = await uploadAsset(file, {
-        type: "image",
-        name: file.name,
-        category: "other",
-        source_type: "canvas",
-        source_project_id: projectId,
-        source_project_name: projectTitle,
-        source_metadata: JSON.stringify({ canvas_node_id: request.targetNodeId, prompt }),
-      }, request.scope, request.controller.signal);
-      return {
-        ...generated,
-        id: asset.id,
-        assetId: asset.id,
-        src: "",
-        name: asset.name || generated.name,
-        contentType: asset.content_type || contentType,
-      };
-    } finally {
-      if (temporaryObjectUrl) URL.revokeObjectURL(temporaryObjectUrl);
-    }
-  }, [projectId, projectTitle]);
-
-  const runImageTarget = useCallback(async (input: CanvasImageTargetRunInput) => {
-    const request = startGenerationRequest({
-      targetNodeId: input.targetNodeId,
-      originNodeId: input.originNodeId,
-      runningNodeId: input.runningNodeId,
-      projectKey: input.projectKey,
-      scope: input.scope,
-      jobId: input.existingJobId,
-    });
-    const isCurrent = () => currentGenerationRequest(request.targetNodeId, request.requestId, request.projectKey);
-    try {
-      let generated: GeneratedImage | undefined;
-      if (input.existingJobId) {
-        const job = await waitForImageJob(input.existingJobId, {
-          signal: request.controller.signal,
-          onProgress: (state) => updateGenerationProgress(request, state.progress ?? 0),
-        });
-        if (job.status !== "succeeded") throw new Error(jobErrorMessage(job, job.status === "canceled" ? "生成任务已取消，可重试" : "图片生成失败"));
-        generated = (await generatedImagesFromJob(job, input.scope, request.controller.signal))[0];
-      } else {
-        const result = await generateImages({
-          model: input.model,
-          prompt: input.prompt,
-          size: input.size,
-          quality: input.quality,
-          count: 1,
-          referenceFiles: input.referenceFiles,
-          maskFile: input.maskFile,
-          scope: input.scope,
-          sourceType: "canvas",
-          sourceProjectId: projectId,
-          sourceNodeId: input.originNodeId,
-        }, {
-          signal: request.controller.signal,
-          onAccepted: (job) => {
-            const active = isCurrent();
-            if (!active) return;
-            const jobId = job.job_id || job.id || "";
-            active.jobId = jobId;
-            const next = updateGenerationNodes((current) => current.map((node) => node.id === input.targetNodeId ? {
-              ...node,
-              metadata: { ...node.metadata, jobId, status: "loading", errorDetails: undefined },
-            } : node));
-            updateGenerationProgress(active, 0);
-            void persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-          },
-          onProgress: (job) => updateGenerationProgress(request, job.progress ?? 0),
-        });
-        generated = result.images[0];
-      }
-      const active = isCurrent();
-      if (!active || !generated) return false;
-      const archived = await archiveGeneratedImage(generated, active, input.prompt);
-      if (!isCurrent()) return false;
-      const next = updateGenerationNodes((current) => completeGeneratedImageTarget(current, input.targetNodeId, archived, input.prompt));
-      await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      return true;
-    } catch (error) {
-      if (!isCurrent() || isAbortError(error)) return false;
-      const message = publicApiError(error, "画布节点生成失败");
-      const next = updateGenerationNodes((current) => failGeneratedImageTarget(current, input.targetNodeId, message));
-      await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      toast.error(message);
-      return false;
-    } finally {
-      finishGenerationRequest(request.targetNodeId, request.requestId, request.projectKey);
-    }
-  }, [archiveGeneratedImage, currentGenerationRequest, finishGenerationRequest, persistSnapshot, projectId, startGenerationRequest, updateGenerationNodes, updateGenerationProgress]);
-
-  const runTextTarget = useCallback(async (input: CanvasTextTargetRunInput) => {
-    const request = startGenerationRequest({
-      targetNodeId: input.targetNodeId,
-      originNodeId: input.originNodeId,
-      runningNodeId: input.runningNodeId,
-      projectKey: input.projectKey,
-      scope: input.scope,
-    });
-    const isCurrent = () => currentGenerationRequest(request.targetNodeId, request.requestId, request.projectKey);
-    try {
-      const response = await requestAiText({
-        model: input.model,
-        messages: input.messages || buildCanvasTextRequestMessages(input.prompt, []),
-      }, request.controller.signal);
-      if (!isCurrent()) return false;
-      const content = response.content.trim();
-      if (!content) throw new Error("文本模型没有返回内容");
-      const next = updateGenerationNodes((current) => current.map((node) => node.id === input.targetNodeId ? {
-        ...node,
-        kind: "text" as const,
-        title: content.slice(0, 32) || "生成文本",
-        content,
-        metadata: {
-          ...node.metadata,
-          content,
-          generationMode: "text" as const,
-          model: response.model || input.model,
-          prompt: input.prompt,
-          sourceNodeId: input.originNodeId,
-          status: "success" as const,
-          errorDetails: undefined,
-          jobId: undefined,
-          jobProgress: undefined,
-        },
-      } : node));
-      await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      return true;
-    } catch (error) {
-      if (!isCurrent() || isAbortError(error)) return false;
-      const message = publicApiError(error, "文本生成失败");
-      const next = updateGenerationNodes((current) => failGeneratedTextTarget(current, input.targetNodeId, message));
-      await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      toast.error(message);
-      return false;
-    } finally {
-      finishGenerationRequest(request.targetNodeId, request.requestId, request.projectKey);
-    }
-  }, [currentGenerationRequest, finishGenerationRequest, persistSnapshot, startGenerationRequest, updateGenerationNodes]);
-
-  const runAudioTarget = useCallback(async (input: CanvasAudioTargetRunInput) => {
-    const request = startGenerationRequest({
-      targetNodeId: input.targetNodeId,
-      originNodeId: input.originNodeId,
-      runningNodeId: input.runningNodeId,
-      projectKey: input.projectKey,
-      scope: input.scope,
-    });
-    const isCurrent = () => currentGenerationRequest(request.targetNodeId, request.requestId, request.projectKey);
-    const config = normalizeAudioGenerationConfig(input.config);
-    try {
-      const blob = await requestAudioGeneration(config, input.prompt, { signal: request.controller.signal });
-      const active = isCurrent();
-      if (!active) return false;
-      const contentType = blob.type.startsWith("audio/") ? blob.type : audioMimeType(config.format);
-      const file = new File([
-        blob,
-      ], audioFileName(input.prompt.slice(0, 32) || "generated-audio", config.format), { type: contentType });
-      const asset = await uploadAsset(file, {
-        type: "audio",
-        name: file.name,
-        category: "other",
-        source_type: "canvas",
-        source_project_id: projectId,
-        source_project_name: projectTitle,
-        source_metadata: JSON.stringify({ canvas_node_id: request.targetNodeId, prompt: input.prompt }),
-      }, request.scope, request.controller.signal);
-      if (!isCurrent()) return false;
-      const next = updateGenerationNodes((current) => completeGeneratedAudioTarget(
-        current,
-        input.targetNodeId,
-        asset,
-        input.prompt,
-        config,
-        input.originNodeId,
-        input.scope,
-      ));
-      await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      return true;
-    } catch (error) {
-      if (!isCurrent() || isAbortError(error)) return false;
-      const message = publicApiError(error, "音频生成失败");
-      const next = updateGenerationNodes((current) => failGeneratedAudioTarget(current, input.targetNodeId, message));
-      await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      toast.error(message);
-      return false;
-    } finally {
-      finishGenerationRequest(request.targetNodeId, request.requestId, request.projectKey);
-    }
-  }, [currentGenerationRequest, finishGenerationRequest, persistSnapshot, projectId, projectTitle, startGenerationRequest, updateGenerationNodes]);
-
-  const archiveGeneratedVideo = useCallback(async (
-    result: VideoGenerationResult,
-    request: CanvasGenerationRequest,
-    prompt: string,
-  ): Promise<Asset> => {
-    if (result.assetId) {
-      if (result.url.startsWith("blob:")) URL.revokeObjectURL(result.url);
-      return {
-        id: result.assetId,
-        type: "video",
-        name: result.fileName || "generated-video.mp4",
-        content_type: result.mimeType || "video/mp4",
-      };
-    }
-    const temporaryObjectUrl = result.url.startsWith("blob:") ? result.url : "";
-    try {
-      const blob = await videoGenerationResultToBlob(result, request.controller.signal);
-      const contentType = blob.type || result.mimeType || "video/mp4";
-      const file = new File([blob], videoFileName(result.fileName || "generated-video", contentType), { type: contentType });
-      return uploadAsset(file, {
-        type: "video",
-        name: file.name,
-        category: "other",
-        source_type: "canvas",
-        source_project_id: projectId,
-        source_project_name: projectTitle,
-        source_metadata: JSON.stringify({ canvas_node_id: request.targetNodeId, prompt }),
-      }, request.scope, request.controller.signal);
-    } finally {
-      if (temporaryObjectUrl) URL.revokeObjectURL(temporaryObjectUrl);
-    }
-  }, [projectId, projectTitle]);
-
-  const runVideoTarget = useCallback(async (input: CanvasVideoTargetRunInput) => {
-    const request = startGenerationRequest({
-      targetNodeId: input.targetNodeId,
-      originNodeId: input.originNodeId,
-      runningNodeId: input.runningNodeId,
-      projectKey: input.projectKey,
-      scope: input.scope,
-      jobId: input.existingTask?.id,
-      provider: input.existingTask?.provider,
-    });
-    const isCurrent = () => currentGenerationRequest(request.targetNodeId, request.requestId, request.projectKey);
-    try {
-      let task = input.existingTask;
-      if (!task) {
-        task = await createVideoGenerationTask(input.config, input.prompt, input.references, { signal: request.controller.signal });
-        const active = isCurrent();
-        if (!active) return false;
-        active.jobId = task.id;
-        active.provider = task.provider;
-        const accepted = updateGenerationNodes((current) => current.map((node) => node.id === input.targetNodeId ? {
-          ...node,
-          metadata: {
-            ...node.metadata,
-            generationMode: "video" as const,
-            videoProvider: task!.provider,
-            jobId: task!.id,
-            jobProgress: 0,
-            status: "loading" as const,
-            errorDetails: undefined,
-          },
-        } : node));
-        updateGenerationProgress(active, 0);
-        await persistSnapshot(accepted, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      }
-
-      let result: VideoGenerationResult | undefined;
-      while (isCurrent()) {
-        const state = await pollVideoGenerationTask(input.config, task, {
-          signal: request.controller.signal,
-          onProgress: (job) => updateGenerationProgress(request, job.progress ?? 0),
-        });
-        if (state.status === "failed") throw new Error(state.error);
-        if (state.status === "completed") {
-          result = state.result;
-          break;
-        }
-        if (typeof state.progress === "number") updateGenerationProgress(request, state.progress);
-        await waitForCanvasPoll(request.controller.signal);
-      }
-      const active = isCurrent();
-      if (!active || !result) return false;
-      const asset = await archiveGeneratedVideo(result, active, input.prompt);
-      if (!isCurrent()) return false;
-      const persistentResult = videoResultPersistentMetadata(result, { ...asset, scope: input.scope });
-      const next = updateGenerationNodes((current) => completeGeneratedVideoTarget(
-        current,
-        input.targetNodeId,
-        asset,
-        persistentResult,
-        input.prompt,
-        input.config,
-        task!,
-        input.originNodeId,
-        input.referenceInputs,
-        input.scope,
-      ));
-      await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      return true;
-    } catch (error) {
-      if (!isCurrent() || isAbortError(error)) return false;
-      const message = publicApiError(error, "视频生成失败");
-      const next = updateGenerationNodes((current) => failGeneratedVideoTarget(current, input.targetNodeId, message));
-      await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      toast.error(message);
-      return false;
-    } finally {
-      finishGenerationRequest(request.targetNodeId, request.requestId, request.projectKey);
-    }
-  }, [archiveGeneratedVideo, currentGenerationRequest, finishGenerationRequest, persistSnapshot, startGenerationRequest, updateGenerationNodes, updateGenerationProgress]);
-
-  const stopGenerationByNodeId = useCallback((nodeId: string) => {
-    const requests = Array.from(generationRequestsRef.current.values()).filter((request) => (
-      request.targetNodeId === nodeId || request.runningNodeId === nodeId || request.originNodeId === nodeId
-    ));
-    if (!requests.length) return;
-    const affected = new Set(requests.map((request) => request.targetNodeId));
-    requests.forEach((request) => {
-      generationRequestsRef.current.delete(request.targetNodeId);
-      request.controller.abort();
-      if (request.jobId && request.provider !== "seedance") void cancelJob(request.jobId, request.scope).catch(() => undefined);
-    });
-    syncGenerationRequestState();
-    const next = updateGenerationNodes((current) => {
-      let changed = current.map((node) => affected.has(node.id) && node.metadata?.status === "loading" ? {
-        ...node,
-        title: "生成已停止",
-        metadata: { ...node.metadata, status: "error" as const, errorDetails: "已停止生成，可重试。", jobId: undefined, jobProgress: undefined },
-      } : node);
-      const roots = new Set(changed.filter((node) => affected.has(node.id)).map((node) => stringValue(node.metadata?.batchRootId)).filter(Boolean));
-      roots.forEach((rootId) => { changed = refreshImageBatchRoot(changed, rootId); });
-      if (changed.some((node) => node.id === nodeId && node.metadata?.isBatchRoot)) changed = refreshImageBatchRoot(changed, nodeId);
-      return changed;
-    });
-    void persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-    toast.message("已停止生成，失败节点可单独重试");
-  }, [persistSnapshot, syncGenerationRequestState, updateGenerationNodes]);
-
-  const retryImageNode = useCallback(async (node: CanvasNodeData) => {
-    const activeScope = projectSessionController.canonicalScope;
-    const projectKey = projectSessionController.canonicalKey;
-    if (!activeScope || !projectKey || projectSessionController.switching) return;
-    const currentNodes = nodesRef.current;
-    // 批次成员模型：基底节点（根）自身也是生成目标之一，重试时要一并纳入
-    const targetNodes = node.metadata?.isBatchRoot
-      ? currentNodes.filter((item) => (item.id === node.id || node.metadata?.batchChildIds?.includes(item.id)) && item.metadata?.status === "error")
-      : [node];
-    if (!targetNodes.length) {
-      toast.message("没有需要重试的失败结果");
-      return;
-    }
-    await Promise.allSettled(targetNodes.map(async (target) => {
-      const snapshots = imageReferenceSnapshots(target.metadata?.referenceInputs);
-      const sourceNodeId = stringValue(target.metadata?.sourceNodeId) || target.id;
-      let files: File[];
-      const preparation = startGenerationPreparation({
-        projectKey,
-        originNodeId: sourceNodeId,
-        targetNodeId: target.id,
-        referenceNodeIds: snapshots
-          .map((snapshot) => snapshot.nodeId)
-          .filter((nodeId) => currentNodes.some((item) => item.id === nodeId)),
-      });
-      try {
-        files = await filesFromReferenceSnapshots(snapshots, activeScope, preparation.controller.signal);
-      } catch (error) {
-        if (isAbortError(error) || projectSessionController.canonicalKey !== projectKey) return;
-        const message = publicApiError(error, "参考图已失效，无法重试");
-        updateGenerationNodes((current) => failGeneratedImageTarget(current, target.id, message));
-        return;
-      } finally {
-        finishGenerationPreparation(preparation.id);
-      }
-      if (!generationPreparationIsCurrent(preparation)) return;
-      const prompt = stringValue(target.metadata?.prompt) || target.content;
-      const next = updateGenerationNodes((current) => {
-        let mapped = current.map((item) => item.id === target.id ? {
-          ...item,
-          title: "重新生成中…",
-          imageAssetId: undefined,
-          imageSrc: undefined,
-          metadata: { ...item.metadata, assetId: undefined, content: prompt, status: "loading" as const, errorDetails: undefined, jobId: undefined, ownAssetId: undefined, ownImageSrc: undefined },
-        } : item);
-        const batchRootId = stringValue(target.metadata?.batchRootId) || (target.metadata?.isBatchRoot ? target.id : "");
-        if (batchRootId) mapped = refreshImageBatchRoot(mapped, batchRootId);
-        return mapped;
-      });
-      void persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      await runImageTarget({
-        targetNodeId: target.id,
-        originNodeId: sourceNodeId,
-        runningNodeId: stringValue(target.metadata?.batchRootId) || target.id,
-        projectKey,
-        scope: activeScope,
-        prompt,
-        model: stringValue(target.metadata?.model) || imageModel,
-        size: toImageSizeValue(sizeFromNode(target)),
-        quality: qualityFromNode(target),
-        referenceFiles: files,
-      });
-    }));
-  }, [filesFromReferenceSnapshots, finishGenerationPreparation, generationPreparationIsCurrent, imageModel, persistSnapshot, runImageTarget, startGenerationPreparation, updateGenerationNodes]);
-
-  const retryTextNode = useCallback(async (node: CanvasNodeData) => {
-    const activeScope = projectSessionController.canonicalScope;
-    const projectKey = projectSessionController.canonicalKey;
-    if (!activeScope || !projectKey || projectSessionController.switching) return;
-    const prompt = stringValue(node.metadata?.prompt) || node.content;
-    const model = modelFromNode(node, textModel);
-    if (!prompt.trim() || !model) {
-      toast.warning(!model ? "请先配置文本模型" : "提示词不能为空");
-      return;
-    }
-    const sourceNodeId = stringValue(node.metadata?.sourceNodeId) || node.id;
-    const next = updateGenerationNodes((current) => current.map((item) => item.id === node.id ? {
-      ...item,
-      title: "重新生成文本中…",
-      metadata: {
-        ...item.metadata,
-        generationMode: "text" as const,
-        status: "loading" as const,
-        errorDetails: undefined,
-        jobId: undefined,
-        jobProgress: undefined,
-      },
-    } : item));
-    await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) {
-      if (projectSessionController.canonicalKey === projectKey) {
-        updateGenerationNodes((current) => failGeneratedTextTarget(current, node.id, "切换画布时生成被中断，可重试。"));
-      }
-      return;
-    }
-    await runTextTarget({
-      targetNodeId: node.id,
-      originNodeId: sourceNodeId,
-      runningNodeId: node.id,
-      projectKey,
-      scope: activeScope,
-      prompt,
-      model,
-    });
-  }, [persistSnapshot, runTextTarget, textModel, updateGenerationNodes]);
-
-  const retryAudioNode = useCallback(async (node: CanvasNodeData) => {
-    const activeScope = projectSessionController.canonicalScope;
-    const projectKey = projectSessionController.canonicalKey;
-    if (!activeScope || !projectKey || projectSessionController.switching) return;
-    const prompt = stringValue(node.metadata?.prompt) || node.content;
-    const config = audioConfigFromNode(node, audioModel);
-    if (!prompt.trim() || !config.model) {
-      toast.warning(!config.model ? "请先配置音频模型" : "提示词不能为空");
-      return;
-    }
-    const sourceNodeId = stringValue(node.metadata?.sourceNodeId) || node.id;
-    const next = updateGenerationNodes((current) => current.map((item) => item.id === node.id ? {
-      ...item,
-      title: "重新生成音频中…",
-      imageAssetId: undefined,
-      imageSrc: undefined,
-      metadata: {
-        ...item.metadata,
-        assetId: undefined,
-        generationMode: "audio" as const,
-        model: config.model,
-        audioVoice: config.voice,
-        audioFormat: config.format,
-        audioSpeed: config.speed,
-        audioInstructions: config.instructions,
-        status: "loading" as const,
-        errorDetails: undefined,
-        jobId: undefined,
-        jobProgress: undefined,
-        mimeType: undefined,
-        bytes: undefined,
-      },
-    } : item));
-    await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) {
-      if (projectSessionController.canonicalKey === projectKey) {
-        updateGenerationNodes((current) => failGeneratedAudioTarget(current, node.id, "切换画布时生成被中断，可重试。"));
-      }
-      return;
-    }
-    await runAudioTarget({
-      targetNodeId: node.id,
-      originNodeId: sourceNodeId,
-      runningNodeId: node.id,
-      projectKey,
-      scope: activeScope,
-      prompt,
-      config,
-    });
-  }, [audioModel, persistSnapshot, runAudioTarget, updateGenerationNodes]);
-
-  const retryVideoNode = useCallback(async (node: CanvasNodeData) => {
-    const activeScope = projectSessionController.canonicalScope;
-    const projectKey = projectSessionController.canonicalKey;
-    if (!activeScope || !projectKey || projectSessionController.switching) return;
-    const prompt = stringValue(node.metadata?.prompt) || node.content;
-    const config = videoConfigFromNode(node, videoModel);
-    if (!prompt.trim() || !config.model) {
-      toast.warning(!config.model ? "请先配置视频模型" : "提示词不能为空");
-      return;
-    }
-    const snapshot = canvasVideoReferenceSnapshot(node.metadata?.videoReferenceInputs);
-    const generationInputs = canvasGenerationInputsFromVideoSnapshot(snapshot, nodesRef.current);
-    const sourceNodeId = stringValue(node.metadata?.sourceNodeId) || node.id;
-    const preparation = startGenerationPreparation({
-      projectKey,
-      originNodeId: nodesRef.current.some((item) => item.id === sourceNodeId) ? sourceNodeId : node.id,
-      targetNodeId: node.id,
-      referenceNodeIds: generationInputs.map((input) => input.nodeId).filter((nodeId) => nodesRef.current.some((item) => item.id === nodeId)),
-    });
-    let prepared: Awaited<ReturnType<typeof prepareVideoReferences>>;
-    try {
-      prepared = await prepareVideoReferences(generationInputs, activeScope, preparation.controller.signal);
-    } catch (error) {
-      if (isAbortError(error) || projectSessionController.canonicalKey !== projectKey) return;
-      const message = publicApiError(error, "视频参考素材已失效，无法重试");
-      const next = updateGenerationNodes((current) => failGeneratedVideoTarget(current, node.id, message));
-      await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      toast.error(message);
-      return;
-    } finally {
-      finishGenerationPreparation(preparation.id);
-    }
-    if (!generationPreparationIsCurrent(preparation)) return;
-    const references = mergeCanvasVideoReferences(
-      prepared.references,
-      canvasSeedanceVideoReferences(
-        node.metadata?.seedanceMaterialAssets,
-        node.metadata?.seedanceVolcanoAssets,
-      ),
-    );
-    const next = updateGenerationNodes((current) => current.map((item) => item.id === node.id ? {
-      ...item,
-      title: "重新生成视频中…",
-      imageAssetId: undefined,
-      imageSrc: undefined,
-      metadata: {
-        ...item.metadata,
-        assetId: undefined,
-        generationMode: "video" as const,
-        videoProvider: isSeedanceVideoModel(config.model) ? "seedance" : "openai",
-        model: config.model,
-        size: config.size,
-        resolution: config.resolution,
-        seconds: config.seconds,
-        generateAudio: config.generateAudio,
-        watermark: config.watermark,
-        videoReferenceInputs: prepared.snapshot,
-        status: "loading" as const,
-        errorDetails: undefined,
-        jobId: undefined,
-        jobProgress: 0,
-      },
-    } : item));
-    await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) return;
-    await runVideoTarget({
-      targetNodeId: node.id,
-      originNodeId: sourceNodeId,
-      runningNodeId: node.id,
-      projectKey,
-      scope: activeScope,
-      prompt,
-      config,
-      references,
-      referenceInputs: prepared.snapshot,
-    });
-  }, [finishGenerationPreparation, generationPreparationIsCurrent, persistSnapshot, prepareVideoReferences, runVideoTarget, startGenerationPreparation, updateGenerationNodes, videoModel]);
-
-  /** 对选中节点批量重新发起生成（对应旧版 runSelectedGeneration）。 */
-  const runSelectedGeneration = useCallback(async () => {
-    if (projectSessionController.switching || projectSessionController.loading) return;
-    const currentNodes = nodesRef.current;
-    const candidateIds = Array.from(selectedNodeIdsRef.current);
-    const nodesById = new Map(currentNodes.map((node) => [node.id, node]));
-    const runners: Record<string, (node: CanvasNodeData) => Promise<void>> = {
-      image: retryImageNode,
-      text: retryTextNode,
-      audio: retryAudioNode,
-      video: retryVideoNode,
-    };
-    const runnable = candidateIds
-      .map((id) => nodesById.get(id))
-      .filter((node): node is CanvasNodeData => Boolean(
-        node
-        && runners[node.kind]
-        && node.metadata?.status !== "loading"
-        && !isHiddenCanvasBatchChild(node, currentNodes),
-      ));
-    if (!runnable.length) {
-      toast.message("没有可运行的选中节点");
-      return;
-    }
-    toast.message(`开始生成 ${runnable.length} 个选中节点`);
-    await Promise.allSettled(runnable.map((node) => runners[node.kind](node)));
-  }, [retryAudioNode, retryImageNode, retryTextNode, retryVideoNode]);
-
-  useEffect(() => {
-    runSelectedGenerationRef.current = runSelectedGeneration;
-  }, [runSelectedGeneration]);
-
-  useEffect(() => {
-    if (loading || switching || !canonicalProjectScope || !projectSessionController.canonicalKey) return;
-    const projectKey = projectSessionController.canonicalKey;
-    const recoverable = nodesRef.current.filter((node) => (node.kind === "image" || node.kind === "video") && node.metadata?.status === "loading" && stringValue(node.metadata.jobId));
-    recoverable.forEach((node) => {
-      const jobId = stringValue(node.metadata?.jobId);
-      if (!jobId || recoveredJobIdsRef.current.has(jobId) || generationRequestsRef.current.has(node.id)) return;
-      recoveredJobIdsRef.current.add(jobId);
-      if (node.kind === "video") {
-        const config = videoConfigFromNode(node, videoModel);
-        const provider = videoProviderFromNode(node, config.model);
-        void runVideoTarget({
-          targetNodeId: node.id,
-          originNodeId: stringValue(node.metadata?.sourceNodeId) || node.id,
-          runningNodeId: node.id,
-          projectKey,
-          scope: canonicalProjectScope,
-          prompt: stringValue(node.metadata?.prompt) || node.content,
-          config,
-          references: { images: [], videos: [], audios: [] },
-          referenceInputs: canvasVideoReferenceSnapshot(node.metadata?.videoReferenceInputs),
-          existingTask: { id: jobId, provider, model: config.model },
-        });
-        return;
-      }
-      void runImageTarget({
-        targetNodeId: node.id,
-        originNodeId: stringValue(node.metadata?.sourceNodeId) || node.id,
-        runningNodeId: stringValue(node.metadata?.batchRootId) || node.id,
-        projectKey,
-        scope: canonicalProjectScope,
-        prompt: stringValue(node.metadata?.prompt) || node.content,
-        model: stringValue(node.metadata?.model) || imageModel,
-        size: toImageSizeValue(sizeFromNode(node)),
-        quality: qualityFromNode(node),
-        referenceFiles: [],
-        existingJobId: jobId,
-      });
-    });
-  }, [canonicalProjectScope, imageModel, loading, nodes, runImageTarget, runVideoTarget, switching, videoModel]);
-
-  const generateTextFromNode = async (sourceId?: string) => {
-    const currentNodes = nodesRef.current;
-    const currentEdges = edgesRef.current;
-    const sourceNode = (sourceId ? currentNodes.find((node) => node.id === sourceId) : currentNodes.find((node) => node.id === selectedId)) || null;
-    if (!sourceNode || projectSessionController.switching) return;
-    const activeScope = projectSessionController.canonicalScope;
-    const projectKey = projectSessionController.canonicalKey;
-    if (!activeScope || !projectKey) {
-      toast.warning("正在确认项目工作区，暂不能生成文本节点");
-      return;
-    }
-    let mentionContext: Awaited<ReturnType<typeof resolveMentionGenerationContext>>;
-    try {
-      mentionContext = await resolveMentionGenerationContext(sourceNode, currentNodes, currentEdges);
-    } catch (error) {
-      toast.error(publicApiError(error, "解析画布引用失败"));
-      return;
-    }
-    if (mentionContext.missingKeys.length) {
-      toast.error(`存在失效引用：${mentionContext.missingKeys.join("、")}`);
-      return;
-    }
-    const prompt = canvasTextRequestPrompt(sourceNode, mentionContext.prompt);
-    const model = modelFromNode(sourceNode, textModel);
-    if (!prompt.trim() || !model) {
-      toast.warning(!model ? "请先配置文本模型" : "提示词不能为空");
-      return;
-    }
-    const generationInputs = mentionContext.inputs;
-    const imageInputs = generationInputs.filter((input) => input.type === "image");
-    let messages: ResponseInputMessage[] = buildCanvasTextRequestMessages(prompt, []);
-    if (imageInputs.length) {
-      const preparation = startGenerationPreparation({
-        projectKey,
-        originNodeId: sourceNode.id,
-        referenceNodeIds: imageInputs.filter((input) => !input.assetId).map((input) => input.nodeId),
-      });
-      try {
-        const imageDataUrls: string[] = [];
-        for (const input of imageInputs) {
-          const file = await referenceFile(input, activeScope, preparation.controller.signal);
-          imageDataUrls.push(await readCanvasFileDataUrl(file, preparation.controller.signal));
-        }
-        if (!generationPreparationIsCurrent(preparation)) return;
-        messages = buildCanvasTextRequestMessages(prompt, imageDataUrls);
-      } catch (error) {
-        if (!isAbortError(error)) toast.error(publicApiError(error, "文本参考图读取失败"));
-        return;
-      } finally {
-        finishGenerationPreparation(preparation.id);
-      }
-    }
-    const isConfigNode = sourceNode.kind === "config";
-    const editingTextNode = isGeneratedCanvasText(sourceNode);
-    const count = isConfigNode ? imageCountFromNode(sourceNode) : 1;
-    const childIds = isConfigNode || editingTextNode ? Array.from({ length: count }, () => crypto.randomUUID()) : [];
-    const targetIds = childIds.length ? childIds : [sourceNode.id];
-    const childNodes = childIds.map((id, index): CanvasNodeData => ({
-      id,
-      kind: "text",
-      title: `生成文本中${count > 1 ? ` ${index + 1}/${count}` : ""}…`,
-      content: "",
-      x: sourceNode.x + sourceNode.width + 96,
-      y: sourceNode.y + (index - (count - 1) / 2) * 206,
-      width: 320,
-      height: 170,
-      metadata: {
-        content: "",
-        prompt,
-        generationMode: "text",
-        model,
-        sourceNodeId: sourceNode.id,
-        status: "loading",
-      },
-    }));
-    const pendingNodes = childIds.length
-      ? [...currentNodes.map((node) => node.id === sourceNode.id && isConfigNode ? {
-        ...node,
-        metadata: {
-          ...node.metadata,
-          composerContent: canvasTextComposerValue(sourceNode),
-          prompt,
-          generationMode: "text" as const,
-          model,
-          status: "success" as const,
-          errorDetails: undefined,
-        },
-      } : node), ...childNodes]
-      : currentNodes.map((node) => node.id === sourceNode.id ? {
-        ...node,
-        kind: "text" as const,
-        title: "生成文本中…",
-        content: "",
-        metadata: {
-          ...node.metadata,
-          content: "",
-          prompt,
-          generationMode: "text" as const,
-          model,
-          sourceNodeId: sourceNode.id,
-          status: "loading" as const,
-          errorDetails: undefined,
-          jobId: undefined,
-          jobProgress: undefined,
-        },
-      } : node);
-    const pendingEdges = childIds.length
-      ? [...currentEdges, ...childIds.map((childId): CanvasEdgeData => ({ id: crypto.randomUUID(), from: sourceNode.id, to: childId }))]
-      : currentEdges;
-    nodesRef.current = pendingNodes;
-    edgesRef.current = pendingEdges;
-    setNodes(pendingNodes);
-    setEdges(pendingEdges);
-    applyNodeSelection([childIds[0] || sourceNode.id], childIds[0] || sourceNode.id, true);
-    await persistSnapshot(pendingNodes, pendingEdges, viewportRef.current.zoom, { quiet: true });
-    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) {
-      if (projectSessionController.canonicalKey === projectKey) {
-        updateGenerationNodes((current) => targetIds.reduce(
-          (next, targetNodeId) => failGeneratedTextTarget(next, targetNodeId, "切换画布时生成被中断，可重试。"),
-          current,
-        ));
-      }
-      return;
-    }
-    const results = await Promise.all(targetIds.map((targetNodeId) => runTextTarget({
-      targetNodeId,
-      originNodeId: sourceNode.id,
-      runningNodeId: sourceNode.id,
-      projectKey,
-      scope: activeScope,
-      prompt,
-      model,
-      messages,
-    })));
-    const succeeded = results.filter(Boolean).length;
-    if (succeeded && succeeded < targetIds.length) toast.warning(`已生成 ${succeeded}/${targetIds.length} 条文本，失败结果可单独重试`);
-  };
-
-  const generateImageFromNode = async (sourceId?: string) => {
-    const currentNodes = nodesRef.current;
-    const currentEdges = edgesRef.current;
-    const sourceNode = (sourceId ? currentNodes.find((node) => node.id === sourceId) : currentNodes.find((node) => node.id === selectedId)) || null;
-    if (!sourceNode || projectSessionController.switching) return;
-    const activeScope = projectSessionController.canonicalScope;
-    const projectKey = projectSessionController.canonicalKey;
-    if (!activeScope || !projectKey) {
-      toast.warning("正在确认项目工作区，暂不能生成画布节点");
-      return;
-    }
-    let mentionContext: Awaited<ReturnType<typeof resolveMentionGenerationContext>>;
-    try {
-      mentionContext = await resolveMentionGenerationContext(sourceNode, currentNodes, currentEdges);
-    } catch (error) {
-      toast.error(publicApiError(error, "解析画布引用失败"));
-      return;
-    }
-    if (mentionContext.missingKeys.length) {
-      toast.error(`存在失效引用：${mentionContext.missingKeys.join("、")}`);
-      return;
-    }
-    const prompt = mentionContext.prompt;
-    if (!prompt.trim()) {
-      toast.warning("请先填写提示词");
-      return;
-    }
-    const generationInputs = mentionContext.inputs;
-    const referenceNodeIds = generationInputs.filter((input) => input.type === "image" && !input.assetId).map((input) => input.nodeId);
-    let prepared: Awaited<ReturnType<typeof prepareImageReferences>>;
-    const preparation = startGenerationPreparation({
-      projectKey,
-      originNodeId: sourceNode.id,
-      referenceNodeIds,
-    });
-    try {
-      prepared = await prepareImageReferences(
-        generationInputs,
-        activeScope,
-        sourceNode.id,
-        projectKey,
-        preparation.controller.signal,
-      );
-    } catch (error) {
-      if (isAbortError(error) || projectSessionController.canonicalKey !== projectKey) return;
-      toast.error(publicApiError(error, "读取或归档参考图失败"));
-      return;
-    } finally {
-      finishGenerationPreparation(preparation.id);
-    }
-    if (!generationPreparationIsCurrent(preparation)) return;
-    const count = imageCountFromNode(sourceNode);
-    // 空图片节点（未上传/未生成内容）直接在自身出图，不再新建衍生节点；
-    // 已有结果的图片节点仍走"新建批次根"的衍生链路。批次根/子节点不复用（应由重试入口处理）。
-    const reuseSourceNode = sourceNode.kind === "image"
-      && !assetIdFromNode(sourceNode)
-      && !sourceNode.imageSrc
-      && !looksLikeImageSource(stringValue(sourceNode.metadata?.content))
-      && !sourceNode.metadata?.isBatchRoot
-      && !stringValue(sourceNode.metadata?.batchRootId);
-    const rootId = reuseSourceNode ? sourceNode.id : crypto.randomUUID();
-    // 基底（根）节点自己生成第 1 张，其余 count-1 张才是子节点：展开后总数 = count，根占网格第一格
-    const childIds = count > 1 ? Array.from({ length: count - 1 }, () => crypto.randomUUID()) : [];
-    const targetIds = [rootId, ...childIds];
-    const model = modelFromNode(sourceNode, imageModel);
-    const size = toImageSizeValue(sizeFromNode(sourceNode));
-    const quality = qualityFromNode(sourceNode);
-    const commonMetadata: CanvasNodeMetadata = {
-      content: prompt,
-      prompt,
-      status: "loading",
-      model,
-      size,
-      quality,
-      sourceNodeId: sourceNode.id,
-      generationType: prepared.files.length ? "edit" : "generation",
-      referenceInputs: prepared.snapshots,
-    };
-    const rootNode: CanvasNodeData = {
-      ...(reuseSourceNode ? sourceNode : {
-        id: rootId,
-        kind: "image" as const,
-        x: sourceNode.x + sourceNode.width + 96,
-        y: sourceNode.y + 24,
-        width: 320,
-        height: 238,
-      }),
-      id: rootId,
-      kind: "image",
-      title: "生成中…",
-      content: prompt,
-      imageAssetId: undefined,
-      imageSrc: undefined,
-      metadata: {
-        ...(reuseSourceNode ? sourceNode.metadata : {}),
-        ...commonMetadata,
-        count,
-        isBatchRoot: count > 1,
-        batchChildIds: childIds.length ? childIds : undefined,
-        // 成员模型标记：根自身生成第 1 张（旧数据无此标记，加载时会自动迁移）
-        batchModelV2: count > 1 ? true : undefined,
-        // 复用空节点时清掉可能残留的旧结果引用
-        assetId: undefined,
-        ownAssetId: undefined,
-        ownImageSrc: undefined,
-        errorDetails: undefined,
-        // 不自动展开：批次生成后保持折叠态，由用户点击徽标手动展开
-      },
-    };
-    // 展开布局以基底节点为基点：根节点占左下格，子图先向上、再向右按两列网格铺开（上 → 右上 → 右 → …）
-    const childNodes = childIds.map((id, index): CanvasNodeData => {
-      const pos = batchChildGridPosition(rootNode, index);
-      return {
-        id,
-        kind: "image",
-        title: `生成中 ${index + 2}/${count}`,
-        content: prompt,
-        x: pos.x,
-        y: pos.y,
-        width: 320,
-        height: 238,
-        metadata: { ...commonMetadata, count: 1, batchRootId: rootId },
-      };
-    });
-    const sourceEdge: CanvasEdgeData = { id: crypto.randomUUID(), from: sourceNode.id, to: rootId };
-    // 不再创建根→子连线：批次关系由 metadata.batchChildIds/batchRootId 表达，避免展开时一簇连线
-    // 复用空节点时也不新增 source→root 连线（根即源节点自身）
-    const pendingNodes = reuseSourceNode
-      ? [...nodesRef.current.map((node) => node.id === sourceNode.id ? rootNode : node), ...childNodes]
-      : [...nodesRef.current, rootNode, ...childNodes];
-    const pendingEdges = reuseSourceNode ? edgesRef.current : [...edgesRef.current, sourceEdge];
-    nodesRef.current = pendingNodes;
-    edgesRef.current = pendingEdges;
-    setNodes(pendingNodes);
-    setEdges(pendingEdges);
-    applyNodeSelection([rootId], rootId, true);
-    await persistSnapshot(pendingNodes, pendingEdges, viewportRef.current.zoom, { quiet: true });
-    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) {
-      if (projectSessionController.canonicalKey === projectKey) {
-        updateGenerationNodes((current) => targetIds.reduce(
-          (next, targetNodeId) => failGeneratedImageTarget(next, targetNodeId, "切换画布时生成被中断，可重试。"),
-          current,
-        ));
-      }
-      return;
-    }
-    const results = await Promise.all(targetIds.map((targetNodeId) => runImageTarget({
-      targetNodeId,
-      originNodeId: sourceNode.id,
-      runningNodeId: rootId,
-      projectKey,
-      scope: activeScope,
-      prompt,
-      model,
-      size,
-      quality,
-      referenceFiles: prepared.files,
-    })));
-    if (projectSessionController.canonicalKey !== projectKey) return;
-    const succeeded = results.filter(Boolean).length;
-    if (count > 1) {
-      const next = updateGenerationNodes((current) => refreshImageBatchRoot(current, rootId));
-      await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      if (succeeded && succeeded < count) toast.warning(`已生成 ${succeeded}/${count} 张，失败结果可单独重试`);
-    }
-  };
-
-  const generateVideoFromNode = async (sourceId?: string) => {
-    const currentNodes = nodesRef.current;
-    const currentEdges = edgesRef.current;
-    const sourceNode = (sourceId ? currentNodes.find((node) => node.id === sourceId) : currentNodes.find((node) => node.id === selectedId)) || null;
-    if (!sourceNode || projectSessionController.switching) return;
-    const activeScope = projectSessionController.canonicalScope;
-    const projectKey = projectSessionController.canonicalKey;
-    if (!activeScope || !projectKey) {
-      toast.warning("正在确认项目工作区，暂不能生成视频节点");
-      return;
-    }
-    let mentionContext: Awaited<ReturnType<typeof resolveMentionGenerationContext>>;
-    try {
-      mentionContext = await resolveMentionGenerationContext(sourceNode, currentNodes, currentEdges);
-    } catch (error) {
-      toast.error(publicApiError(error, "解析画布引用失败"));
-      return;
-    }
-    if (mentionContext.missingKeys.length) {
-      toast.error(`存在失效引用：${mentionContext.missingKeys.join("、")}`);
-      return;
-    }
-    const prompt = mentionContext.prompt;
-    const config = videoConfigFromNode(sourceNode, videoModel);
-    if (!prompt.trim() || !config.model) {
-      toast.warning(!config.model ? "请先配置视频模型" : "提示词不能为空");
-      return;
-    }
-    const generationInputs = mentionContext.inputs;
-    const referenceNodeIds = generationInputs.filter((input) => input.type !== "text" && !input.assetId).map((input) => input.nodeId);
-    const preparation = startGenerationPreparation({
-      projectKey,
-      originNodeId: sourceNode.id,
-      referenceNodeIds,
-    });
-    let prepared: Awaited<ReturnType<typeof prepareVideoReferences>>;
-    try {
-      prepared = await prepareVideoReferences(generationInputs, activeScope, preparation.controller.signal);
-    } catch (error) {
-      if (isAbortError(error) || projectSessionController.canonicalKey !== projectKey) return;
-      toast.error(publicApiError(error, "读取视频参考素材失败"));
-      return;
-    } finally {
-      finishGenerationPreparation(preparation.id);
-    }
-    if (!generationPreparationIsCurrent(preparation)) return;
-    const references = mergeCanvasVideoReferences(
-      prepared.references,
-      canvasSeedanceVideoReferences(
-        sourceNode.metadata?.seedanceMaterialAssets,
-        sourceNode.metadata?.seedanceVolcanoAssets,
-      ),
-    );
-
-    const reuseSourceNode = sourceNode.kind === "video" && !assetIdFromNode(sourceNode);
-    const targetNodeId = reuseSourceNode ? sourceNode.id : crypto.randomUUID();
-    const targetNode: CanvasNodeData = {
-      id: targetNodeId,
-      kind: "video",
-      title: "视频生成中…",
-      content: prompt,
-      x: reuseSourceNode ? sourceNode.x : sourceNode.x + sourceNode.width + 96,
-      y: reuseSourceNode ? sourceNode.y : sourceNode.y + 24,
-      width: reuseSourceNode ? sourceNode.width : 420,
-      height: reuseSourceNode ? sourceNode.height : 260,
-      metadata: {
-        ...(reuseSourceNode ? sourceNode.metadata : {}),
-        assetId: undefined,
-        content: prompt,
-        prompt,
-        generationMode: "video",
-        videoProvider: isSeedanceVideoModel(config.model) ? "seedance" : "openai",
-        model: config.model,
-        size: config.size,
-        resolution: config.resolution,
-        seconds: config.seconds,
-        generateAudio: config.generateAudio,
-        watermark: config.watermark,
-        sourceNodeId: sourceNode.id,
-        videoReferenceInputs: prepared.snapshot,
-        seedanceMaterialAssets: sourceNode.metadata?.seedanceMaterialAssets?.map((asset) => ({ ...asset })),
-        seedanceVolcanoAssets: sourceNode.metadata?.seedanceVolcanoAssets?.map((asset) => ({ ...asset })),
-        status: "loading",
-        errorDetails: undefined,
-        jobId: undefined,
-        jobProgress: 0,
-        mimeType: undefined,
-        bytes: undefined,
-      },
-    };
-    const pendingNodes = reuseSourceNode
-      ? currentNodes.map((node) => node.id === sourceNode.id ? targetNode : node)
-      : [...currentNodes, targetNode];
-    const pendingEdges = reuseSourceNode
-      ? currentEdges
-      : [...currentEdges, { id: crypto.randomUUID(), from: sourceNode.id, to: targetNodeId }];
-    nodesRef.current = pendingNodes;
-    edgesRef.current = pendingEdges;
-    setNodes(pendingNodes);
-    setEdges(pendingEdges);
-    applyNodeSelection([targetNodeId], targetNodeId, true);
-    await persistSnapshot(pendingNodes, pendingEdges, viewportRef.current.zoom, { quiet: true });
-    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) {
-      if (projectSessionController.canonicalKey === projectKey) {
-        updateGenerationNodes((current) => failGeneratedVideoTarget(current, targetNodeId, "切换画布时生成被中断，可重试。"));
-      }
-      return;
-    }
-    await runVideoTarget({
-      targetNodeId,
-      originNodeId: sourceNode.id,
-      runningNodeId: targetNodeId,
-      projectKey,
-      scope: activeScope,
-      prompt,
-      config,
-      references,
-      referenceInputs: prepared.snapshot,
-    });
-  };
-
-  const generateAudioFromNode = async (sourceId?: string) => {
-    const currentNodes = nodesRef.current;
-    const currentEdges = edgesRef.current;
-    const sourceNode = (sourceId ? currentNodes.find((node) => node.id === sourceId) : currentNodes.find((node) => node.id === selectedId)) || null;
-    if (!sourceNode || projectSessionController.switching) return;
-    const activeScope = projectSessionController.canonicalScope;
-    const projectKey = projectSessionController.canonicalKey;
-    if (!activeScope || !projectKey) {
-      toast.warning("正在确认项目工作区，暂不能生成音频节点");
-      return;
-    }
-    let mentionContext: Awaited<ReturnType<typeof resolveMentionGenerationContext>>;
-    try {
-      mentionContext = await resolveMentionGenerationContext(sourceNode, currentNodes, currentEdges);
-    } catch (error) {
-      toast.error(publicApiError(error, "解析画布引用失败"));
-      return;
-    }
-    if (mentionContext.missingKeys.length) {
-      toast.error(`存在失效引用：${mentionContext.missingKeys.join("、")}`);
-      return;
-    }
-    const prompt = mentionContext.prompt;
-    const config = audioConfigFromNode(sourceNode, audioModel);
-    if (!prompt.trim() || !config.model) {
-      toast.warning(!config.model ? "请先配置音频模型" : "提示词不能为空");
-      return;
-    }
-
-    const reuseSourceNode = sourceNode.kind === "audio" && !assetIdFromNode(sourceNode);
-    const targetNodeId = reuseSourceNode ? sourceNode.id : crypto.randomUUID();
-    const targetNode: CanvasNodeData = {
-      id: targetNodeId,
-      kind: "audio",
-      title: "音频生成中…",
-      content: prompt,
-      x: reuseSourceNode ? sourceNode.x : sourceNode.x + sourceNode.width + 96,
-      y: reuseSourceNode ? sourceNode.y : sourceNode.y + Math.max(0, (sourceNode.height - 120) / 2),
-      width: reuseSourceNode ? sourceNode.width : 320,
-      height: reuseSourceNode ? sourceNode.height : 120,
-      metadata: {
-        ...(reuseSourceNode ? sourceNode.metadata : {}),
-        assetId: undefined,
-        content: prompt,
-        prompt,
-        generationMode: "audio",
-        model: config.model,
-        audioVoice: config.voice,
-        audioFormat: config.format,
-        audioSpeed: config.speed,
-        audioInstructions: config.instructions,
-        sourceNodeId: sourceNode.id,
-        status: "loading",
-        errorDetails: undefined,
-        jobId: undefined,
-        jobProgress: undefined,
-        mimeType: undefined,
-        bytes: undefined,
-      },
-    };
-    const pendingNodes = reuseSourceNode
-      ? currentNodes.map((node) => node.id === sourceNode.id ? targetNode : node)
-      : [...currentNodes, targetNode];
-    const pendingEdges = reuseSourceNode
-      ? currentEdges
-      : [...currentEdges, { id: crypto.randomUUID(), from: sourceNode.id, to: targetNodeId }];
-    nodesRef.current = pendingNodes;
-    edgesRef.current = pendingEdges;
-    setNodes(pendingNodes);
-    setEdges(pendingEdges);
-    applyNodeSelection([targetNodeId], targetNodeId, true);
-    await persistSnapshot(pendingNodes, pendingEdges, viewportRef.current.zoom, { quiet: true });
-    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) {
-      if (projectSessionController.canonicalKey === projectKey) {
-        updateGenerationNodes((current) => failGeneratedAudioTarget(current, targetNodeId, "切换画布时生成被中断，可重试。"));
-      }
-      return;
-    }
-    await runAudioTarget({
-      targetNodeId,
-      originNodeId: sourceNode.id,
-      runningNodeId: targetNodeId,
-      projectKey,
-      scope: activeScope,
-      prompt,
-      config,
-    });
-  };
-
-  const generateFromNode = async (sourceId?: string) => {
-    const sourceNode = nodesRef.current.find((node) => node.id === (sourceId || selectedId));
-    if (!sourceNode) return;
-    const mode = generationModeFromNode(sourceNode);
-    if (mode === "text") {
-      await generateTextFromNode(sourceNode.id);
-      return;
-    }
-    if (mode === "image") {
-      await generateImageFromNode(sourceNode.id);
-      return;
-    }
-    if (mode === "video") {
-      await generateVideoFromNode(sourceNode.id);
-      return;
-    }
-    await generateAudioFromNode(sourceNode.id);
-  };
-
   const commitNodeTitle = (node: CanvasNodeData) => {
     const nextTitle = titleDraft.trim();
     if (nextTitle && nextTitle !== node.title) updateNode(node.id, { title: nextTitle });
     setTitleEditingNodeId("");
-  };
-
-  const optimizeNodePrompt = async (node: CanvasNodeData, skillPrompt?: string) => {
-    const current = promptTextFromNode(node).trim();
-    if (!current) return toast.warning("先写点提示词再优化");
-    if (promptOptimizing) return;
-    if (!textModel) return toast.error("请先配置文本模型");
-    setPromptOptimizing(true);
-    try {
-      const instruction = skillPrompt?.trim() || "你是提示词优化专家。在不改变主体与场景的前提下，补足画面、动作、光影与质感细节，直接返回优化后的提示词本身，不要解释。";
-      const result = await requestAiText({
-        model: textModel,
-        prompt: `${instruction}\n\n待优化的提示词：\n${current}`,
-      });
-      const optimized = result.content.trim();
-      if (!optimized) return toast.warning("优化结果为空");
-      updateNodePrompt(node.id, optimized);
-      toast.success("提示词已优化");
-    } catch (error) {
-      toast.error(publicApiError(error, "优化提示词失败"));
-    } finally {
-      setPromptOptimizing(false);
-    }
   };
 
   const startPanelWidthResize = (event: PointerEvent, node: CanvasNodeData) => {
@@ -4649,6 +2886,7 @@ function CanvasWorkspaceContent() {
     setNodes(nextNodes);
     void persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
   };
+  toggleCanvasBatchRef.current = toggleCanvasBatch;
 
   const setBatchPrimaryNode = (child: CanvasNodeData) => {
     const rootId = child.metadata?.batchRootId;
@@ -5589,65 +3827,6 @@ function CanvasWorkspaceContent() {
 
   // 节点卡片的动作集合：每次渲染新建对象字面量，CanvasNodeCard 的 memo 比较器刻意忽略它
   //（本文件 handler 均基于 ref / 函数式 setState，数据 props 相等时旧闭包行为等价）。
-  /* ---- @ 引用：缩略图 / 详情预览 / 画布定位 ---- */
-  // @ 引用的素材详情弹窗（资产库素材或未归档内容用；画布内图片节点直接走带翻页的大图预览）
-  const [mentionMediaPreview, setMentionMediaPreview] = useState<{ url: string; title: string; kind: "image" | "video" | "audio" } | null>(null);
-  const mentionMediaOwnedUrlRef = useRef(""); // 仅记录本弹窗自己创建的 Object URL，关闭时释放
-  const closeMentionMediaPreview = useCallback(() => {
-    setMentionMediaPreview(null);
-    if (mentionMediaOwnedUrlRef.current) {
-      URL.revokeObjectURL(mentionMediaOwnedUrlRef.current);
-      mentionMediaOwnedUrlRef.current = "";
-    }
-  }, []);
-
-  const mentionThumbnailFor = useCallback((reference: CanvasMentionReference) => {
-    if (reference.kind !== "image") return "";
-    const node = reference.nodeId ? nodesRef.current.find((item) => item.id === reference.nodeId) : undefined;
-    if (node) return imageSrcFromNode(node, previews);
-    return reference.assetId ? previews[reference.assetId] || "" : "";
-  }, [previews]);
-
-  const previewMentionReference = useCallback((reference: CanvasMentionReference) => {
-    const node = reference.nodeId ? nodesRef.current.find((item) => item.id === reference.nodeId) : undefined;
-    // 画布内图片节点：直接用大图预览弹窗（同组图片可翻页）
-    if (node && node.kind === "image" && imageSrcFromNode(node, previews)) {
-      setImagePreviewNodeId(node.id);
-      return;
-    }
-    const kind = reference.kind === "video" || reference.kind === "audio" ? reference.kind : "image";
-    const directUrl = node
-      ? imageSrcFromNode(node, previews)
-      : reference.content && isReadableMediaSource(reference.content) ? reference.content : "";
-    if (directUrl) {
-      setMentionMediaPreview({ url: directUrl, title: reference.title, kind });
-      return;
-    }
-    if (!reference.assetId) return;
-    const assetScope = reference.assetScope || projectSessionController.canonicalScope || "personal";
-    void getAssetContentObjectUrl(reference.assetId, assetScope)
-      .then((url) => {
-        if (mentionMediaOwnedUrlRef.current) URL.revokeObjectURL(mentionMediaOwnedUrlRef.current);
-        mentionMediaOwnedUrlRef.current = url;
-        setMentionMediaPreview({ url, title: reference.title, kind });
-      })
-      .catch(() => toast.error("读取素材内容失败"));
-  }, [previews]);
-
-  const locateMentionReference = useCallback((reference: CanvasMentionReference) => {
-    if (!reference.nodeId) return;
-    const currentNodes = nodesRef.current;
-    const node = currentNodes.find((item) => item.id === reference.nodeId);
-    if (!node) return;
-    // 折叠批次里的子图先展开再定位，否则目标不可见
-    const batchRootId = stringValue(node.metadata?.batchRootId);
-    if (batchRootId && isHiddenCanvasBatchChild(node, currentNodes)) {
-      const root = currentNodes.find((item) => item.id === batchRootId);
-      if (root && !root.metadata?.imageBatchExpanded) toggleCanvasBatch(batchRootId);
-    }
-    focusNodeInViewport(reference.nodeId);
-  }, [focusNodeInViewport]);
-
   const nodeCardActions = useLatestCanvasCommandProxy<CanvasNodeCardActions>({
     chooseNode,
     openNodeContextMenu,
@@ -6137,29 +4316,13 @@ function CanvasWorkspaceContent() {
           open: assetPickerOpen, insertBusy: assetPickerInsertBusy, scopeOptions, scope: assetPickerScope,
           loading: assetPickerLoading, query: assetPickerQuery, kind: assetPickerKind,
           error: assetPickerError, items: assetPickerItems, selectedIds: assetPickerSelectedIds,
-          onOpenChange: (open) => {
-            if (!open && assetPickerInsertBusy) return;
-            setAssetPickerOpen(open);
-            if (!open) {
-              assetPickerAbortRef.current?.abort();
-              setAssetPickerSelectedIds([]);
-              setAssetPickerError("");
-            }
-          },
-          onScopeChange: (scope) => {
-            setAssetPickerScope(scope);
-            setAssetPickerSelectedIds([]);
-            void loadAssetPicker(scope, assetPickerQuery, assetPickerKind);
-          },
-          onKindChange: (kind) => {
-            setAssetPickerKind(kind);
-            setAssetPickerSelectedIds([]);
-            void loadAssetPicker(assetPickerScope, assetPickerQuery, kind);
-          },
+          onOpenChange: setAssetPickerOpen,
+          onScopeChange: setAssetPickerScope,
+          onKindChange: setAssetPickerKind,
           onQueryChange: setAssetPickerQuery,
-          onSearch: () => void loadAssetPicker(assetPickerScope, assetPickerQuery, assetPickerKind),
-          onToggleItem: (itemId) => setAssetPickerSelectedIds((ids) => ids.includes(itemId) ? ids.filter((id) => id !== itemId) : [...ids, itemId]),
-          onCancel: () => setAssetPickerOpen(false),
+          onSearch: searchAssetPicker,
+          onToggleItem: toggleAssetPickerItem,
+          onCancel: cancelAssetPicker,
           onInsert: () => void insertAssetPickerSelection(),
         }}
         connectSelection={{
@@ -6291,90 +4454,6 @@ function readCanvasFileDataUrl(file: File, signal?: AbortSignal) {
 
 
 
-
-
-
-
-
-function waitForCanvasPoll(signal: AbortSignal, delayMs = 1_500) {
-  return new Promise<void>((resolve, reject) => {
-    if (signal.aborted) {
-      reject(new DOMException("Aborted", "AbortError"));
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      signal.removeEventListener("abort", abort);
-      resolve();
-    }, delayMs);
-    const abort = () => {
-      window.clearTimeout(timer);
-      reject(new DOMException("Aborted", "AbortError"));
-    };
-    signal.addEventListener("abort", abort, { once: true });
-  });
-}
-
-
-function readImageFileMetadata(file: File) {
-  return new Promise<{ width: number; height: number }>((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const image = new Image();
-    const cleanup = () => URL.revokeObjectURL(url);
-    image.onload = () => {
-      const width = image.naturalWidth || image.width;
-      const height = image.naturalHeight || image.height;
-      cleanup();
-      if (!width || !height) reject(new Error("参考图片尺寸读取失败"));
-      else resolve({ width, height });
-    };
-    image.onerror = () => {
-      cleanup();
-      reject(new Error("参考图片读取失败"));
-    };
-    image.src = url;
-  });
-}
-
-function readVideoFileMetadata(file: File) {
-  return readTimedMediaMetadata(file, "video").then((metadata) => ({
-    width: metadata.width,
-    height: metadata.height,
-    durationMs: metadata.durationMs,
-  }));
-}
-
-function readAudioFileMetadata(file: File) {
-  return readTimedMediaMetadata(file, "audio").then(({ durationMs }) => ({ durationMs }));
-}
-
-function readTimedMediaMetadata(file: File, kind: "video" | "audio") {
-  return new Promise<{ width: number; height: number; durationMs: number }>((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const media = document.createElement(kind);
-    const cleanup = () => {
-      media.removeAttribute("src");
-      media.load();
-      URL.revokeObjectURL(url);
-    };
-    media.preload = "metadata";
-    media.onloadedmetadata = () => {
-      const durationMs = Math.round(media.duration * 1000);
-      const width = kind === "video" ? (media as HTMLVideoElement).videoWidth : 1;
-      const height = kind === "video" ? (media as HTMLVideoElement).videoHeight : 1;
-      cleanup();
-      if (!Number.isFinite(durationMs) || durationMs <= 0 || width <= 0 || height <= 0) {
-        reject(new Error(kind === "video" ? "参考视频元数据读取失败" : "参考音频元数据读取失败"));
-      } else {
-        resolve({ width, height, durationMs });
-      }
-    };
-    media.onerror = () => {
-      cleanup();
-      reject(new Error(kind === "video" ? "参考视频读取失败" : "参考音频读取失败"));
-    };
-    media.src = url;
-  });
-}
 
 
 
