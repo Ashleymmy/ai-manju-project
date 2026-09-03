@@ -4,12 +4,12 @@ import {
   generateImages,
   generatedImagesFromJob,
   waitForImageJob,
-} from "@/features/image/api";
+} from "@/features/image";
 import {
   createVideoGenerationTask,
   pollVideoGenerationTask,
   videoGenerationResultToBlob,
-} from "@/features/video/services/generationGateway";
+} from "@/features/video";
 import { requestAiText } from "@/services/api/ai";
 import { requestAudioGeneration } from "@/services/api/audio";
 import type { CanvasGenerationServices } from "./types";

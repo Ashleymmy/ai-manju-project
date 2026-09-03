@@ -6,7 +6,7 @@ import type {
   VideoGenerationReferences,
   VideoGenerationTask,
   VideoProvider,
-} from "@/features/video/services/generationGateway";
+} from "@/features/video";
 import type { CanvasVideoReferenceSnapshot } from "@/features/canvas/domain/video";
 import type {
   CanvasEdgeData,
@@ -134,14 +134,14 @@ export type CanvasGenerationServices = {
   getAssetContentObjectUrl: typeof import("@/entities/asset").getAssetContentObjectUrl;
   uploadAsset: typeof import("@/entities/asset").uploadAsset;
   cancelJob: typeof import("@/entities/job").cancelJob;
-  generateImages: typeof import("@/features/image/api").generateImages;
-  generatedImagesFromJob: typeof import("@/features/image/api").generatedImagesFromJob;
-  waitForImageJob: typeof import("@/features/image/api").waitForImageJob;
+  generateImages: typeof import("@/features/image").generateImages;
+  generatedImagesFromJob: typeof import("@/features/image").generatedImagesFromJob;
+  waitForImageJob: typeof import("@/features/image").waitForImageJob;
   requestAiText: typeof import("@/services/api/ai").requestAiText;
   requestAudioGeneration: typeof import("@/services/api/audio").requestAudioGeneration;
-  createVideoGenerationTask: typeof import("@/features/video/services/generationGateway").createVideoGenerationTask;
-  pollVideoGenerationTask: typeof import("@/features/video/services/generationGateway").pollVideoGenerationTask;
-  videoGenerationResultToBlob: typeof import("@/features/video/services/generationGateway").videoGenerationResultToBlob;
+  createVideoGenerationTask: typeof import("@/features/video").createVideoGenerationTask;
+  pollVideoGenerationTask: typeof import("@/features/video").pollVideoGenerationTask;
+  videoGenerationResultToBlob: typeof import("@/features/video").videoGenerationResultToBlob;
   createId(): string;
   createAbortController(): AbortController;
   createFile(parts: BlobPart[], name: string, options?: FilePropertyBag): File;

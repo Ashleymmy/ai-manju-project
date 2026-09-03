@@ -1,13 +1,13 @@
-import type { ComponentProps } from "react";
-import { CanvasAssetPickerDialog } from "./CanvasAssetPickerDialog";
-import { CanvasConnectSelectionDialog, CanvasDestructiveDialogs } from "./CanvasConfirmationDialogs";
-import { CanvasImageToolDialog } from "./CanvasDialogs";
-import {
-  CanvasAnnotationMaskDialogs,
-  CanvasImagePreviewDialog,
-  CanvasMentionPreviewDialog,
-  CanvasStoryboardDialog,
-} from "./CanvasPreviewDialogs";
+import { lazy, Suspense, type ComponentProps } from "react";
+
+const CanvasAssetPickerDialog = lazy(() => import("./CanvasAssetPickerDialog").then(module => ({ default: module.CanvasAssetPickerDialog })));
+const CanvasConnectSelectionDialog = lazy(() => import("./CanvasConfirmationDialogs").then(module => ({ default: module.CanvasConnectSelectionDialog })));
+const CanvasDestructiveDialogs = lazy(() => import("./CanvasConfirmationDialogs").then(module => ({ default: module.CanvasDestructiveDialogs })));
+const CanvasImageToolDialog = lazy(() => import("./CanvasDialogs").then(module => ({ default: module.CanvasImageToolDialog })));
+const CanvasAnnotationMaskDialogs = lazy(() => import("./CanvasPreviewDialogs").then(module => ({ default: module.CanvasAnnotationMaskDialogs })));
+const CanvasImagePreviewDialog = lazy(() => import("./CanvasPreviewDialogs").then(module => ({ default: module.CanvasImagePreviewDialog })));
+const CanvasMentionPreviewDialog = lazy(() => import("./CanvasPreviewDialogs").then(module => ({ default: module.CanvasMentionPreviewDialog })));
+const CanvasStoryboardDialog = lazy(() => import("./CanvasPreviewDialogs").then(module => ({ default: module.CanvasStoryboardDialog })));
 
 export type CanvasDialogHostProps = {
   imageTool: ComponentProps<typeof CanvasImageToolDialog>;
@@ -31,7 +31,7 @@ export function CanvasDialogHost({
   destructive,
 }: CanvasDialogHostProps) {
   return (
-    <>
+    <Suspense fallback={null}>
       <CanvasImageToolDialog {...imageTool} />
       <CanvasAnnotationMaskDialogs {...annotationMask} />
       <CanvasStoryboardDialog {...storyboard} />
@@ -40,6 +40,6 @@ export function CanvasDialogHost({
       <CanvasAssetPickerDialog {...assetPicker} />
       <CanvasConnectSelectionDialog {...connectSelection} />
       <CanvasDestructiveDialogs {...destructive} />
-    </>
+    </Suspense>
   );
 }

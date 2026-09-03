@@ -190,7 +190,14 @@ function sourceReferences(filePath, contents) {
   };
   const visit = node => {
     if (ts.isImportDeclaration(node)) {
-      add(node.moduleSpecifier, "static");
+      const clause = node.importClause;
+      const typeOnly = clause?.isTypeOnly || (
+        clause?.namedBindings &&
+        ts.isNamedImports(clause.namedBindings) &&
+        clause.namedBindings.elements.length > 0 &&
+        clause.namedBindings.elements.every(element => element.isTypeOnly)
+      );
+      if (!typeOnly) add(node.moduleSpecifier, "static");
     } else if (ts.isExportDeclaration(node)) {
       add(node.moduleSpecifier, "static");
     } else if (
@@ -477,6 +484,13 @@ function manifestKeyForSource(sourceFile) {
     [key, value?.src].some(item => toPosix(item ?? "").endsWith(`/${expected}`))
   );
   const matches = exact.length > 0 ? exact : suffix;
+  if (matches.length === 0) {
+    const basename = path.basename(expected, path.extname(expected));
+    const byEntryName = [...manifest.entries()].filter(([, value]) =>
+      value?.name === basename && (value?.isEntry || value?.isDynamicEntry)
+    );
+    if (byEntryName.length === 1) return byEntryName[0][0];
+  }
   assert(
     matches.length === 1,
     matches.length === 0

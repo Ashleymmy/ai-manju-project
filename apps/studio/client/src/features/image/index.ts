@@ -1,4 +1,11 @@
-export { default, ImageWorkbenchView } from "./ImagePage";
+import { lazy } from "react";
+
+// Keep the public feature entry light so consumers of the typed image API do
+// not pull the full workbench (and its prompt dialog) into their route chunk.
+const ImageWorkbenchView = lazy(() => import("./ImagePage"));
+
+export { ImageWorkbenchView };
+export default ImageWorkbenchView;
 export {
   fetchImageModels,
   fetchTextModels,

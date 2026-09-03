@@ -1,5 +1,7 @@
 import { ApiError } from "./http";
 
+export { ApiError };
+
 export function publicApiError(error: unknown, fallback = "请求失败") {
   if (error instanceof ApiError) {
     return `${error.message}${error.requestId ? `（request_id: ${error.requestId}）` : ""}`;

@@ -9,7 +9,7 @@ import {
 import {
   isSeedanceVideoModel,
   type VideoGenerationResult,
-} from "@/features/video/services/generationGateway";
+} from "@/features/video";
 import { batchChildGridPosition, refreshImageBatchRoot } from "@/features/canvas/domain/batch";
 import { buildCanvasGenerationInputs, isHiddenCanvasBatchChild } from "@/features/canvas/domain/connections";
 import {

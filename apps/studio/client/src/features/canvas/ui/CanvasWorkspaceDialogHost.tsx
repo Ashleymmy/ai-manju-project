@@ -1,11 +1,12 @@
-import type { ComponentProps } from "react";
-import AgentPanel from "@/components/AgentPanel";
-import PromptLibraryDialog from "@/components/PromptLibraryDialog";
-import PromptPresetManagerDialog from "@/components/PromptPresetManagerDialog";
-import SkillLibraryDialog from "@/components/SkillLibraryDialog";
-import StoryboardEditorDialog from "@/components/StoryboardEditorDialog";
-import { CanvasSeedanceAssetDialog } from "@/components/canvas/CanvasSeedanceAssetDialog";
-import { CanvasSeedanceMaterialDialog } from "@/components/canvas/CanvasSeedanceMaterialDialog";
+import { lazy, Suspense, type ComponentProps } from "react";
+
+const AgentPanel = lazy(() => import("@/components/AgentPanel"));
+const PromptLibraryDialog = lazy(() => import("@/components/PromptLibraryDialog"));
+const PromptPresetManagerDialog = lazy(() => import("@/components/PromptPresetManagerDialog"));
+const SkillLibraryDialog = lazy(() => import("@/components/SkillLibraryDialog"));
+const StoryboardEditorDialog = lazy(() => import("@/components/StoryboardEditorDialog"));
+const CanvasSeedanceAssetDialog = lazy(() => import("@/components/canvas/CanvasSeedanceAssetDialog").then((module) => ({ default: module.CanvasSeedanceAssetDialog })));
+const CanvasSeedanceMaterialDialog = lazy(() => import("@/components/canvas/CanvasSeedanceMaterialDialog").then((module) => ({ default: module.CanvasSeedanceMaterialDialog })));
 
 export type CanvasWorkspaceDialogHostProps = {
   agent: ComponentProps<typeof AgentPanel>;
@@ -28,7 +29,9 @@ export function CanvasWorkspaceDialogHost({
 }: CanvasWorkspaceDialogHostProps) {
   return (
     <>
-      <AgentPanel {...agent} />
+      <Suspense fallback={null}>
+        <AgentPanel {...agent} />
+      </Suspense>
       <SkillLibraryDialog {...skillLibrary} />
       <PromptPresetManagerDialog {...presetManager} />
       <StoryboardEditorDialog {...storyboardEditor} />
