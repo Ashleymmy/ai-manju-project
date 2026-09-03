@@ -16,7 +16,7 @@ import {
   type ComponentProps,
 } from "react";
 
-import { getAssetContentObjectUrl } from "@/services/api";
+import { getAssetContentObjectUrl } from "@/entities/asset";
 import {
   applyCanvasMentionEditorEdit,
   buildCanvasMentionEditorModel,

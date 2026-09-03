@@ -2,13 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Copy, Loader2, RefreshCw, Search, UserRoundCog } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  listSeedanceAssetMentions,
-  publicApiError,
-  seedanceAssetRef,
-  type SeedanceAsset,
-  type WorkspaceScope,
-} from "@/services/api";
+import { listSeedanceAssetMentions, seedanceAssetRef, type SeedanceAsset } from "@/entities/asset";
+import type { WorkspaceScope } from "@/shared/config";
+import { publicApiError } from "@/shared/api/errors";
 import "../pages/video-workbench/workbench.css";
 
 /* 资产库「真人素材」选项页：对应 SD-video 媒体库里的火山真人素材架。

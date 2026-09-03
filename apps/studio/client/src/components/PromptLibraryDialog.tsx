@@ -11,7 +11,9 @@ import {
 } from "@/components/ui/dialog";
 import { buildPromptLibraryEntries, filterPromptLibraryEntries } from "@/lib/prompt-library";
 import { createSkillEntry } from "@/lib/skill-library";
-import { getPreferences, listAllSystemPrompts, publicApiError, updatePreferences, type PromptPreset, type SystemPrompt } from "@/services/api";
+import { listAllSystemPrompts, type PromptPreset, type SystemPrompt } from "@/entities/prompt";
+import { getPreferences, updatePreferences } from "@/features/settings";
+import { publicApiError } from "@/shared/api/errors";
 
 type PromptLibraryDialogProps = {
   open: boolean;

@@ -9,7 +9,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { getPreferences, publicApiError, updatePreferences, type PromptPreset } from "@/services/api";
+import type { PromptPreset } from "@/entities/prompt";
+import { getPreferences, updatePreferences } from "@/features/settings";
+import { publicApiError } from "@/shared/api/errors";
 
 type Props = {
   open: boolean;

@@ -19,7 +19,7 @@ import {
   materialH5Link,
   type SeedanceMaterialAsset,
   type SeedanceMaterialResponse,
-} from "@/services/api";
+} from "@/services/api/material";
 
 type CanvasSeedanceMaterialDialogProps = {
   open: boolean;

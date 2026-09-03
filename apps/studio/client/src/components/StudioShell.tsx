@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { Box, CircleHelp, Clapperboard, FolderKanban, History, Image, LayoutDashboard, LogOut, PanelsTopLeft, Settings, Sparkles, Tags, Workflow, Plus } from "lucide-react";
-import { getCurrentUser, logout, type AuthUser } from "@/services/api";
+import { getCurrentUser, logout, type AuthUser } from "@/entities/auth";
 
 const navigation = [
   { href: "/", label: "工作区", icon: LayoutDashboard },

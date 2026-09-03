@@ -9,7 +9,7 @@ import {
   seedanceAssetRef,
   type SeedanceAsset,
   type SeedanceAssetTag,
-} from "@/services/api";
+} from "@/entities/asset";
 
 export type SelectedSeedanceVolcanoAsset = {
   id: string;
