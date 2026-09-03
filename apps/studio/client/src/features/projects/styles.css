@@ -1,1 +1,49 @@
-
+/* ---- Projects: selection & card tools ---- */
+.project-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #b3b3b3;
+  font-size: 11px;
+}
+.project-card-wrap {
+  position: relative;
+}
+.project-card-wrap .project-card {
+  width: 100%;
+}
+.project-check {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  background: rgba(12, 15, 16, 0.72);
+  cursor: pointer;
+}
+.project-card-tools {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.project-card-wrap:hover .project-card-tools {
+  opacity: 1;
+}
+.project-card-tools button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: rgba(12, 15, 16, 0.78);
+  color: #dfded5;
+  cursor: pointer;
+}

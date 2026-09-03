@@ -1,1 +1,80 @@
+.queue-tabs button { padding: 7px 10px; border: 0; background: transparent; color: #b6b6b6; border-radius: 5px; cursor: pointer; font-size: 11px; }.queue-tabs button.active { color: #f5f1e7; background: #353535; }.queue-health { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border: 1px solid rgba(169,169,169,.24); color: #c8c8c8; background: rgba(169,169,169,.07); font-size: 11px; }.queue-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(275px, .7fr); gap: 18px; margin-top: 36px; }.queue-card { border: 1px solid var(--line); background: #1a2022; }.queue-tabs { display: flex; gap: 4px; padding: 10px 13px; border-bottom: 1px solid var(--line); }.job-row { display: grid; grid-template-columns: 38px minmax(0,1fr) auto 36px; gap: 12px; align-items: center; padding: 18px; border-bottom: 1px solid var(--line); }.job-row:last-child { border-bottom: 0; }.job-icon { display: grid; place-items: center; width: 34px; height: 34px; color: #b0b8b3; background: #2f2f2f; }.job-icon.running { color: #a3c5ff; background: rgba(103,162,255,.13); }.job-icon.succeeded { color: #c6c6c6; background: rgba(169,169,169,.12); }.job-icon.failed { color: #e8e8e4; background: rgba(255,255,255,.12); }.job-copy > div:first-child { display: flex; justify-content: space-between; gap: 12px; }.job-copy b { color: #e5e2da; font-size: 12px; }.job-copy span { color: #a9a9a9; font: 10px "IBM Plex Mono", monospace; white-space: nowrap; }.job-progress { height: 3px; margin-top: 9px; background: #343434; }.job-progress i { display: block; height: 100%; background: var(--blue); }.job-state { display: flex; flex-direction: column; align-items: end; gap: 6px; }.job-state small { color: #a1a1a1; font: 10px "IBM Plex Mono", monospace; }.queue-aside { position: relative; overflow: hidden; min-height: 405px; padding: 25px; background: #3a3a3a; }.queue-aside::after { content: ""; position: absolute; right: -45px; bottom: -75px; width: 220px; height: 220px; border: 1px solid rgba(255,255,255,.16); border-radius: 50%; box-shadow: 0 0 0 22px rgba(255,255,255,.04), 0 0 0 45px rgba(255,255,255,.025); }.queue-aside .eyebrow { color: #b8b8b8; }.queue-aside h3 { margin: 0; font-size: 27px; line-height: 1.12; letter-spacing: -.065em; }.state-machine { display: flex; align-items: center; gap: 8px; margin: 34px 0 20px; color: #b7b7b7; font: 10px "IBM Plex Mono", monospace; }.state-machine span { padding: 5px; border: 1px solid rgba(255,255,255,.2); }.state-machine .active { color: #fff; background: var(--red); border-color: var(--red); }.state-machine .done { color: #cccccc; }.state-machine i { width: 13px; height: 1px; background: rgba(255,255,255,.4); }.queue-aside > p:not(.eyebrow) { max-width: 260px; color: #d6d6d6; font-size: 11px; line-height: 1.8; }.queue-aside code,
+.tool-surface code { display: inline-block; position: relative; z-index: 1; margin-top: 11px; padding: 7px; border: 1px solid rgba(255,255,255,.18); background: rgba(0,0,0,.13); color: #d4d4d4; font: 10px "IBM Plex Mono", monospace; }@media (max-width: 1100px) {.queue-layout { grid-template-columns: 1fr; }.queue-aside { min-height: 270px; } }@media (max-width: 760px) {.queue-tabs { overflow-x: auto; }.job-row { grid-template-columns: 34px minmax(0,1fr) auto; padding: 13px; }.job-row > .icon-button { display: none; }.job-copy > div:first-child { display: block; }.job-copy span { display: block; margin-top: 4px; }.job-state { max-width: 76px; } }.video-history-list .job-row { grid-template-columns: auto 34px minmax(0,1fr) auto auto; padding: 12px; }.video-history-list .job-copy > div:first-child { display: block; }.video-history-list .job-copy span { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; }.video-asset-list .job-row { grid-template-columns: auto 34px minmax(0,1fr) auto; padding: 12px; }.video-asset-list .job-copy > div:first-child { display: block; }.video-asset-list .job-copy span { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; }@media (max-width: 760px) {
+  .video-history-list .job-row { grid-template-columns: auto 34px minmax(0,1fr); }
+  .video-history-list .job-row > .outline-button { grid-column: 3; justify-self: start; }
+  .video-asset-list .job-row { grid-template-columns: auto 34px minmax(0,1fr); }
+}/* 婵炴挸寮堕悡瀣⒓閻斿嘲鐏欓悗浣冨閸╁懘骞愭径鎰唉 */.queue-nav-buttons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}.queue-nav-button {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--fg-dim);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+}.queue-nav-button:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--fg-dimmer);
+  color: var(--fg);
+}.queue-nav-button.active {
+  background: var(--surface-raised);
+  border-color: var(--fg-dimmer);
+  color: var(--fg);
+}/* 婵炴挸寮堕悡瀣⒓閻斿嘲鐏欓柣妯垮煐閳ь兛鐒﹂々褏鎲?- 缂佺姭鍋撴繛韫劍閾嗛柛姘灥缁旈浠﹂埀?*/.queue-status-overview {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  padding: 16px 0;
+  margin-bottom: 20px;
+}.status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.01);
+  transition: all 0.2s ease;
+}.status-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--fg-dimmer);
+}.status-count {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--fg);
+  font-family: "IBM Plex Mono", monospace;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}.status-text {
+  font-size: 11px;
+  color: var(--fg-dimmer);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+}/* 闁告繂绉寸花鎻掝嚕?*/@media (max-width: 760px) {
+  .queue-nav-buttons {
+    flex-direction: column;
+    width: 100%;
+  }
 
+  .queue-nav-button {
+    width: 100%;
+  }
+
+  .queue-status-overview {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+}.queue-card,
+.queue-aside { clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%); }/* ---- Queue: scope switch beside health indicator ---- */.queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}

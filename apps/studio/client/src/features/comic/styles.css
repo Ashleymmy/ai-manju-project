@@ -1,1 +1,361 @@
+.workflow-steps { display: flex; gap: 1px; margin-bottom: 18px; border: 1px solid var(--line); background: var(--line); }.workflow-steps button { display: flex; flex: 1; align-items: center; gap: 10px; min-height: 57px; padding: 0 18px; border: 0; background: #1b2123; color: #b9b9b9; cursor: pointer; text-align: left; }.workflow-steps button:hover { background: #282828; }.workflow-steps i { display: grid; place-items: center; width: 25px; height: 25px; border: 1px solid #616161; border-radius: 50%; font: 10px "IBM Plex Mono", monospace; font-style: normal; }.workflow-steps button.active { background: rgba(255,255,255,.12); color: #fff2ec; }.workflow-steps button.active i { border-color: var(--red); background: var(--red); color: #17181a; }.workflow-steps button.done { color: #c8c8c8; }.workflow-steps button.done i { border-color: #cdcdcd; background: rgba(158,158,158,.12); }.script-intake { display: grid; grid-template-columns: minmax(0,1fr) 300px; height: 650px; border: 1px solid var(--line); background: #181f20; }.script-intake-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 14px 16px; border-top: 1px solid var(--line); background: #141a1c; }.script-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 45px; border-right: 1px solid var(--line); background-image: radial-gradient(rgba(230,226,209,.24) .6px, transparent .7px); background-size: 7px 7px; text-align: center; }.script-drop > svg { color: var(--red); }.script-drop h2 { margin: 16px 0 0; font-size: 25px; letter-spacing: -.055em; }.script-drop p { max-width: 370px; margin: 11px 0 21px; color: #c3c3c3; font-size: 12px; line-height: 1.75; }.script-settings-panel { position: relative; overflow: hidden; height: 100%; }.settings-scroll-area { height: 100%; overflow-y: auto; overflow-x: hidden; padding: 26px; padding-right: 20px; }.settings-scroll-area::-webkit-scrollbar { width: 8px; }.settings-scroll-area::-webkit-scrollbar-track { background: transparent; }.settings-scroll-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 4px; }.settings-scroll-area::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.25); }.script-intake label { display: block; margin-top: 22px; color: #b3b3b3; font: 10px "IBM Plex Mono", monospace; }.script-intake label button { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 37px; margin-top: 7px; padding: 0 10px; border: 1px solid var(--line); background: #272727; color: #d7d8d0; cursor: pointer; font: 11px "Noto Sans SC", sans-serif; }.comic-project-list { margin-top: 18px; margin-bottom: 18px; }.comic-project-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--line); }.comic-project-open { display: flex; align-items: center; gap: 7px; padding: 0; border: 0; background: transparent; color: #c9cfc7; cursor: pointer; font-size: 11px; }.comic-project-open:hover { color: #e5e3db; }.comic-project-actions { display: flex; gap: 6px; }.comic-project-actions button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: #a9a9a9; cursor: pointer; }.comic-project-actions button:hover { color: #b5bdb7; }.comic-project-list small { display: block; padding: 12px 0; color: #949494; font-size: 11px; }.template-upload-section { display: flex; flex-direction: column; gap: 14px; margin-top: 18px; }.template-upload-item { display: flex; flex-direction: column; gap: 6px; }.template-label { margin: 0; color: #cdcdcd; font-size: 11px; letter-spacing: .02em; }.template-upload-box { padding: 12px; border: 1px solid var(--line); background: #212121; border-radius: 3px; }.template-hint { margin: 0 0 9px; color: #949494; font-size: 10px; line-height: 1.5; }.template-input { width: 100%; padding: 8px 10px; margin-bottom: 9px; border: 1px solid #303030; background: #1a1a1a; color: #bcbcbc; font-size: 11px; font-family: inherit; line-height: 1.5; border-radius: 2px; resize: vertical; outline: none; transition: border-color .15s ease; }.template-input::placeholder { color: #7d7d7d; }.template-input:focus { border-color: #535353; }.template-upload-button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 0 10px; min-height: 30px; border: 0; background: #282828; color: #bebebe; cursor: pointer; font-size: 11px; text-align: left; transition: background .15s ease; border-radius: 2px; }.template-upload-button:hover { background: #303030; }.template-upload-button svg { flex-shrink: 0; color: #929292; }.candidate-review { display: grid; grid-template-columns: 190px minmax(0,1fr) 250px; gap: 1px; border: 1px solid var(--line); background: var(--line); }.candidate-sidebar,
+.approval-panel { padding: 23px; background: #1a2022; }.candidate-sidebar h2 { margin: 0; font-size: 22px; line-height: 1.18; letter-spacing: -.06em; }.analysis-meter { margin: 24px 0 17px; }.analysis-meter::before { content: ""; display: block; height: 4px; background: #383838; }.analysis-meter i { display: block; height: 4px; margin-top: -4px; background: var(--red); }.analysis-meter span { display: block; margin-top: 7px; color: #b3b3b3; font: 10px "IBM Plex Mono", monospace; }.candidate-sidebar > button:not(.full-outline) { display: flex; justify-content: space-between; width: 100%; padding: 11px 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: #b2b9b3; cursor: pointer; text-align: left; font-size: 11px; }.candidate-sidebar > button b { color: #e5e1d7; font: 11px "IBM Plex Mono", monospace; }.candidate-sidebar .full-outline { margin-top: 22px; }.candidate-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; padding: 16px; background: #151b1c; }.candidate-tags { display: flex; gap: 4px; margin: 11px 12px 0; }.candidate-tags span { padding: 3px 5px; background: #353535; color: #bbc1ba; font: 10px "IBM Plex Mono", monospace; }.prompt-link { display: inline-flex; align-items: center; gap: 4px; margin: 12px 12px 0; padding: 0; border: 0; background: transparent; color: #cccccc; cursor: pointer; font-size: 11px; }.approval-panel { display: flex; flex-direction: column; }.approval-panel h3 { margin: 3px 0 0; font-size: 18px; }.approval-panel > p:not(.eyebrow) { margin: 13px 0; color: #c0c0c0; font-size: 11px; line-height: 1.75; }.approval-panel .vermilion-button { margin-top: auto; }.batch-console { border: 1px solid var(--line); background: #1a2022; }.batch-header { display: flex; align-items: center; justify-content: space-between; padding: 23px; border-bottom: 1px solid var(--line); }.batch-header h2 { margin: 0; font-size: 19px; letter-spacing: -.05em; }@media (max-width: 760px) {.script-intake,
+.candidate-review { display: flex; min-height: 0; flex-direction: column; }.script-intake > aside { border-top: 1px solid var(--line); }.script-drop { padding: 40px 18px; border-right: 0; }.script-drop h2 { font-size: 23px; }.workflow-steps { overflow-x: auto; }.workflow-steps button { min-width: 130px; flex: 0 0 auto; padding: 0 13px; }.candidate-sidebar,
+.approval-panel { padding: 17px; }.candidate-sidebar { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }.candidate-sidebar > .eyebrow,
+.candidate-sidebar h2,
+.candidate-sidebar .analysis-meter { grid-column: 1/-1; }.candidate-sidebar > button:not(.full-outline) { min-height: 42px; }.candidate-sidebar .full-outline { grid-column: 1/-1; }.candidate-grid { grid-template-columns: 1fr; }.approval-panel .vermilion-button { margin-top: 16px; } }.script-intake aside input,
+.script-intake aside select,
+.script-intake aside textarea { width: 100%; min-height: 36px; margin-top: 7px; padding: 8px 10px; border: 1px solid var(--line); outline: none; background: #272727; color: #d7d8d0; font: 11px/1.55 "Noto Sans SC", sans-serif; }.script-intake aside textarea { min-height: 90px; resize: vertical; }.candidate-sidebar > textarea { grid-column: 1 / -1; width: 100%; min-height: 92px; margin-top: 16px; padding: 10px; border: 1px solid var(--line); resize: vertical; outline: none; background: #272727; color: #d7d8d0; font: 11px/1.55 "Noto Sans SC", sans-serif; }/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?ComicAssetsView stage 3 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?*/.comic-console-layout { display: grid; grid-template-columns: minmax(0,1fr) 280px; gap: 14px; margin-top: 16px; align-items: start; }.comic-asset-review-list { display: grid; align-content: start; gap: 8px; max-height: calc(100dvh - 300px); overflow-y: auto; padding-right: 4px; }.comic-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; padding: 8px 0; border-bottom: 1px solid var(--line); }.comic-toolbar label { display: inline-flex; align-items: center; gap: 6px; color: #c8c8c8; font-size: 11px; cursor: pointer; }.comic-toolbar span { color: #aeaeae; font: 10px "IBM Plex Mono", monospace; }.comic-generation-panel { display: grid; align-content: start; gap: 10px; padding: 14px; border: 1px solid var(--line); background: #1c1c1c; position: sticky; top: 0; }.comic-generation-panel label { display: grid; gap: 6px; color: #c0c0c0; font: 10px "IBM Plex Mono", monospace; }.comic-generation-panel select,
+.comic-generation-panel textarea { width: 100%; min-height: 32px; padding: 0 9px; border: 1px solid var(--line); outline: none; background: #242424; color: #dfe5df; font-size: 11px; }.comic-generation-panel textarea { min-height: 80px; padding: 8px 9px; resize: vertical; }.comic-generation-panel hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }.comic-asset-row { display: grid; grid-template-columns: auto minmax(0,1fr) auto auto; align-items: start; gap: 10px; padding: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.02); }.comic-asset-row.selected { border-color: rgba(255, 255, 255, 0.63); background: rgba(255,255,255,.05); }.comic-asset-row label { display: inline-flex; align-items: center; gap: 6px; color: #ffffff; font: 10px "IBM Plex Mono", monospace; white-space: nowrap; cursor: pointer; }.comic-asset-row > div > b { display: block; color: #eef2ed; font-size: 11px; }.comic-asset-row > div > small { display: block; margin-top: 3px; color: #acacac; font-size: 10px; }.comic-asset-row > div > p { margin-top: 6px; color: #cdcdcd; font-size: 11px; line-height: 1.55; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }.comic-row-actions { display: flex; gap: 5px; flex-shrink: 0; }.comic-row-actions button { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 8px; border: 1px solid var(--line); background: rgba(255,255,255,.025); color: #cdcdcd; cursor: pointer; font-size: 10px; white-space: nowrap; }.comic-row-actions button:disabled { opacity: .4; cursor: not-allowed; }.comic-batch-card { display: grid; gap: 8px; padding: 10px; border: 1px solid rgba(255,255,255,.22); background: rgba(255,255,255,.05); margin-top: 4px; }.comic-batch-card > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 8px; }.comic-batch-card > div:first-child b { color: #f4f4f4; font: 12px "IBM Plex Mono", monospace; }.comic-batch-controls { display: flex; gap: 6px; }.comic-batch-controls button { min-height: 28px; padding: 0 10px; border: 1px solid var(--line); background: rgba(255,255,255,.03); color: #c8d0cc; cursor: pointer; font-size: 11px; }.comic-batch-items { display: grid; gap: 5px; max-height: 180px; overflow-y: auto; }.comic-batch-items > div { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--line); background: rgba(255,255,255,.018); }.comic-batch-items span { color: #c8d0cc; font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }.comic-batch-items b { color: #cccccc; font: 10px "IBM Plex Mono", monospace; }.comic-batch-items small { color: #acacac; font: 10px "IBM Plex Mono", monospace; }@media (max-width: 960px) { .comic-console-layout { grid-template-columns: 1fr; } }/* Create Asset Project Button - 闁哄倹婢樼紓鎾舵導閸曨亪鐛撳銈呮贡濞蹭即骞愭径鎰唉 */.create-asset-project-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  cursor: pointer;
+  font-weight: 700;
+  transition: transform .16s var(--ease-out), background .16s var(--ease-out);
+  min-height: 37px;
+  padding: 0 15px;
+  background: var(--red);
+  color: #17181a;
+  border-radius: 0;
+  font-size: 12px;
+  clip-path: polygon(
+    0 0,
+    calc(100% - 8px) 0,
+    100% 8px,
+    100% 100%,
+    8px 100%,
+    0 calc(100% - 8px)
+  );
+}.create-asset-project-button:hover {
+  background: #ffffff;
+}.create-asset-project-button svg {
+  flex-shrink: 0;
+}/* Comic Page with Sidebar Layout - 婵犳洦鍋勬晶鐣屾導閸曨亪鐛撳銈囨暬濞兼澘顔忛敂鎸庢珷閺夊牐顫夐悥顔炬暜閸愩劎婀?*/.comic-page-with-sidebar {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 20px;
+  align-items: stretch;
+}.comic-projects-sidebar {
+  display: flex;
+  flex-direction: column;
+}/* Comic Projects Preview - 婵犳洦鍋勬晶鐣屾導閸曨亪鐛撳銈呮贡濞茬増锛愰崟顕呮綌闁告牕鎼悡?*/.comic-projects-preview {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, .018);
+  border-radius: 8px;
+  min-height: 100%;
+}.comic-projects-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}.comic-projects-preview-header h3 {
+  margin: 0;
+  color: #e8ede7;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+}.comic-projects-preview-header span {
+  color: #a9a9a9;
+  font-size: 11px;
+  font-family: "IBM Plex Mono", monospace;
+}.comic-projects-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}.comic-project-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(239, 235, 222, .12);
+  background: rgba(255, 255, 255, .025);
+  color: #cecece;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  transition: all .16s var(--ease-out);
+}.comic-project-preview-item:hover {
+  border-color: rgba(239, 235, 222, .28);
+  background: rgba(255, 255, 255, .055);
+  color: #e8f0eb;
+  transform: translateX(2px);
+}.comic-project-preview-item svg {
+  flex-shrink: 0;
+  color: #bbbbbb;
+}.comic-project-preview-item span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}.comic-projects-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 120px;
+  padding: 20px;
+  border: 1px dashed rgba(239, 235, 222, .08);
+  background: rgba(255, 255, 255, .01);
+  border-radius: 6px;
+}.comic-projects-empty p {
+  margin: 0;
+  color: #929292;
+  font-size: 11px;
+  text-align: center;
+}.comic-main-content {
+  min-width: 0;
+}@media (max-width: 1100px) {
+  .comic-page-with-sidebar {
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: 16px;
+  }
 
+  .comic-projects-preview {
+    padding: 16px;
+  }
+
+  .comic-project-preview-item {
+    font-size: 11px;
+    padding: 9px 11px;
+  }
+}@media (max-width: 760px) {
+  .comic-page-with-sidebar {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .comic-projects-sidebar {
+    position: static;
+  }
+
+  .comic-projects-preview {
+    padding: 16px 18px;
+  }
+
+  .comic-project-preview-item {
+    font-size: 11px;
+    padding: 9px 11px;
+  }
+}/* Comic Hero Header - 婵犳洦鍋勬晶鐣屾導閸曨亪鐛撻柛鏂烘櫆婢ф粍寰勯幘顔煎姤 */.comic-hero-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 32px 0 28px; border-bottom: 1px solid var(--line); }.comic-hero-content { flex: 1; min-width: 0; }.comic-hero-content .eyebrow { margin: 0 0 10px; color: #f2f1ed; font-size: 10px; font-weight: 600; letter-spacing: .1em; }.comic-hero-content h1 { margin: 0 0 12px; color: #f7f9f5; font-size: 42px; font-weight: 700; letter-spacing: -.04em; line-height: 1.1; }.comic-hero-description { max-width: 720px; margin: 0 0 20px; color: #bebebe; font-size: 12px; line-height: 1.7; }.comic-hero-actions { display: flex; align-items: center; gap: 10px; }.comic-tab-button { min-height: 36px; padding: 0 16px; border: 1px solid var(--line); background: transparent; color: #bdbdbd; cursor: pointer; font-size: 11px; transition: all .15s ease; }.comic-tab-button:hover { border-color: rgba(239,235,222,.22); background: rgba(255,255,255,.03); color: #e5e9e3; }.comic-tab-button.active { border-color: rgba(255, 255, 255, 0.65); background: rgba(255,255,255,.08); color: #f2f1ed; font-weight: 600; }.comic-lets-create-badge { min-width: 120px; min-height: 72px; padding: 12px 20px; border: 2px solid #f2f1ed; background: rgba(255,255,255,.08); color: #f2f1ed; font-size: 14px; font-weight: 700; line-height: 1.3; text-align: center; letter-spacing: .02em; pointer-events: none; user-select: none; }/* Comic Info Banner - 濞ｅ洠鍓濇导鍛村箵閹邦喓浠涙俊顖ｄ簻缁?*/.comic-info-banner { display: flex; align-items: flex-start; gap: 14px; margin: 24px 0; padding: 16px 18px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.04); }.comic-info-icon { display: grid; place-items: center; flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,.2); color: #ffffff; font-size: 14px; font-weight: 700; }.comic-info-content h3 { margin: 0 0 6px; color: #eeeeee; font-size: 13px; font-weight: 600; }.comic-info-content p { margin: 0; color: #cbcbcb; font-size: 11px; line-height: 1.6; }/* Comic Workspace Layout - 鐎规悶鍎扮紞鏃堝礌閸濆嫮顏撮悘鐐╁亾 */.comic-workspace-layout { display: grid; grid-template-columns: 280px minmax(0,1fr); gap: 20px; align-items: start; }/* Comic Projects Panel - 濡炪倕婀卞ú浼存閵忊剝绶?*/.comic-projects-panel { display: flex; flex-direction: column; padding: 18px; border: 1px solid var(--line); background: rgba(255,255,255,.015); }.comic-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }.comic-panel-header h3 { margin: 0; color: #d8d8d8; font-size: 13px; font-weight: 600; }.comic-refresh-button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); background: transparent; color: #bebebe; cursor: pointer; transition: all .15s ease; }.comic-refresh-button:hover { border-color: rgba(239,235,222,.22); background: rgba(255,255,255,.03); color: #bdbdbd; }.comic-panel-count { margin-bottom: 14px; color: #929292; font-size: 11px; }.comic-projects-list { display: grid; align-content: start; gap: 6px; max-height: calc(100vh - 400px); overflow-y: auto; }.comic-project-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); background: transparent; color: #c8c8c8; cursor: pointer; font-size: 11px; text-align: left; transition: all .12s ease; }.comic-project-item:hover { border-color: rgba(239,235,222,.22); background: rgba(255,255,255,.03); color: #e5e9e3; }.comic-project-item svg { flex-shrink: 0; color: #a6a6a6; }.comic-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 20px; color: #929292; text-align: center; }.comic-empty-state svg { margin-bottom: 16px; color: #686868; }.comic-empty-state p { margin: 0; font-size: 11px; }/* Comic Main Area - 濞戞捁顕ф导鎰媴濠婂啫闅?*/.comic-main-area { display: flex; flex-direction: column; min-height: calc(100vh - 400px); padding: 24px; border: 1px solid var(--line); background: rgba(255,255,255,.01); }/* Comic Empty Workspace - 缂佸矁娅ｆ慨鎼佸箑?*/.comic-empty-workspace { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; padding: 60px 20px; text-align: center; }.comic-empty-icon { display: grid; place-items: center; width: 96px; height: 96px; margin-bottom: 24px; border: 2px dashed rgba(239,235,222,.15); border-radius: 50%; color: #7d7d7d; }.comic-empty-workspace h2 { margin: 0 0 12px; color: #e0e0e0; font-size: 20px; font-weight: 600; }.comic-empty-workspace p { max-width: 680px; margin: 0 0 24px; color: #bebebe; font-size: 12px; line-height: 1.7; white-space: nowrap; }/* Comic Create Dialog - 闁告帗绋戠紓鎾淬亜閸︻厽绐楃€殿喖婀遍悰?*/.modal-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0,0,0,.75); backdrop-filter: blur(4px); }.comic-create-dialog { width: 90%; max-width: 880px; max-height: 90vh; overflow-y: auto; background: #1a2022; border: 1px solid var(--line); box-shadow: 0 8px 32px rgba(0,0,0,.6); }.comic-create-dialog::-webkit-scrollbar { width: 8px; }.comic-create-dialog::-webkit-scrollbar-track { background: transparent; }.comic-create-dialog::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 4px; }.comic-create-dialog::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.25); }.dialog-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.015); }.dialog-header h2 { margin: 0; color: #eff3ed; font-size: 18px; font-weight: 600; }.dialog-close { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); background: transparent; color: #bebebe; cursor: pointer; transition: all .15s ease; }.dialog-close:hover { border-color: rgba(239,235,222,.22); background: rgba(255,255,255,.03); color: #bdbdbd; }.dialog-body { padding: 24px; max-height: 70vh; overflow-y: auto; }.dialog-body::-webkit-scrollbar { width: 8px; }.dialog-body::-webkit-scrollbar-track { background: rgba(255,255,255,.03); border-radius: 4px; }.dialog-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 4px; transition: background .15s ease; }.dialog-body::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.20); }.dialog-section { margin-bottom: 24px; }.dialog-section:last-child { margin-bottom: 0; }.dialog-label { display: block; margin-bottom: 10px; color: #bdbdbd; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }.creation-mode-tabs { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }.mode-tab { min-height: 40px; padding: 0 14px; border: 1px solid var(--line); background: transparent; color: #bebebe; cursor: pointer; font-size: 11px; transition: all .15s ease; }.mode-tab:hover { border-color: rgba(239,235,222,.18); background: rgba(255,255,255,.02); color: #bdbdbd; }.mode-tab.active { border-color: rgba(255, 255, 255, 0.65); background: rgba(255,255,255,.08); color: #f2f1ed; }.dialog-row { display: grid; grid-template-columns: repeat(2,1fr); gap: 16px; margin-bottom: 24px; }.dialog-field { display: flex; flex-direction: column; }.dialog-field input,
+.dialog-section input,
+.dialog-section select,
+.dialog-section textarea { width: 100%; min-height: 38px; padding: 0 12px; border: 1px solid var(--line); outline: none; background: rgba(255,255,255,.02); color: #e0e0e0; font-size: 11px; transition: border-color .15s ease; }.dialog-field input:focus,
+.dialog-section input:focus,
+.dialog-section select:focus,
+.dialog-section textarea:focus { border-color: rgba(239,235,222,.25); }.dialog-section textarea { min-height: 120px; padding: 12px; resize: vertical; line-height: 1.7; font-family: inherit; }.textarea-wrapper { position: relative; }.textarea-wrapper textarea { padding-bottom: 32px; }.char-count { position: absolute; bottom: 10px; right: 14px; font-size: 10px; color: #a6a6a6; pointer-events: none; user-select: none; }.dialog-hint { margin: 0 0 10px; color: #cdcdcd; font-size: 11px; line-height: 1.6; }.file-upload-area { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; border: 2px dashed rgba(239,235,222,.15); background: rgba(255,255,255,.01); text-align: center; cursor: pointer; transition: all .15s ease; }.file-upload-area:hover { border-color: rgba(239,235,222,.25); background: rgba(255,255,255,.02); }.file-upload-area svg { margin-bottom: 12px; color: #a6a6a6; }.file-upload-area p { margin: 0 0 6px; color: #bdbdbd; font-size: 12px; }.file-upload-area small { color: #929292; font-size: 11px; }.quick-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }.quick-tag { min-height: 28px; padding: 0 10px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.04); color: #ffffff; cursor: pointer; font-size: 10px; transition: all .15s ease; }.quick-tag:hover { border-color: rgba(255, 255, 255, 0.6); background: rgba(255,255,255,.08); }.dialog-warning { display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; padding: 12px; border: 1px solid rgba(255,193,7,.25); background: rgba(255,193,7,.05); }.dialog-warning span { flex-shrink: 0; color: #ffc107; font-size: 14px; font-weight: 700; }.dialog-warning p { margin: 0; color: #c4a866; font-size: 11px; line-height: 1.6; }.template-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 16px; }.templates-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 16px; margin-top: 16px; }.template-item { display: flex; flex-direction: column; }.template-item textarea { min-height: 80px; margin-bottom: 8px; padding: 10px; border: 1px solid var(--line); outline: none; background: rgba(255,255,255,.02); color: #e0e0e0; font-size: 11px; line-height: 1.6; resize: vertical; transition: border-color .15s ease; }.template-item textarea::placeholder { color: #a6a6a6; opacity: 1; }.template-item textarea:focus { border-color: rgba(239,235,222,.25); }.template-upload-btn { display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid var(--line); background: rgba(255,255,255,.02); color: #bebebe; cursor: pointer; font-size: 11px; text-align: left; transition: all .15s ease; }.template-upload-btn:hover { border-color: rgba(239,235,222,.22); background: rgba(255,255,255,.03); color: #bdbdbd; }.template-hint { margin: 6px 0 8px; color: #cdcdcd; font-size: 10px; line-height: 1.5; }.dialog-footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 18px 24px; border-top: 1px solid var(--line); background: rgba(255,255,255,.01); }/* ---- Comic assets: project management, asset editor, batch options ---- */.comic-project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}.comic-project-list > small {
+  color: #a1a1a1;
+}.comic-project-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}.comic-project-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: #dfded5;
+  cursor: pointer;
+  font-size: 11px;
+}.comic-project-open span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}.comic-project-actions {
+  display: flex;
+  gap: 2px;
+  padding-right: 6px;
+}.comic-project-actions button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: #cdcdcd;
+  cursor: pointer;
+}.comic-project-actions button:hover {
+  color: #f1ede5;
+}.comic-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}.revision-history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}.revision-history > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+  color: #c9cdc5;
+  cursor: pointer;
+  font-size: 11px;
+}.revision-history > button.selected {
+  border-color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffd9d2;
+}.revision-history > button span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}.comic-toolbar .tag-search {
+  flex: 1;
+  min-width: 120px;
+}.comic-toolbar select {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  background: #262626;
+  color: #dfded5;
+  font-size: 11px;
+}.comic-asset-editor {
+  grid-column: 1 / -1;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.02);
+}.comic-asset-editor label {
+  display: block;
+  margin-top: 9px;
+  color: #b9b9b9;
+  font: 10px "IBM Plex Mono", monospace;
+}.comic-asset-editor input,
+.comic-asset-editor select,
+.comic-asset-editor textarea {
+  width: 100%;
+  margin-top: 5px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  background: #262626;
+  color: #e0ded5;
+  font: 11px/1.7 "Noto Sans SC", sans-serif;
+}.comic-asset-editor textarea {
+  min-height: 64px;
+  resize: vertical;
+}.comic-asset-editor .comic-prompt-editor {
+  min-height: 110px;
+}.comic-asset-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+}.comic-asset-editor-grid label {
+  margin-top: 0;
+}.comic-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 11px;
+}.comic-batch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}.comic-check-line {
+  display: flex !important;
+  align-items: center;
+  gap: 7px;
+  color: #c2c8c0 !important;
+  font-size: 11px !important;
+}.comic-reference-block {
+  margin: 4px 0 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}.comic-reference-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}.comic-reference-chips span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 160px;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.08);
+  color: #efefef;
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}.comic-reference-chips span button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}.comic-reference-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 160px;
+  margin-top: 8px;
+  overflow-y: auto;
+}.comic-reference-candidates button {
+  overflow: hidden;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: #c9cdc5;
+  cursor: pointer;
+  font-size: 11px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}.comic-reference-candidates button.selected {
+  border-color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.12);
+}.comic-batch-items {
+  max-height: 220px;
+  overflow-y: auto;
+}.comic-item-retry {
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: transparent;
+  color: #ff8b78;
+  cursor: pointer;
+  font-size: 10px;
+}/* 閺夆晜鐟ょ悮杈ㄧ▔椤忓嫬闅橀柛鈺冨枎濠€?index.css 闂佹彃鑻畷鐔兼偑椤掑倹鏆伴弶?8px 婵犲﹥鑹炬慨鈺呭级閳藉懐绀夐梺顐㈩槹鐎氥劑宕抽妸銈囧枠闁稿繐鐗忔鍥即閹绢喚褰柨娑樼焸濞撳爼寮伴幆褏纭€闁稿繗娅曠敮鈧?*/.settings-scroll-area {
+  scrollbar-width: none;
+}.settings-scroll-area::-webkit-scrollbar,
+.settings-scroll-area::-webkit-scrollbar-thumb {
+  width: 0;
+  height: 0;
+  display: none;
+}

@@ -1,4 +1,71 @@
-﻿/* ---- 鐟欏棝顣跺銉ょ稊閸欏府绱欑€电鐦藉蹇ョ礆閿涙氨些濡?SD-video 娑撳鐖禍銈勭鞍閿涘矁顫嬬憴澶嬪瘻瑜板崬宓?閺嬫粌鍠曟担鎾堕兇闁插秶绮?----
+/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?Video workspace V4a controls and compact disclosure 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?*/
+.video-title-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.video-compact-action { display: none; }
+.video-settings-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 13px; margin-top: 22px; }
+.video-settings-control { display: grid; gap: 7px; min-width: 0; color: #b9b9b9; font: 10px "IBM Plex Mono", monospace; }
+.video-settings-control span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.video-settings-control select { width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); outline: none; background: #262626; color: #dfded5; cursor: pointer; font: 11px "Noto Sans SC", sans-serif; }
+.video-settings-control select:focus { border-color: rgba(255, 255, 255, 0.83); box-shadow: 0 0 0 1px rgba(255,255,255,.18); }
+.video-settings-control select:disabled { opacity: .58; cursor: not-allowed; }
+.video-settings-control input { width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); outline: none; background: #262626; color: #dfded5; font: 11px "IBM Plex Mono", monospace; }
+.video-settings-control input:focus { border-color: rgba(255, 255, 255, 0.83); box-shadow: 0 0 0 1px rgba(255,255,255,.18); }
+.video-settings-control input:disabled { opacity: .58; cursor: not-allowed; }
+.prompt-library-dialog { width: min(680px,calc(100vw - 28px)); max-width: 680px; }
+.prompt-library-list { display: grid; max-height: min(58vh,520px); overflow-y: auto; border: 1px solid var(--line); background: #151b1c; }
+.prompt-library-list > button { display: grid; grid-template-columns: 22px minmax(0,1fr) auto; align-items: start; gap: 10px; width: 100%; padding: 13px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: #dcdcdc; cursor: pointer; text-align: left; }
+.prompt-library-list > button:hover { background: rgba(255,255,255,.1); }
+.prompt-library-list > button span,
+.prompt-library-list > button b,
+.prompt-library-list > button small { display: block; min-width: 0; }
+.prompt-library-list > button small { overflow: hidden; margin-top: 5px; color: #b6b6b6; font-size: 11px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+.prompt-library-list > button i { padding: 3px 5px; background: #2b2b2b; color: #b3b3b3; font: 10px "IBM Plex Mono", monospace; font-style: normal; }
+.video-settings-toggles { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.video-state-card { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 14px; min-height: 210px; margin-top: 18px; padding: 18px; border: 1px solid var(--line); background: rgba(255,255,255,.025); color: #dce2da; }
+.video-state-card > svg { color: #cdcdcd; }
+.video-state-card.running { border-color: rgba(255, 255, 255, 0.47); background: rgba(255,255,255,.055); }
+.video-state-card.failed { border-color: rgba(255, 255, 255, 0.6); background: rgba(255,255,255,.07); }
+.video-state-card.succeeded { border-color: rgba(148,148,148,.22); background: rgba(148,148,148,.055); }
+.video-state-copy { display: grid; gap: 7px; min-width: 0; }
+.video-state-copy b { color: #f1efe7; font-size: 13px; }
+.video-state-copy p { margin: 0; color: #c8c8c8; font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
+.video-state-copy .outline-button { width: fit-content; }
+.video-progress { position: relative; height: 22px; overflow: hidden; border: 1px solid rgba(255,255,255,.2); background: rgba(7,12,14,.38); }
+.video-progress span { position: absolute; inset: 0 auto 0 0; background: rgba(255,255,255,.32); }
+.video-progress b { position: relative; z-index: 1; display: grid; place-items: center; height: 100%; color: #efefef; font: 10px "IBM Plex Mono", monospace; }
+.video-history-panel { margin-top: 18px; }
+.video-history-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.video-history-list { max-height: 270px; overflow-y: auto; padding-right: 3px; }
+.video-history-empty { min-height: 150px; padding: 22px; border: 1px dashed rgba(255,255,255,.12); background: rgba(255,255,255,.018); }
+.video-compact-dialog { width: min(680px,calc(100vw - 2rem)); max-width: 680px; max-height: min(82vh,720px); overflow: hidden; border-color: var(--line); background: #171d1e; color: #e3e4dc; }
+.video-compact-dialog-body { max-height: calc(82vh - 118px); overflow-y: auto; padding-right: 3px; }
+.video-compact-dialog .video-settings-grid { margin-top: 0; grid-template-columns: repeat(2,minmax(0,1fr)); }
+.video-history-dialog .video-history-panel { margin-top: 0; }
+.video-history-dialog .video-history-list { max-height: none; }
+.video-asset-dialog { width: min(760px,calc(100vw - 2rem)); max-width: 760px; max-height: min(86vh,780px); overflow: hidden; border-color: var(--line); background: #171d1e; color: #e3e4dc; }
+.video-asset-dialog-body { display: flex; flex-direction: column; min-height: 0; max-height: calc(86vh - 180px); overflow: hidden; }
+.video-asset-dialog .filter-line { flex-wrap: wrap; }
+.video-asset-dialog .tag-search { flex: 1 1 240px; }
+.video-asset-list { flex: 1 1 auto; min-height: 150px; max-height: min(54vh,500px); overflow-y: auto; padding-right: 3px; }
+@media (max-width: 1100px) {
+  .video-compact-action { display: inline-flex; }
+  .video-settings-inline,
+.video-history-inline { display: none; }
+}
+@media (max-width: 760px) {
+  .video-page .feature-title .video-title-actions { width: 100%; justify-content: flex-start; }
+  .video-settings-grid,
+.video-compact-dialog .video-settings-grid { grid-template-columns: 1fr; }
+  .video-compact-dialog { max-height: 88vh; padding: 18px; }
+  .video-compact-dialog-body { max-height: calc(88vh - 112px); }
+  .video-state-card { grid-template-columns: 1fr; min-height: 170px; }
+  .video-history-list .status-chip { grid-column: 3; justify-self: start; }
+  .video-history-actions { width: 100%; justify-content: flex-start; }
+  .video-asset-dialog { max-height: 90vh; padding: 18px; }
+  .video-asset-dialog-body { max-height: calc(90vh - 176px); }
+  .video-asset-list .status-chip { grid-column: 3; justify-self: start; }
+}
+
+/* ---- 鐟欏棝顣跺銉ょ稊閸欏府绱欑€电鐦藉蹇ョ礆閿涙氨些濡?SD-video 娑撳鐖禍銈勭鞍閿涘矁顫嬬憴澶嬪瘻瑜板崬宓?閺嬫粌鍠曟担鎾堕兇闁插秶绮?----
    閸忋劑鍎撮柅澶嬪閸ｃ劌鐢?.wb- 閸撳秶绱戦敍宀勬缁傝绨悽璇茬娑撳骸鍙剧€瑰啴銆夐棃顫偓?*/
 
 .wb-page {
