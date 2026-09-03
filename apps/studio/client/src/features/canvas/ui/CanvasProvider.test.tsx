@@ -130,15 +130,18 @@ describe("CanvasProvider", () => {
   it("retains one committed store and command identity through StrictMode effects", async () => {
     const stores = new Set<CanvasStoreApi>();
     const commands = new Set<CanvasCommands>();
+    let latestCommands: CanvasCommands | null = null;
 
     function IdentityProbe() {
       const store = useCanvasStoreApi();
       const instanceCommands = useCanvasCommands();
+      const nodes = useCanvasStore(selectCanvasNodes);
+      latestCommands = instanceCommands;
       useEffect(() => {
         stores.add(store);
         commands.add(instanceCommands);
       }, [instanceCommands, store]);
-      return null;
+      return <span data-testid="identity-probe">{nodes[0]?.title || "empty"}</span>;
     }
 
     await act(async () => root.render(
@@ -149,6 +152,12 @@ describe("CanvasProvider", () => {
       </StrictMode>
     ));
 
+    expect(stores.size).toBe(1);
+    expect(commands.size).toBe(1);
+
+    await act(async () => latestCommands?.graph.setNodes([node("committed")]));
+
+    expect(container.querySelector('[data-testid="identity-probe"]')?.textContent).toBe("committed");
     expect(stores.size).toBe(1);
     expect(commands.size).toBe(1);
   });

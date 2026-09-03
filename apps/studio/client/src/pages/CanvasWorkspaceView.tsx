@@ -136,6 +136,7 @@ import {
   useCanvasStore,
   useCanvasStoreApi,
 } from "@/features/canvas/ui/CanvasProvider";
+import { commitCanvasAgentState } from "@/features/canvas/model/agentState";
 import {
   extractProjectCanvasData,
   extractServerCanvasSnapshotData,
@@ -283,7 +284,6 @@ import { createZip, readZip } from "@/lib/zip";
 import {
   buildCanvasSnapshot,
   canvasAgentSnapshotFromCanvas,
-  canvasViewportFromAgent,
   parseCanvasSnapshot as parseSnapshot,
 } from "@/features/canvas/domain/snapshotCodec";
 import {
@@ -6287,27 +6287,18 @@ function CanvasWorkspaceContent() {
     const nextAgentSnapshot = applyCanvasAgentOps(before, ops.filter((op) => op.type !== "run_generation"));
     const nextNodes = nextAgentSnapshot.nodes.map(normalizeCanvasNode).filter((node): node is CanvasNodeData => Boolean(node));
     const nextEdges = nextAgentSnapshot.connections.map(normalizeCanvasEdge).filter((edge): edge is CanvasEdgeData => Boolean(edge));
-    const nextViewport = canvasViewportFromAgent(nextAgentSnapshot.viewport);
     const nextSelected = new Set(nextAgentSnapshot.selectedNodeIds.filter((id) => nextNodes.some((node) => node.id === id)));
 
     setAgentUndoSnapshot(before);
-    viewportRef.current = nextViewport;
-    canvasCommands.commit({
-      graph: {
-        nodes: nextNodes,
-        edges: nextEdges,
-        selectedNodeIds: [...nextSelected],
-        selectedNodeId: Array.from(nextSelected).at(-1) || "",
-        selectedGroupId: "",
-        selectedEdgeId: "",
-      },
-      viewport: nextViewport,
-    });
-    setContextMenu(null);
-    await persistSnapshot(nextNodes, nextEdges, nextViewport.zoom, {
-      quiet: true,
-      panX: nextViewport.panX,
-      panY: nextViewport.panY,
+    await commitCanvasAgentState({
+      commands: canvasCommands,
+      nodes: nextNodes,
+      edges: nextEdges,
+      selectedNodeIds: [...nextSelected],
+      agentViewport: nextAgentSnapshot.viewport,
+      viewportRef,
+      closeContextMenu: () => setContextMenu(null),
+      persistSnapshot,
     });
 
     const generationResults: CanvasAgentGenerationResult[] = [];
@@ -6361,24 +6352,16 @@ function CanvasWorkspaceContent() {
     if (!agentUndoSnapshot) return null;
     const restoredNodes = agentUndoSnapshot.nodes.map(normalizeCanvasNode).filter((node): node is CanvasNodeData => Boolean(node));
     const restoredEdges = agentUndoSnapshot.connections.map(normalizeCanvasEdge).filter((edge): edge is CanvasEdgeData => Boolean(edge));
-    const restoredViewport = canvasViewportFromAgent(agentUndoSnapshot.viewport);
     const restoredSelection = new Set(agentUndoSnapshot.selectedNodeIds.filter((id) => restoredNodes.some((node) => node.id === id)));
-    viewportRef.current = restoredViewport;
-    canvasCommands.commit({
-      graph: {
-        nodes: restoredNodes,
-        edges: restoredEdges,
-        selectedNodeIds: [...restoredSelection],
-        selectedNodeId: Array.from(restoredSelection).at(-1) || "",
-        selectedGroupId: "",
-        selectedEdgeId: "",
-      },
-      viewport: restoredViewport,
-    });
-    await persistSnapshot(restoredNodes, restoredEdges, restoredViewport.zoom, {
-      quiet: true,
-      panX: restoredViewport.panX,
-      panY: restoredViewport.panY,
+    const restoredViewport = await commitCanvasAgentState({
+      commands: canvasCommands,
+      nodes: restoredNodes,
+      edges: restoredEdges,
+      selectedNodeIds: [...restoredSelection],
+      agentViewport: agentUndoSnapshot.viewport,
+      viewportRef,
+      closeContextMenu: () => setContextMenu(null),
+      persistSnapshot,
     });
     const restored = canvasAgentSnapshotFromCanvas(
       projectId,

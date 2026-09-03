@@ -85,16 +85,17 @@ describe("canvas scoped store", () => {
 
   it("keeps transient browser and controller objects outside the store source", () => {
     const source = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
-    for (const forbidden of [
-      "HTMLElement",
-      "PointerEvent",
-      "AbortController",
-      "requestAnimationFrame",
-      "setTimeout",
-      "createObjectURL",
-      "blob:",
-    ]) {
-      expect(source).not.toContain(forbidden);
+    for (const [label, forbidden] of [
+      ["DOM elements", /\b(?:Element|HTMLElement|SVGElement|HTMLImageElement|HTMLVideoElement|HTMLAudioElement|HTMLCanvasElement|HTMLMediaElement)\b/],
+      ["DOM events", /\b(?:EventTarget|PointerEvent|MouseEvent|KeyboardEvent|WheelEvent|DragEvent)\b/],
+      ["file and media objects", /\b(?:Blob|File|FileList|ImageBitmap|MediaStream|AudioContext)\b/],
+      ["abort handles", /\b(?:AbortController|AbortSignal)\b/],
+      ["animation handles", /\b(?:requestAnimationFrame|cancelAnimationFrame|requestIdleCallback|cancelIdleCallback)\b/],
+      ["timer handles", /\b(?:setTimeout|clearTimeout|setInterval|clearInterval)\b/],
+      ["object URLs", /\b(?:createObjectURL|revokeObjectURL)\b|blob:/],
+      ["async work", /\bPromise\b/],
+    ] as const) {
+      expect(source, label).not.toMatch(forbidden);
     }
   });
 });

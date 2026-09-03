@@ -137,8 +137,8 @@ export function canvasAgentSnapshotFromCanvas(
 
 export function canvasViewportFromAgent(viewport: CanvasAgentViewport) {
   return {
-    zoom: Math.max(CANVAS_ZOOM_MIN, Math.min(CANVAS_ZOOM_MAX, viewport.k * 100)),
-    panX: viewport.x,
-    panY: viewport.y,
+    zoom: Math.round(Math.max(CANVAS_ZOOM_MIN, Math.min(CANVAS_ZOOM_MAX, viewport.k * 100))),
+    panX: Math.round(viewport.x),
+    panY: Math.round(viewport.y),
   };
 }
