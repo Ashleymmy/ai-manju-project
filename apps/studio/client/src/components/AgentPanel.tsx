@@ -3,14 +3,30 @@ import { ArrowLeft, ArrowUp, Bot, Brain, ChartColumn, Check, ChevronDown, Chevro
 import { toast } from "sonner";
 import {
   fetchAiModels,
-  imageModelLabel,
-  publicApiError,
   requestAiText,
   type ResponseFunctionTool,
   type ResponseInputMessage,
   type ResponseToolCall,
   type TextModelCatalog,
-} from "@/services/api";
+} from "@/services/api/ai";
+import { publicApiError } from "@/shared/api/errors";
+import {
+  createLocalAgentSseClient,
+  loadAgentConnectionSettings,
+  loadAgentConversations,
+  persistAgentConnectionSettings,
+  persistAgentConversations,
+  postLocalAgentResult,
+  postLocalAgentState,
+  sendLocalAgentTurn,
+  upsertAgentConversation,
+  type AgentConversation,
+  type AgentMessage,
+  type AgentToolResult,
+  type NormalizedToolCall,
+  type OnlineToolContext,
+  type PendingAgentTool,
+} from "@/features/canvas/agent";
 import {
   CANVAS_AGENT_PROTOCOL_VERSION,
   CANVAS_AGENT_TOOLS,
@@ -26,25 +42,8 @@ import {
   type CanvasAgentToolRequest,
 } from "@/lib/canvas-agent";
 
-type AgentMsg = { id: string; role: "user" | "assistant" | "error" | "tool"; text: string };
-type AgentConversation = { id: string; title: string; updatedAt: number; messages: AgentMsg[] };
 type AgentMenuKind = "threads" | "files" | "plus" | "confirm" | "models";
 type PlusMenuView = "root" | "canvas" | "skills" | "apps";
-type AgentToolResult = { ok: boolean; message: string; data?: unknown };
-type NormalizedToolCall = { id: string; name: string; arguments: string };
-type OnlineToolContext = {
-  source: "online";
-  calls: NormalizedToolCall[];
-  messages: ResponseInputMessage[];
-  step: number;
-  assistantId: string;
-};
-type PendingAgentTool = { source: "local"; request: CanvasAgentToolRequest } | OnlineToolContext;
-
-const URL_KEY = "canvas-agent-url";
-const TOK_KEY = "canvas-agent-token";
-const CONVERSATIONS_KEY = (pid: string) => `canvas-agent-conversations:${pid}`;
-const MAX_SAVED_CONVERSATIONS = 20;
 // 技能预设与头脑风暴提示词：纯前端占位，后续由后端技能/应用体系适配
 const SKILL_PRESETS = [
   { name: "剧本分析", prompt: "分析当前画布的剧本结构：指出主题、冲突和节奏问题。" },
@@ -53,24 +52,6 @@ const SKILL_PRESETS = [
 ];
 const BRAINSTORM_PROMPT = "围绕当前画布做一次头脑风暴：给出 5 个不同方向的创意点子，并说明各自的画面潜力。";
 
-function loadConversations(pid: string): AgentConversation[] {
-  try {
-    const raw = localStorage.getItem(CONVERSATIONS_KEY(pid));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as AgentConversation[];
-    return Array.isArray(parsed) ? parsed.filter((item) => item && typeof item.id === "string" && Array.isArray(item.messages)) : [];
-  } catch {
-    return [];
-  }
-}
-
-function persistConversations(pid: string, list: AgentConversation[]) {
-  try {
-    localStorage.setItem(CONVERSATIONS_KEY(pid), JSON.stringify(list.slice(0, MAX_SAVED_CONVERSATIONS)));
-  } catch {
-    // 存储失败（如配额不足）时静默降级，仅保留内存态。
-  }
-}
 const ONLINE_AGENT_MAX_STEPS = 4;
 const ONLINE_AGENT_PROMPT = "你是 AI-Manju 的在线画布助手。首轮必须调用工具：只读问题调用 canvas_get_state，需要改动画布时调用对应画布工具。需要生成内容时调用 canvas_generate_text、canvas_generate_image、canvas_generate_video、canvas_generate_audio 或 canvas_create_generation_flow。不要输出伪造的 JSON ops，不要编造执行结果。涉及已有节点时只能使用当前画布快照中的真实 id；信息不足时先向用户说明。工具返回后必须依据真实结果回答。";
 const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = CANVAS_AGENT_TOOLS.map((item) => ({
@@ -102,12 +83,12 @@ export default function AgentPanel({
 }) {
   const [tab, setTab] = useState<"connect" | "chat">("chat");
   const [channel, setChannel] = useState<"online" | "local">("online");
-  const [url, setUrl] = useState(() => localStorage.getItem(URL_KEY) ?? "http://127.0.0.1:17371");
-  const [token, setToken] = useState(() => localStorage.getItem(TOK_KEY) ?? "");
+  const [url, setUrl] = useState(() => loadAgentConnectionSettings().url);
+  const [token, setToken] = useState(() => loadAgentConnectionSettings().token);
   const [enabled, setEnabled] = useState(false);
   const [connected, setConnected] = useState(false);
   const [activity, setActivity] = useState("未连接");
-  const [messages, setMessages] = useState<AgentMsg[]>([]);
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [prompt, setPrompt] = useState("");
   const [waiting, setWaiting] = useState(false);
   const [threadId, setThreadId] = useState<string | undefined>();
@@ -118,14 +99,13 @@ export default function AgentPanel({
   const [pendingTool, setPendingTool] = useState<PendingAgentTool | null>(null);
   const [panelWidth, setPanelWidth] = useState(560); // 悬浮卡片初始宽度（可拖拽 250–600）
   const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
-  const [conversations, setConversations] = useState<AgentConversation[]>(() => loadConversations(projectId));
+  const [conversations, setConversations] = useState<AgentConversation[]>(() => loadAgentConversations(projectId));
   const [openMenu, setOpenMenu] = useState<AgentMenuKind | null>(null);
   const [plusView, setPlusView] = useState<PlusMenuView>("root");
   const [autoModel, setAutoModel] = useState(false);
   const [moreModelsOpen, setMoreModelsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const wasConnectedRef = useRef(false);
   const clientId = useRef(crypto.randomUUID()).current;
   const snapshotRef = useRef(snapshot);
   const pendingToolRef = useRef<PendingAgentTool | null>(null);
@@ -147,7 +127,7 @@ export default function AgentPanel({
 
   // 切换项目时重载该项目的对话列表并开启新对话
   useEffect(() => {
-    setConversations(loadConversations(projectId));
+    setConversations(loadAgentConversations(projectId));
     setMessages([]);
     setConversationId(crypto.randomUUID());
     setThreadId(undefined);
@@ -157,13 +137,9 @@ export default function AgentPanel({
   // 消息变化时自动保存当前对话（标题取首条用户消息）
   useEffect(() => {
     if (!messages.length) return;
-    const firstUser = messages.find((m) => m.role === "user");
     setConversations((prev) => {
-      const existing = prev.find((c) => c.id === conversationId);
-      const title = existing?.title ?? (firstUser ? firstUser.text.slice(0, 24) : "新建对话");
-      const entry: AgentConversation = { id: conversationId, title, updatedAt: Date.now(), messages };
-      const next = [entry, ...prev.filter((c) => c.id !== conversationId)].slice(0, MAX_SAVED_CONVERSATIONS);
-      persistConversations(projectId, next);
+      const next = upsertAgentConversation(prev, conversationId, messages);
+      persistAgentConversations(projectId, next);
       return next;
     });
   }, [messages, conversationId, projectId]);
@@ -212,74 +188,66 @@ export default function AgentPanel({
 
   useEffect(() => {
     if (!enabled || !url.trim() || !token.trim()) return;
-    const base = url.trim().replace(/\/$/, "");
-    const src = new EventSource(
-      `${base}/events?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`
-    );
-    src.addEventListener("hello", () => {
-      wasConnectedRef.current = true;
-      setConnected(true);
-      setActivity("已连接");
-      toast.success("本地Agent 已连接");
-      void postAgentState(base, token, clientId, snapshotRef.current);
+    const client = createLocalAgentSseClient({
+      endpoint: url,
+      token,
+      clientId,
+      callbacks: {
+        getSnapshot: () => snapshotRef.current,
+        onHello: () => {
+          setConnected(true);
+          setActivity("已连接");
+          toast.success("本地Agent 已连接");
+        },
+        onToolCall: request => localToolHandlerRef.current(request),
+        onAgentEvent: event => {
+          if (event.thread_id) setThreadId(event.thread_id);
+          if (event.type === "turn.started") {
+            setActivity("思考中");
+            setWaiting(true);
+          }
+          if (
+            (event.type === "item.updated" || event.type === "item.completed")
+            && event.item?.type === "agent_message"
+            && event.item.text
+          ) {
+            const { id = String(Date.now()), text } = event.item;
+            setMessages(prev => {
+              const index = prev.findIndex(message => message.id === id);
+              return index >= 0
+                ? prev.map((message, itemIndex) => itemIndex === index ? { ...message, text } : message)
+                : [...prev, { id, role: "assistant", text }];
+            });
+          }
+        },
+        onDone: () => {
+          setActivity("完成");
+          setWaiting(false);
+        },
+        onAgentError: message => {
+          setMessages(prev => [
+            ...prev,
+            { id: `err-${Date.now()}`, role: "error", text: message },
+          ]);
+          setActivity("出错");
+          setWaiting(false);
+        },
+        onConnectionError: wasConnected => {
+          setConnected(false);
+          setActivity(wasConnected ? "连接断开" : "连接失败");
+          if (!wasConnected) setEnabled(false);
+        },
+        onDispose: () => setConnected(false),
+      },
     });
-    src.addEventListener("tool_call", (event) => {
-      const request = parseEventData<CanvasAgentToolRequest>(event);
-      if (!request?.requestId) return;
-      if (isCanvasAgentToolName(request.name)) {
-        localToolHandlerRef.current(request);
-        return;
-      }
-      void postAgentResult(base, token, clientId, { requestId: request.requestId, error: `不支持的工具：${String(request.name || "unknown")}` }).catch(() => undefined);
-    });
-    src.addEventListener("agent_event", (e) => {
-      try {
-        const d = JSON.parse((e as MessageEvent).data) as {
-          type?: string; thread_id?: string;
-          item?: { id?: string; type?: string; text?: string };
-        };
-        if (d.thread_id) setThreadId(d.thread_id);
-        if (d.type === "turn.started") { setActivity("思考中"); setWaiting(true); }
-        if (
-          (d.type === "item.updated" || d.type === "item.completed") &&
-          d.item?.type === "agent_message" && d.item.text
-        ) {
-          const { id = String(Date.now()), text } = d.item;
-          setMessages((prev) => {
-            const i = prev.findIndex((m) => m.id === id);
-            return i >= 0
-              ? prev.map((m, j) => (j === i ? { ...m, text } : m))
-              : [...prev, { id, role: "assistant", text }];
-          });
-        }
-      } catch { /* ignore */ }
-    });
-    src.addEventListener("agent_done", () => { setActivity("完成"); setWaiting(false); });
-    src.addEventListener("agent_error", (e) => {
-      try {
-        const d = JSON.parse((e as MessageEvent).data) as { message?: string };
-        setMessages((prev) => [
-          ...prev,
-          { id: `err-${Date.now()}`, role: "error", text: d.message ?? "Agent 出错" },
-        ]);
-      } catch { /* ignore */ }
-      setActivity("出错"); setWaiting(false);
-    });
-    src.onerror = () => {
-      const was = wasConnectedRef.current;
-      wasConnectedRef.current = false;
-      setConnected(false);
-      setActivity(was ? "连接断开" : "连接失败");
-      if (!was) { src.close(); setEnabled(false); }
-    };
-    return () => { src.close(); wasConnectedRef.current = false; setConnected(false); };
+    return () => client.close();
   }, [enabled, url, token, clientId]);
 
   useEffect(() => {
     if (!connected) return;
     const base = url.trim().replace(/\/$/, "");
     const timer = window.setTimeout(() => {
-      void postAgentState(base, token, clientId, snapshot);
+      void postLocalAgentState(base, token, clientId, snapshot);
     }, 300);
     return () => window.clearTimeout(timer);
   }, [clientId, connected, snapshot, token, url]);
@@ -292,19 +260,16 @@ export default function AgentPanel({
       return;
     }
     if (!connected || !text || waiting) return;
-    const base = url.trim().replace(/\/$/, "");
     setWaiting(true);
     setActivity("发送中");
     setMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: "user", text }]);
     setPrompt("");
     try {
-      const res = await fetch(`${base}/agent/codex/turn?token=${encodeURIComponent(token)}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: text, canvasId: projectId, threadId }),
+      const data = await sendLocalAgentTurn(url, token, {
+        prompt: text,
+        canvasId: projectId,
+        threadId,
       });
-      if (!res.ok) throw new Error("请求被拒绝");
-      const data = await res.json() as { threadId?: string };
       if (data.threadId) setThreadId(data.threadId);
     } catch (err) {
       setMessages((prev) => [
@@ -326,7 +291,7 @@ export default function AgentPanel({
     }
     setWaiting(true);
     setActivity("在线模型思考中");
-    const userMessage: AgentMsg = { id: `u-${Date.now()}`, role: "user", text };
+    const userMessage: AgentMessage = { id: `u-${Date.now()}`, role: "user", text };
     const history = messages
       .filter((message) => message.role === "user" || message.role === "assistant")
       .slice(-8)
@@ -479,13 +444,13 @@ export default function AgentPanel({
     setActivity(`执行${toolLabel(request.name)}`);
     try {
       const result = await executeAgentTool(request.name, request.input || {});
-      await postAgentResult(base, token, clientId, { requestId: request.requestId, result });
+      await postLocalAgentResult(base, token, clientId, { requestId: request.requestId, result });
       setMessages((prev) => [...prev, { id: `tool-${Date.now()}`, role: "tool", text: `${toolLabel(request.name)}：${result.message}` }]);
-      if (!isCanvasAgentReadTool(request.name)) void postAgentState(base, token, clientId, snapshotRef.current);
+      if (!isCanvasAgentReadTool(request.name)) void postLocalAgentState(base, token, clientId, snapshotRef.current);
       setActivity(result.ok ? "工具完成" : "工具失败");
     } catch (error) {
       const message = error instanceof Error ? error.message : "画布工具执行失败";
-      await postAgentResult(base, token, clientId, { requestId: request.requestId, error: message }).catch(() => undefined);
+      await postLocalAgentResult(base, token, clientId, { requestId: request.requestId, error: message }).catch(() => undefined);
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "error", text: message }]);
       setActivity("工具失败");
     } finally {
@@ -497,7 +462,7 @@ export default function AgentPanel({
     if (confirmToolsRef.current && !isCanvasAgentReadTool(request.name)) {
       if (pendingToolRef.current) {
         const base = url.trim().replace(/\/$/, "");
-        await postAgentResult(base, token, clientId, { requestId: request.requestId, error: "仍有待确认的画布工具调用" }).catch(() => undefined);
+        await postLocalAgentResult(base, token, clientId, { requestId: request.requestId, error: "仍有待确认的画布工具调用" }).catch(() => undefined);
         return;
       }
       setPendingAgentTool({ source: "local", request });
@@ -530,7 +495,7 @@ export default function AgentPanel({
     setPendingAgentTool(null);
     if (pending.source === "local") {
       const base = url.trim().replace(/\/$/, "");
-      await postAgentResult(base, token, clientId, { requestId: pending.request.requestId, error: "用户取消了画布工具调用" }).catch(() => undefined);
+      await postLocalAgentResult(base, token, clientId, { requestId: pending.request.requestId, error: "用户取消了画布工具调用" }).catch(() => undefined);
     }
     setMessages((prev) => [...prev, { id: `tool-${Date.now()}`, role: "tool", text: `已拒绝执行${pendingToolSummary(pending)}` }]);
     setActivity("已取消");
@@ -545,7 +510,7 @@ export default function AgentPanel({
     setActivity("已撤销");
     if (connected) {
       const base = url.trim().replace(/\/$/, "");
-      void postAgentState(base, token, clientId, restored);
+      void postLocalAgentState(base, token, clientId, restored);
     }
   };
 
@@ -561,8 +526,7 @@ export default function AgentPanel({
   const connect = () => {
     if (!url.trim()) { toast.warning("请填写 Agent 地址"); return; }
     if (!token.trim()) { toast.warning("请填写 Agent token"); return; }
-    localStorage.setItem(URL_KEY, url.trim().replace(/\/$/, ""));
-    localStorage.setItem(TOK_KEY, token);
+    persistAgentConnectionSettings(url, token);
     setEnabled(true);
     setActivity("连接中");
     setTab("chat");
@@ -635,7 +599,7 @@ export default function AgentPanel({
   const deleteConversation = (id: string) => {
     setConversations((prev) => {
       const next = prev.filter((c) => c.id !== id);
-      persistConversations(projectId, next);
+      persistAgentConversations(projectId, next);
       return next;
     });
     if (id === conversationId) newConversation();
@@ -1157,40 +1121,6 @@ function parseToolArguments(value: string) {
   } catch {
     throw new Error("工具参数不是合法 JSON 对象");
   }
-}
-
-function parseEventData<T>(event: Event) {
-  try {
-    return JSON.parse((event as MessageEvent).data) as T;
-  } catch {
-    return null;
-  }
-}
-
-async function postAgentState(endpoint: string, token: string, clientId: string, snapshot: CanvasAgentSnapshot) {
-  try {
-    await fetch(`${endpoint}/canvas/state?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...snapshot, protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION }),
-    });
-  } catch {
-    // SSE 会负责呈现连接状态，快照同步失败时等待下一轮 300ms 同步。
-  }
-}
-
-async function postAgentResult(
-  endpoint: string,
-  token: string,
-  clientId: string,
-  body: { requestId: string; result?: unknown; error?: string },
-) {
-  const response = await fetch(`${endpoint}/canvas/result?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ...body, protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION }),
-  });
-  if (!response.ok) throw new Error("本地 Agent 未接收工具结果");
 }
 
 function pendingToolSummary(pending: PendingAgentTool) {
