@@ -67,4 +67,19 @@ describe("Canvas feature boundaries", () => {
 
     expect(violations).toEqual([]);
   });
+
+  it("keeps Canvas presenters free of transport and broad store subscriptions", () => {
+    const uiRoot = path.join(canvasRoot, "ui");
+    const violations = productionSources(uiRoot).flatMap(filePath => {
+      if (filePath.endsWith(`${path.sep}CanvasProvider.tsx`)) return [];
+      const source = readFileSync(filePath, "utf8");
+      return [
+        source.includes("@/services/api") ? "legacy API" : "",
+        source.includes("@/shared/api/http") ? "HTTP transport" : "",
+        source.includes("useCanvasStore(") ? "store hook" : "",
+      ].filter(Boolean).map(reason => `${path.relative(sourceRoot, filePath)}: ${reason}`);
+    });
+
+    expect(violations).toEqual([]);
+  });
 });

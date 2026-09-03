@@ -130,6 +130,13 @@ import { CanvasWorkspaceDialogHost } from "@/features/canvas/ui/CanvasWorkspaceD
 import { CanvasStage } from "@/features/canvas/ui/CanvasStage";
 import { CanvasDialogHost } from "@/features/canvas/ui/CanvasDialogHost";
 import {
+  CanvasProvider,
+  useCanvasCommands,
+  useLatestCanvasCommandProxy,
+  useCanvasStore,
+  useCanvasStoreApi,
+} from "@/features/canvas/ui/CanvasProvider";
+import {
   extractProjectCanvasData,
   extractServerCanvasSnapshotData,
   type CanvasSnapshotBase,
@@ -668,65 +675,100 @@ function setDocumentPanCursor(active: boolean) {
   document.body.style.cursor = active ? "grabbing" : "";
 }
 
-export default function CanvasWorkspaceView() {
+function CanvasWorkspaceContent() {
   const [location, navigate] = useLocation();
   const { user } = useAuth();
   const projectId = location.startsWith("/canvas/") ? decodeURIComponent(location.slice("/canvas/".length).split("?")[0]) : "";
-  const [scope, setScope] = useState<WorkspaceScope>(() => scopeFromLocation(location));
+  const canvasCommands = useCanvasCommands();
+  const canvasStore = useCanvasStoreApi();
+  const scope = useCanvasStore((state) => state.session.scope);
+  const setScope = canvasCommands.session.setScope;
   const [projects, setProjects] = useState<CanvasProject[]>([]);
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set());
   const [projectBatchBusy, setProjectBatchBusy] = useState(false);
   const [projectDeleteIds, setProjectDeleteIds] = useState<string[]>([]);
   const [projectDeleteError, setProjectDeleteError] = useState("");
-  const [projectTitle, setProjectTitle] = useState("");
-  const [canonicalProjectScope, setCanonicalProjectScope] = useState<WorkspaceScope | null>(null);
-  const [nodes, setNodes] = useState<CanvasNodeData[]>([]);
-  const [edges, setEdges] = useState<CanvasEdgeData[]>([]);
-  const [groups, setGroups] = useState<CanvasGroupData[]>([]);
-  const [selectedId, setSelectedId] = useState("");
-  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(() => new Set());
-  const [selectedGroupId, setSelectedGroupId] = useState("");
+  const projectTitle = useCanvasStore((state) => state.session.projectTitle);
+  const setProjectTitle = canvasCommands.session.setProjectTitle;
+  const canonicalProjectScope = useCanvasStore((state) => state.session.canonicalProjectScope);
+  const setCanonicalProjectScope = canvasCommands.session.setCanonicalProjectScope;
+  const nodes = useCanvasStore((state) => state.graph.nodes);
+  const setNodes = canvasCommands.graph.setNodes;
+  const edges = useCanvasStore((state) => state.graph.edges);
+  const setEdges = canvasCommands.graph.setEdges;
+  const groups = useCanvasStore((state) => state.graph.groups);
+  const setGroups = canvasCommands.graph.setGroups;
+  const selectedId = useCanvasStore((state) => state.graph.selectedNodeId);
+  const setSelectedId = canvasCommands.graph.setSelectedNodeId;
+  const selectedNodeIdValues = useCanvasStore((state) => state.graph.selectedNodeIds);
+  const selectedNodeIds = useMemo(() => new Set(selectedNodeIdValues), [selectedNodeIdValues]);
+  const setSelectedNodeIds = canvasCommands.graph.setSelectedNodeIds;
+  const selectedGroupId = useCanvasStore((state) => state.graph.selectedGroupId);
+  const setSelectedGroupId = canvasCommands.graph.setSelectedGroupId;
   const [connectFrom, setConnectFrom] = useState("");
   const [connectHandleType, setConnectHandleType] = useState<ConnectionHandleType>("source");
-  const [zoom, setZoom] = useState(90);
-  const [panX, setPanX] = useState(0);
-  const [panY, setPanY] = useState(0);
-  const [backgroundMode, setBackgroundMode] = useState<CanvasBackgroundMode>("dots");
-  const [showImageInfo, setShowImageInfo] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [snapshotWriteReady, setSnapshotWriteReady] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<CanvasSyncStatus>("loading");
-  const [snapshotVersion, setSnapshotVersion] = useState(0);
-  const [snapshotUpdatedAt, setSnapshotUpdatedAt] = useState("");
-  const [syncError, setSyncError] = useState("");
-  const [switching, setSwitching] = useState(false);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const zoom = useCanvasStore((state) => state.viewport.zoom);
+  const setZoom = canvasCommands.viewport.setZoom;
+  const panX = useCanvasStore((state) => state.viewport.panX);
+  const setPanX = canvasCommands.viewport.setPanX;
+  const panY = useCanvasStore((state) => state.viewport.panY);
+  const setPanY = canvasCommands.viewport.setPanY;
+  const backgroundMode = useCanvasStore((state) => state.viewport.backgroundMode);
+  const setBackgroundMode = canvasCommands.viewport.setBackgroundMode;
+  const showImageInfo = useCanvasStore((state) => state.viewport.showImageInfo);
+  const setShowImageInfo = canvasCommands.viewport.setShowImageInfo;
+  const loading = useCanvasStore((state) => state.session.loading);
+  const setLoading = canvasCommands.session.setLoading;
+  const saving = useCanvasStore((state) => state.session.saving);
+  const setSaving = canvasCommands.session.setSaving;
+  const snapshotWriteReady = useCanvasStore((state) => state.session.snapshotWriteReady);
+  const setSnapshotWriteReady = canvasCommands.session.setSnapshotWriteReady;
+  const syncStatus = useCanvasStore((state) => state.session.syncStatus);
+  const setSyncStatus = canvasCommands.session.setSyncStatus;
+  const snapshotVersion = useCanvasStore((state) => state.session.snapshotVersion);
+  const setSnapshotVersion = canvasCommands.session.setSnapshotVersion;
+  const snapshotUpdatedAt = useCanvasStore((state) => state.session.snapshotUpdatedAt);
+  const setSnapshotUpdatedAt = canvasCommands.session.setSnapshotUpdatedAt;
+  const syncError = useCanvasStore((state) => state.session.syncError);
+  const setSyncError = canvasCommands.session.setSyncError;
+  const switching = useCanvasStore((state) => state.session.switching);
+  const setSwitching = canvasCommands.session.setSwitching;
+  const createDialogOpen = useCanvasStore((state) => state.ui.createDialogOpen);
+  const setCreateDialogOpen = canvasCommands.ui.setCreateDialogOpen;
   const [createDialogTitle, setCreateDialogTitle] = useState("未命名画布");
   const [createDialogScope, setCreateDialogScope] = useState<WorkspaceScope>(scope);
   const [createDialogBusy, setCreateDialogBusy] = useState(false);
   const [createDialogError, setCreateDialogError] = useState("");
-  const [deleteProjectOpen, setDeleteProjectOpen] = useState(false);
+  const deleteProjectOpen = useCanvasStore((state) => state.ui.deleteProjectOpen);
+  const setDeleteProjectOpen = canvasCommands.ui.setDeleteProjectOpen;
   const [deleteProjectBusy, setDeleteProjectBusy] = useState(false);
   const [deleteProjectError, setDeleteProjectError] = useState("");
-  const [clearCanvasOpen, setClearCanvasOpen] = useState(false);
+  const clearCanvasOpen = useCanvasStore((state) => state.ui.clearCanvasOpen);
+  const setClearCanvasOpen = canvasCommands.ui.setClearCanvasOpen;
   const [clearCanvasBusy, setClearCanvasBusy] = useState(false);
   const [clearCanvasError, setClearCanvasError] = useState("");
-  const [connectSelectionOpen, setConnectSelectionOpen] = useState(false);
-  const [agentOpen, setAgentOpen] = useState(false);
+  const connectSelectionOpen = useCanvasStore((state) => state.ui.connectSelectionOpen);
+  const setConnectSelectionOpen = canvasCommands.ui.setConnectSelectionOpen;
+  const agentOpen = useCanvasStore((state) => state.ui.agentOpen);
+  const setAgentOpen = canvasCommands.ui.setAgentOpen;
   // 聊天台引导流程：覆盖层从首屏接管（步骤2），用户输入原文在加载完成后交接给 Agent 面板（步骤5）
   const [bootstrapActive, setBootstrapActive] = useState(() => Boolean(projectId && peekCanvasBootstrap(projectId)));
   const [initialPrompt, setInitialPrompt] = useState("");
   const bootstrapPromptRef = useRef("");
   const [agentUndoSnapshot, setAgentUndoSnapshot] = useState<CanvasAgentSnapshot | null>(null);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
-  const [pinnedToolbarNodeId, setPinnedToolbarNodeId] = useState("");
+  const inspectorOpen = useCanvasStore((state) => state.ui.inspectorOpen);
+  const setInspectorOpen = canvasCommands.ui.setInspectorOpen;
+  const pinnedToolbarNodeId = useCanvasStore((state) => state.ui.pinnedToolbarNodeId);
+  const setPinnedToolbarNodeId = canvasCommands.ui.setPinnedToolbarNodeId;
   const shortcutsRef = useRef<CanvasShortcutBindings>({ ...DEFAULT_CANVAS_SHORTCUTS });
   // 快捷键处理器声明在生成逻辑之前，用 ref 间接调用以避免前向引用。
   const runSelectedGenerationRef = useRef<() => Promise<void>>(async () => undefined);
-  const [promptLibraryNodeId, setPromptLibraryNodeId] = useState("");
-  const [seedanceAssetNodeId, setSeedanceAssetNodeId] = useState("");
-  const [materialNodeId, setMaterialNodeId] = useState("");
+  const promptLibraryNodeId = useCanvasStore((state) => state.ui.promptLibraryNodeId);
+  const setPromptLibraryNodeId = canvasCommands.ui.setPromptLibraryNodeId;
+  const seedanceAssetNodeId = useCanvasStore((state) => state.ui.seedanceAssetNodeId);
+  const setSeedanceAssetNodeId = canvasCommands.ui.setSeedanceAssetNodeId;
+  const materialNodeId = useCanvasStore((state) => state.ui.materialNodeId);
+  const setMaterialNodeId = canvasCommands.ui.setMaterialNodeId;
   const [modelCatalog, setModelCatalog] = useState<ImageModelCatalog | null>(null);
   const [imageModel, setImageModel] = useState("");
   const [textModels, setTextModels] = useState<string[]>([]);
@@ -738,9 +780,13 @@ export default function CanvasWorkspaceView() {
   const [textModelLabels, setTextModelLabels] = useState<Record<string, string>>({});
   const [promptPresets, setPromptPresets] = useState<PromptPreset[]>([]);
   const [wheelZoomRequiresCtrl, setWheelZoomRequiresCtrl] = useState(true);
-  const [runningNodeIds, setRunningNodeIds] = useState<Set<string>>(() => new Set());
-  const [runningGroupId, setRunningGroupId] = useState("");
-  const [jobProgressByNode, setJobProgressByNode] = useState<Record<string, number>>({});
+  const runningNodeIdValues = useCanvasStore((state) => state.generation.runningNodeIds);
+  const runningNodeIds = useMemo(() => new Set(runningNodeIdValues), [runningNodeIdValues]);
+  const setRunningNodeIds = canvasCommands.generation.setRunningNodeIds;
+  const runningGroupId = useCanvasStore((state) => state.generation.runningGroupId);
+  const setRunningGroupId = canvasCommands.generation.setRunningGroupId;
+  const jobProgressByNode = useCanvasStore((state) => state.generation.jobProgressByNode);
+  const setJobProgressByNode = canvasCommands.generation.setJobProgressByNode;
   const [previews, setPreviews] = useState<Record<string, string>>({});
   // 媒体 Object URL 持久缓存：key = `${scope}:${kind}:${assetId}`。
   // 拖动只改节点坐标、资产集合不变 → 不重新请求、不更换 blob URL，<img>/<video> 的 src 保持稳定。
@@ -762,19 +808,29 @@ export default function CanvasWorkspaceView() {
   const [captureFrameNodeId, setCaptureFrameNodeId] = useState("");
   const isSpacePressedRef = useRef(false);
   const [panMode, setPanMode] = useState<CanvasPanMode>("idle");
-  const [hoveredId, setHoveredId] = useState("");
-  const [hoveredEdgeId, setHoveredEdgeId] = useState("");
-  const [selectedEdgeId, setSelectedEdgeId] = useState("");
-  const [editingInlineNodeId, setEditingInlineNodeId] = useState("");
-  const [titleEditingNodeId, setTitleEditingNodeId] = useState("");
-  const [titleDraft, setTitleDraft] = useState("");
+  const hoveredId = useCanvasStore((state) => state.ui.hoveredNodeId);
+  const setHoveredId = canvasCommands.ui.setHoveredNodeId;
+  const hoveredEdgeId = useCanvasStore((state) => state.ui.hoveredEdgeId);
+  const setHoveredEdgeId = canvasCommands.ui.setHoveredEdgeId;
+  const selectedEdgeId = useCanvasStore((state) => state.graph.selectedEdgeId);
+  const setSelectedEdgeId = canvasCommands.graph.setSelectedEdgeId;
+  const editingInlineNodeId = useCanvasStore((state) => state.ui.editingInlineNodeId);
+  const setEditingInlineNodeId = canvasCommands.ui.setEditingInlineNodeId;
+  const titleEditingNodeId = useCanvasStore((state) => state.ui.titleEditingNodeId);
+  const setTitleEditingNodeId = canvasCommands.ui.setTitleEditingNodeId;
+  const titleDraft = useCanvasStore((state) => state.ui.titleDraft);
+  const setTitleDraft = canvasCommands.ui.setTitleDraft;
   const [promptOptimizing, setPromptOptimizing] = useState(false);
-  const [skillLibraryOpen, setSkillLibraryOpen] = useState(false);
-  const [presetManagerOpen, setPresetManagerOpen] = useState(false);
+  const skillLibraryOpen = useCanvasStore((state) => state.ui.skillLibraryOpen);
+  const setSkillLibraryOpen = canvasCommands.ui.setSkillLibraryOpen;
+  const presetManagerOpen = useCanvasStore((state) => state.ui.presetManagerOpen);
+  const setPresetManagerOpen = canvasCommands.ui.setPresetManagerOpen;
   const [styleCategory, setStyleCategory] = useState<string>("drama");
   const [enabledSkills, setEnabledSkills] = useState<CanvasSkill[]>([]);
-  const [canvasSwitcherOpen, setCanvasSwitcherOpen] = useState(false);
-  const [canvasSwitcherQuery, setCanvasSwitcherQuery] = useState("");
+  const canvasSwitcherOpen = useCanvasStore((state) => state.ui.canvasSwitcherOpen);
+  const setCanvasSwitcherOpen = canvasCommands.ui.setCanvasSwitcherOpen;
+  const canvasSwitcherQuery = useCanvasStore((state) => state.ui.canvasSwitcherQuery);
+  const setCanvasSwitcherQuery = canvasCommands.ui.setCanvasSwitcherQuery;
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
   // 右键/双击菜单的级联子菜单：当前展开的分组 key（空串 = 全部收起）
   const [canvasSubmenuKey, setCanvasSubmenuKey] = useState("");
@@ -783,20 +839,27 @@ export default function CanvasWorkspaceView() {
   const [pendingConnectionCreate, setPendingConnectionCreate] = useState<PendingConnectionCreateState | null>(null);
   const [selectionBox, setSelectionBox] = useState<CanvasSelectionBoxState | null>(null);
   const [stageBounds, setStageBounds] = useState({ width: 0, height: 0 });
-  const [minimapOpen, setMinimapOpen] = useState(false);
+  const minimapOpen = useCanvasStore((state) => state.ui.minimapOpen);
+  const setMinimapOpen = canvasCommands.ui.setMinimapOpen;
   const [imageToolDialog, setImageToolDialog] = useState<{ nodeId: string; mode: CanvasImageToolMode } | null>(null);
   const [imageToolDraft, setImageToolDraft] = useState<CanvasImageToolDraft>(defaultCanvasImageToolDraft);
   const [imageCropLocked, setImageCropLocked] = useState(false);
   const [imageToolBusy, setImageToolBusy] = useState(false);
   const [imageToolError, setImageToolError] = useState("");
-  const [imageAnnotationNodeId, setImageAnnotationNodeId] = useState("");
-  const [imageMaskNodeId, setImageMaskNodeId] = useState("");
-  const [imagePreviewNodeId, setImagePreviewNodeId] = useState("");
-  const [storyboardNodeId, setStoryboardNodeId] = useState("");
-  const [storyboardEditorNodeId, setStoryboardEditorNodeId] = useState("");
+  const imageAnnotationNodeId = useCanvasStore((state) => state.ui.imageAnnotationNodeId);
+  const setImageAnnotationNodeId = canvasCommands.ui.setImageAnnotationNodeId;
+  const imageMaskNodeId = useCanvasStore((state) => state.ui.imageMaskNodeId);
+  const setImageMaskNodeId = canvasCommands.ui.setImageMaskNodeId;
+  const imagePreviewNodeId = useCanvasStore((state) => state.ui.imagePreviewNodeId);
+  const setImagePreviewNodeId = canvasCommands.ui.setImagePreviewNodeId;
+  const storyboardNodeId = useCanvasStore((state) => state.ui.storyboardNodeId);
+  const setStoryboardNodeId = canvasCommands.ui.setStoryboardNodeId;
+  const storyboardEditorNodeId = useCanvasStore((state) => state.ui.storyboardEditorNodeId);
+  const setStoryboardEditorNodeId = canvasCommands.ui.setStoryboardEditorNodeId;
   const [storyboardLayout, setStoryboardLayout] = useState<StoryboardLayout>("grid-2x2");
   const [storyboardBusy, setStoryboardBusy] = useState(false);
-  const [replaceImageNodeId, setReplaceImageNodeId] = useState("");
+  const replaceImageNodeId = useCanvasStore((state) => state.ui.replaceImageNodeId);
+  const setReplaceImageNodeId = canvasCommands.ui.setReplaceImageNodeId;
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replaceImageInputRef = useRef<HTMLInputElement>(null);
@@ -830,7 +893,8 @@ export default function CanvasWorkspaceView() {
   const stageRef = useRef<HTMLElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
-  const [panelHeight, setPanelHeight] = useState(300);
+  const panelHeight = useCanvasStore((state) => state.ui.panelHeight);
+  const setPanelHeight = canvasCommands.ui.setPanelHeight;
   const panStateRef = useRef<CanvasPanState>({
     mode: "idle",
     startClientX: 0,
@@ -849,10 +913,22 @@ export default function CanvasWorkspaceView() {
     startY: number;
     moved: boolean;
   }>({ active: false, pointerId: null, startX: 0, startY: 0, moved: false });
-  const nodesRef = useRef<CanvasNodeData[]>([]);
-  const edgesRef = useRef<CanvasEdgeData[]>([]);
-  const groupsRef = useRef<CanvasGroupData[]>([]);
-  const selectedNodeIdsRef = useRef<Set<string>>(new Set());
+  const nodesRef = useMemo(() => ({
+    get current() { return canvasStore.getState().graph.nodes; },
+    set current(value: CanvasNodeData[]) { canvasCommands.graph.setNodes(value); },
+  }), [canvasCommands, canvasStore]);
+  const edgesRef = useMemo(() => ({
+    get current() { return canvasStore.getState().graph.edges; },
+    set current(value: CanvasEdgeData[]) { canvasCommands.graph.setEdges(value); },
+  }), [canvasCommands, canvasStore]);
+  const groupsRef = useMemo(() => ({
+    get current() { return canvasStore.getState().graph.groups; },
+    set current(value: CanvasGroupData[]) { canvasCommands.graph.setGroups(value); },
+  }), [canvasCommands, canvasStore]);
+  const selectedNodeIdsRef = useMemo(() => ({
+    get current() { return new Set(canvasStore.getState().graph.selectedNodeIds); },
+    set current(value: Set<string>) { canvasCommands.graph.setSelectedNodeIds(value); },
+  }), [canvasCommands, canvasStore]);
   const hoverLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectionHandlesRef = useRef(new Map<string, HTMLElement>());
   const hoveredHandleKeyRef = useRef("");
@@ -959,15 +1035,22 @@ export default function CanvasWorkspaceView() {
   const applyNodeSelection = useCallback((ids: Iterable<string>, primaryId = "", openInspector = false) => {
     const next = new Set(ids);
     const nextPrimary = primaryId && next.has(primaryId) ? primaryId : next.values().next().value || "";
-    selectedNodeIdsRef.current = next;
-    setSelectedNodeIds(next);
-    setSelectedId(nextPrimary);
-    setSelectedGroupId("");
-    setSelectedEdgeId("");
-    setEditingInlineNodeId((current) => current && !next.has(current) ? "" : current);
-    // 与旧版一致：选中单个节点即在节点下方打开编辑面板；顶栏「检查器」按钮仍可手动收起。
-    setInspectorOpen(openInspector || next.size === 1);
-  }, []);
+    canvasCommands.commit((state) => ({
+      graph: {
+        selectedNodeIds: [...next],
+        selectedNodeId: nextPrimary,
+        selectedGroupId: "",
+        selectedEdgeId: "",
+      },
+      ui: {
+        editingInlineNodeId: state.ui.editingInlineNodeId && !next.has(state.ui.editingInlineNodeId)
+          ? ""
+          : state.ui.editingInlineNodeId,
+        // 与旧版一致：选中单个节点即在节点下方打开编辑面板；顶栏「检查器」按钮仍可手动收起。
+        inspectorOpen: openInspector || next.size === 1,
+      },
+    }));
+  }, [canvasCommands]);
 
   const syncGenerationRequestState = useCallback(() => {
     const running = new Set<string>();
@@ -1463,15 +1546,22 @@ export default function CanvasWorkspaceView() {
       historyCommitTimerRef.current = null;
     }
     applyingHistoryRef.current = true;
-    nodesRef.current = entry.nodes;
-    edgesRef.current = entry.edges;
-    groupsRef.current = entry.groups;
-    setNodes(entry.nodes);
-    setEdges(entry.edges);
-    setGroups(entry.groups);
-    setBackgroundMode(entry.backgroundMode);
-    setShowImageInfo(entry.showImageInfo);
-    applyNodeSelection([]);
+    canvasCommands.commit({
+      graph: {
+        nodes: entry.nodes,
+        edges: entry.edges,
+        groups: entry.groups,
+        selectedNodeIds: [],
+        selectedNodeId: "",
+        selectedGroupId: "",
+        selectedEdgeId: "",
+      },
+      viewport: {
+        backgroundMode: entry.backgroundMode,
+        showImageInfo: entry.showImageInfo,
+      },
+      ui: { editingInlineNodeId: "", inspectorOpen: false, hoveredEdgeId: "" },
+    });
     connectionDragRef.current.active = false;
     connectionDragRef.current.pointerId = null;
     connectionDragRef.current.moved = false;
@@ -1486,14 +1576,13 @@ export default function CanvasWorkspaceView() {
     setConnectionPreviewPoint(null);
     setPendingConnectionCreate(null);
     setContextMenu(null);
-    setHoveredEdgeId("");
     window.setTimeout(() => {
       lastHistoryRef.current = entry;
       lastHistorySourceRef.current = { nodes: entry.nodes, edges: entry.edges, groups: entry.groups, backgroundMode: entry.backgroundMode, showImageInfo: entry.showImageInfo };
       applyingHistoryRef.current = false;
       setHistoryState({ canUndo: historyRef.current.past.length > 0, canRedo: historyRef.current.future.length > 0 });
     }, 0);
-  }, [applyNodeSelection]);
+  }, [canvasCommands]);
 
   const undoCanvas = useCallback(() => {
     if (historyPausedRef.current) return;
@@ -1961,20 +2050,17 @@ export default function CanvasWorkspaceView() {
     setSyncError("");
     if (!projectId) {
       loadingRef.current = false;
-      setLoading(false);
-      setProjectTitle("");
-      nodesRef.current = [];
-      edgesRef.current = [];
-      groupsRef.current = [];
-      setNodes([]);
-      setEdges([]);
-      setGroups([]);
-      setBackgroundMode("lines");
-      setShowImageInfo(false);
-      setSelectedGroupId("");
+      canvasCommands.commit({
+        graph: {
+          nodes: [], edges: [], groups: [], selectedNodeIds: [], selectedNodeId: "",
+          selectedGroupId: "", selectedEdgeId: "",
+        },
+        viewport: { backgroundMode: "lines", showImageInfo: false },
+        session: { loading: false, projectTitle: "", switching: false },
+        ui: { editingInlineNodeId: "", inspectorOpen: false },
+      });
       setPreviews({});
       switchingRef.current = false;
-      setSwitching(false);
       return;
     }
     let disposed = false;
@@ -2014,19 +2100,24 @@ export default function CanvasWorkspaceView() {
         const nextShowImageInfo = parsed?.showImageInfo || false;
         const nextViewport = { zoom: parsed?.zoom || 90, panX: parsed?.panX || 0, panY: parsed?.panY || 0 };
         const firstVisibleNode = nextNodes.find((node) => !isHiddenCanvasBatchChild(node, nextNodes));
-        nodesRef.current = nextNodes;
-        edgesRef.current = nextEdges;
-        groupsRef.current = nextGroups;
         viewportRef.current = nextViewport;
-        setNodes(nextNodes);
-        setEdges(nextEdges);
-        setGroups(nextGroups);
-        setBackgroundMode(nextBackgroundMode);
-        setShowImageInfo(nextShowImageInfo);
-        applyNodeSelection(firstVisibleNode ? [firstVisibleNode.id] : [], firstVisibleNode?.id || "", Boolean(firstVisibleNode));
-        setZoom(nextViewport.zoom);
-        setPanX(nextViewport.panX);
-        setPanY(nextViewport.panY);
+        canvasCommands.commit({
+          graph: {
+            nodes: nextNodes,
+            edges: nextEdges,
+            groups: nextGroups,
+            selectedNodeIds: firstVisibleNode ? [firstVisibleNode.id] : [],
+            selectedNodeId: firstVisibleNode?.id || "",
+            selectedGroupId: "",
+            selectedEdgeId: "",
+          },
+          viewport: {
+            ...nextViewport,
+            backgroundMode: nextBackgroundMode,
+            showImageInfo: nextShowImageInfo,
+          },
+          ui: { editingInlineNodeId: "", inspectorOpen: Boolean(firstVisibleNode) },
+        });
         connectFromRef.current = "";
         connectHandleTypeRef.current = "source";
         connectionTargetIdRef.current = "";
@@ -2097,7 +2188,7 @@ export default function CanvasWorkspaceView() {
       disposed = true;
       abortAllGenerationRequests();
     };
-  }, [abortAllGenerationRequests, applyNodeSelection, navigate, projectId, scope]);
+  }, [abortAllGenerationRequests, canvasCommands, navigate, projectId, scope]);
 
   // 预览加载只依赖"资产集合签名"（assetId + scope + kind），与节点坐标/尺寸无关：
   // 拖动改变 nodes 引用但签名不变，effect 不会重跑，媒体 src 保持稳定。
@@ -2337,12 +2428,6 @@ export default function CanvasWorkspaceView() {
   }, [zoom, panX, panY]);
 
   useEffect(() => {
-    nodesRef.current = nodes;
-    edgesRef.current = edges;
-    groupsRef.current = groups;
-  }, [edges, groups, nodes]);
-
-  useEffect(() => {
     if (editingInlineNodeId && !nodes.some((node) => node.id === editingInlineNodeId)) {
       setEditingInlineNodeId("");
     }
@@ -2370,20 +2455,14 @@ export default function CanvasWorkspaceView() {
   }, []);
 
   useEffect(() => {
-    selectedNodeIdsRef.current = selectedNodeIds;
-  }, [selectedNodeIds]);
-
-  useEffect(() => {
     setSelectedNodeIds((current) => {
       if (!selectedId) {
         if (!current.size) return current;
         const next = new Set<string>();
-        selectedNodeIdsRef.current = next;
         return next;
       }
       if (current.has(selectedId)) return current;
       const next = new Set([selectedId]);
-      selectedNodeIdsRef.current = next;
       return next;
     });
   }, [selectedId]);
@@ -6212,17 +6291,19 @@ export default function CanvasWorkspaceView() {
     const nextSelected = new Set(nextAgentSnapshot.selectedNodeIds.filter((id) => nextNodes.some((node) => node.id === id)));
 
     setAgentUndoSnapshot(before);
-    nodesRef.current = nextNodes;
-    edgesRef.current = nextEdges;
-    selectedNodeIdsRef.current = nextSelected;
-    setNodes(nextNodes);
-    setEdges(nextEdges);
-    setSelectedNodeIds(nextSelected);
-    setSelectedId(Array.from(nextSelected).at(-1) || "");
-    setSelectedGroupId("");
-    setSelectedEdgeId("");
+    viewportRef.current = nextViewport;
+    canvasCommands.commit({
+      graph: {
+        nodes: nextNodes,
+        edges: nextEdges,
+        selectedNodeIds: [...nextSelected],
+        selectedNodeId: Array.from(nextSelected).at(-1) || "",
+        selectedGroupId: "",
+        selectedEdgeId: "",
+      },
+      viewport: nextViewport,
+    });
     setContextMenu(null);
-    applyCanvasViewport(nextViewport);
     await persistSnapshot(nextNodes, nextEdges, nextViewport.zoom, {
       quiet: true,
       panX: nextViewport.panX,
@@ -6282,16 +6363,18 @@ export default function CanvasWorkspaceView() {
     const restoredEdges = agentUndoSnapshot.connections.map(normalizeCanvasEdge).filter((edge): edge is CanvasEdgeData => Boolean(edge));
     const restoredViewport = canvasViewportFromAgent(agentUndoSnapshot.viewport);
     const restoredSelection = new Set(agentUndoSnapshot.selectedNodeIds.filter((id) => restoredNodes.some((node) => node.id === id)));
-    nodesRef.current = restoredNodes;
-    edgesRef.current = restoredEdges;
-    selectedNodeIdsRef.current = restoredSelection;
-    setNodes(restoredNodes);
-    setEdges(restoredEdges);
-    setSelectedNodeIds(restoredSelection);
-    setSelectedId(Array.from(restoredSelection).at(-1) || "");
-    setSelectedGroupId("");
-    setSelectedEdgeId("");
-    applyCanvasViewport(restoredViewport);
+    viewportRef.current = restoredViewport;
+    canvasCommands.commit({
+      graph: {
+        nodes: restoredNodes,
+        edges: restoredEdges,
+        selectedNodeIds: [...restoredSelection],
+        selectedNodeId: Array.from(restoredSelection).at(-1) || "",
+        selectedGroupId: "",
+        selectedEdgeId: "",
+      },
+      viewport: restoredViewport,
+    });
     await persistSnapshot(restoredNodes, restoredEdges, restoredViewport.zoom, {
       quiet: true,
       panX: restoredViewport.panX,
@@ -7096,7 +7179,7 @@ export default function CanvasWorkspaceView() {
     focusNodeInViewport(reference.nodeId);
   }, [focusNodeInViewport]);
 
-  const nodeCardActions: CanvasNodeCardActions = {
+  const nodeCardActions = useLatestCanvasCommandProxy<CanvasNodeCardActions>({
     chooseNode,
     openNodeContextMenu,
     toggleCanvasBatch,
@@ -7155,7 +7238,7 @@ export default function CanvasWorkspaceView() {
     retryAudioNode,
     retryVideoNode,
     removeNode,
-  };
+  });
 
   return (
     <div className="canvas-page real-canvas-page">
@@ -7632,6 +7715,15 @@ export default function CanvasWorkspaceView() {
         }}
       />
     </div>
+  );
+}
+
+export default function CanvasWorkspaceView() {
+  const [location] = useLocation();
+  return (
+    <CanvasProvider initialState={{ session: { scope: scopeFromLocation(location) } }}>
+      <CanvasWorkspaceContent />
+    </CanvasProvider>
   );
 }
 

@@ -20,3 +20,8 @@ export type {
   CanvasSnapshotData,
   CanvasSnapshotState,
 } from "./domain";
+export { createCanvasCommands } from "./model/commands";
+export type { CanvasCommands } from "./model/commands";
+export { createCanvasStore } from "./model/store";
+export type { CanvasStoreApi, CanvasStoreState } from "./model/store";
+export { CanvasProvider } from "./ui/CanvasProvider";
