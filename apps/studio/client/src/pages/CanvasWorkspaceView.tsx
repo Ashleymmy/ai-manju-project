@@ -138,6 +138,15 @@ import {
 } from "@/features/canvas/ui/CanvasProvider";
 import { commitCanvasAgentState } from "@/features/canvas/model/agentState";
 import {
+  CanvasAutosaveController,
+  type CanvasSnapshotCapture,
+} from "@/features/canvas/controllers/autosave";
+import { CanvasHistoryController } from "@/features/canvas/controllers/history";
+import {
+  CanvasProjectSessionController,
+  type CanvasProjectSessionLoaded,
+} from "@/features/canvas/controllers/project-session";
+import {
   extractProjectCanvasData,
   extractServerCanvasSnapshotData,
   type CanvasSnapshotBase,
@@ -181,15 +190,9 @@ import {
 import {
   CANVAS_ZOOM_MAX,
   CANVAS_ZOOM_MIN,
-  captureCanvasHistoryEntry,
-  commitCanvasHistory,
   fitCanvasViewport,
   panCanvasViewport,
-  redoCanvasHistory,
-  undoCanvasHistory,
   zoomCanvasViewportAtPoint,
-  type CanvasHistoryEntry,
-  type CanvasHistoryStack,
 } from "@/features/canvas/domain/history";
 import {
   createCanvasGroup,
@@ -284,7 +287,6 @@ import { createZip, readZip } from "@/lib/zip";
 import {
   buildCanvasSnapshot,
   canvasAgentSnapshotFromCanvas,
-  parseCanvasSnapshot as parseSnapshot,
 } from "@/features/canvas/domain/snapshotCodec";
 import {
   assetIdFromNode,
@@ -298,7 +300,6 @@ import {
 import {
   batchChildGridPosition,
   refreshImageBatchRoot,
-  resetInterruptedCanvasGenerations,
   snapImageBatchChildrenToGrid,
 } from "@/features/canvas/domain/batch";
 import { isRecord, numberValue, stringValue } from "@/features/canvas/domain/value";
@@ -582,19 +583,6 @@ const MIDDLE_PAN_DOUBLE_CLICK_MS = 260;
 
 
 
-async function getProjectFromCanonicalScope(projectId: string, preferredScope: WorkspaceScope) {
-  try {
-    const project = await getProject(projectId, preferredScope);
-    return { project, scope: projectScopeFromServer(project, preferredScope) };
-  } catch (error) {
-    if (!(error instanceof ApiError) || error.status !== 404) throw error;
-  }
-
-  const fallbackScope: WorkspaceScope = preferredScope === "personal" ? "team" : "personal";
-  const project = await getProject(projectId, fallbackScope);
-  return { project, scope: projectScopeFromServer(project, fallbackScope) };
-}
-
 function canvasSyncLabel(status: CanvasSyncStatus) {
   const labels: Record<CanvasSyncStatus, string> = {
     loading: "读取同步状态",
@@ -720,7 +708,6 @@ function CanvasWorkspaceContent() {
   const loading = useCanvasStore((state) => state.session.loading);
   const setLoading = canvasCommands.session.setLoading;
   const saving = useCanvasStore((state) => state.session.saving);
-  const setSaving = canvasCommands.session.setSaving;
   const snapshotWriteReady = useCanvasStore((state) => state.session.snapshotWriteReady);
   const setSnapshotWriteReady = canvasCommands.session.setSnapshotWriteReady;
   const syncStatus = useCanvasStore((state) => state.session.syncStatus);
@@ -875,17 +862,11 @@ function CanvasWorkspaceContent() {
   const resizeRef = useRef<CanvasResizeState | null>(null);
   const groupDragRef = useRef<CanvasGroupDragState | null>(null);
   const groupResizeRef = useRef<CanvasGroupResizeState | null>(null);
-  const snapshotBaseRef = useRef<CanvasSnapshotBase | null>(null);
-  const snapshotBaseKeyRef = useRef("");
-  const snapshotWriteReadyRef = useRef(false);
-  const snapshotSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const skipNextDirtyEffectRef = useRef(true);
-  const canvasRevisionRef = useRef(0);
-  const projectLoadKeyRef = useRef("");
-  const canonicalProjectScopeRef = useRef<WorkspaceScope | null>(null);
-  const canonicalProjectKeyRef = useRef("");
-  const switchingRef = useRef(false);
-  const loadingRef = useRef(true);
+  const [historyController] = useState(() => new CanvasHistoryController());
+  const [autosaveController] = useState(() => new CanvasAutosaveController());
+  const [projectSessionController] = useState(
+    () => new CanvasProjectSessionController(autosaveController, historyController),
+  );
   const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
   const generationPreparationsRef = useRef(new Map<string, CanvasGenerationPreparation>());
   const recoveredJobIdsRef = useRef(new Set<string>());
@@ -940,12 +921,6 @@ function CanvasWorkspaceContent() {
   const viewportFlushRafRef = useRef<number | null>(null);
   const suppressNodeClickRef = useRef("");
   const clipboardRef = useRef<CanvasClipboardPayload<CanvasNodeData, CanvasEdgeData> | null>(null);
-  const historyRef = useRef<CanvasHistoryStack<CanvasSnapshotState>>({ past: [], future: [] });
-  const lastHistoryRef = useRef<CanvasSnapshotState | null>(null);
-  const lastHistorySourceRef = useRef<{ nodes: CanvasNodeData[]; edges: CanvasEdgeData[]; groups: CanvasGroupData[]; backgroundMode: CanvasBackgroundMode; showImageInfo: boolean } | null>(null);
-  const historyCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const applyingHistoryRef = useRef(false);
-  const historyPausedRef = useRef(false);
   const connectFromRef = useRef("");
   const connectHandleTypeRef = useRef<ConnectionHandleType>("source");
   const connectionTargetIdRef = useRef("");
@@ -1094,7 +1069,7 @@ function CanvasWorkspaceContent() {
   }, []);
 
   const generationPreparationIsCurrent = useCallback((preparation: CanvasGenerationPreparation) => {
-    if (preparation.controller.signal.aborted || canonicalProjectKeyRef.current !== preparation.projectKey) return false;
+    if (preparation.controller.signal.aborted || projectSessionController.canonicalKey !== preparation.projectKey) return false;
     const nodeIds = new Set(nodesRef.current.map((node) => node.id));
     return nodeIds.has(preparation.originNodeId)
       && (!preparation.targetNodeId || nodeIds.has(preparation.targetNodeId))
@@ -1116,7 +1091,7 @@ function CanvasWorkspaceContent() {
 
   const currentGenerationRequest = useCallback((targetNodeId: string, requestId: string, projectKey: string) => {
     const request = generationRequestsRef.current.get(targetNodeId);
-    return request?.requestId === requestId && request.projectKey === projectKey && canonicalProjectKeyRef.current === projectKey
+    return request?.requestId === requestId && request.projectKey === projectKey && projectSessionController.canonicalKey === projectKey
       ? request
       : null;
   }, []);
@@ -1211,7 +1186,7 @@ function CanvasWorkspaceContent() {
       setPreviewAssetMeta({});
       return;
     }
-    const scope = workspaceScopeValue(node?.metadata?.assetScope) || canonicalProjectScopeRef.current || "personal";
+    const scope = workspaceScopeValue(node?.metadata?.assetScope) || projectSessionController.canonicalScope || "personal";
     let disposed = false;
     getAsset(assetId, scope).then((asset) => {
       if (disposed) return;
@@ -1520,113 +1495,85 @@ function CanvasWorkspaceContent() {
   }, []);
 
   const captureCanvasState = useCallback((): CanvasSnapshotState => ({
-    ...captureCanvasHistoryEntry(nodesRef.current, edgesRef.current),
+    nodes: structuredClone(nodesRef.current),
+    edges: structuredClone(edgesRef.current),
     groups: structuredClone(groupsRef.current),
     backgroundMode,
     showImageInfo,
   }), [backgroundMode, showImageInfo]);
 
-  const commitCurrentHistory = useCallback(() => {
-    if (applyingHistoryRef.current || historyPausedRef.current) return false;
-    const source = lastHistorySourceRef.current;
-    if (source?.nodes === nodesRef.current && source.edges === edgesRef.current && source.groups === groupsRef.current && source.backgroundMode === backgroundMode && source.showImageInfo === showImageInfo) return false;
-    const previous = lastHistoryRef.current;
-    const current = captureCanvasState();
-    lastHistoryRef.current = current;
-    lastHistorySourceRef.current = { nodes: nodesRef.current, edges: edgesRef.current, groups: groupsRef.current, backgroundMode, showImageInfo };
-    if (!previous) return false;
-    historyRef.current = commitCanvasHistory(historyRef.current, previous);
-    setHistoryState({ canUndo: historyRef.current.past.length > 0, canRedo: false });
-    return true;
-  }, [backgroundMode, captureCanvasState, showImageInfo]);
+  historyController.updateBindings({
+    capture: captureCanvasState,
+    getSource: () => ({
+      nodes: nodesRef.current,
+      edges: edgesRef.current,
+      groups: groupsRef.current,
+      backgroundMode,
+      showImageInfo,
+    }),
+    apply: entry => {
+      canvasCommands.commit({
+        graph: {
+          nodes: entry.nodes,
+          edges: entry.edges,
+          groups: entry.groups,
+          selectedNodeIds: [],
+          selectedNodeId: "",
+          selectedGroupId: "",
+          selectedEdgeId: "",
+        },
+        viewport: {
+          backgroundMode: entry.backgroundMode,
+          showImageInfo: entry.showImageInfo,
+        },
+        ui: { editingInlineNodeId: "", inspectorOpen: false, hoveredEdgeId: "" },
+      });
+      connectionDragRef.current.active = false;
+      connectionDragRef.current.pointerId = null;
+      connectionDragRef.current.moved = false;
+      connectFromRef.current = "";
+      connectHandleTypeRef.current = "source";
+      connectionTargetIdRef.current = "";
+      connectionPreviewPointRef.current = null;
+      pendingConnectionCreateRef.current = null;
+      setConnectFrom("");
+      setConnectHandleType("source");
+      setConnectionTargetId("");
+      setConnectionPreviewPoint(null);
+      setPendingConnectionCreate(null);
+      setContextMenu(null);
+    },
+    onAvailabilityChange: setHistoryState,
+    onResumeChanged: () => setNodes(current => [...current]),
+  });
 
-  const applyHistory = useCallback((entry: CanvasSnapshotState) => {
-    if (historyCommitTimerRef.current) {
-      clearTimeout(historyCommitTimerRef.current);
-      historyCommitTimerRef.current = null;
-    }
-    applyingHistoryRef.current = true;
-    canvasCommands.commit({
-      graph: {
-        nodes: entry.nodes,
-        edges: entry.edges,
-        groups: entry.groups,
-        selectedNodeIds: [],
-        selectedNodeId: "",
-        selectedGroupId: "",
-        selectedEdgeId: "",
-      },
-      viewport: {
-        backgroundMode: entry.backgroundMode,
-        showImageInfo: entry.showImageInfo,
-      },
-      ui: { editingInlineNodeId: "", inspectorOpen: false, hoveredEdgeId: "" },
-    });
-    connectionDragRef.current.active = false;
-    connectionDragRef.current.pointerId = null;
-    connectionDragRef.current.moved = false;
-    connectFromRef.current = "";
-    connectHandleTypeRef.current = "source";
-    connectionTargetIdRef.current = "";
-    connectionPreviewPointRef.current = null;
-    pendingConnectionCreateRef.current = null;
-    setConnectFrom("");
-    setConnectHandleType("source");
-    setConnectionTargetId("");
-    setConnectionPreviewPoint(null);
-    setPendingConnectionCreate(null);
-    setContextMenu(null);
-    window.setTimeout(() => {
-      lastHistoryRef.current = entry;
-      lastHistorySourceRef.current = { nodes: entry.nodes, edges: entry.edges, groups: entry.groups, backgroundMode: entry.backgroundMode, showImageInfo: entry.showImageInfo };
-      applyingHistoryRef.current = false;
-      setHistoryState({ canUndo: historyRef.current.past.length > 0, canRedo: historyRef.current.future.length > 0 });
-    }, 0);
-  }, [canvasCommands]);
+  const undoCanvas = useCallback(
+    () => { historyController.undo(); },
+    [historyController],
+  );
+  const redoCanvas = useCallback(
+    () => { historyController.redo(); },
+    [historyController],
+  );
+  const pauseCanvasHistory = useCallback(
+    () => historyController.pause(),
+    [historyController],
+  );
+  const resumeCanvasHistory = useCallback(
+    (changed: boolean) => historyController.resume(changed),
+    [historyController],
+  );
 
-  const undoCanvas = useCallback(() => {
-    if (historyPausedRef.current) return;
-    if (historyCommitTimerRef.current) {
-      clearTimeout(historyCommitTimerRef.current);
-      historyCommitTimerRef.current = null;
-    }
-    commitCurrentHistory();
-    const current = lastHistoryRef.current;
-    if (!current) return;
-    const result = undoCanvasHistory(historyRef.current, current);
-    if (!result) return;
-    historyRef.current = result.stack;
-    applyHistory(result.entry);
-  }, [applyHistory, commitCurrentHistory]);
-
-  const redoCanvas = useCallback(() => {
-    if (historyPausedRef.current) return;
-    if (historyCommitTimerRef.current) {
-      clearTimeout(historyCommitTimerRef.current);
-      historyCommitTimerRef.current = null;
-    }
-    commitCurrentHistory();
-    const current = lastHistoryRef.current;
-    if (!current) return;
-    const result = redoCanvasHistory(historyRef.current, current);
-    if (!result) return;
-    historyRef.current = result.stack;
-    applyHistory(result.entry);
-  }, [applyHistory, commitCurrentHistory]);
-
-  const pauseCanvasHistory = useCallback(() => {
-    if (historyCommitTimerRef.current) {
-      clearTimeout(historyCommitTimerRef.current);
-      historyCommitTimerRef.current = null;
-    }
-    commitCurrentHistory();
-    historyPausedRef.current = true;
-  }, [commitCurrentHistory]);
-
-  const resumeCanvasHistory = useCallback((changed: boolean) => {
-    historyPausedRef.current = false;
-    if (changed) setNodes((current) => [...current]);
-  }, []);
+  const captureCurrentSnapshot = useCallback((): CanvasSnapshotCapture => ({
+    nodes: nodesRef.current,
+    edges: edgesRef.current,
+    groups: groupsRef.current,
+    zoom: viewportRef.current.zoom,
+    panX: viewportRef.current.panX,
+    panY: viewportRef.current.panY,
+    backgroundMode,
+    showImageInfo,
+  }), [backgroundMode, showImageInfo]);
 
   const getCanvasCenter = useCallback(() => {
     const rect = stageRef.current?.getBoundingClientRect();
@@ -1740,7 +1687,7 @@ function CanvasWorkspaceContent() {
   }, [assetPickerKind, assetPickerQuery, assetPickerScope, mergeCanvasAssetCatalog, user?.id]);
 
   const openAssetPicker = useCallback(() => {
-    const targetScope = canonicalProjectScopeRef.current || scope;
+    const targetScope = projectSessionController.canonicalScope || scope;
     setAssetPickerScope(targetScope);
     setAssetPickerQuery("");
     setAssetPickerKind("all");
@@ -1751,7 +1698,7 @@ function CanvasWorkspaceContent() {
 
   const insertAssetPickerSelection = useCallback(async () => {
     if (assetPickerInsertBusy || !assetPickerSelectedIds.length) return;
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) return;
     const selected = assetPickerItems.filter((asset) => assetPickerSelectedIds.includes(asset.id));
     if (!selected.length) return;
@@ -1847,7 +1794,7 @@ function CanvasWorkspaceContent() {
       nodesRef.current,
       edgesRef.current,
       selectedNodeIdsRef.current,
-      canonicalProjectKeyRef.current,
+      projectSessionController.canonicalKey,
     );
     if (!clipboard) return false;
     clipboardRef.current = clipboard;
@@ -1857,7 +1804,7 @@ function CanvasWorkspaceContent() {
 
   const pasteCopiedNodes = useCallback(() => {
     const clipboard = clipboardRef.current;
-    const projectKey = canonicalProjectKeyRef.current;
+    const projectKey = projectSessionController.canonicalKey;
     if (clipboard && clipboard.projectKey !== projectKey) {
       toast.warning("剪贴板来自另一张画布，请在当前画布重新复制");
       return false;
@@ -2020,175 +1967,12 @@ function CanvasWorkspaceContent() {
   }, [projectId]);
 
   useEffect(() => {
-    const requestScope = scope;
-    const requestKey = `${requestScope}:${projectId}`;
-    abortAllGenerationRequests();
-    recoveredJobIdsRef.current.clear();
-    projectLoadKeyRef.current = projectId ? requestKey : "";
-    loadingRef.current = Boolean(projectId);
-    dragRef.current = null;
-    resizeRef.current = null;
-    groupDragRef.current = null;
-    groupResizeRef.current = null;
-    setSelectedGroupId("");
-    connectionDragRef.current.active = false;
-    connectionDragRef.current.pointerId = null;
-    panStateRef.current.mode = "idle";
-    setDocumentPanCursor(false);
-    snapshotBaseRef.current = null;
-    snapshotBaseKeyRef.current = "";
-    snapshotWriteReadyRef.current = false;
-    skipNextDirtyEffectRef.current = true;
-    canvasRevisionRef.current = 0;
-    canonicalProjectScopeRef.current = null;
-    canonicalProjectKeyRef.current = "";
-    setCanonicalProjectScope(null);
-    setSnapshotWriteReady(false);
-    setSyncStatus("loading");
-    setSnapshotVersion(0);
-    setSnapshotUpdatedAt("");
-    setSyncError("");
-    if (!projectId) {
-      loadingRef.current = false;
-      canvasCommands.commit({
-        graph: {
-          nodes: [], edges: [], groups: [], selectedNodeIds: [], selectedNodeId: "",
-          selectedGroupId: "", selectedEdgeId: "",
-        },
-        viewport: { backgroundMode: "lines", showImageInfo: false },
-        session: { loading: false, projectTitle: "", switching: false },
-        ui: { editingInlineNodeId: "", inspectorOpen: false },
-      });
-      setPreviews({});
-      switchingRef.current = false;
-      return;
-    }
-    let disposed = false;
-    setLoading(true);
-    setProjectTitle("");
-    void (async () => {
-      try {
-        const { project, scope: canonicalScope } = await getProjectFromCanonicalScope(projectId, requestScope);
-        if (disposed || projectLoadKeyRef.current !== requestKey) return;
-        if (canonicalScope !== requestScope) {
-          navigate(canvasProjectHref(projectId, canonicalScope), { replace: true });
-          return;
-        }
-
-        setProjectTitle(project.title);
-        let snapshotData: Awaited<ReturnType<typeof getProjectSnapshot>> | undefined = undefined;
-        let snapshotErrorMessage = "";
-        try {
-          snapshotData = await getProjectSnapshot(projectId, canonicalScope);
-        } catch (error) {
-          snapshotErrorMessage = publicApiError(error, "读取项目快照失败");
-          if (!disposed && projectLoadKeyRef.current === requestKey) {
-            toast.warning(`${snapshotErrorMessage}，将尝试项目内嵌数据`);
-          }
-        }
-        if (disposed || projectLoadKeyRef.current !== requestKey) return;
-
-        const canonicalKey = `${canonicalScope}:${projectId}`;
-        const snapshotBase = snapshotData === undefined ? null : extractServerCanvasSnapshotData(snapshotData);
-        const projectBase = extractProjectCanvasData(project.data);
-        const writableBase = snapshotBase ?? projectBase;
-        const parsed = writableBase ? parseSnapshot(writableBase) : null;
-        const nextNodes = resetInterruptedCanvasGenerations(parsed ? parsed.nodes || [] : starterNodes());
-        const nextEdges = parsed?.edges || [];
-        const nextGroups = normalizeCanvasGroups(parsed?.groups || [], nextNodes);
-        const nextBackgroundMode = parsed?.backgroundMode || "dots";
-        const nextShowImageInfo = parsed?.showImageInfo || false;
-        const nextViewport = { zoom: parsed?.zoom || 90, panX: parsed?.panX || 0, panY: parsed?.panY || 0 };
-        const firstVisibleNode = nextNodes.find((node) => !isHiddenCanvasBatchChild(node, nextNodes));
-        viewportRef.current = nextViewport;
-        canvasCommands.commit({
-          graph: {
-            nodes: nextNodes,
-            edges: nextEdges,
-            groups: nextGroups,
-            selectedNodeIds: firstVisibleNode ? [firstVisibleNode.id] : [],
-            selectedNodeId: firstVisibleNode?.id || "",
-            selectedGroupId: "",
-            selectedEdgeId: "",
-          },
-          viewport: {
-            ...nextViewport,
-            backgroundMode: nextBackgroundMode,
-            showImageInfo: nextShowImageInfo,
-          },
-          ui: { editingInlineNodeId: "", inspectorOpen: Boolean(firstVisibleNode) },
-        });
-        connectFromRef.current = "";
-        connectHandleTypeRef.current = "source";
-        connectionTargetIdRef.current = "";
-        connectionPreviewPointRef.current = null;
-        pendingConnectionCreateRef.current = null;
-        setConnectFrom("");
-        setConnectHandleType("source");
-        setConnectionTargetId("");
-        setConnectionPreviewPoint(null);
-        setPendingConnectionCreate(null);
-        if (historyCommitTimerRef.current) {
-          clearTimeout(historyCommitTimerRef.current);
-          historyCommitTimerRef.current = null;
-        }
-        historyRef.current = { past: [], future: [] };
-        lastHistoryRef.current = {
-          ...captureCanvasHistoryEntry(nextNodes, nextEdges),
-          groups: structuredClone(nextGroups),
-          backgroundMode: nextBackgroundMode,
-          showImageInfo: nextShowImageInfo,
-        };
-        lastHistorySourceRef.current = { nodes: nextNodes, edges: nextEdges, groups: nextGroups, backgroundMode: nextBackgroundMode, showImageInfo: nextShowImageInfo };
-        applyingHistoryRef.current = false;
-        historyPausedRef.current = false;
-        setHistoryState({ canUndo: false, canRedo: false });
-        canonicalProjectScopeRef.current = canonicalScope;
-        canonicalProjectKeyRef.current = canonicalKey;
-        setCanonicalProjectScope(canonicalScope);
-        snapshotBaseRef.current = writableBase;
-        snapshotBaseKeyRef.current = writableBase === null ? "" : canonicalKey;
-        snapshotWriteReadyRef.current = writableBase !== null;
-        setSnapshotWriteReady(writableBase !== null);
-        setSnapshotVersion(snapshotData?.version || 0);
-        setSnapshotUpdatedAt(snapshotData?.updated_at || project.updated_at || "");
-        setSyncError(snapshotErrorMessage);
-        setSyncStatus(snapshotErrorMessage || writableBase === null ? "error" : "synced");
-        if (writableBase === null) {
-          toast.warning("未取得完整原始快照，保存已暂停以保护现有画布数据");
-        }
-        // SOP 步骤3-5：相关节点已随画布数据渲染（步骤3）→ 唤出 Agent 对话卡片（步骤4）→ 交接用户输入（步骤5由 AgentPanel 同步发送）
-        const pendingBootstrapPrompt = bootstrapPromptRef.current;
-        if (pendingBootstrapPrompt) {
-          bootstrapPromptRef.current = "";
-          setInitialPrompt(pendingBootstrapPrompt);
-          setAgentOpen(true);
-        }
-        setBootstrapActive(false);
-      } catch (error) {
-        if (!disposed && projectLoadKeyRef.current === requestKey) {
-          const message = publicApiError(error, "读取画布项目失败");
-          setSyncStatus("error");
-          setSyncError(message);
-          toast.error(message);
-          // 加载失败：放弃本次引导（不自动唤出 Agent），收起覆盖层交还操作
-          bootstrapPromptRef.current = "";
-          setBootstrapActive(false);
-        }
-      } finally {
-        if (!disposed && projectLoadKeyRef.current === requestKey) {
-          loadingRef.current = false;
-          setLoading(false);
-          switchingRef.current = false;
-          setSwitching(false);
-        }
-      }
-    })();
+    const load = projectSessionController.startLoad(projectId, scope);
     return () => {
-      disposed = true;
+      load.cancel();
       abortAllGenerationRequests();
     };
-  }, [abortAllGenerationRequests, canvasCommands, navigate, projectId, scope]);
+  }, [abortAllGenerationRequests, projectId, projectSessionController, scope]);
 
   // 预览加载只依赖"资产集合签名"（assetId + scope + kind），与节点坐标/尺寸无关：
   // 拖动改变 nodes 引用但签名不变，effect 不会重跑，媒体 src 保持稳定。
@@ -2286,7 +2070,7 @@ function CanvasWorkspaceContent() {
     const handleKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (isCanvasHotkeyEditingTarget(target)) return;
-      if (switchingRef.current || loadingRef.current || (projectId && !canonicalProjectScopeRef.current)) return;
+      if (projectSessionController.switching || projectSessionController.loading || (projectId && !projectSessionController.canonicalScope)) return;
       if (event.code === "Space") {
         isSpacePressedRef.current = true;
         return;
@@ -2416,10 +2200,6 @@ function CanvasWorkspaceContent() {
   }, [applyNodeSelection, copySelectedNodes, focusNodeInViewport, hoveredId, pasteCopiedNodes, projectId, redoCanvas, removeEdge, resumeCanvasHistory, selectedEdgeId, selectedGroupId, selectedId, selectedNode, undoCanvas]);
 
   useEffect(() => {
-    loadingRef.current = loading;
-  }, [loading]);
-
-  useEffect(() => {
     uploadingRef.current = uploading;
   }, [uploading]);
 
@@ -2434,25 +2214,8 @@ function CanvasWorkspaceContent() {
   }, [editingInlineNodeId, nodes]);
 
   useEffect(() => {
-    if (loading || applyingHistoryRef.current || historyPausedRef.current) return;
-    const source = lastHistorySourceRef.current;
-    if (source?.nodes === nodes && source.edges === edges && source.groups === groups && source.backgroundMode === backgroundMode && source.showImageInfo === showImageInfo) return;
-    if (historyCommitTimerRef.current) clearTimeout(historyCommitTimerRef.current);
-    historyCommitTimerRef.current = setTimeout(() => {
-      historyCommitTimerRef.current = null;
-      commitCurrentHistory();
-    }, 180);
-    return () => {
-      if (historyCommitTimerRef.current) {
-        clearTimeout(historyCommitTimerRef.current);
-        historyCommitTimerRef.current = null;
-      }
-    };
-  }, [backgroundMode, commitCurrentHistory, edges, groups, loading, nodes, showImageInfo]);
-
-  useEffect(() => () => {
-    if (historyCommitTimerRef.current) clearTimeout(historyCommitTimerRef.current);
-  }, []);
+    return historyController.schedule(!loading);
+  }, [backgroundMode, edges, groups, historyController, loading, nodes, showImageInfo]);
 
   useEffect(() => {
     setSelectedNodeIds((current) => {
@@ -2479,7 +2242,7 @@ function CanvasWorkspaceContent() {
     const stage = stageRef.current;
     if (!stage) return;
     const handleWheel = (event: WheelEvent) => {
-      if (switchingRef.current || loadingRef.current || (projectId && !canonicalProjectScopeRef.current)) {
+      if (projectSessionController.switching || projectSessionController.loading || (projectId && !projectSessionController.canonicalScope)) {
         event.preventDefault();
         return;
       }
@@ -2509,111 +2272,32 @@ function CanvasWorkspaceContent() {
     return () => stage.removeEventListener("wheel", handleWheel);
   }, [applyCanvasViewportFrame, projectId, wheelZoomRequiresCtrl]);
 
+  const persistProjectKey = projectSessionController.canonicalKey;
   const persistSnapshot = useCallback(async (
     nextNodes = nodesRef.current,
     nextEdges = edgesRef.current,
     nextZoom = viewportRef.current.zoom,
     options: { quiet?: boolean; panX?: number; panY?: number } = {},
-  ): Promise<boolean> => {
-    if (!projectId) return true;
-    if (options.quiet && switchingRef.current) return false;
-    const activeScope = canonicalProjectScopeRef.current;
-    const snapshotKey = activeScope ? `${activeScope}:${projectId}` : "";
-    if (!activeScope || canonicalProjectKeyRef.current !== snapshotKey) {
-      if (!options.quiet) toast.warning("正在确认项目工作区，保存已暂停以避免写入错误空间");
-      return false;
-    }
-    if (!snapshotWriteReadyRef.current || snapshotBaseRef.current === null || snapshotBaseKeyRef.current !== snapshotKey) {
-      if (!options.quiet) toast.warning("未取得完整原始快照，保存已暂停以保护现有画布数据");
-      return false;
-    }
-    const saveRevision = canvasRevisionRef.current;
-    if (!options.quiet) setSaving(true);
-    const saveOperation = snapshotSaveQueueRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        const queuedScope = canonicalProjectScopeRef.current;
-        const queuedKey = queuedScope ? `${queuedScope}:${projectId}` : "";
-        const snapshotBase = snapshotBaseRef.current;
-        if (!queuedScope || queuedKey !== snapshotKey || canonicalProjectKeyRef.current !== snapshotKey) {
-          if (!options.quiet) toast.warning("正在确认项目工作区，保存已暂停以避免写入错误空间");
-          return false;
-        }
-        if (!snapshotWriteReadyRef.current || snapshotBase === null || snapshotBaseKeyRef.current !== snapshotKey) {
-          if (!options.quiet) toast.warning("未取得完整原始快照，保存已暂停以保护现有画布数据");
-          return false;
-        }
-        setSyncStatus("saving");
-        setSyncError("");
-        const nextSnapshot = buildCanvasSnapshot(
-          snapshotBase,
-          nextNodes,
-          nextEdges,
-          nextZoom,
-          options.panX ?? viewportRef.current.panX,
-          options.panY ?? viewportRef.current.panY,
-          groupsRef.current,
-          backgroundMode,
-          showImageInfo,
-        );
-        const savedSnapshot = await saveProjectSnapshot(projectId, nextSnapshot, queuedScope);
-        if (snapshotBaseKeyRef.current === snapshotKey && canonicalProjectKeyRef.current === snapshotKey) {
-          snapshotBaseRef.current = nextSnapshot;
-          setSnapshotVersion(savedSnapshot.version || 0);
-          setSnapshotUpdatedAt(savedSnapshot.updated_at || "");
-          setSyncStatus(canvasRevisionRef.current > saveRevision ? "pending" : "synced");
-        }
-        if (!options.quiet) toast.success("画布快照已保存");
-        return true;
-      })
-      .catch((error) => {
-        const message = publicApiError(error, "保存画布快照失败");
-        if (canonicalProjectKeyRef.current === snapshotKey) {
-          setSyncStatus("error");
-          setSyncError(message);
-        }
-        if (!options.quiet) toast.error(message);
-        return false;
-      })
-      .finally(() => {
-        if (!options.quiet) setSaving(false);
-      });
-    snapshotSaveQueueRef.current = saveOperation.then(() => undefined, () => undefined);
-    return saveOperation;
-  }, [backgroundMode, projectId, showImageInfo]);
+  ): Promise<boolean> => autosaveController.persist({
+    nodes: nextNodes,
+    edges: nextEdges,
+    groups: groupsRef.current,
+    zoom: nextZoom,
+    panX: options.panX ?? viewportRef.current.panX,
+    panY: options.panY ?? viewportRef.current.panY,
+    backgroundMode,
+    showImageInfo,
+  }, {
+    quiet: options.quiet,
+    expectedKey: persistProjectKey,
+  }), [autosaveController, backgroundMode, persistProjectKey, showImageInfo]);
 
   useEffect(() => {
-    if (!projectId || loading || switching || !snapshotWriteReady) return;
-    if (skipNextDirtyEffectRef.current) {
-      skipNextDirtyEffectRef.current = false;
-      return;
-    }
-    canvasRevisionRef.current += 1;
-    setSyncStatus("pending");
-    setSyncError("");
-    const timer = window.setTimeout(() => {
-      void persistSnapshot(nodesRef.current, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-    }, 1_200);
-    return () => window.clearTimeout(timer);
-  }, [backgroundMode, edges, groups, loading, nodes, panX, panY, persistSnapshot, projectId, showImageInfo, snapshotWriteReady, switching, zoom]);
-
-  const canLeaveCurrentCanvas = useCallback(() => {
-    if (loadingRef.current) {
-      toast.warning("画布快照仍在读取，请稍后再切换");
-      return false;
-    }
-    const activeScope = canonicalProjectScopeRef.current;
-    const activeKey = activeScope ? `${activeScope}:${projectId}` : "";
-    if (projectId && (!activeScope || canonicalProjectKeyRef.current !== activeKey)) {
-      toast.warning("正在确认项目工作区，请稍后再切换");
-      return false;
-    }
-    if (uploadingRef.current) {
-      toast.warning("当前画布仍在上传图片，请等待上传完成后再切换");
-      return false;
-    }
-    return true;
-  }, [projectId]);
+    return autosaveController.observe(
+      Boolean(projectId && !loading && !switching && snapshotWriteReady),
+      { nodes, edges, groups, zoom, panX, panY, backgroundMode, showImageInfo },
+    );
+  }, [autosaveController, backgroundMode, edges, groups, loading, nodes, panX, panY, projectId, showImageInfo, snapshotWriteReady, switching, zoom]);
 
   const cancelActiveCanvasInteractions = useCallback(() => {
     const drag = dragRef.current;
@@ -2643,78 +2327,166 @@ function CanvasWorkspaceContent() {
     if (drag || resize || groupDrag || groupResize) resumeCanvasHistory(Boolean(drag?.moved || resize?.moved || groupDrag?.moved || groupResize?.moved));
   }, [resumeCanvasHistory]);
 
-  const flushCurrentSnapshotForSwitch = useCallback(async () => {
-    const currentViewport = viewportRef.current;
-    return persistSnapshot(nodesRef.current, edgesRef.current, currentViewport.zoom, {
-      panX: currentViewport.panX,
-      panY: currentViewport.panY,
-    });
-  }, [persistSnapshot]);
+  autosaveController.updateBindings({
+    capture: captureCurrentSnapshot,
+    saveSnapshot: (targetProjectId, snapshot, targetScope) => canvasCommands.services.project(
+      () => saveProjectSnapshot(targetProjectId, snapshot, targetScope),
+    ),
+    formatError: publicApiError,
+    isSwitching: () => projectSessionController.switching,
+    onSessionPatch: patch => canvasCommands.commit({ session: patch }),
+    onWarning: message => toast.warning(message),
+    onSuccess: message => toast.success(message),
+    onError: message => toast.error(message),
+  });
+
+  projectSessionController.updateBindings({
+    getProject: (targetProjectId, targetScope) => canvasCommands.services.project(
+      () => getProject(targetProjectId, targetScope),
+    ),
+    getSnapshot: (targetProjectId, targetScope) => canvasCommands.services.project(
+      () => getProjectSnapshot(targetProjectId, targetScope),
+    ),
+    isNotFound: error => error instanceof ApiError && error.status === 404,
+    formatError: publicApiError,
+    createStarterNodes: starterNodes,
+    isUploading: () => uploadingRef.current,
+    onReset: targetProjectId => {
+      abortAllGenerationRequests();
+      recoveredJobIdsRef.current.clear();
+      dragRef.current = null;
+      resizeRef.current = null;
+      groupDragRef.current = null;
+      groupResizeRef.current = null;
+      setSelectedGroupId("");
+      connectionDragRef.current.active = false;
+      connectionDragRef.current.pointerId = null;
+      panStateRef.current.mode = "idle";
+      setDocumentPanCursor(false);
+      setCanonicalProjectScope(null);
+      setSnapshotWriteReady(false);
+      setSyncStatus("loading");
+      setSnapshotVersion(0);
+      setSnapshotUpdatedAt("");
+      setSyncError("");
+      if (targetProjectId) {
+        setLoading(true);
+        setProjectTitle("");
+        return;
+      }
+      canvasCommands.commit({
+        graph: {
+          nodes: [], edges: [], groups: [], selectedNodeIds: [], selectedNodeId: "",
+          selectedGroupId: "", selectedEdgeId: "",
+        },
+        viewport: { backgroundMode: "lines", showImageInfo: false },
+        session: { loading: false, projectTitle: "", switching: false },
+        ui: { editingInlineNodeId: "", inspectorOpen: false },
+      });
+      setPreviews({});
+    },
+    onProjectResolved: project => setProjectTitle(project.title),
+    onSnapshotWarning: message => toast.warning(message),
+    onLoaded: (result: CanvasProjectSessionLoaded) => {
+      const firstVisibleNode = result.nodes.find(
+        node => !isHiddenCanvasBatchChild(node, result.nodes),
+      );
+      viewportRef.current = result.viewport;
+      canvasCommands.commit({
+        graph: {
+          nodes: result.nodes,
+          edges: result.edges,
+          groups: result.groups,
+          selectedNodeIds: firstVisibleNode ? [firstVisibleNode.id] : [],
+          selectedNodeId: firstVisibleNode?.id || "",
+          selectedGroupId: "",
+          selectedEdgeId: "",
+        },
+        viewport: {
+          ...result.viewport,
+          backgroundMode: result.backgroundMode,
+          showImageInfo: result.showImageInfo,
+        },
+        ui: {
+          editingInlineNodeId: "",
+          inspectorOpen: Boolean(firstVisibleNode),
+        },
+      });
+      connectFromRef.current = "";
+      connectHandleTypeRef.current = "source";
+      connectionTargetIdRef.current = "";
+      connectionPreviewPointRef.current = null;
+      pendingConnectionCreateRef.current = null;
+      setConnectFrom("");
+      setConnectHandleType("source");
+      setConnectionTargetId("");
+      setConnectionPreviewPoint(null);
+      setPendingConnectionCreate(null);
+      setCanonicalProjectScope(result.scope);
+      setSnapshotWriteReady(result.writeReady);
+      setSnapshotVersion(result.snapshotVersion);
+      setSnapshotUpdatedAt(result.snapshotUpdatedAt);
+      setSyncError(result.snapshotError);
+      setSyncStatus(result.snapshotError || !result.writeReady ? "error" : "synced");
+      // SOP 步骤 3-5：渲染节点后唤出 Agent，并交接聊天台原始输入。
+      const pendingBootstrapPrompt = bootstrapPromptRef.current;
+      if (pendingBootstrapPrompt) {
+        bootstrapPromptRef.current = "";
+        setInitialPrompt(pendingBootstrapPrompt);
+        setAgentOpen(true);
+      }
+      setBootstrapActive(false);
+    },
+    onLoadError: message => {
+      setSyncStatus("error");
+      setSyncError(message);
+      toast.error(message);
+      bootstrapPromptRef.current = "";
+      setBootstrapActive(false);
+    },
+    onSettled: () => {
+      setLoading(false);
+      setSwitching(false);
+    },
+    onRedirect: targetScope => {
+      navigate(canvasProjectHref(projectId, targetScope), { replace: true });
+    },
+    onSwitchingChange: setSwitching,
+    onLoadingChange: setLoading,
+    onBeforeSwitch: () => {
+      cancelActiveCanvasInteractions();
+      setContextMenu(null);
+      setInspectorOpen(false);
+      setAgentOpen(false);
+      abortAllGenerationRequests();
+    },
+    onWarning: message => toast.warning(message),
+    onError: message => toast.error(message),
+    navigate: href => navigate(href),
+  });
+
+  useEffect(() => () => {
+    void projectSessionController.dispose();
+  }, [projectSessionController]);
 
   const switchCanvasProject = useCallback(async (targetProjectId: string) => {
-    if (!targetProjectId || targetProjectId === projectId || switchingRef.current) return;
-    if (!canLeaveCurrentCanvas()) return;
-    const activeScope = canonicalProjectScopeRef.current;
-    if (!activeScope) {
-      toast.warning("正在确认项目工作区，请稍后再切换");
-      return;
-    }
-    switchingRef.current = true;
-    setSwitching(true);
-    cancelActiveCanvasInteractions();
-    setContextMenu(null);
-    setInspectorOpen(false);
-    setAgentOpen(false);
-    abortAllGenerationRequests();
-    try {
-      const saved = await flushCurrentSnapshotForSwitch();
-      if (!saved) {
-        toast.warning("切换已取消：当前画布快照保存失败，已留在原项目");
-        switchingRef.current = false;
-        setSwitching(false);
-        return;
-      }
-      setLoading(true);
-      const targetProject = projects.find((project) => project.id === targetProjectId);
-      navigate(canvasProjectHref(targetProjectId, projectScopeFromServer(targetProject, activeScope)));
-    } catch (error) {
-      toast.error(publicApiError(error, "切换画布失败"));
-      switchingRef.current = false;
-      setSwitching(false);
-    }
-  }, [abortAllGenerationRequests, canLeaveCurrentCanvas, cancelActiveCanvasInteractions, flushCurrentSnapshotForSwitch, navigate, projectId, projects]);
+    const activeScope = projectSessionController.canonicalScope || scope;
+    const targetProject = projects.find(project => project.id === targetProjectId);
+    await projectSessionController.switchProject(
+      targetProjectId,
+      canvasProjectHref(
+        targetProjectId,
+        projectScopeFromServer(targetProject, activeScope),
+      ),
+    );
+  }, [projectSessionController, projects, scope]);
 
   const switchCanvasScope = useCallback(async (targetScope: WorkspaceScope) => {
-    const activeScope = projectId ? canonicalProjectScopeRef.current : scope;
-    if (targetScope === activeScope || switchingRef.current) return;
-    if (!projectId) {
-      navigate(canvasListHref(targetScope));
-      return;
-    }
-    if (!canLeaveCurrentCanvas()) return;
-    switchingRef.current = true;
-    setSwitching(true);
-    cancelActiveCanvasInteractions();
-    setContextMenu(null);
-    setInspectorOpen(false);
-    setAgentOpen(false);
-    abortAllGenerationRequests();
-    try {
-      const saved = await flushCurrentSnapshotForSwitch();
-      if (!saved) {
-        toast.warning("切换已取消：当前画布快照保存失败，已留在原项目");
-        switchingRef.current = false;
-        setSwitching(false);
-        return;
-      }
-      setLoading(true);
-      navigate(canvasListHref(targetScope));
-    } catch (error) {
-      toast.error(publicApiError(error, "切换工作区失败"));
-      switchingRef.current = false;
-      setSwitching(false);
-    }
-  }, [abortAllGenerationRequests, canLeaveCurrentCanvas, cancelActiveCanvasInteractions, flushCurrentSnapshotForSwitch, navigate, projectId, scope]);
+    await projectSessionController.switchScope(
+      targetScope,
+      canvasListHref(targetScope),
+    );
+  }, [projectSessionController]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -2766,7 +2538,7 @@ function CanvasWorkspaceContent() {
   };
 
   const removeCurrentProject = async () => {
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     if (!projectId || !activeScope || deleteProjectBusy) return;
     setDeleteProjectBusy(true);
     setDeleteProjectError("");
@@ -2896,7 +2668,7 @@ function CanvasWorkspaceContent() {
 
   const openDirectorNode = async (source: CanvasNodeData) => {
     if (source.kind !== "director") return;
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) return toast.warning("正在确认项目工作区，暂不能打开导演台");
     const instanceId = stringValue(source.metadata?.directorInstanceId) || `director-${crypto.randomUUID()}`;
     const nextNodes = nodesRef.current.map((node) => node.id === source.id ? {
@@ -3063,7 +2835,7 @@ function CanvasWorkspaceContent() {
   };
 
   const imageSourceForNode = async (node: CanvasNodeData) => {
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) throw new Error("正在确认项目工作区，暂不能处理图片");
     const assetId = assetIdFromNode(node);
     const sourceScope = workspaceScopeValue(node.metadata?.assetScope) || activeScope;
@@ -3091,11 +2863,11 @@ function CanvasWorkspaceContent() {
     dataUrl: string,
     title: string,
     relation: string,
-    expectedProjectKey = canonicalProjectKeyRef.current,
-    expectedScope = canonicalProjectScopeRef.current,
+    expectedProjectKey = projectSessionController.canonicalKey,
+    expectedScope = projectSessionController.canonicalScope,
   ) => {
     const activeScope = expectedScope;
-    if (!activeScope || !expectedProjectKey || switchingRef.current || canonicalProjectKeyRef.current !== expectedProjectKey) {
+    if (!activeScope || !expectedProjectKey || projectSessionController.switching || projectSessionController.canonicalKey !== expectedProjectKey) {
       throw new DOMException("Aborted", "AbortError");
     }
     const response = await fetch(dataUrl);
@@ -3112,7 +2884,7 @@ function CanvasWorkspaceContent() {
       source_project_name: projectTitle,
       source_metadata: JSON.stringify({ canvas_node_id: source.id, relation }),
     }, activeScope);
-    if (switchingRef.current || canonicalProjectKeyRef.current !== expectedProjectKey) {
+    if (projectSessionController.switching || projectSessionController.canonicalKey !== expectedProjectKey) {
       throw new DOMException("Aborted", "AbortError");
     }
     return { asset, contentType, bytes: blob.size, scope: activeScope };
@@ -3131,15 +2903,15 @@ function CanvasWorkspaceContent() {
       metadata?: Record<string, unknown>;
     }>,
   ) => {
-    const projectKey = canonicalProjectKeyRef.current;
-    const activeScope = canonicalProjectScopeRef.current;
-    if (!projectKey || !activeScope || switchingRef.current) return;
+    const projectKey = projectSessionController.canonicalKey;
+    const activeScope = projectSessionController.canonicalScope;
+    if (!projectKey || !activeScope || projectSessionController.switching) return;
     const created: CanvasNodeData[] = [];
     for (let index = 0; index < results.length; index += 1) {
       const result = results[index];
-      if (switchingRef.current || canonicalProjectKeyRef.current !== projectKey) throw new DOMException("Aborted", "AbortError");
+      if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
       const archived = await uploadCanvasImageDataUrl(source, result.dataUrl, result.title, result.relation, projectKey, activeScope);
-      if (canonicalProjectKeyRef.current !== projectKey) return;
+      if (projectSessionController.canonicalKey !== projectKey) return;
       const prompt = stringValue(source.metadata?.prompt) || source.content;
       created.push({
         id: crypto.randomUUID(),
@@ -3167,7 +2939,7 @@ function CanvasWorkspaceContent() {
         },
       });
     }
-    if (switchingRef.current || canonicalProjectKeyRef.current !== projectKey) throw new DOMException("Aborted", "AbortError");
+    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
     if (!created.length) return;
     const nextNodes = [...nodesRef.current, ...created];
     const nextEdges = created.reduce(
@@ -3180,14 +2952,14 @@ function CanvasWorkspaceContent() {
     setEdges(nextEdges);
     applyNodeSelection(created.map((node) => node.id), created[0].id, true);
     const saved = await persistSnapshot(nextNodes, nextEdges, viewportRef.current.zoom, { quiet: true });
-    if (!saved || switchingRef.current || canonicalProjectKeyRef.current !== projectKey) throw new DOMException("Aborted", "AbortError");
+    if (!saved || projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
   };
 
   const flipCanvasImageNode = async (node: CanvasNodeData, direction: "horizontal" | "vertical") => {
     if (imageToolBusy) return;
-    const projectKey = canonicalProjectKeyRef.current;
-    const activeScope = canonicalProjectScopeRef.current;
-    if (!projectKey || !activeScope || switchingRef.current) return;
+    const projectKey = projectSessionController.canonicalKey;
+    const activeScope = projectSessionController.canonicalScope;
+    if (!projectKey || !activeScope || projectSessionController.switching) return;
     setImageToolBusy(true);
     setImageToolError("");
     let source: Awaited<ReturnType<typeof imageSourceForNode>> | null = null;
@@ -3196,7 +2968,7 @@ function CanvasWorkspaceContent() {
       const dataUrl = await flipDataUrl(source.url, direction);
       const relation = direction === "horizontal" ? "flip-horizontal" : "flip-vertical";
       const archived = await uploadCanvasImageDataUrl(node, dataUrl, `${node.title}-${direction === "horizontal" ? "水平翻转" : "垂直翻转"}`, relation, projectKey, activeScope);
-      if (canonicalProjectKeyRef.current !== projectKey) return;
+      if (projectSessionController.canonicalKey !== projectKey) return;
       const nextNodes = nodesRef.current.map((item) => item.id === node.id ? {
         ...item,
         title: archived.asset.name || item.title,
@@ -3214,7 +2986,7 @@ function CanvasWorkspaceContent() {
       nodesRef.current = nextNodes;
       setNodes(nextNodes);
       const saved = await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      if (!saved || switchingRef.current || canonicalProjectKeyRef.current !== projectKey) throw new DOMException("Aborted", "AbortError");
+      if (!saved || projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
       toast.success(direction === "horizontal" ? "图片已水平翻转" : "图片已垂直翻转");
     } catch (error) {
       if (isAbortError(error)) return;
@@ -3375,9 +3147,9 @@ function CanvasWorkspaceContent() {
       height?: number;
     },
   ) => {
-    const activeScope = canonicalProjectScopeRef.current;
-    const projectKey = canonicalProjectKeyRef.current;
-    if (!activeScope || !projectKey || switchingRef.current) throw new Error("正在确认项目工作区，暂不能编辑图片");
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
+    if (!activeScope || !projectKey || projectSessionController.switching) throw new Error("正在确认项目工作区，暂不能编辑图片");
     const model = modelFromNode(sourceNode, imageModel);
     if (!model) throw new Error("当前没有可用图片模型");
     let source: Awaited<ReturnType<typeof imageSourceForNode>> | null = null;
@@ -3385,7 +3157,7 @@ function CanvasWorkspaceContent() {
       const sourceDataUrl = options.sourceDataUrl || (source = await imageSourceForNode(sourceNode)).url;
       const referenceFile = await canvasImageFile(sourceDataUrl, `${sourceNode.title}-reference`);
       const maskFile = options.maskDataUrl ? await canvasImageFile(options.maskDataUrl, `${sourceNode.title}-mask`) : undefined;
-      if (switchingRef.current || canonicalProjectKeyRef.current !== projectKey) throw new DOMException("Aborted", "AbortError");
+      if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
       const targetNodeId = crypto.randomUUID();
       const prompt = options.prompt.trim();
       const targetNode: CanvasNodeData = {
@@ -3425,7 +3197,7 @@ function CanvasWorkspaceContent() {
       setEdges(nextEdges);
       applyNodeSelection([targetNodeId], targetNodeId, true);
       const saved = await persistSnapshot(nextNodes, nextEdges, viewportRef.current.zoom, { quiet: true });
-      if (!saved || switchingRef.current || canonicalProjectKeyRef.current !== projectKey) throw new DOMException("Aborted", "AbortError");
+      if (!saved || projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
       return runImageTarget({
         targetNodeId,
         originNodeId: sourceNode.id,
@@ -3587,7 +3359,7 @@ function CanvasWorkspaceContent() {
 
   const archiveCanvasMediaNode = async (sourceNode: CanvasNodeData) => {
     if (sourceNode.kind !== "image" && sourceNode.kind !== "video" && sourceNode.kind !== "audio") return;
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) return toast.warning("正在确认项目工作区，暂不能归档素材");
     const kind = mediaKindFromNode(sourceNode);
     const existingAssetId = assetIdFromNode(sourceNode);
@@ -3641,7 +3413,7 @@ function CanvasWorkspaceContent() {
 
   const archiveCanvasTextNode = async (sourceNode: CanvasNodeData) => {
     if (sourceNode.kind !== "text") return;
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) return toast.warning("正在确认项目工作区，暂不能归档文本");
     if (!user?.id) return toast.error("当前登录用户不可用，无法保存文本资产");
     const content = canvasTextDisplayValue(sourceNode).trim();
@@ -3672,8 +3444,8 @@ function CanvasWorkspaceContent() {
 
   const captureVideoFrameNode = async (sourceNode: CanvasNodeData) => {
     if (sourceNode.kind !== "video" || captureFrameNodeId) return;
-    const activeScope = canonicalProjectScopeRef.current;
-    const projectKey = canonicalProjectKeyRef.current;
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
     if (!activeScope || !projectKey) return toast.warning("正在确认项目工作区，暂不能截取视频帧");
     const host = Array.from(stageRef.current?.querySelectorAll<HTMLElement>("[data-node-id]") || [])
       .find((element) => element.dataset.nodeId === sourceNode.id);
@@ -3707,7 +3479,7 @@ function CanvasWorkspaceContent() {
         source_project_name: projectTitle,
         source_metadata: JSON.stringify({ canvas_node_id: sourceNode.id, relation: "video_frame", capture_time_seconds: captureTime }),
       }, activeScope);
-      if (canonicalProjectKeyRef.current !== projectKey) return;
+      if (projectSessionController.canonicalKey !== projectKey) return;
       const scale = Math.min(1, sourceNode.width / width, sourceNode.height / height);
       const childId = crypto.randomUUID();
       const child: CanvasNodeData = {
@@ -3755,7 +3527,7 @@ function CanvasWorkspaceContent() {
     const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
     const expected = kind === "video" ? "video/" : "audio/";
     if (!sourceNode || !file || !file.type.startsWith(expected)) return;
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) return toast.warning("正在确认项目工作区，暂不能上传媒体");
     try {
       const asset = await uploadAsset(file, {
@@ -3796,7 +3568,7 @@ function CanvasWorkspaceContent() {
     const sourceNode = nodesRef.current.find((node) => node.id === replaceImageNodeId);
     setReplaceImageNodeId("");
     if (!sourceNode || !file || !file.type.startsWith("image/")) return;
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) return toast.warning("正在确认项目工作区，暂不能替换图片");
     try {
       const asset = await uploadAsset(file, {
@@ -3975,7 +3747,7 @@ function CanvasWorkspaceContent() {
   };
 
   const startGroupDrag = (event: PointerEvent<HTMLElement>, group: CanvasGroupData) => {
-    if (switchingRef.current || event.button !== 0) return;
+    if (projectSessionController.switching || event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (isCanvasHotkeyEditingTarget(target)) return;
     event.preventDefault();
@@ -3995,7 +3767,7 @@ function CanvasWorkspaceContent() {
 
   const moveGroupDrag = (event: PointerEvent<HTMLElement>) => {
     const drag = groupDragRef.current;
-    if (!drag || switchingRef.current) return;
+    if (!drag || projectSessionController.switching) return;
     const scale = viewportRef.current.zoom / 100;
     const deltaX = (event.clientX - drag.startX) / scale;
     const deltaY = (event.clientY - drag.startY) / scale;
@@ -4019,7 +3791,7 @@ function CanvasWorkspaceContent() {
   };
 
   const startGroupResize = (event: PointerEvent<HTMLElement>, group: CanvasGroupData, corner: CanvasGroupResizeCorner) => {
-    if (switchingRef.current || event.button !== 0) return;
+    if (projectSessionController.switching || event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -4037,7 +3809,7 @@ function CanvasWorkspaceContent() {
 
   const moveGroupResize = (event: PointerEvent<HTMLElement>) => {
     const resize = groupResizeRef.current;
-    if (!resize || switchingRef.current) return;
+    if (!resize || projectSessionController.switching) return;
     event.preventDefault();
     event.stopPropagation();
     const scale = viewportRef.current.zoom / 100;
@@ -4241,7 +4013,7 @@ function CanvasWorkspaceContent() {
   };
 
   const startDrag = (event: PointerEvent<HTMLElement>, node: CanvasNodeData) => {
-    if (switchingRef.current) return;
+    if (projectSessionController.switching) return;
     const target = event.target as HTMLElement;
     if (event.button !== 0) return;
     // 拖拽只排除真正的交互控件（按钮/输入框/行内编辑器/连接锚点）；
@@ -4283,7 +4055,7 @@ function CanvasWorkspaceContent() {
   };
 
   const beginConnection = (event: React.PointerEvent<HTMLElement>, nodeId: string, handleType: ConnectionHandleType) => {
-    if (switchingRef.current) return;
+    if (projectSessionController.switching) return;
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -4311,7 +4083,7 @@ function CanvasWorkspaceContent() {
   };
 
   const moveDrag = (event: PointerEvent<HTMLElement>) => {
-    if (switchingRef.current) return;
+    if (projectSessionController.switching) return;
     const drag = dragRef.current;
     if (!drag) return;
     const scale = viewportRef.current.zoom / 100;
@@ -4357,7 +4129,7 @@ function CanvasWorkspaceContent() {
   }, [clearConnectionDraft]);
 
   const finishConnectionDrag = useCallback((event: { clientX: number; clientY: number }) => {
-    if (switchingRef.current) {
+    if (projectSessionController.switching) {
       clearConnectionDraft();
       return;
     }
@@ -4413,7 +4185,7 @@ function CanvasWorkspaceContent() {
   }, [clientToStagePoint, clearConnectionDraft, connectNodes, getConnectionDomDropTargetId, getConnectionDropTarget, screenToCanvasPoint]);
 
   const startResize = (event: PointerEvent<HTMLButtonElement>, node: CanvasNodeData) => {
-    if (switchingRef.current) return;
+    if (projectSessionController.switching) return;
     event.stopPropagation();
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -4431,7 +4203,7 @@ function CanvasWorkspaceContent() {
   };
 
   const moveResize = (event: PointerEvent<HTMLButtonElement>) => {
-    if (switchingRef.current) return;
+    if (projectSessionController.switching) return;
     const resize = resizeRef.current;
     if (!resize) return;
     const scale = viewportRef.current.zoom / 100;
@@ -4479,7 +4251,7 @@ function CanvasWorkspaceContent() {
   }, [applyNodeSelection, clearConnectionDraft, clearSelectionBox]);
 
   const startSelectionBox = (event: PointerEvent<Element>) => {
-    if (switchingRef.current || loadingRef.current || (projectId && !canonicalProjectScopeRef.current) || event.button !== 0 || isSpacePressedRef.current) return false;
+    if (projectSessionController.switching || projectSessionController.loading || (projectId && !projectSessionController.canonicalScope) || event.button !== 0 || isSpacePressedRef.current) return false;
     const target = event.target as HTMLElement;
     if (isCanvasHotkeyEditingTarget(target) || target.closest(".real-canvas-node, .real-canvas-edge-hit, .canvas-context-menu, .canvas-connection-create-menu")) return false;
     event.preventDefault();
@@ -4497,7 +4269,7 @@ function CanvasWorkspaceContent() {
   };
 
   const startPan = (event: PointerEvent<Element>) => {
-    if (switchingRef.current || loadingRef.current || (projectId && !canonicalProjectScopeRef.current)) return false;
+    if (projectSessionController.switching || projectSessionController.loading || (projectId && !projectSessionController.canonicalScope)) return false;
     const target = event.target as HTMLElement;
     if (isCanvasHotkeyEditingTarget(target) || target.closest(".real-canvas-node, .canvas-context-menu, .canvas-connection-create-menu")) return false;
     const shouldPan = event.button === 1 || (event.button === 0 && isSpacePressedRef.current);
@@ -4531,7 +4303,7 @@ function CanvasWorkspaceContent() {
   };
 
   const movePanGrid = (event: { clientX: number; clientY: number }) => {
-    if (switchingRef.current) return;
+    if (projectSessionController.switching) return;
     const pan = panStateRef.current;
     if (pan.mode === "idle") return;
     if (pan.mode === "locked-pan") {
@@ -4564,7 +4336,7 @@ function CanvasWorkspaceContent() {
 
   useEffect(() => {
     const handlePointerMove = (event: globalThis.PointerEvent) => {
-      if (switchingRef.current) return;
+      if (projectSessionController.switching) return;
       if (selectionBoxRef.current) {
         const next = { ...selectionBoxRef.current, current: screenToCanvasPoint(event.clientX, event.clientY) };
         selectionBoxRef.current = next;
@@ -4598,7 +4370,7 @@ function CanvasWorkspaceContent() {
       movePanGrid(event);
     };
     const handlePointerUp = (event: globalThis.PointerEvent) => {
-      if (switchingRef.current) return;
+      if (projectSessionController.switching) return;
       if (finishSelectionBox()) return;
       if (connectionDragRef.current.active) {
         if (!isActiveCanvasConnectionPointer(true, connectionDragRef.current.pointerId, event.pointerId)) return;
@@ -4632,7 +4404,7 @@ function CanvasWorkspaceContent() {
 
   const openCanvasContextMenu = (event: ReactMouseEvent<Element>) => {
     event.preventDefault();
-    if (switchingRef.current) return;
+    if (projectSessionController.switching) return;
     if (isCanvasHotkeyEditingTarget(event.target)) return;
     clearConnectionDraft();
     pendingConnectionCreateRef.current = null;
@@ -4655,7 +4427,7 @@ function CanvasWorkspaceContent() {
   };
 
   const handleCanvasDoubleClick = (event: ReactMouseEvent<Element>) => {
-    if (switchingRef.current) return;
+    if (projectSessionController.switching) return;
     const target = event.target as HTMLElement;
     if (isCanvasHotkeyEditingTarget(target) || target.closest(".canvas-node-handle, .canvas-node-label, .real-canvas-edge-hit")) return;
     if (target.closest(".real-canvas-node")) return; // 节点上的双击走节点自身逻辑
@@ -4782,7 +4554,7 @@ function CanvasWorkspaceContent() {
     const files: File[] = [];
     const snapshots: CanvasImageReferenceSnapshot[] = [];
     for (const input of inputs.filter((item) => item.type === "image")) {
-      if (signal?.aborted || canonicalProjectKeyRef.current !== projectKey) throw new DOMException("Aborted", "AbortError");
+      if (signal?.aborted || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
       const file = await referenceFile(input, activeScope, signal);
       let assetId = input.assetId || "";
       let name = file.name;
@@ -4800,7 +4572,7 @@ function CanvasWorkspaceContent() {
         assetId = asset.id;
         name = asset.name || name;
         contentType = asset.content_type || contentType;
-        if (signal?.aborted || canonicalProjectKeyRef.current !== projectKey) throw new DOMException("Aborted", "AbortError");
+        if (signal?.aborted || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
         updateGenerationNodes((current) => current.map((node) => node.id === input.nodeId ? {
           ...node,
           content: looksLikeImageSource(node.content) ? "" : node.content,
@@ -4809,7 +4581,7 @@ function CanvasWorkspaceContent() {
           metadata: { ...node.metadata, assetId, content: looksLikeImageSource(node.content) ? "" : node.content },
         } : node));
       }
-      if (signal?.aborted || canonicalProjectKeyRef.current !== projectKey) throw new DOMException("Aborted", "AbortError");
+      if (signal?.aborted || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
       files.push(file);
       snapshots.push({ nodeId: input.nodeId, title: input.title, assetId, assetScope: input.assetScope || activeScope, name, contentType });
     }
@@ -4859,7 +4631,7 @@ function CanvasWorkspaceContent() {
     currentNodes: CanvasNodeData[],
     currentEdges: CanvasEdgeData[],
   ) => {
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) throw new Error("正在确认项目工作区");
     const ownPrompt = promptTextFromNode(sourceNode) || sourceNode.title;
     const assetIds = extractCanvasMentionTokens(ownPrompt)
@@ -5226,9 +4998,9 @@ function CanvasWorkspaceContent() {
   }, [persistSnapshot, syncGenerationRequestState, updateGenerationNodes]);
 
   const retryImageNode = useCallback(async (node: CanvasNodeData) => {
-    const activeScope = canonicalProjectScopeRef.current;
-    const projectKey = canonicalProjectKeyRef.current;
-    if (!activeScope || !projectKey || switchingRef.current) return;
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
+    if (!activeScope || !projectKey || projectSessionController.switching) return;
     const currentNodes = nodesRef.current;
     // 批次成员模型：基底节点（根）自身也是生成目标之一，重试时要一并纳入
     const targetNodes = node.metadata?.isBatchRoot
@@ -5253,7 +5025,7 @@ function CanvasWorkspaceContent() {
       try {
         files = await filesFromReferenceSnapshots(snapshots, activeScope, preparation.controller.signal);
       } catch (error) {
-        if (isAbortError(error) || canonicalProjectKeyRef.current !== projectKey) return;
+        if (isAbortError(error) || projectSessionController.canonicalKey !== projectKey) return;
         const message = publicApiError(error, "参考图已失效，无法重试");
         updateGenerationNodes((current) => failGeneratedImageTarget(current, target.id, message));
         return;
@@ -5291,9 +5063,9 @@ function CanvasWorkspaceContent() {
   }, [filesFromReferenceSnapshots, finishGenerationPreparation, generationPreparationIsCurrent, imageModel, persistSnapshot, runImageTarget, startGenerationPreparation, updateGenerationNodes]);
 
   const retryTextNode = useCallback(async (node: CanvasNodeData) => {
-    const activeScope = canonicalProjectScopeRef.current;
-    const projectKey = canonicalProjectKeyRef.current;
-    if (!activeScope || !projectKey || switchingRef.current) return;
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
+    if (!activeScope || !projectKey || projectSessionController.switching) return;
     const prompt = stringValue(node.metadata?.prompt) || node.content;
     const model = modelFromNode(node, textModel);
     if (!prompt.trim() || !model) {
@@ -5314,8 +5086,8 @@ function CanvasWorkspaceContent() {
       },
     } : item));
     await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-    if (switchingRef.current || canonicalProjectKeyRef.current !== projectKey) {
-      if (canonicalProjectKeyRef.current === projectKey) {
+    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) {
+      if (projectSessionController.canonicalKey === projectKey) {
         updateGenerationNodes((current) => failGeneratedTextTarget(current, node.id, "切换画布时生成被中断，可重试。"));
       }
       return;
@@ -5332,9 +5104,9 @@ function CanvasWorkspaceContent() {
   }, [persistSnapshot, runTextTarget, textModel, updateGenerationNodes]);
 
   const retryAudioNode = useCallback(async (node: CanvasNodeData) => {
-    const activeScope = canonicalProjectScopeRef.current;
-    const projectKey = canonicalProjectKeyRef.current;
-    if (!activeScope || !projectKey || switchingRef.current) return;
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
+    if (!activeScope || !projectKey || projectSessionController.switching) return;
     const prompt = stringValue(node.metadata?.prompt) || node.content;
     const config = audioConfigFromNode(node, audioModel);
     if (!prompt.trim() || !config.model) {
@@ -5365,8 +5137,8 @@ function CanvasWorkspaceContent() {
       },
     } : item));
     await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-    if (switchingRef.current || canonicalProjectKeyRef.current !== projectKey) {
-      if (canonicalProjectKeyRef.current === projectKey) {
+    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) {
+      if (projectSessionController.canonicalKey === projectKey) {
         updateGenerationNodes((current) => failGeneratedAudioTarget(current, node.id, "切换画布时生成被中断，可重试。"));
       }
       return;
@@ -5383,9 +5155,9 @@ function CanvasWorkspaceContent() {
   }, [audioModel, persistSnapshot, runAudioTarget, updateGenerationNodes]);
 
   const retryVideoNode = useCallback(async (node: CanvasNodeData) => {
-    const activeScope = canonicalProjectScopeRef.current;
-    const projectKey = canonicalProjectKeyRef.current;
-    if (!activeScope || !projectKey || switchingRef.current) return;
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
+    if (!activeScope || !projectKey || projectSessionController.switching) return;
     const prompt = stringValue(node.metadata?.prompt) || node.content;
     const config = videoConfigFromNode(node, videoModel);
     if (!prompt.trim() || !config.model) {
@@ -5405,7 +5177,7 @@ function CanvasWorkspaceContent() {
     try {
       prepared = await prepareVideoReferences(generationInputs, activeScope, preparation.controller.signal);
     } catch (error) {
-      if (isAbortError(error) || canonicalProjectKeyRef.current !== projectKey) return;
+      if (isAbortError(error) || projectSessionController.canonicalKey !== projectKey) return;
       const message = publicApiError(error, "视频参考素材已失效，无法重试");
       const next = updateGenerationNodes((current) => failGeneratedVideoTarget(current, node.id, message));
       await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
@@ -5446,7 +5218,7 @@ function CanvasWorkspaceContent() {
       },
     } : item));
     await persistSnapshot(next, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-    if (switchingRef.current || canonicalProjectKeyRef.current !== projectKey) return;
+    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) return;
     await runVideoTarget({
       targetNodeId: node.id,
       originNodeId: sourceNodeId,
@@ -5462,7 +5234,7 @@ function CanvasWorkspaceContent() {
 
   /** 对选中节点批量重新发起生成（对应旧版 runSelectedGeneration）。 */
   const runSelectedGeneration = useCallback(async () => {
-    if (switchingRef.current || loadingRef.current) return;
+    if (projectSessionController.switching || projectSessionController.loading) return;
     const currentNodes = nodesRef.current;
     const candidateIds = Array.from(selectedNodeIdsRef.current);
     const nodesById = new Map(currentNodes.map((node) => [node.id, node]));
@@ -5493,8 +5265,8 @@ function CanvasWorkspaceContent() {
   }, [runSelectedGeneration]);
 
   useEffect(() => {
-    if (loading || switching || !canonicalProjectScope || !canonicalProjectKeyRef.current) return;
-    const projectKey = canonicalProjectKeyRef.current;
+    if (loading || switching || !canonicalProjectScope || !projectSessionController.canonicalKey) return;
+    const projectKey = projectSessionController.canonicalKey;
     const recoverable = nodesRef.current.filter((node) => (node.kind === "image" || node.kind === "video") && node.metadata?.status === "loading" && stringValue(node.metadata.jobId));
     recoverable.forEach((node) => {
       const jobId = stringValue(node.metadata?.jobId);
@@ -5537,9 +5309,9 @@ function CanvasWorkspaceContent() {
     const currentNodes = nodesRef.current;
     const currentEdges = edgesRef.current;
     const sourceNode = (sourceId ? currentNodes.find((node) => node.id === sourceId) : currentNodes.find((node) => node.id === selectedId)) || null;
-    if (!sourceNode || switchingRef.current) return;
-    const activeScope = canonicalProjectScopeRef.current;
-    const projectKey = canonicalProjectKeyRef.current;
+    if (!sourceNode || projectSessionController.switching) return;
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
     if (!activeScope || !projectKey) {
       toast.warning("正在确认项目工作区，暂不能生成文本节点");
       return;
@@ -5648,8 +5420,8 @@ function CanvasWorkspaceContent() {
     setEdges(pendingEdges);
     applyNodeSelection([childIds[0] || sourceNode.id], childIds[0] || sourceNode.id, true);
     await persistSnapshot(pendingNodes, pendingEdges, viewportRef.current.zoom, { quiet: true });
-    if (switchingRef.current || canonicalProjectKeyRef.current !== projectKey) {
-      if (canonicalProjectKeyRef.current === projectKey) {
+    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) {
+      if (projectSessionController.canonicalKey === projectKey) {
         updateGenerationNodes((current) => targetIds.reduce(
           (next, targetNodeId) => failGeneratedTextTarget(next, targetNodeId, "切换画布时生成被中断，可重试。"),
           current,
@@ -5675,9 +5447,9 @@ function CanvasWorkspaceContent() {
     const currentNodes = nodesRef.current;
     const currentEdges = edgesRef.current;
     const sourceNode = (sourceId ? currentNodes.find((node) => node.id === sourceId) : currentNodes.find((node) => node.id === selectedId)) || null;
-    if (!sourceNode || switchingRef.current) return;
-    const activeScope = canonicalProjectScopeRef.current;
-    const projectKey = canonicalProjectKeyRef.current;
+    if (!sourceNode || projectSessionController.switching) return;
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
     if (!activeScope || !projectKey) {
       toast.warning("正在确认项目工作区，暂不能生成画布节点");
       return;
@@ -5715,7 +5487,7 @@ function CanvasWorkspaceContent() {
         preparation.controller.signal,
       );
     } catch (error) {
-      if (isAbortError(error) || canonicalProjectKeyRef.current !== projectKey) return;
+      if (isAbortError(error) || projectSessionController.canonicalKey !== projectKey) return;
       toast.error(publicApiError(error, "读取或归档参考图失败"));
       return;
     } finally {
@@ -5808,8 +5580,8 @@ function CanvasWorkspaceContent() {
     setEdges(pendingEdges);
     applyNodeSelection([rootId], rootId, true);
     await persistSnapshot(pendingNodes, pendingEdges, viewportRef.current.zoom, { quiet: true });
-    if (switchingRef.current || canonicalProjectKeyRef.current !== projectKey) {
-      if (canonicalProjectKeyRef.current === projectKey) {
+    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) {
+      if (projectSessionController.canonicalKey === projectKey) {
         updateGenerationNodes((current) => targetIds.reduce(
           (next, targetNodeId) => failGeneratedImageTarget(next, targetNodeId, "切换画布时生成被中断，可重试。"),
           current,
@@ -5829,7 +5601,7 @@ function CanvasWorkspaceContent() {
       quality,
       referenceFiles: prepared.files,
     })));
-    if (canonicalProjectKeyRef.current !== projectKey) return;
+    if (projectSessionController.canonicalKey !== projectKey) return;
     const succeeded = results.filter(Boolean).length;
     if (count > 1) {
       const next = updateGenerationNodes((current) => refreshImageBatchRoot(current, rootId));
@@ -5842,9 +5614,9 @@ function CanvasWorkspaceContent() {
     const currentNodes = nodesRef.current;
     const currentEdges = edgesRef.current;
     const sourceNode = (sourceId ? currentNodes.find((node) => node.id === sourceId) : currentNodes.find((node) => node.id === selectedId)) || null;
-    if (!sourceNode || switchingRef.current) return;
-    const activeScope = canonicalProjectScopeRef.current;
-    const projectKey = canonicalProjectKeyRef.current;
+    if (!sourceNode || projectSessionController.switching) return;
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
     if (!activeScope || !projectKey) {
       toast.warning("正在确认项目工作区，暂不能生成视频节点");
       return;
@@ -5877,7 +5649,7 @@ function CanvasWorkspaceContent() {
     try {
       prepared = await prepareVideoReferences(generationInputs, activeScope, preparation.controller.signal);
     } catch (error) {
-      if (isAbortError(error) || canonicalProjectKeyRef.current !== projectKey) return;
+      if (isAbortError(error) || projectSessionController.canonicalKey !== projectKey) return;
       toast.error(publicApiError(error, "读取视频参考素材失败"));
       return;
     } finally {
@@ -5940,8 +5712,8 @@ function CanvasWorkspaceContent() {
     setEdges(pendingEdges);
     applyNodeSelection([targetNodeId], targetNodeId, true);
     await persistSnapshot(pendingNodes, pendingEdges, viewportRef.current.zoom, { quiet: true });
-    if (switchingRef.current || canonicalProjectKeyRef.current !== projectKey) {
-      if (canonicalProjectKeyRef.current === projectKey) {
+    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) {
+      if (projectSessionController.canonicalKey === projectKey) {
         updateGenerationNodes((current) => failGeneratedVideoTarget(current, targetNodeId, "切换画布时生成被中断，可重试。"));
       }
       return;
@@ -5963,9 +5735,9 @@ function CanvasWorkspaceContent() {
     const currentNodes = nodesRef.current;
     const currentEdges = edgesRef.current;
     const sourceNode = (sourceId ? currentNodes.find((node) => node.id === sourceId) : currentNodes.find((node) => node.id === selectedId)) || null;
-    if (!sourceNode || switchingRef.current) return;
-    const activeScope = canonicalProjectScopeRef.current;
-    const projectKey = canonicalProjectKeyRef.current;
+    if (!sourceNode || projectSessionController.switching) return;
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
     if (!activeScope || !projectKey) {
       toast.warning("正在确认项目工作区，暂不能生成音频节点");
       return;
@@ -6031,8 +5803,8 @@ function CanvasWorkspaceContent() {
     setEdges(pendingEdges);
     applyNodeSelection([targetNodeId], targetNodeId, true);
     await persistSnapshot(pendingNodes, pendingEdges, viewportRef.current.zoom, { quiet: true });
-    if (switchingRef.current || canonicalProjectKeyRef.current !== projectKey) {
-      if (canonicalProjectKeyRef.current === projectKey) {
+    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) {
+      if (projectSessionController.canonicalKey === projectKey) {
         updateGenerationNodes((current) => failGeneratedAudioTarget(current, targetNodeId, "切换画布时生成被中断，可重试。"));
       }
       return;
@@ -6124,7 +5896,7 @@ function CanvasWorkspaceContent() {
   const downloadNodeMedia = async (node: CanvasNodeData) => {
     const assetId = assetIdFromNode(node);
     const directSrc = imageSrcFromNode(node, previews);
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     try {
       if (assetId && activeScope) {
         const sourceScope = workspaceScopeValue(node.metadata?.assetScope) || activeScope;
@@ -6195,7 +5967,7 @@ function CanvasWorkspaceContent() {
   const toggleCanvasNodeFavorite = async (node: CanvasNodeData) => {
     const assetId = assetIdFromNode(node);
     if (!assetId) return toast.info("该节点还没有归档资产可收藏");
-    const activeScope = canonicalProjectScopeRef.current || "personal";
+    const activeScope = projectSessionController.canonicalScope || "personal";
     const nextReaction = node.metadata?.assetFavorited ? "none" : "favorite";
     try {
       await updateAssetUserState(assetId, { reaction: nextReaction }, workspaceScopeValue(node.metadata?.assetScope) || activeScope);
@@ -6238,7 +6010,7 @@ function CanvasWorkspaceContent() {
   };
 
   const runCanvasGroupGeneration = async (groupId: string) => {
-    if (!groupId || runningGroupId || switchingRef.current) return;
+    if (!groupId || runningGroupId || projectSessionController.switching) return;
     const group = groupsRef.current.find((item) => item.id === groupId);
     if (!group) return;
     const currentNodes = nodesRef.current;
@@ -6257,7 +6029,7 @@ function CanvasWorkspaceContent() {
     let executed = 0;
     try {
       for (const node of runnable) {
-        if (switchingRef.current || canonicalProjectKeyRef.current !== `${canonicalProjectScopeRef.current}:${projectId}`) break;
+        if (projectSessionController.switching || projectSessionController.canonicalKey !== `${projectSessionController.canonicalScope}:${projectId}`) break;
         try {
           await generateFromNode(node.id);
           executed += 1;
@@ -6272,9 +6044,9 @@ function CanvasWorkspaceContent() {
   };
 
   const applyAgentOperations = async (ops: CanvasAgentOp[] = []): Promise<CanvasAgentExecutionResult> => {
-    const activeScope = canonicalProjectScopeRef.current;
-    const projectKey = canonicalProjectKeyRef.current;
-    if (!activeScope || !projectKey || switchingRef.current) throw new Error("当前画布尚未准备好");
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
+    if (!activeScope || !projectKey || projectSessionController.switching) throw new Error("当前画布尚未准备好");
     const before = canvasAgentSnapshotFromCanvas(
       projectId,
       projectTitle || "未命名画布",
@@ -6376,7 +6148,7 @@ function CanvasWorkspaceContent() {
   };
 
   const executeAgentWorkspaceTool = async (name: string, input: Record<string, unknown>) => {
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) throw new Error("当前 workspace 尚未确认");
     const text = (key: string) => typeof input[key] === "string" ? input[key].trim() : "";
     const texts = (key: string) => Array.isArray(input[key])
@@ -6474,8 +6246,8 @@ function CanvasWorkspaceContent() {
 
   const uploadFilesAsNodes = async (files: FileList | File[]) => {
     const list = Array.from(files).filter((file) => assetKindFromFile(file) !== null);
-    if (!list.length || uploadingRef.current || switchingRef.current) return;
-    const activeScope = canonicalProjectScopeRef.current;
+    if (!list.length || uploadingRef.current || projectSessionController.switching) return;
+    const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) {
       toast.warning("正在确认项目工作区，暂不能上传画布素材");
       return;
@@ -6619,7 +6391,7 @@ function CanvasWorkspaceContent() {
     if (fragmentBusy) return;
     const selectedIds = new Set(selectedNodeIdsRef.current);
     if (!selectedIds.size) return toast.info("请先选择要导出的节点");
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) return toast.warning("正在确认项目工作区，暂不能导出选区包");
     setFragmentBusy(true);
     try {
@@ -6652,7 +6424,7 @@ function CanvasWorkspaceContent() {
 
   const importCanvasFragment = async (file?: File) => {
     if (!file || fragmentBusy) return;
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) return toast.warning("正在确认项目工作区，暂不能导入选区包");
     setFragmentBusy(true);
     try {
@@ -6776,8 +6548,8 @@ function CanvasWorkspaceContent() {
 
   const exportCurrentCanvasProject = async () => {
     if (!projectId || projectArchiveBusy) return;
-    const activeScope = canonicalProjectScopeRef.current;
-    const snapshotBase = snapshotBaseRef.current;
+    const activeScope = projectSessionController.canonicalScope;
+    const snapshotBase = autosaveController.snapshotBase;
     if (!activeScope || !snapshotBase) return toast.warning("正在确认完整画布快照，暂不能导出项目包");
     setProjectArchiveBusy(true);
     try {
@@ -6861,7 +6633,7 @@ function CanvasWorkspaceContent() {
 
   const importCanvasProjectArchive = async (file?: File) => {
     if (!file || projectArchiveBusy) return;
-    const targetScope = projectId ? canonicalProjectScopeRef.current : scope;
+    const targetScope = projectId ? projectSessionController.canonicalScope : scope;
     if (!targetScope) return toast.warning("正在确认工作区，暂不能导入画布项目包");
     let importedCount = 0;
     setProjectArchiveBusy(true);
@@ -6920,7 +6692,7 @@ function CanvasWorkspaceContent() {
   const exportImageNodes = async () => {
     const assetIds = imageAssetIds();
     if (!assetIds.length || exporting) return toast.info("当前画布没有可导出的图片节点");
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) {
       toast.warning("正在确认项目工作区，暂不能导出画布素材");
       return;
@@ -6944,7 +6716,7 @@ function CanvasWorkspaceContent() {
     const assetId = selectedNode ? assetIdFromNode(selectedNode) : "";
     const directSrc = selectedNode ? imageSrcFromNode(selectedNode, previews) : "";
     if (!assetId && !directSrc) return toast.info("当前节点没有可下载的媒体");
-    const activeScope = canonicalProjectScopeRef.current;
+    const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) {
       toast.warning("正在确认项目工作区，暂不能下载画布素材");
       return;
@@ -7138,7 +6910,7 @@ function CanvasWorkspaceContent() {
       return;
     }
     if (!reference.assetId) return;
-    const assetScope = reference.assetScope || canonicalProjectScopeRef.current || "personal";
+    const assetScope = reference.assetScope || projectSessionController.canonicalScope || "personal";
     void getAssetContentObjectUrl(reference.assetId, assetScope)
       .then((url) => {
         if (mentionMediaOwnedUrlRef.current) URL.revokeObjectURL(mentionMediaOwnedUrlRef.current);
