@@ -20,7 +20,7 @@ import {
   Undo2,
   Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
@@ -147,24 +147,23 @@ import {
   type CanvasProjectSessionLoaded,
 } from "@/features/canvas/controllers/project-session";
 import {
+  CANVAS_STAGE_OFFSET,
+  CanvasStageInteractionController,
+  useCanvasStageInteraction,
+  type CanvasContextMenuState,
+  type PendingConnectionCreateState,
+} from "@/features/canvas/controllers/stage-interaction";
+import {
   extractProjectCanvasData,
   extractServerCanvasSnapshotData,
   type CanvasSnapshotBase,
 } from "@/features/canvas/domain/snapshotRoundTrip";
 import { consumeCanvasBootstrap, peekCanvasBootstrap } from "@/lib/canvas-bootstrap";
 import {
-  canvasNodesInSelectionRect,
-  captureCanvasNodeOrigins,
   deleteCanvasNodesAndEdges,
-  moveCanvasNodesFromOrigins,
   normalizeCanvasSelectionRect,
-  shouldSuppressCanvasNodeClickAfterPointerSelection,
-  toggleCanvasNodeSelection,
-  type CanvasNodeOrigins,
-  type CanvasPoint,
 } from "@/features/canvas/domain/selection";
-import { DEFAULT_CANVAS_SHORTCUTS, eventMatchesShortcut, resolveCanvasShortcuts, type CanvasShortcutBindings } from "@/features/canvas/domain/hotkeys";
-import { isCanvasHotkeyEditingTarget } from "@/features/canvas/adapters/hotkeyTarget";
+import { DEFAULT_CANVAS_SHORTCUTS, resolveCanvasShortcuts, type CanvasShortcutBindings } from "@/features/canvas/domain/hotkeys";
 import { loadSkills, type CanvasSkill } from "@/lib/skill-library";
 import type { StoryboardScene } from "@/components/StoryboardEditorDialog";
 import {
@@ -177,30 +176,16 @@ import {
   canvasActiveConnectionPath,
   buildCanvasGenerationInputs,
   buildCanvasConnectionLayerBounds,
-  canvasClientPointToWorld,
   connectableCanvasNodesToConfig,
   connectCanvasNodesToConfig,
   createConnectedCanvasGraph,
-  defaultCanvasConnectionHandle,
-  findCanvasConnectionDropTarget,
-  isActiveCanvasConnectionPointer,
   isHiddenCanvasBatchChild,
-  normalizeCanvasConnection,
 } from "@/features/canvas/domain/connections";
-import {
-  CANVAS_ZOOM_MAX,
-  CANVAS_ZOOM_MIN,
-  fitCanvasViewport,
-  panCanvasViewport,
-  zoomCanvasViewportAtPoint,
-} from "@/features/canvas/domain/history";
 import {
   createCanvasGroup,
   normalizeCanvasGroups,
   removeNodesFromCanvasGroups,
-  resizeCanvasGroup,
   type CanvasGroupData,
-  type CanvasGroupResizeCorner,
 } from "@/features/canvas/domain/groups";
 import {
   buildCanvasArchiveProjectRecord,
@@ -214,7 +199,7 @@ import {
   type CanvasProjectArchiveAsset,
   type CanvasProjectArchiveItem,
 } from "@/features/canvas/domain/projectArchive";
-import { buildCanvasMinimapModel, canvasMinimapWorldPoint, type CanvasMinimapModel } from "@/features/canvas/domain/minimap";
+import { buildCanvasMinimapModel, type CanvasMinimapModel } from "@/features/canvas/domain/minimap";
 import {
   buildCanvasFragmentPackage,
   canvasFragmentAssetIds,
@@ -354,12 +339,6 @@ import {
   audioConfigFromNode,
 } from "@/features/canvas/domain/nodeUtils";
 import {
-  cubicCanvasPoint,
-  distanceToCanvasEdge,
-  distanceToCanvasSegment,
-  nearestCanvasEdgeIdAtPoint,
-} from "@/features/canvas/domain/geometry";
-import {
   completeGeneratedAudioTarget,
   completeGeneratedImageTarget,
   completeGeneratedVideoTarget,
@@ -455,93 +434,6 @@ type CanvasAudioTargetRunInput = {
   config: AudioGenerationConfig;
 };
 
-type CanvasContextMenuState = {
-  x: number;
-  y: number;
-  canvasX: number;
-  canvasY: number;
-  nodeId?: string;
-  edgeId?: string;
-};
-
-type ConnectionHandleType = "source" | "target";
-
-type CanvasConnectionDraft = {
-  nodeId: string;
-  handleType: ConnectionHandleType;
-};
-
-type CanvasConnectionDropTarget = {
-  nodeId: string;
-  isNearNode: boolean;
-};
-
-type PendingConnectionCreateState = {
-  x: number;
-  y: number;
-  canvasX: number;
-  canvasY: number;
-  connection: CanvasConnectionDraft;
-};
-
-type CanvasPanMode = "idle" | "hold-pan" | "locked-pan";
-
-type CanvasPanState = {
-  mode: CanvasPanMode;
-  startClientX: number;
-  startClientY: number;
-  lastClientX: number;
-  lastClientY: number;
-  startPanX: number;
-  startPanY: number;
-  lastMiddleDownAt: number;
-};
-
-type CanvasSelectionBoxState = {
-  start: CanvasPoint;
-  current: CanvasPoint;
-  additive: boolean;
-  baseIds: Set<string>;
-};
-
-type CanvasDragState = {
-  id: string;
-  startX: number;
-  startY: number;
-  origins: CanvasNodeOrigins;
-  moved: boolean;
-  suppressClick: boolean;
-};
-
-type CanvasResizeState = {
-  id: string;
-  startX: number;
-  startY: number;
-  width: number;
-  height: number;
-  currentWidth: number;
-  currentHeight: number;
-  moved: boolean;
-};
-
-type CanvasGroupDragState = {
-  id: string;
-  startX: number;
-  startY: number;
-  position: { x: number; y: number };
-  origins: CanvasNodeOrigins;
-  moved: boolean;
-};
-
-type CanvasGroupResizeState = {
-  id: string;
-  corner: CanvasGroupResizeCorner;
-  startX: number;
-  startY: number;
-  group: CanvasGroupData;
-  moved: boolean;
-};
-
 const defaultPrompt = "雨夜，狭长街道，潮湿沥青反射红色招牌；人物在画面右侧停留，低机位缓慢推近，电影级冷暖对比。";
 const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用于 AI 生图的提示词。
 
@@ -554,7 +446,6 @@ const scopeOptions: Array<{ value: WorkspaceScope; label: string }> = [
   { value: "team", label: "团队空间" },
 ];
 
-const CANVAS_STAGE_OFFSET = 52;
 const CANVAS_FLOATING_PANEL_WIDTH = 340;
 const CANVAS_FLOATING_PANEL_MIN_HEIGHT = 280;
 const CANVAS_MINIMAP_WIDTH = 184;
@@ -567,22 +458,6 @@ const EMPTY_CANVAS_MINIMAP_MODEL: CanvasMinimapModel = {
   nodes: [],
   viewport: { x: 0, y: 0, width: 0, height: 0 },
 };
-const CONNECTION_NODE_HIT_PADDING = 28;
-const CONNECTION_HANDLE_HIT_RADIUS = 18;
-const CANVAS_EDGE_HIT_RADIUS = 22;
-
-
-
-
-
-
-const MIDDLE_PAN_DOUBLE_CLICK_MS = 260;
-
-
-
-
-
-
 function canvasSyncLabel(status: CanvasSyncStatus) {
   const labels: Record<CanvasSyncStatus, string> = {
     loading: "读取同步状态",
@@ -658,11 +533,6 @@ function canvasArchiveMediaKind(mimeType: string): "image" | "video" | "audio" {
   return "image";
 }
 
-function setDocumentPanCursor(active: boolean) {
-  if (typeof document === "undefined") return;
-  document.body.style.cursor = active ? "grabbing" : "";
-}
-
 function CanvasWorkspaceContent() {
   const [location, navigate] = useLocation();
   const { user } = useAuth();
@@ -693,14 +563,9 @@ function CanvasWorkspaceContent() {
   const setSelectedNodeIds = canvasCommands.graph.setSelectedNodeIds;
   const selectedGroupId = useCanvasStore((state) => state.graph.selectedGroupId);
   const setSelectedGroupId = canvasCommands.graph.setSelectedGroupId;
-  const [connectFrom, setConnectFrom] = useState("");
-  const [connectHandleType, setConnectHandleType] = useState<ConnectionHandleType>("source");
   const zoom = useCanvasStore((state) => state.viewport.zoom);
-  const setZoom = canvasCommands.viewport.setZoom;
   const panX = useCanvasStore((state) => state.viewport.panX);
-  const setPanX = canvasCommands.viewport.setPanX;
   const panY = useCanvasStore((state) => state.viewport.panY);
-  const setPanY = canvasCommands.viewport.setPanY;
   const backgroundMode = useCanvasStore((state) => state.viewport.backgroundMode);
   const setBackgroundMode = canvasCommands.viewport.setBackgroundMode;
   const showImageInfo = useCanvasStore((state) => state.viewport.showImageInfo);
@@ -793,8 +658,6 @@ function CanvasWorkspaceContent() {
   const [assetPickerError, setAssetPickerError] = useState("");
   const [assetPickerInsertBusy, setAssetPickerInsertBusy] = useState(false);
   const [captureFrameNodeId, setCaptureFrameNodeId] = useState("");
-  const isSpacePressedRef = useRef(false);
-  const [panMode, setPanMode] = useState<CanvasPanMode>("idle");
   const hoveredId = useCanvasStore((state) => state.ui.hoveredNodeId);
   const setHoveredId = canvasCommands.ui.setHoveredNodeId;
   const hoveredEdgeId = useCanvasStore((state) => state.ui.hoveredEdgeId);
@@ -821,11 +684,6 @@ function CanvasWorkspaceContent() {
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
   // 右键/双击菜单的级联子菜单：当前展开的分组 key（空串 = 全部收起）
   const [canvasSubmenuKey, setCanvasSubmenuKey] = useState("");
-  const [connectionTargetId, setConnectionTargetId] = useState("");
-  const [connectionPreviewPoint, setConnectionPreviewPoint] = useState<{ x: number; y: number } | null>(null);
-  const [pendingConnectionCreate, setPendingConnectionCreate] = useState<PendingConnectionCreateState | null>(null);
-  const [selectionBox, setSelectionBox] = useState<CanvasSelectionBoxState | null>(null);
-  const [stageBounds, setStageBounds] = useState({ width: 0, height: 0 });
   const minimapOpen = useCanvasStore((state) => state.ui.minimapOpen);
   const setMinimapOpen = canvasCommands.ui.setMinimapOpen;
   const [imageToolDialog, setImageToolDialog] = useState<{ nodeId: string; mode: CanvasImageToolMode } | null>(null);
@@ -858,14 +716,13 @@ function CanvasWorkspaceContent() {
   const assetPickerAbortRef = useRef<AbortController | null>(null);
   const assetSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const imageCropStageRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<CanvasDragState | null>(null);
-  const resizeRef = useRef<CanvasResizeState | null>(null);
-  const groupDragRef = useRef<CanvasGroupDragState | null>(null);
-  const groupResizeRef = useRef<CanvasGroupResizeState | null>(null);
   const [historyController] = useState(() => new CanvasHistoryController());
   const [autosaveController] = useState(() => new CanvasAutosaveController());
   const [projectSessionController] = useState(
     () => new CanvasProjectSessionController(autosaveController, historyController),
+  );
+  const [stageInteractionController] = useState(
+    () => new CanvasStageInteractionController(),
   );
   const generationRequestsRef = useRef(new Map<string, CanvasGenerationRequest>());
   const generationPreparationsRef = useRef(new Map<string, CanvasGenerationPreparation>());
@@ -873,27 +730,30 @@ function CanvasWorkspaceContent() {
   const uploadingRef = useRef(false);
   const stageRef = useRef<HTMLElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const stageInteraction = useCanvasStageInteraction(
+    stageInteractionController,
+    stageRef,
+    { zoom, panX, panY },
+  );
+  const {
+    connectFrom,
+    connectHandleType,
+    connectionTargetId,
+    connectionPreviewPoint,
+    pendingConnectionCreate,
+    selectionBox,
+    stageBounds,
+  } = stageInteraction;
   const panelRef = useRef<HTMLElement>(null);
   const panelHeight = useCanvasStore((state) => state.ui.panelHeight);
   const setPanelHeight = canvasCommands.ui.setPanelHeight;
-  const panStateRef = useRef<CanvasPanState>({
-    mode: "idle",
-    startClientX: 0,
-    startClientY: 0,
-    lastClientX: 0,
-    lastClientY: 0,
-    startPanX: 0,
-    startPanY: 0,
-    lastMiddleDownAt: 0,
-  });
-  const viewportRef = useRef({ zoom: 90, panX: 0, panY: 0 });
-  const connectionDragRef = useRef<{
-    active: boolean;
-    pointerId: number | null;
-    startX: number;
-    startY: number;
-    moved: boolean;
-  }>({ active: false, pointerId: null, startX: 0, startY: 0, moved: false });
+  const viewportRef = useMemo(() => ({
+    get current() {
+      const current = canvasStore.getState().viewport;
+      return { zoom: current.zoom, panX: current.panX, panY: current.panY };
+    },
+    set current(value: { zoom: number; panX: number; panY: number }) { stageInteractionController.syncViewport(value); },
+  }), [canvasStore, stageInteractionController]);
   const nodesRef = useMemo(() => ({
     get current() { return canvasStore.getState().graph.nodes; },
     set current(value: CanvasNodeData[]) { canvasCommands.graph.setNodes(value); },
@@ -910,102 +770,7 @@ function CanvasWorkspaceContent() {
     get current() { return new Set(canvasStore.getState().graph.selectedNodeIds); },
     set current(value: Set<string>) { canvasCommands.graph.setSelectedNodeIds(value); },
   }), [canvasCommands, canvasStore]);
-  const hoverLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const connectionHandlesRef = useRef(new Map<string, HTMLElement>());
-  const hoveredHandleKeyRef = useRef("");
-  const selectionBoxRef = useRef<CanvasSelectionBoxState | null>(null);
-  // 框选状态 rAF 合帧句柄：null 表示当前没有待执行的刷新
-  const selectionBoxFlushRafRef = useRef<number | null>(null);
-  // 视口（平移/缩放）rAF 合帧句柄：高频滚轮/拖拽一帧只提交一次 React 渲染
-  // （移植自旧画布 Leafer 优化引擎的 frameRef 合帧模式）
-  const viewportFlushRafRef = useRef<number | null>(null);
-  const suppressNodeClickRef = useRef("");
   const clipboardRef = useRef<CanvasClipboardPayload<CanvasNodeData, CanvasEdgeData> | null>(null);
-  const connectFromRef = useRef("");
-  const connectHandleTypeRef = useRef<ConnectionHandleType>("source");
-  const connectionTargetIdRef = useRef("");
-  const connectionPreviewPointRef = useRef<{ x: number; y: number } | null>(null);
-  const pendingConnectionCreateRef = useRef<PendingConnectionCreateState | null>(null);
-
-  /** 悬停延迟清空：给鼠标跨越节点与悬浮组件（上传按钮/工具条）之间间隙的时间。 */
-  const handleNodeHoverStart = useCallback((id: string) => {
-    if (hoverLeaveTimerRef.current) {
-      clearTimeout(hoverLeaveTimerRef.current);
-      hoverLeaveTimerRef.current = null;
-    }
-    setHoveredId(id);
-  }, []);
-
-  const handleNodeHoverEnd = useCallback((id: string) => {
-    if (hoverLeaveTimerRef.current) clearTimeout(hoverLeaveTimerRef.current);
-    hoverLeaveTimerRef.current = setTimeout(() => {
-      setHoveredId((current) => (current === id ? "" : current));
-      hoverLeaveTimerRef.current = null;
-    }, 180);
-  }, []);
-
-  useEffect(() => () => {
-    if (hoverLeaveTimerRef.current) clearTimeout(hoverLeaveTimerRef.current);
-  }, []);
-
-  /* ---- 连接点磁性吸附：光标靠近时连接点被吸向光标 ---- */
-  const CONNECTION_HANDLE_MAGNET_RADIUS = 56;
-  const CONNECTION_HANDLE_SNAP_RADIUS = 18;
-
-  const registerConnectionHandle = useCallback((nodeId: string, side: "source" | "target", element: HTMLElement | null) => {
-    const key = `${nodeId}:${side}`;
-    if (element) connectionHandlesRef.current.set(key, element);
-    else connectionHandlesRef.current.delete(key);
-  }, []);
-
-  useEffect(() => {
-    const resetMagnet = (key: string) => {
-      const element = key ? connectionHandlesRef.current.get(key) : undefined;
-      if (!element) return;
-      element.classList.remove("handle-magnet");
-      element.style.transform = "";
-    };
-    const onMove = (event: globalThis.PointerEvent) => {
-      if (connectionDragRef.current.active || panStateRef.current.mode !== "idle") return;
-      const { clientX, clientY } = event;
-      let nearestKey = "";
-      let nearestDistance = Infinity;
-      let nearestDx = 0;
-      let nearestDy = 0;
-      connectionHandlesRef.current.forEach((element, key) => {
-        const rect = element.getBoundingClientRect();
-        const cx = rect.x + rect.width / 2;
-        const cy = rect.y + rect.height / 2;
-        const distance = Math.hypot(clientX - cx, clientY - cy);
-        if (distance < nearestDistance) {
-          nearestDistance = distance;
-          nearestKey = key;
-          nearestDx = clientX - cx;
-          nearestDy = clientY - cy;
-        }
-      });
-      const next = nearestDistance <= CONNECTION_HANDLE_MAGNET_RADIUS ? nearestKey : "";
-      if (next !== hoveredHandleKeyRef.current) {
-        resetMagnet(hoveredHandleKeyRef.current);
-        hoveredHandleKeyRef.current = next;
-        if (next) connectionHandlesRef.current.get(next)?.classList.add("handle-magnet");
-      }
-      if (!next) return;
-      const element = connectionHandlesRef.current.get(next);
-      if (!element) return;
-      // 距离越近吸力越强：SNAP 半径内完全贴到光标上，边缘处回到节点边缘。
-      const strength = nearestDistance <= CONNECTION_HANDLE_SNAP_RADIUS
-        ? 1
-        : Math.max(0, 1 - (nearestDistance - CONNECTION_HANDLE_SNAP_RADIUS) / (CONNECTION_HANDLE_MAGNET_RADIUS - CONNECTION_HANDLE_SNAP_RADIUS));
-      element.style.transform = `translate(${(nearestDx * strength).toFixed(1)}px, ${(nearestDy * strength).toFixed(1)}px) scale(1.4)`;
-    };
-    window.addEventListener("pointermove", onMove as EventListener, { passive: true });
-    return () => {
-      window.removeEventListener("pointermove", onMove as EventListener);
-      resetMagnet(hoveredHandleKeyRef.current);
-      hoveredHandleKeyRef.current = "";
-    };
-  }, []);
 
   const applyNodeSelection = useCallback((ids: Iterable<string>, primaryId = "", openInspector = false) => {
     const next = new Set(ids);
@@ -1340,28 +1105,6 @@ function CanvasWorkspaceContent() {
     const top = Math.min(Math.max(CANVAS_STAGE_OFFSET + 8, pendingConnectionCreate.y), Math.max(CANVAS_STAGE_OFFSET + 8, stageBounds.height - height - 12));
     return { left: Math.round(left), top: Math.round(top), width };
   }, [pendingConnectionCreate, stageBounds.height, stageBounds.width]);
-  const screenToCanvasPoint = useCallback((clientX: number, clientY: number) => {
-    const rect = stageRef.current?.getBoundingClientRect();
-    return canvasClientPointToWorld(clientX, clientY, rect, viewportRef.current, CANVAS_STAGE_OFFSET);
-  }, []);
-  const clientToStagePoint = useCallback((clientX: number, clientY: number) => {
-    const rect = stageRef.current?.getBoundingClientRect();
-    return { x: clientX - (rect?.left ?? 0), y: clientY - (rect?.top ?? 0) };
-  }, []);
-  const edgeIdAtClientPoint = useCallback((clientX: number, clientY: number) => {
-    const scale = Math.max(CANVAS_ZOOM_MIN / 100, viewportRef.current.zoom / 100);
-    return nearestCanvasEdgeIdAtPoint(
-      screenToCanvasPoint(clientX, clientY),
-      edgesRef.current,
-      nodesRef.current,
-      CANVAS_EDGE_HIT_RADIUS / scale,
-    );
-  }, [screenToCanvasPoint]);
-  const edgeIdFromCanvasEvent = useCallback((event: { clientX: number; clientY: number; target: EventTarget | null }) => {
-    const target = event.target instanceof Element ? event.target : null;
-    const directEdgeId = target?.closest(".real-canvas-edge-hit")?.getAttribute("data-edge-id") || "";
-    return directEdgeId || edgeIdAtClientPoint(event.clientX, event.clientY);
-  }, [edgeIdAtClientPoint]);
   const connectionPreviewPath = useMemo(() => {
     if (!connectFrom) return "";
     const source = nodeMap.get(connectFrom);
@@ -1380,119 +1123,49 @@ function CanvasWorkspaceContent() {
       targetNodeId: connectionTargetId || undefined,
     } : undefined,
   ), [connectFrom, connectHandleType, connectionPreviewPoint, connectionTargetId, edges, visibleNodes]);
-  const applyCanvasViewport = useCallback((next: { zoom: number; panX: number; panY: number }) => {
-    const normalized = {
-      zoom: Math.round(next.zoom),
-      panX: Math.round(next.panX),
-      panY: Math.round(next.panY),
-    };
-    viewportRef.current = normalized;
-    setZoom(normalized.zoom);
-    setPanX(normalized.panX);
-    setPanY(normalized.panY);
-    setContextMenu(null);
-  }, []);
-  // rAF 合帧提交：viewportRef 立即更新（交互数学保持一致），React 状态下一帧统一提交一次。
-  // 供滚轮缩放/滚轮平移/拖拽平移等高频路径使用；离散操作（按钮、适配、撤销）仍走上面的同步版本。
-  const scheduleViewportCommit = useCallback(() => {
-    if (viewportFlushRafRef.current !== null) return;
-    viewportFlushRafRef.current = window.requestAnimationFrame(() => {
-      viewportFlushRafRef.current = null;
-      const v = viewportRef.current;
-      setZoom(v.zoom);
-      setPanX(v.panX);
-      setPanY(v.panY);
-    });
-  }, []);
-  const applyCanvasViewportFrame = useCallback((next: { zoom: number; panX: number; panY: number }) => {
-    const normalized = {
-      zoom: Math.round(next.zoom),
-      panX: Math.round(next.panX),
-      panY: Math.round(next.panY),
-    };
-    viewportRef.current = normalized;
-    setContextMenu(null);
-    scheduleViewportCommit();
-  }, [scheduleViewportCommit]);
-  const focusNodeInViewport = useCallback((nodeId: string) => {
-    const node = nodesRef.current.find((item) => item.id === nodeId);
-    if (!node) return;
-    const rect = stageRef.current?.getBoundingClientRect();
-    const width = rect?.width ?? stageBounds.width;
-    const height = rect?.height ?? stageBounds.height;
-    const currentZoom = Math.max(0.05, viewportRef.current.zoom / 100);
-    let nextZoom = currentZoom;
-    if (width > 0 && height > 0) {
-      const availableWidth = Math.max(240, width - 200);
-      const availableHeight = Math.max(180, height - CANVAS_STAGE_OFFSET - 140);
-      const fitZoom = Math.min(availableWidth / Math.max(node.width, 1), availableHeight / Math.max(node.height, 1));
-      if (node.width * currentZoom > availableWidth * 0.8 || node.height * currentZoom > availableHeight * 0.8) {
-        nextZoom = clamp(fitZoom * 0.9, 0.05, 5);
-      } else if (node.width * currentZoom < availableWidth * 0.15 && node.height * currentZoom < availableHeight * 0.15) {
-        nextZoom = clamp(Math.max(currentZoom, fitZoom * 0.75), currentZoom, 5);
-      }
-    }
-    applyCanvasViewport({
-      zoom: nextZoom * 100,
-      panX: (width > 0 ? width / 2 : 0) - (node.x + node.width / 2) * nextZoom,
-      panY: (height > 0 ? (height - CANVAS_STAGE_OFFSET) / 2 : 0) - (node.y + node.height / 2) * nextZoom,
-    });
-    applyNodeSelection([node.id], node.id, true);
-    connectFromRef.current = "";
-    connectHandleTypeRef.current = "source";
-    connectionTargetIdRef.current = "";
-    connectionPreviewPointRef.current = null;
-    pendingConnectionCreateRef.current = null;
-    setConnectFrom("");
-    setConnectHandleType("source");
-    setConnectionTargetId("");
-    setConnectionPreviewPoint(null);
-    setPendingConnectionCreate(null);
-  }, [applyCanvasViewport, applyNodeSelection, stageBounds.height, stageBounds.width]);
-  const navigateFromMinimap = useCallback((event: ReactMouseEvent<SVGSVGElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const rect = event.currentTarget.getBoundingClientRect();
-    const world = canvasMinimapWorldPoint(minimapModel, {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    });
-    const scale = Math.max(0.05, viewportRef.current.zoom / 100);
-    applyCanvasViewport({
-      zoom: viewportRef.current.zoom,
-      panX: stageBounds.width / 2 - world.x * scale,
-      panY: Math.max(1, stageBounds.height - CANVAS_STAGE_OFFSET) / 2 - world.y * scale,
-    });
-  }, [applyCanvasViewport, minimapModel, stageBounds.height, stageBounds.width]);
-  const focusNodeInlineEditor = useCallback((nodeId: string) => {
-    requestAnimationFrame(() => {
-      const editors = stageRef.current?.querySelectorAll<HTMLTextAreaElement>(".node-inline-editor") ?? [];
-      const editor = Array.from(editors).find((item) => item.dataset.nodeInlineEditorId === nodeId);
-      editor?.focus();
-      editor?.setSelectionRange(editor.value.length, editor.value.length);
-    });
-  }, []);
-  const beginInlineNodeEdit = useCallback((nodeId: string) => {
-    setEditingInlineNodeId(nodeId);
-    focusNodeInlineEditor(nodeId);
-  }, [focusNodeInlineEditor]);
-  const getConnectionDropTarget = useCallback((clientX: number, clientY: number, current: CanvasConnectionDraft): CanvasConnectionDropTarget => {
-    const world = screenToCanvasPoint(clientX, clientY);
-    return findCanvasConnectionDropTarget(nodesRef.current, current, world, {
-      padding: CONNECTION_NODE_HIT_PADDING,
-      handleRadius: CONNECTION_HANDLE_HIT_RADIUS,
-      zoom: viewportRef.current.zoom,
-    });
-  }, [screenToCanvasPoint]);
-  const getConnectionDomDropTargetId = useCallback((clientX: number, clientY: number, current: CanvasConnectionDraft) => {
-    const target = document.elementFromPoint(clientX, clientY);
-    const nodeId = target?.closest(".real-canvas-node")?.getAttribute("data-node-id") || "";
-    if (!nodeId || nodeId === current.nodeId) return "";
-    const currentNodes = nodesRef.current;
-    const node = currentNodes.find((item) => item.id === nodeId);
-    if (!node || isHiddenCanvasBatchChild(node, currentNodes)) return "";
-    return normalizeCanvasConnection(current.nodeId, nodeId, currentNodes, current.handleType) ? nodeId : "";
-  }, []);
+  const {
+    activateConnectionMode,
+    beginInlineNodeEdit,
+    beginConnection,
+    cancelActiveCanvasInteractions,
+    cancelPendingConnectionCreate,
+    chooseNode,
+    clientToStagePoint,
+    connectNodes,
+    endDrag,
+    endGroupDrag,
+    endGroupResize,
+    endResize,
+    fitCanvasToContent,
+    focusNodeInViewport,
+    getCanvasCenter,
+    handleCanvasDoubleClick,
+    handleCanvasLinesClick,
+    handleCanvasLinesContextMenu,
+    handleCanvasLinesDoubleClick,
+    handleCanvasLinesPointerDown,
+    handleCanvasLinesPointerLeave,
+    handleCanvasLinesPointerMove,
+    handleEdgeClick,
+    handleNodeHoverEnd,
+    handleNodeHoverStart,
+    handleStagePointerDown,
+    moveDrag,
+    moveGroupDrag,
+    moveGroupResize,
+    moveResize,
+    navigateFromMinimap,
+    openCanvasContextMenu,
+    openNodeContextMenu,
+    registerConnectionHandle,
+    screenToCanvasPoint,
+    selectCanvasGroup,
+    startDrag,
+    startGroupDrag,
+    startGroupResize,
+    startResize,
+    zoomCanvasAroundCenter,
+  } = stageInteractionController;
 
   const captureCanvasState = useCallback((): CanvasSnapshotState => ({
     nodes: structuredClone(nodesRef.current),
@@ -1528,19 +1201,7 @@ function CanvasWorkspaceContent() {
         },
         ui: { editingInlineNodeId: "", inspectorOpen: false, hoveredEdgeId: "" },
       });
-      connectionDragRef.current.active = false;
-      connectionDragRef.current.pointerId = null;
-      connectionDragRef.current.moved = false;
-      connectFromRef.current = "";
-      connectHandleTypeRef.current = "source";
-      connectionTargetIdRef.current = "";
-      connectionPreviewPointRef.current = null;
-      pendingConnectionCreateRef.current = null;
-      setConnectFrom("");
-      setConnectHandleType("source");
-      setConnectionTargetId("");
-      setConnectionPreviewPoint(null);
-      setPendingConnectionCreate(null);
+      stageInteractionController.resetConnectionAndPending();
       setContextMenu(null);
     },
     onAvailabilityChange: setHistoryState,
@@ -1574,15 +1235,6 @@ function CanvasWorkspaceContent() {
     backgroundMode,
     showImageInfo,
   }), [backgroundMode, showImageInfo]);
-
-  const getCanvasCenter = useCallback(() => {
-    const rect = stageRef.current?.getBoundingClientRect();
-    if (!rect) return { x: 0, y: 0 };
-    return screenToCanvasPoint(
-      rect.left + rect.width / 2,
-      rect.top + CANVAS_STAGE_OFFSET + Math.max(0, rect.height - CANVAS_STAGE_OFFSET) / 2,
-    );
-  }, [screenToCanvasPoint]);
 
   const mergeCanvasAssetCatalog = useCallback((items: Asset[], targetScope: WorkspaceScope) => {
     setCanvasAssets((current) => {
@@ -1768,27 +1420,6 @@ function CanvasWorkspaceContent() {
     }
   }, [applyNodeSelection, assetPickerInsertBusy, assetPickerItems, assetPickerScope, assetPickerSelectedIds, getCanvasCenter]);
 
-  const zoomCanvasAroundCenter = useCallback((nextZoom: number) => {
-    const rect = stageRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    applyCanvasViewport(zoomCanvasViewportAtPoint(
-      viewportRef.current,
-      { x: rect.width / 2, y: Math.max(0, rect.height - CANVAS_STAGE_OFFSET) / 2 },
-      nextZoom,
-    ));
-  }, [applyCanvasViewport]);
-
-  const fitCanvasToContent = useCallback(() => {
-    const rect = stageRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const currentNodes = nodesRef.current;
-    applyCanvasViewport(fitCanvasViewport(
-      currentNodes.filter((node) => !isHiddenCanvasBatchChild(node, currentNodes)),
-      { width: rect.width, height: rect.height },
-      CANVAS_STAGE_OFFSET,
-    ));
-  }, [applyCanvasViewport]);
-
   const copySelectedNodes = useCallback(() => {
     const clipboard = createCanvasClipboard(
       nodesRef.current,
@@ -1820,19 +1451,7 @@ function CanvasWorkspaceContent() {
     const pastedIds = pasted.nodes.map((node) => node.id);
     applyNodeSelection(pastedIds, pastedIds[0] || "", pastedIds.length === 1);
     setContextMenu(null);
-    setPendingConnectionCreate(null);
-    connectionDragRef.current.active = false;
-    connectionDragRef.current.pointerId = null;
-    connectionDragRef.current.moved = false;
-    connectFromRef.current = "";
-    connectHandleTypeRef.current = "source";
-    connectionTargetIdRef.current = "";
-    connectionPreviewPointRef.current = null;
-    pendingConnectionCreateRef.current = null;
-    setConnectFrom("");
-    setConnectHandleType("source");
-    setConnectionTargetId("");
-    setConnectionPreviewPoint(null);
+    stageInteractionController.resetConnectionAndPending();
     toast.success(`已粘贴 ${pasted.nodes.length} 个画布节点`);
     return true;
   }, [applyNodeSelection, getCanvasCenter]);
@@ -2067,145 +1686,8 @@ function CanvasWorkspaceContent() {
   }, []);
 
   useEffect(() => {
-    const handleKey = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (isCanvasHotkeyEditingTarget(target)) return;
-      if (projectSessionController.switching || projectSessionController.loading || (projectId && !projectSessionController.canonicalScope)) return;
-      if (event.code === "Space") {
-        isSpacePressedRef.current = true;
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        connectFromRef.current = "";
-        connectHandleTypeRef.current = "source";
-        connectionTargetIdRef.current = "";
-        connectionPreviewPointRef.current = null;
-        pendingConnectionCreateRef.current = null;
-        setConnectFrom("");
-        setConnectHandleType("source");
-        setConnectionTargetId("");
-        setConnectionPreviewPoint(null);
-        setPendingConnectionCreate(null);
-        connectionDragRef.current.active = false;
-        connectionDragRef.current.pointerId = null;
-        stopPanInteraction();
-        setContextMenu(null);
-        setInspectorOpen(false);
-        applyNodeSelection([]);
-        return;
-      }
-      if (event.code === "Backquote" && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        const currentNodes = nodesRef.current;
-        const hovered = currentNodes.find((item) => item.id === hoveredId && !isHiddenCanvasBatchChild(item, currentNodes))
-          || (selectedNode && !isHiddenCanvasBatchChild(selectedNode, currentNodes) ? selectedNode : null)
-          || currentNodes.find((item) => !isHiddenCanvasBatchChild(item, currentNodes));
-        if (hovered) {
-          event.preventDefault();
-          focusNodeInViewport(hovered.id);
-        }
-        return;
-      }
-      const shortcuts = shortcutsRef.current;
-      if (eventMatchesShortcut(event, shortcuts.copy)) {
-        event.preventDefault();
-        copySelectedNodes();
-        return;
-      }
-      if (eventMatchesShortcut(event, shortcuts.paste)) {
-        event.preventDefault();
-        pasteCopiedNodes();
-        return;
-      }
-      if (eventMatchesShortcut(event, shortcuts.redo)) {
-        event.preventDefault();
-        redoCanvas();
-        return;
-      }
-      if (eventMatchesShortcut(event, shortcuts.undo)) {
-        event.preventDefault();
-        undoCanvas();
-        return;
-      }
-      if (eventMatchesShortcut(event, shortcuts.runSelection)) {
-        event.preventDefault();
-        void runSelectedGenerationRef.current();
-        return;
-      }
-      if (eventMatchesShortcut(event, shortcuts.selectAll)) {
-        event.preventDefault();
-        const currentNodes = nodesRef.current;
-        const allIds = currentNodes.filter((item) => !isHiddenCanvasBatchChild(item, currentNodes)).map((item) => item.id);
-        if (allIds.length) applyNodeSelection(allIds);
-        return;
-      }
-      if (eventMatchesShortcut(event, shortcuts.openSettings)) {
-        event.preventDefault();
-        setInspectorOpen(true);
-        return;
-      }
-      if (eventMatchesShortcut(event, shortcuts.resetZoom)) {
-        event.preventDefault();
-        setZoom(90);
-        return;
-      }
-      const matchesDelete = eventMatchesShortcut(event, shortcuts.delete);
-      if (matchesDelete && selectedGroupId) {
-        event.preventDefault();
-        const nextGroups = groupsRef.current.filter((group) => group.id !== selectedGroupId);
-        groupsRef.current = nextGroups;
-        setGroups(nextGroups);
-        setSelectedGroupId("");
-        setInspectorOpen(false);
-        return;
-      }
-      if (matchesDelete && selectedNodeIdsRef.current.size) {
-        event.preventDefault();
-        removeNodes(selectedNodeIdsRef.current);
-        return;
-      }
-      if (matchesDelete && selectedEdgeId) {
-        event.preventDefault();
-        removeEdge(selectedEdgeId);
-      }
-    };
-    const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.code === "Space") {
-        isSpacePressedRef.current = false;
-      }
-    };
-    const releaseState = () => {
-      isSpacePressedRef.current = false;
-      stopPanInteraction();
-      const drag = dragRef.current;
-      const resize = resizeRef.current;
-      const groupDrag = groupDragRef.current;
-      const groupResize = groupResizeRef.current;
-      dragRef.current = null;
-      resizeRef.current = null;
-      groupDragRef.current = null;
-      groupResizeRef.current = null;
-      if (drag || resize) resumeCanvasHistory(Boolean(drag?.moved || resize?.moved));
-      if (groupDrag) resumeCanvasHistory(Boolean(groupDrag.moved));
-      if (groupResize) resumeCanvasHistory(Boolean(groupResize.moved));
-    };
-    window.addEventListener("keydown", handleKey);
-    window.addEventListener("keyup", handleKeyUp);
-    window.addEventListener("blur", releaseState);
-    return () => {
-      window.removeEventListener("keydown", handleKey);
-      window.removeEventListener("keyup", handleKeyUp);
-      window.removeEventListener("blur", releaseState);
-    };
-  }, [applyNodeSelection, copySelectedNodes, focusNodeInViewport, hoveredId, pasteCopiedNodes, projectId, redoCanvas, removeEdge, resumeCanvasHistory, selectedEdgeId, selectedGroupId, selectedId, selectedNode, undoCanvas]);
-
-  useEffect(() => {
     uploadingRef.current = uploading;
   }, [uploading]);
-
-  useEffect(() => {
-    viewportRef.current = { zoom, panX, panY };
-  }, [zoom, panX, panY]);
 
   useEffect(() => {
     if (editingInlineNodeId && !nodes.some((node) => node.id === editingInlineNodeId)) {
@@ -2229,48 +1711,6 @@ function CanvasWorkspaceContent() {
       return next;
     });
   }, [selectedId]);
-
-  useEffect(() => {
-    connectFromRef.current = connectFrom;
-    connectHandleTypeRef.current = connectHandleType;
-    connectionTargetIdRef.current = connectionTargetId;
-    connectionPreviewPointRef.current = connectionPreviewPoint;
-    pendingConnectionCreateRef.current = pendingConnectionCreate;
-  }, [connectFrom, connectHandleType, connectionPreviewPoint, connectionTargetId, pendingConnectionCreate]);
-
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    const handleWheel = (event: WheelEvent) => {
-      if (projectSessionController.switching || projectSessionController.loading || (projectId && !projectSessionController.canonicalScope)) {
-        event.preventDefault();
-        return;
-      }
-      const target = event.target as HTMLElement | null;
-      if (isCanvasHotkeyEditingTarget(target) || target?.closest(".node-inline-editor")) {
-        if (event.ctrlKey || event.metaKey) event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      // 悬浮 UI（右键/双击菜单、检查器、工具条等带 data-canvas-ui）内的滚轮交给 UI 自身滚动，不触发画布缩放/平移
-      if (target?.closest("[data-canvas-ui]")) return;
-      event.preventDefault();
-      const current = viewportRef.current;
-      if (!wheelZoomRequiresCtrl || event.ctrlKey || event.metaKey) {
-        const rect = stage.getBoundingClientRect();
-        const factor = Math.pow(1.1, -event.deltaY / 100);
-        applyCanvasViewportFrame(zoomCanvasViewportAtPoint(
-          current,
-          { x: event.clientX - rect.left, y: event.clientY - rect.top - CANVAS_STAGE_OFFSET },
-          current.zoom * factor,
-        ));
-        return;
-      }
-      applyCanvasViewportFrame(panCanvasViewport(current, event.deltaX, event.deltaY));
-    };
-    stage.addEventListener("wheel", handleWheel, { passive: false });
-    return () => stage.removeEventListener("wheel", handleWheel);
-  }, [applyCanvasViewportFrame, projectId, wheelZoomRequiresCtrl]);
 
   const persistProjectKey = projectSessionController.canonicalKey;
   const persistSnapshot = useCallback(async (
@@ -2299,34 +1739,6 @@ function CanvasWorkspaceContent() {
     );
   }, [autosaveController, backgroundMode, edges, groups, loading, nodes, panX, panY, projectId, showImageInfo, snapshotWriteReady, switching, zoom]);
 
-  const cancelActiveCanvasInteractions = useCallback(() => {
-    const drag = dragRef.current;
-    const resize = resizeRef.current;
-    const groupDrag = groupDragRef.current;
-    const groupResize = groupResizeRef.current;
-    dragRef.current = null;
-    resizeRef.current = null;
-    groupDragRef.current = null;
-    groupResizeRef.current = null;
-    connectionDragRef.current.active = false;
-    connectionDragRef.current.pointerId = null;
-    connectFromRef.current = "";
-    connectHandleTypeRef.current = "source";
-    connectionTargetIdRef.current = "";
-    connectionPreviewPointRef.current = null;
-    pendingConnectionCreateRef.current = null;
-    panStateRef.current.mode = "idle";
-    isSpacePressedRef.current = false;
-    setPanMode("idle");
-    setDocumentPanCursor(false);
-    setConnectFrom("");
-    setConnectHandleType("source");
-    setConnectionTargetId("");
-    setConnectionPreviewPoint(null);
-    setPendingConnectionCreate(null);
-    if (drag || resize || groupDrag || groupResize) resumeCanvasHistory(Boolean(drag?.moved || resize?.moved || groupDrag?.moved || groupResize?.moved));
-  }, [resumeCanvasHistory]);
-
   autosaveController.updateBindings({
     capture: captureCurrentSnapshot,
     saveSnapshot: (targetProjectId, snapshot, targetScope) => canvasCommands.services.project(
@@ -2354,15 +1766,8 @@ function CanvasWorkspaceContent() {
     onReset: targetProjectId => {
       abortAllGenerationRequests();
       recoveredJobIdsRef.current.clear();
-      dragRef.current = null;
-      resizeRef.current = null;
-      groupDragRef.current = null;
-      groupResizeRef.current = null;
+      stageInteractionController.prepareProjectReset();
       setSelectedGroupId("");
-      connectionDragRef.current.active = false;
-      connectionDragRef.current.pointerId = null;
-      panStateRef.current.mode = "idle";
-      setDocumentPanCursor(false);
       setCanonicalProjectScope(null);
       setSnapshotWriteReady(false);
       setSyncStatus("loading");
@@ -2412,16 +1817,7 @@ function CanvasWorkspaceContent() {
           inspectorOpen: Boolean(firstVisibleNode),
         },
       });
-      connectFromRef.current = "";
-      connectHandleTypeRef.current = "source";
-      connectionTargetIdRef.current = "";
-      connectionPreviewPointRef.current = null;
-      pendingConnectionCreateRef.current = null;
-      setConnectFrom("");
-      setConnectHandleType("source");
-      setConnectionTargetId("");
-      setConnectionPreviewPoint(null);
-      setPendingConnectionCreate(null);
+      stageInteractionController.resetConnectionAndPending();
       setCanonicalProjectScope(result.scope);
       setSnapshotWriteReady(result.writeReady);
       setSnapshotVersion(result.snapshotVersion);
@@ -2466,8 +1862,9 @@ function CanvasWorkspaceContent() {
   });
 
   useEffect(() => () => {
+    stageInteractionController.dispose();
     void projectSessionController.dispose();
-  }, [projectSessionController]);
+  }, [projectSessionController, stageInteractionController]);
 
   const switchCanvasProject = useCallback(async (targetProjectId: string) => {
     const activeScope = projectSessionController.canonicalScope || scope;
@@ -2487,23 +1884,6 @@ function CanvasWorkspaceContent() {
       canvasListHref(targetScope),
     );
   }, [projectSessionController]);
-
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    const update = () => {
-      const rect = stage.getBoundingClientRect();
-      setStageBounds({ width: rect.width, height: rect.height });
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(stage);
-    window.addEventListener("resize", update);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", update);
-    };
-  }, []);
 
   const openCreateProjectDialog = () => {
     setCreateDialogTitle("未命名画布");
@@ -2652,16 +2032,7 @@ function CanvasWorkspaceContent() {
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
     applyNodeSelection([created.id], created.id, true);
-    connectFromRef.current = "";
-    connectHandleTypeRef.current = "source";
-    connectionTargetIdRef.current = "";
-    connectionPreviewPointRef.current = null;
-    pendingConnectionCreateRef.current = null;
-    setConnectFrom("");
-    setConnectHandleType("source");
-    setConnectionTargetId("");
-    setConnectionPreviewPoint(null);
-    setPendingConnectionCreate(null);
+    stageInteractionController.resetConnectionAndPending();
     setContextMenu(null);
     return created;
   };
@@ -2702,9 +2073,7 @@ function CanvasWorkspaceContent() {
     );
     if (!graph) {
       toast.warning("该连接不符合节点规则");
-      clearConnectionDraft();
-      pendingConnectionCreateRef.current = null;
-      setPendingConnectionCreate(null);
+      stageInteractionController.resetConnectionAndPending();
       setContextMenu(null);
       return;
     }
@@ -2713,9 +2082,7 @@ function CanvasWorkspaceContent() {
     setNodes(graph.nodes);
     setEdges(graph.edges);
     applyNodeSelection([created.id], created.id, true);
-    clearConnectionDraft();
-    pendingConnectionCreateRef.current = null;
-    setPendingConnectionCreate(null);
+    stageInteractionController.resetConnectionAndPending();
     setContextMenu(null);
   };
 
@@ -3617,14 +2984,6 @@ function CanvasWorkspaceContent() {
     }
   };
 
-  const selectCanvasGroup = (group: CanvasGroupData, openInspector = true) => {
-    const memberIds = group.nodeIds.filter((nodeId) => nodesRef.current.some((node) => node.id === nodeId));
-    applyNodeSelection(memberIds, memberIds[0] || "", false);
-    setSelectedGroupId(group.id);
-    setInspectorOpen(openInspector);
-    setContextMenu(null);
-  };
-
   const updateCanvasGroup = (groupId: string, patch: Partial<Pick<CanvasGroupData, "title" | "color">>) => {
     const nextGroups = groupsRef.current.map((group) => group.id === groupId ? { ...group, ...patch } : group);
     groupsRef.current = nextGroups;
@@ -3746,93 +3105,6 @@ function CanvasWorkspaceContent() {
     if (group) applyNodeSelection(group.nodeIds, group.nodeIds[0] || "", false);
   };
 
-  const startGroupDrag = (event: PointerEvent<HTMLElement>, group: CanvasGroupData) => {
-    if (projectSessionController.switching || event.button !== 0) return;
-    const target = event.target as HTMLElement;
-    if (isCanvasHotkeyEditingTarget(target)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    selectCanvasGroup(group, false);
-    event.currentTarget.setPointerCapture(event.pointerId);
-    groupDragRef.current = {
-      id: group.id,
-      startX: event.clientX,
-      startY: event.clientY,
-      position: { ...group.position },
-      origins: captureCanvasNodeOrigins(nodesRef.current, new Set(group.nodeIds)),
-      moved: false,
-    };
-    pauseCanvasHistory();
-  };
-
-  const moveGroupDrag = (event: PointerEvent<HTMLElement>) => {
-    const drag = groupDragRef.current;
-    if (!drag || projectSessionController.switching) return;
-    const scale = viewportRef.current.zoom / 100;
-    const deltaX = (event.clientX - drag.startX) / scale;
-    const deltaY = (event.clientY - drag.startY) / scale;
-    if (!drag.moved && Math.abs(deltaX) < 2 && Math.abs(deltaY) < 2) return;
-    drag.moved = Math.abs(deltaX) > 0.01 || Math.abs(deltaY) > 0.01;
-    const nextGroups = groupsRef.current.map((group) => group.id === drag.id ? {
-      ...group,
-      position: { x: drag.position.x + deltaX, y: drag.position.y + deltaY },
-    } : group);
-    const nextNodes = moveCanvasNodesFromOrigins(nodesRef.current, drag.origins, deltaX, deltaY);
-    groupsRef.current = nextGroups;
-    nodesRef.current = nextNodes;
-    setGroups(nextGroups);
-    setNodes(nextNodes);
-  };
-
-  const endGroupDrag = () => {
-    const drag = groupDragRef.current;
-    groupDragRef.current = null;
-    resumeCanvasHistory(Boolean(drag?.moved));
-  };
-
-  const startGroupResize = (event: PointerEvent<HTMLElement>, group: CanvasGroupData, corner: CanvasGroupResizeCorner) => {
-    if (projectSessionController.switching || event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    selectCanvasGroup(group, false);
-    groupResizeRef.current = {
-      id: group.id,
-      corner,
-      startX: event.clientX,
-      startY: event.clientY,
-      group: structuredClone(group),
-      moved: false,
-    };
-    pauseCanvasHistory();
-  };
-
-  const moveGroupResize = (event: PointerEvent<HTMLElement>) => {
-    const resize = groupResizeRef.current;
-    if (!resize || projectSessionController.switching) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const scale = viewportRef.current.zoom / 100;
-    const deltaX = (event.clientX - resize.startX) / scale;
-    const deltaY = (event.clientY - resize.startY) / scale;
-    if (!resize.moved && Math.abs(deltaX) < 2 && Math.abs(deltaY) < 2) return;
-    resize.moved = Math.abs(deltaX) > 0.01 || Math.abs(deltaY) > 0.01;
-    const nextGroups = groupsRef.current.map((group) => group.id === resize.id
-      ? resizeCanvasGroup(resize.group, resize.corner, deltaX, deltaY)
-      : group);
-    groupsRef.current = nextGroups;
-    setGroups(nextGroups);
-  };
-
-  const endGroupResize = (event: PointerEvent<HTMLElement>) => {
-    const resize = groupResizeRef.current;
-    if (!resize) return;
-    event.preventDefault();
-    event.stopPropagation();
-    groupResizeRef.current = null;
-    resumeCanvasHistory(resize.moved);
-  };
-
   const removeNodes = (ids: Iterable<string>) => {
     const deleteIds = new Set(ids);
     if (!deleteIds.size) return;
@@ -3896,24 +3168,7 @@ function CanvasWorkspaceContent() {
     const nextSelected = new Set(Array.from(selectedNodeIdsRef.current).filter((nodeId) => !deleteIds.has(nodeId)));
     const nextPrimary = nextSelected.has(selectedId) ? selectedId : nextSelected.values().next().value || "";
     applyNodeSelection(nextSelected, nextPrimary, inspectorOpen && nextSelected.size === 1);
-    connectionDragRef.current.active = false;
-    connectionDragRef.current.pointerId = null;
-    connectionDragRef.current.moved = false;
-    connectFromRef.current = "";
-    connectHandleTypeRef.current = "source";
-    connectionTargetIdRef.current = "";
-    connectionPreviewPointRef.current = null;
-    pendingConnectionCreateRef.current = null;
-    setConnectFrom("");
-    setConnectHandleType("source");
-    setConnectionTargetId("");
-    setConnectionPreviewPoint(null);
-    setPendingConnectionCreate(null);
-    setHoveredId((current) => deleteIds.has(current) ? "" : current);
-    setHoveredEdgeId("");
-    selectionBoxRef.current = null;
-    setSelectionBox(null);
-    setContextMenu(null);
+    stageInteractionController.resetAfterNodesRemoved(deleteIds);
   };
 
   const removeNode = (id: string) => {
@@ -3921,594 +3176,53 @@ function CanvasWorkspaceContent() {
     removeNodes(selected.has(id) && selected.size > 1 ? selected : [id]);
   };
 
-  const activateConnectionMode = (nodeId: string, handleType?: ConnectionHandleType) => {
-    const node = nodesRef.current.find((item) => item.id === nodeId);
-    const resolvedHandleType = handleType || defaultCanvasConnectionHandle(node);
-    connectFromRef.current = nodeId;
-    connectHandleTypeRef.current = resolvedHandleType;
-    connectionTargetIdRef.current = "";
-    connectionPreviewPointRef.current = null;
-    pendingConnectionCreateRef.current = null;
-    setConnectFrom(nodeId);
-    setConnectHandleType(resolvedHandleType);
-    setConnectionTargetId("");
-    setConnectionPreviewPoint(null);
-    setPendingConnectionCreate(null);
-    setContextMenu(null);
-    toast.info("已选择连接起点，请点击目标节点完成连线；按 Esc 可取消");
-  };
-
-  const connectNodes = (fromId: string, toId: string, handleType: ConnectionHandleType = "source") => {
-    const normalized = normalizeCanvasConnection(fromId, toId, nodesRef.current.length ? nodesRef.current : nodes, handleType);
-    if (!normalized) {
-      toast.warning("该连接不符合节点规则");
-      connectFromRef.current = "";
-      connectHandleTypeRef.current = "source";
-      connectionTargetIdRef.current = "";
-      connectionPreviewPointRef.current = null;
-      pendingConnectionCreateRef.current = null;
-      setConnectFrom("");
-      setConnectHandleType("source");
-      setConnectionTargetId("");
-      setConnectionPreviewPoint(null);
-      setPendingConnectionCreate(null);
-      return false;
-    }
-    const nextEdges = addCanvasConnection(edgesRef.current, normalized, () => crypto.randomUUID());
-    edgesRef.current = nextEdges;
-    setEdges(nextEdges);
-    connectFromRef.current = "";
-    connectHandleTypeRef.current = "source";
-    connectionTargetIdRef.current = "";
-    connectionPreviewPointRef.current = null;
-    pendingConnectionCreateRef.current = null;
-    setConnectFrom("");
-    setConnectHandleType("source");
-    setConnectionTargetId("");
-    setConnectionPreviewPoint(null);
-    setPendingConnectionCreate(null);
-    setContextMenu(null);
-    return true;
-  };
-
-  const chooseNode = (id: string, event?: ReactMouseEvent<HTMLElement>): boolean => {
-    const activeElement = document.activeElement;
-    if (activeElement instanceof HTMLElement && activeElement.matches(".node-inline-editor") && activeElement.dataset.nodeInlineEditorId !== id) {
-      activeElement.blur();
-    }
-    if (suppressNodeClickRef.current === id) {
-      suppressNodeClickRef.current = "";
-      setContextMenu(null);
-      return false;
-    }
-    const activeConnectFrom = connectFromRef.current;
-    const activeConnectHandleType = connectHandleTypeRef.current;
-    if (activeConnectFrom && activeConnectFrom !== id) {
-      connectNodes(activeConnectFrom, id, activeConnectHandleType);
-      return false; // 完成连线后直接返回，不选中节点
-    } else if (activeConnectFrom === id) {
-      connectFromRef.current = "";
-      connectHandleTypeRef.current = "source";
-      connectionTargetIdRef.current = "";
-      connectionPreviewPointRef.current = null;
-      pendingConnectionCreateRef.current = null;
-      setConnectFrom("");
-      setConnectHandleType("source");
-      setConnectionTargetId("");
-      setConnectionPreviewPoint(null);
-      setPendingConnectionCreate(null);
-      return false; // 取消连线后直接返回，不选中节点
-    }
-    const additive = Boolean(event && (event.shiftKey || event.ctrlKey || event.metaKey));
-    if (additive) {
-      const current = selectedNodeIdsRef.current;
-      const nextSelection = toggleCanvasNodeSelection(current, id, true);
-      const primary = nextSelection.has(id) ? id : nextSelection.values().next().value || "";
-      applyNodeSelection(nextSelection, primary, nextSelection.size === 1);
-    } else {
-      applyNodeSelection([id], id, true);
-    }
-    setContextMenu(null);
-    return true;
-  };
-
-  const startDrag = (event: PointerEvent<HTMLElement>, node: CanvasNodeData) => {
-    if (projectSessionController.switching) return;
-    const target = event.target as HTMLElement;
-    if (event.button !== 0) return;
-    // 拖拽只排除真正的交互控件（按钮/输入框/行内编辑器/连接锚点）；
-    // data-canvas-no-zoom 的媒体内容（video/audio/img）也允许按住拖动节点。
-    if (target.closest("button, input, textarea, select, [contenteditable='true'], .node-inline-editor, .canvas-connection-handle, [data-canvas-ui]")) return;
-    if (connectFromRef.current || pendingConnectionCreateRef.current) return;
-    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
-    const current = selectedNodeIdsRef.current;
-    const suppressClick = shouldSuppressCanvasNodeClickAfterPointerSelection(current, node.id, additive);
-    const nextSelection = additive
-      ? toggleCanvasNodeSelection(current, node.id, true)
-      : current.has(node.id) && current.size > 1
-        ? new Set(current)
-        : toggleCanvasNodeSelection(current, node.id, false);
-    const primary = nextSelection.has(node.id) ? node.id : nextSelection.values().next().value || "";
-    applyNodeSelection(nextSelection, primary, nextSelection.size === 1);
-    if (!nextSelection.has(node.id)) {
-      if (suppressClick) suppressNodeClickRef.current = node.id;
-      return;
-    }
-    event.currentTarget.setPointerCapture(event.pointerId);
-    // 基底节点拖动时，其子图（含折叠隐藏的）作为整体跟随，保持网格不错位
-    const dragIds = new Set(nextSelection);
-    nodesRef.current.forEach((item) => {
-      if (!item.metadata?.isBatchRoot || !dragIds.has(item.id)) return;
-      (item.metadata.batchChildIds || []).forEach((childId) => {
-        if (typeof childId === "string") dragIds.add(childId);
-      });
-    });
-    dragRef.current = {
-      id: node.id,
-      startX: event.clientX,
-      startY: event.clientY,
-      origins: captureCanvasNodeOrigins(nodesRef.current, dragIds),
-      moved: false,
-      suppressClick,
-    };
-    pauseCanvasHistory();
-  };
-
-  const beginConnection = (event: React.PointerEvent<HTMLElement>, nodeId: string, handleType: ConnectionHandleType) => {
-    if (projectSessionController.switching) return;
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    const previewPoint = screenToCanvasPoint(event.clientX, event.clientY);
-    connectionDragRef.current = {
-      active: true,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      moved: false,
-    };
-    connectFromRef.current = nodeId;
-    connectHandleTypeRef.current = handleType;
-    connectionPreviewPointRef.current = previewPoint;
-    connectionTargetIdRef.current = "";
-    pendingConnectionCreateRef.current = null;
-    // 不调用 applyNodeSelection，避免打开 Inspector
-    setConnectFrom(nodeId);
-    setConnectHandleType(handleType);
-    setConnectionPreviewPoint(previewPoint);
-    setConnectionTargetId("");
-    setPendingConnectionCreate(null);
-    setContextMenu(null);
-  };
-
-  const moveDrag = (event: PointerEvent<HTMLElement>) => {
-    if (projectSessionController.switching) return;
-    const drag = dragRef.current;
-    if (!drag) return;
-    const scale = viewportRef.current.zoom / 100;
-    const deltaX = (event.clientX - drag.startX) / scale;
-    const deltaY = (event.clientY - drag.startY) / scale;
-    if (!drag.moved && Math.abs(deltaX) < 2 && Math.abs(deltaY) < 2) return;
-    drag.moved = Math.abs(deltaX) > 0.01 || Math.abs(deltaY) > 0.01;
-    const nextNodes = moveCanvasNodesFromOrigins(nodesRef.current, drag.origins, deltaX, deltaY);
-    nodesRef.current = nextNodes;
-    setNodes(nextNodes);
-  };
-
-  const endDrag = () => {
-    const drag = dragRef.current;
-    if (drag?.moved || drag?.suppressClick) {
-      suppressNodeClickRef.current = drag.id;
-      window.setTimeout(() => {
-        if (suppressNodeClickRef.current === drag.id) suppressNodeClickRef.current = "";
-      }, 0);
-    }
-    dragRef.current = null;
-    resumeCanvasHistory(Boolean(drag?.moved));
-  };
-
-  const clearConnectionDraft = useCallback(() => {
-    connectionDragRef.current.active = false;
-    connectionDragRef.current.pointerId = null;
-    connectionDragRef.current.moved = false;
-    connectFromRef.current = "";
-    connectHandleTypeRef.current = "source";
-    connectionTargetIdRef.current = "";
-    connectionPreviewPointRef.current = null;
-    setConnectFrom("");
-    setConnectHandleType("source");
-    setConnectionTargetId("");
-    setConnectionPreviewPoint(null);
-  }, []);
-
-  const cancelPendingConnectionCreate = useCallback(() => {
-    clearConnectionDraft();
-    pendingConnectionCreateRef.current = null;
-    setPendingConnectionCreate(null);
-  }, [clearConnectionDraft]);
-
-  const finishConnectionDrag = useCallback((event: { clientX: number; clientY: number }) => {
-    if (projectSessionController.switching) {
-      clearConnectionDraft();
-      return;
-    }
-    if (!connectionDragRef.current.active) return;
-    const current = connectFromRef.current;
-    if (!current) {
-      clearConnectionDraft();
-      return;
-    }
-    const handleType = connectHandleTypeRef.current;
-    const dropTarget = getConnectionDropTarget(event.clientX, event.clientY, { nodeId: current, handleType });
-    const targetNodeId = dropTarget.nodeId || getConnectionDomDropTargetId(event.clientX, event.clientY, { nodeId: current, handleType });
-    if (targetNodeId) {
-      connectNodes(current, targetNodeId, handleType);
-      clearConnectionDraft();
-      return;
-    }
-    if (!connectionDragRef.current.moved) {
-      connectionDragRef.current.active = false;
-      connectionDragRef.current.pointerId = null;
-      connectionTargetIdRef.current = "";
-      connectionPreviewPointRef.current = null;
-      pendingConnectionCreateRef.current = null;
-      setConnectionTargetId("");
-      setConnectionPreviewPoint(null);
-      setPendingConnectionCreate(null);
-      toast.info("已选择连接起点，请点击目标节点完成连线；按 Esc 可取消");
-      return;
-    }
-    if (!dropTarget.isNearNode) {
-      const point = screenToCanvasPoint(event.clientX, event.clientY);
-      const pendingCreate = {
-        x: clientToStagePoint(event.clientX, event.clientY).x,
-        y: clientToStagePoint(event.clientX, event.clientY).y,
-        canvasX: point.x,
-        canvasY: point.y,
-        connection: { nodeId: current, handleType },
-      };
-      pendingConnectionCreateRef.current = pendingCreate;
-      setPendingConnectionCreate(pendingCreate);
-    }
-    connectionDragRef.current.active = false;
-    connectionDragRef.current.pointerId = null;
-    connectionDragRef.current.moved = false;
-    connectFromRef.current = "";
-    connectHandleTypeRef.current = "source";
-    connectionTargetIdRef.current = "";
-    connectionPreviewPointRef.current = null;
-    setConnectFrom("");
-    setConnectHandleType("source");
-    setConnectionTargetId("");
-    setConnectionPreviewPoint(null);
-  }, [clientToStagePoint, clearConnectionDraft, connectNodes, getConnectionDomDropTargetId, getConnectionDropTarget, screenToCanvasPoint]);
-
-  const startResize = (event: PointerEvent<HTMLButtonElement>, node: CanvasNodeData) => {
-    if (projectSessionController.switching) return;
-    event.stopPropagation();
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    resizeRef.current = {
-      id: node.id,
-      startX: event.clientX,
-      startY: event.clientY,
-      width: node.width,
-      height: node.height,
-      currentWidth: node.width,
-      currentHeight: node.height,
-      moved: false,
-    };
-    pauseCanvasHistory();
-  };
-
-  const moveResize = (event: PointerEvent<HTMLButtonElement>) => {
-    if (projectSessionController.switching) return;
-    const resize = resizeRef.current;
-    if (!resize) return;
-    const scale = viewportRef.current.zoom / 100;
-    const width = Math.round(clamp(resize.width + (event.clientX - resize.startX) / scale, 220, 960));
-    const height = Math.round(clamp(resize.height + (event.clientY - resize.startY) / scale, 120, 720));
-    if (width === resize.currentWidth && height === resize.currentHeight) return;
-    resize.currentWidth = width;
-    resize.currentHeight = height;
-    resize.moved = width !== resize.width || height !== resize.height;
-    updateNode(resize.id, { width, height });
-  };
-
-  const endResize = () => {
-    const resize = resizeRef.current;
-    resizeRef.current = null;
-    resumeCanvasHistory(Boolean(resize?.moved));
-  };
-
-  const stopPanInteraction = () => {
-    panStateRef.current.mode = "idle";
-    setPanMode("idle");
-    setDocumentPanCursor(false);
-  };
-
-  const clearSelectionBox = useCallback(() => {
-    selectionBoxRef.current = null;
-    setSelectionBox(null);
-  }, []);
-
-  const finishSelectionBox = useCallback(() => {
-    const current = selectionBoxRef.current;
-    if (!current) return false;
-    const rect = normalizeCanvasSelectionRect(current.start, current.current);
-    const currentNodes = nodesRef.current;
-    const hitIds = canvasNodesInSelectionRect(currentNodes.filter((node) => !isHiddenCanvasBatchChild(node, currentNodes)), rect);
-    const next = current.additive ? new Set(current.baseIds) : new Set<string>();
-    hitIds.forEach((id) => next.add(id));
-    applyNodeSelection(next, hitIds.at(-1) || next.values().next().value || "", false);
-    clearSelectionBox();
-    setContextMenu(null);
-    pendingConnectionCreateRef.current = null;
-    setPendingConnectionCreate(null);
-    clearConnectionDraft();
-    return true;
-  }, [applyNodeSelection, clearConnectionDraft, clearSelectionBox]);
-
-  const startSelectionBox = (event: PointerEvent<Element>) => {
-    if (projectSessionController.switching || projectSessionController.loading || (projectId && !projectSessionController.canonicalScope) || event.button !== 0 || isSpacePressedRef.current) return false;
-    const target = event.target as HTMLElement;
-    if (isCanvasHotkeyEditingTarget(target) || target.closest(".real-canvas-node, .real-canvas-edge-hit, .canvas-context-menu, .canvas-connection-create-menu")) return false;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    const point = screenToCanvasPoint(event.clientX, event.clientY);
-    const next: CanvasSelectionBoxState = {
-      start: point,
-      current: point,
-      additive: event.shiftKey,
-      baseIds: new Set(selectedNodeIdsRef.current),
-    };
-    selectionBoxRef.current = next;
-    setSelectionBox(next);
-    return true;
-  };
-
-  const startPan = (event: PointerEvent<Element>) => {
-    if (projectSessionController.switching || projectSessionController.loading || (projectId && !projectSessionController.canonicalScope)) return false;
-    const target = event.target as HTMLElement;
-    if (isCanvasHotkeyEditingTarget(target) || target.closest(".real-canvas-node, .canvas-context-menu, .canvas-connection-create-menu")) return false;
-    const shouldPan = event.button === 1 || (event.button === 0 && isSpacePressedRef.current);
-    if (!shouldPan) return false;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    const state = panStateRef.current;
-    if (event.button === 1 && state.mode === "locked-pan") {
-      stopPanInteraction();
-      return true;
-    }
-    const now = Date.now();
-    const shouldLock = event.button === 1 && now - state.lastMiddleDownAt <= MIDDLE_PAN_DOUBLE_CLICK_MS;
-    state.lastMiddleDownAt = event.button === 1 ? now : state.lastMiddleDownAt;
-    state.mode = shouldLock ? "locked-pan" : "hold-pan";
-    state.startClientX = event.clientX;
-    state.startClientY = event.clientY;
-    state.lastClientX = event.clientX;
-    state.lastClientY = event.clientY;
-    state.startPanX = viewportRef.current.panX;
-    state.startPanY = viewportRef.current.panY;
-    setPanMode(state.mode);
-    setDocumentPanCursor(true);
-    return true;
-  };
-
-  const handleStagePointerDown = (event: PointerEvent<HTMLElement>) => {
-    if (pendingConnectionCreateRef.current) cancelPendingConnectionCreate();
-    if (startPan(event)) return;
-    startSelectionBox(event);
-  };
-
-  const movePanGrid = (event: { clientX: number; clientY: number }) => {
-    if (projectSessionController.switching) return;
-    const pan = panStateRef.current;
-    if (pan.mode === "idle") return;
-    if (pan.mode === "locked-pan") {
-      const dx = event.clientX - pan.lastClientX;
-      const dy = event.clientY - pan.lastClientY;
-      pan.lastClientX = event.clientX;
-      pan.lastClientY = event.clientY;
-      const nextViewport = {
-        ...viewportRef.current,
-        panX: viewportRef.current.panX + dx,
-        panY: viewportRef.current.panY + dy,
-      };
+  stageInteractionController.updateBindings({
+    isSwitching: () => projectSessionController.switching,
+    isInteractionBlocked: () => projectSessionController.switching
+      || projectSessionController.loading
+      || Boolean(projectId && !projectSessionController.canonicalScope),
+    isProjectActionDisabled: () => projectActionDisabled,
+    getWheelZoomRequiresCtrl: () => wheelZoomRequiresCtrl,
+    getShortcuts: () => shortcutsRef.current,
+    getMinimapModel: () => minimapModel,
+    getNodes: () => nodesRef.current,
+    setNodes: nextNodes => { nodesRef.current = nextNodes; setNodes(nextNodes); },
+    getEdges: () => edgesRef.current,
+    setEdges: nextEdges => { edgesRef.current = nextEdges; setEdges(nextEdges); },
+    getGroups: () => groupsRef.current,
+    setGroups: nextGroups => { groupsRef.current = nextGroups; setGroups(nextGroups); },
+    getSelectedNodeIds: () => selectedNodeIdsRef.current,
+    getSelectedGroupId: () => canvasStore.getState().graph.selectedGroupId,
+    setSelectedGroupId,
+    getSelectedEdgeId: () => canvasStore.getState().graph.selectedEdgeId,
+    setSelectedEdgeId,
+    setHoveredEdgeId: edgeId => setHoveredEdgeId(current => current === edgeId ? current : edgeId),
+    getHoveredNodeId: () => canvasStore.getState().ui.hoveredNodeId,
+    setHoveredNodeId: setHoveredId,
+    getSelectedNode: () => {
+      const state = canvasStore.getState();
+      return state.graph.nodes.find(node => node.id === state.graph.selectedNodeId) || null;
+    },
+    commitViewport: nextViewport => {
       viewportRef.current = nextViewport;
-      scheduleViewportCommit();
-      return;
-    }
-    const nextViewport = {
-      ...viewportRef.current,
-      panX: pan.startPanX + event.clientX - pan.startClientX,
-      panY: pan.startPanY + event.clientY - pan.startClientY,
-    };
-    viewportRef.current = nextViewport;
-    scheduleViewportCommit();
-  };
-
-  const endPanGrid = () => {
-    if (panStateRef.current.mode !== "hold-pan") return;
-    stopPanInteraction();
-  };
-
-  useEffect(() => {
-    const handlePointerMove = (event: globalThis.PointerEvent) => {
-      if (projectSessionController.switching) return;
-      if (selectionBoxRef.current) {
-        const next = { ...selectionBoxRef.current, current: screenToCanvasPoint(event.clientX, event.clientY) };
-        selectionBoxRef.current = next;
-        // rAF 合帧：一帧内多次 pointermove 只触发一次重渲染，
-        // 避免整个画布组件跟随指针高频重绘（在部分 GPU 上会在缩放层留下拖影竖线）
-        if (selectionBoxFlushRafRef.current === null) {
-          selectionBoxFlushRafRef.current = window.requestAnimationFrame(() => {
-            selectionBoxFlushRafRef.current = null;
-            if (selectionBoxRef.current) setSelectionBox({ ...selectionBoxRef.current });
-          });
-        }
-        return;
-      }
-      if (connectionDragRef.current.active && connectFromRef.current) {
-        if (!isActiveCanvasConnectionPointer(true, connectionDragRef.current.pointerId, event.pointerId)) return;
-        if (!connectionDragRef.current.moved && Math.hypot(
-          event.clientX - connectionDragRef.current.startX,
-          event.clientY - connectionDragRef.current.startY,
-        ) >= 4) {
-          connectionDragRef.current.moved = true;
-        }
-        const handleType = connectHandleTypeRef.current;
-        const previewPoint = screenToCanvasPoint(event.clientX, event.clientY);
-        const dropTarget = getConnectionDropTarget(event.clientX, event.clientY, { nodeId: connectFromRef.current, handleType });
-        connectionPreviewPointRef.current = previewPoint;
-        connectionTargetIdRef.current = dropTarget.nodeId;
-        setConnectionPreviewPoint(previewPoint);
-        setConnectionTargetId(dropTarget.nodeId);
-        return;
-      }
-      movePanGrid(event);
-    };
-    const handlePointerUp = (event: globalThis.PointerEvent) => {
-      if (projectSessionController.switching) return;
-      if (finishSelectionBox()) return;
-      if (connectionDragRef.current.active) {
-        if (!isActiveCanvasConnectionPointer(true, connectionDragRef.current.pointerId, event.pointerId)) return;
-        finishConnectionDrag(event);
-        return;
-      }
-      endPanGrid();
-    };
-    const cancelInteractions = () => {
-      clearConnectionDraft();
-      pendingConnectionCreateRef.current = null;
-      setPendingConnectionCreate(null);
-      clearSelectionBox();
-      stopPanInteraction();
-    };
-    const cancelPointerInteractions = (event: globalThis.PointerEvent) => {
-      if (connectionDragRef.current.active && !isActiveCanvasConnectionPointer(true, connectionDragRef.current.pointerId, event.pointerId)) return;
-      cancelInteractions();
-    };
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-    window.addEventListener("pointercancel", cancelPointerInteractions);
-    window.addEventListener("blur", cancelInteractions);
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-      window.removeEventListener("pointercancel", cancelPointerInteractions);
-      window.removeEventListener("blur", cancelInteractions);
-    };
-  }, [clearConnectionDraft, clearSelectionBox, finishConnectionDrag, finishSelectionBox, getConnectionDropTarget, screenToCanvasPoint]);
-
-  const openCanvasContextMenu = (event: ReactMouseEvent<Element>) => {
-    event.preventDefault();
-    if (projectSessionController.switching) return;
-    if (isCanvasHotkeyEditingTarget(event.target)) return;
-    clearConnectionDraft();
-    pendingConnectionCreateRef.current = null;
-    setPendingConnectionCreate(null);
-    const target = event.target as HTMLElement;
-    const nodeEl = target.closest(".real-canvas-node") as HTMLElement | null;
-    const edgeEl = target.closest(".real-canvas-edge-hit") as HTMLElement | null;
-    const point = clientToStagePoint(event.clientX, event.clientY);
-    setContextMenu({
-      x: point.x,
-      y: point.y,
-      canvasX: screenToCanvasPoint(event.clientX, event.clientY).x,
-      canvasY: screenToCanvasPoint(event.clientX, event.clientY).y,
-      nodeId: nodeEl?.dataset.nodeId || undefined,
-      edgeId: edgeEl?.dataset.edgeId || undefined,
-    });
-    if (!nodeEl) {
-      applyNodeSelection([]);
-    }
-  };
-
-  const handleCanvasDoubleClick = (event: ReactMouseEvent<Element>) => {
-    if (projectSessionController.switching) return;
-    const target = event.target as HTMLElement;
-    if (isCanvasHotkeyEditingTarget(target) || target.closest(".canvas-node-handle, .canvas-node-label, .real-canvas-edge-hit")) return;
-    if (target.closest(".real-canvas-node")) return; // 节点上的双击走节点自身逻辑
-    // 双击空白处：唤出空白菜单（新建节点卡片），不再直接创建图片节点
-    clearConnectionDraft();
-    pendingConnectionCreateRef.current = null;
-    setPendingConnectionCreate(null);
-    applyNodeSelection([]);
-    const point = clientToStagePoint(event.clientX, event.clientY);
-    setContextMenu({ x: point.x, y: point.y, canvasX: screenToCanvasPoint(event.clientX, event.clientY).x, canvasY: screenToCanvasPoint(event.clientX, event.clientY).y });
-  };
-
-  const openNodeContextMenu = (event: ReactMouseEvent<HTMLElement>, nodeId: string) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const point = clientToStagePoint(event.clientX, event.clientY);
-    const current = selectedNodeIdsRef.current;
-    applyNodeSelection(current.has(nodeId) ? current : [nodeId], nodeId, current.has(nodeId) ? current.size === 1 : true);
-    setContextMenu({ x: point.x, y: point.y, canvasX: screenToCanvasPoint(event.clientX, event.clientY).x, canvasY: screenToCanvasPoint(event.clientX, event.clientY).y, nodeId });
-  };
-
-  const handleEdgeClick = (edgeId: string) => {
-    applyNodeSelection([]);
-    setSelectedEdgeId(edgeId);
-    setContextMenu(null);
-  };
-
-  const selectEdgeFromCanvasEvent = (event: { clientX: number; clientY: number; target: EventTarget | null; preventDefault: () => void; stopPropagation: () => void }) => {
-    if (projectActionDisabled) return "";
-    const edgeId = edgeIdFromCanvasEvent(event);
-    if (!edgeId) return "";
-    event.preventDefault();
-    event.stopPropagation();
-    handleEdgeClick(edgeId);
-    return edgeId;
-  };
-
-  const handleCanvasLinesPointerDown = (event: PointerEvent<SVGSVGElement>) => {
-    if (event.button !== 0) return;
-    if (selectEdgeFromCanvasEvent(event)) return;
-    if (startPan(event)) return;
-    startSelectionBox(event);
-  };
-
-  const handleCanvasLinesClick = (event: ReactMouseEvent<SVGSVGElement>) => {
-    selectEdgeFromCanvasEvent(event);
-  };
-
-  const handleCanvasLinesPointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
-    if (projectActionDisabled) return;
-    const edgeId = edgeIdAtClientPoint(event.clientX, event.clientY);
-    setHoveredEdgeId((current) => current === edgeId ? current : edgeId);
-  };
-
-  const handleCanvasLinesPointerLeave = () => {
-    setHoveredEdgeId("");
-  };
-
-  const handleCanvasLinesDoubleClick = (event: ReactMouseEvent<SVGSVGElement>) => {
-    const edgeId = selectEdgeFromCanvasEvent(event);
-    if (edgeId) removeEdge(edgeId);
-    else if (!projectActionDisabled) handleCanvasDoubleClick(event);
-  };
-
-  const handleCanvasLinesContextMenu = (event: ReactMouseEvent<SVGSVGElement>) => {
-    if (projectActionDisabled) {
-      event.preventDefault();
-      return;
-    }
-    const edgeId = edgeIdFromCanvasEvent(event);
-    if (!edgeId) {
-      openCanvasContextMenu(event);
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    const point = clientToStagePoint(event.clientX, event.clientY);
-    const canvasPoint = screenToCanvasPoint(event.clientX, event.clientY);
-    handleEdgeClick(edgeId);
-    setContextMenu({ x: point.x, y: point.y, canvasX: canvasPoint.x, canvasY: canvasPoint.y, edgeId });
-  };
+      canvasCommands.commit({ viewport: nextViewport });
+    },
+    setInspectorOpen,
+    setEditingInlineNodeId,
+    applyNodeSelection,
+    pauseHistory: pauseCanvasHistory,
+    resumeHistory: resumeCanvasHistory,
+    setContextMenu,
+    copySelectedNodes,
+    pasteCopiedNodes,
+    undoCanvas,
+    redoCanvas,
+    runSelectedGeneration: () => { void runSelectedGenerationRef.current(); },
+    removeNodes,
+    removeEdge,
+    onInfo: message => toast.info(message),
+    onWarning: message => toast.warning(message),
+  });
 
   const updateGenerationNodes = useCallback((updater: (current: CanvasNodeData[]) => CanvasNodeData[]) => {
     const next = updater(nodesRef.current);
