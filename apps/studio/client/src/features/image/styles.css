@@ -25,12 +25,63 @@
 .generation-output { display: flex; flex-direction: column; padding: 24px; background: #171c1e; }
 .output-heading { display: flex; justify-content: space-between; align-items: start; }
 .output-heading h3 { margin: 0; font-size: 19px; }
-.result-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 9px; margin-top: 20px; }
-.result-card { position: relative; aspect-ratio: 1; overflow: hidden; padding: 0; border: 1px solid var(--line); background: #242424; cursor: pointer; }
-.result-card.selected { border-color: var(--red); }
-.result-card img { width: 100%; height: 100%; object-fit: cover; }
-.result-card span { position: absolute; bottom: 5px; left: 5px; padding: 3px; background: rgba(10,12,13,.76); color: #fff; font: 10px "IBM Plex Mono", monospace; }
-.result-card i { position: absolute; top: 5px; right: 5px; display: grid; place-items: center; width: 22px; height: 22px; background: var(--red); color: #fff; font-style: normal; }
+/* ---- 生成结果主舞台：大图铺满展示区域，缩略图收到底部横排 ---- */
+.result-stage { position: relative; display: grid; place-items: center; flex: 1; min-height: 300px; margin-top: 20px; overflow: hidden; border: 1px solid var(--line); background: #101516; }
+.result-stage > img { width: 100%; height: 100%; object-fit: contain; }
+.result-stage-tag { position: absolute; bottom: 8px; left: 8px; padding: 3px 6px; background: rgba(10,12,13,.78); color: #fff; font: 10px "IBM Plex Mono", monospace; }
+.result-stage-image { cursor: zoom-in; }
+.result-stage-zoom { position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid rgba(255,255,255,.22); border-radius: 50%; background: rgba(12,15,16,.72); color: #f2f1ed; cursor: pointer; opacity: 0; transition: opacity .15s ease, background .15s ease; }
+.result-stage:hover .result-stage-zoom,
+.result-stage-zoom:focus-visible { opacity: 1; }
+.result-stage-zoom:hover { background: rgba(12,15,16,.92); }
+.result-stage-remove { position: absolute; top: 8px; right: 44px; display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid rgba(255,255,255,.22); border-radius: 50%; background: rgba(12,15,16,.72); color: #f2f1ed; cursor: pointer; opacity: 0; transition: opacity .15s ease, background .15s ease, color .15s ease; }
+.result-stage:hover .result-stage-remove,
+.result-stage-remove:focus-visible { opacity: 1; }
+.result-stage-remove:hover { background: rgba(96,28,24,.85); color: #ffd9d2; }
+.result-thumb-remove { position: absolute; top: 3px; left: 3px; z-index: 2; display: grid; place-items: center; width: 16px; height: 16px; border: 0; border-radius: 50%; background: rgba(12,15,16,.82); color: #fff; cursor: pointer; opacity: 0; transition: opacity .15s ease, background .15s ease; }
+.result-thumb:hover .result-thumb-remove,
+.result-thumb-remove:focus-visible { opacity: 1; }
+.result-thumb-remove:hover { background: rgba(96,28,24,.9); }
+/* ---- 结果大图放大查看（lightbox）：工具条缩放 + 滚轮缩放 + 点击切换 1x/2x ---- */
+.image-lightbox { position: fixed; inset: 0; z-index: 400; display: flex; flex-direction: column; background: rgba(8,10,12,.88); backdrop-filter: blur(10px); }
+.image-lightbox-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 18px; border-bottom: 1px solid var(--line); background: rgba(16,18,19,.6); }
+.image-lightbox-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #cdcdcd; font: 11px "IBM Plex Mono", monospace; }
+.image-lightbox-controls { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.image-lightbox-controls b { min-width: 44px; color: #ece9e0; font: 11px "IBM Plex Mono", monospace; text-align: center; }
+.image-lightbox-controls button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 28px; height: 28px; padding: 0 7px; border: 1px solid rgba(255,255,255,.2); border-radius: 6px; background: rgba(255,255,255,.04); color: #e8e5dc; cursor: pointer; font-size: 11px; }
+.image-lightbox-controls button:hover:not(:disabled) { border-color: rgba(255,255,255,.42); background: rgba(255,255,255,.09); }
+.image-lightbox-controls button:disabled { opacity: .4; cursor: default; }
+.image-lightbox-stage { flex: 1; display: flex; overflow: auto; padding: 28px 36px 36px; }
+.image-lightbox-stage img { display: block; max-width: min(1200px, 94vw); max-height: 100%; margin: auto; object-fit: contain; border-radius: 8px; cursor: zoom-in; box-shadow: 0 24px 60px rgba(0,0,0,.5); }
+.image-lightbox-stage img[style] { cursor: zoom-out; }
+.result-strip { display: flex; gap: 8px; margin-top: 9px; overflow-x: auto; }
+.result-thumb { position: relative; display: grid; place-items: center; flex: 0 0 auto; width: 64px; height: 64px; overflow: hidden; padding: 0; border: 1px solid var(--line); background: #242424; color: #cdcdcd; cursor: pointer; }
+.result-thumb.selected { border-color: rgba(255,255,255,.85); box-shadow: 0 0 0 1px rgba(255,255,255,.14); }
+.result-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.result-thumb span { position: absolute; bottom: 3px; left: 3px; padding: 2px 3px; background: rgba(10,12,13,.76); color: #fff; font: 9px "IBM Plex Mono", monospace; }
+.result-thumb i { position: absolute; top: 3px; right: 3px; display: grid; place-items: center; width: 16px; height: 16px; background: #f2f1ed; color: #17181a; font-style: normal; }
+/* ---- 生成等待态：舞台扫描线 + 呼吸环 + 进度条，避免任务执行时画面静止 ---- */
+.generation-waiting { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px; color: #c9cdc5; text-align: center; }
+.generation-waiting p { margin: 0; color: #ece9e0; font-size: 13px; letter-spacing: .04em; }
+.generation-waiting small { color: #9a9a9a; font: 10px "IBM Plex Mono", monospace; letter-spacing: .06em; }
+.waiting-ring { display: grid; place-items: center; width: 52px; height: 52px; border: 1px solid rgba(255,255,255,.2); border-radius: 50%; background: rgba(255,255,255,.04); color: #f2f1ed; }
+.waiting-progress { position: relative; width: 190px; height: 3px; overflow: hidden; background: #2c2c2c; }
+.waiting-progress i { display: block; height: 100%; background: linear-gradient(90deg, rgba(255,255,255,.45), #f2f1ed); transition: width .45s var(--ease-out); }
+.image-page .job-progress { position: relative; height: 3px; margin-top: 16px; overflow: hidden; background: #2c2c2c; }
+.image-page .job-progress i { display: block; height: 100%; background: linear-gradient(90deg, rgba(255,255,255,.45), #f2f1ed); transition: width .45s var(--ease-out); }
+@keyframes stage-sheen { from { background-position: 130% 0; } to { background-position: -130% 0; } }
+@keyframes stage-scan { 0% { top: 0; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+@keyframes waiting-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,.14); } 50% { box-shadow: 0 0 0 9px rgba(255,255,255,0); } }
+@keyframes bar-sheen { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+@keyframes result-fade { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: no-preference) {
+  .result-stage.generating::before { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 32%, rgba(255,255,255,.05) 50%, transparent 68%); background-size: 220% 100%; animation: stage-sheen 1.6s linear infinite; }
+  .result-stage.generating::after { content: ""; position: absolute; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent); animation: stage-scan 2.2s var(--ease-out) infinite; }
+  .waiting-ring { animation: waiting-pulse 1.8s var(--ease-out) infinite; }
+  .waiting-progress::after,
+  .image-page .job-progress::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.4), transparent); animation: bar-sheen 1.2s linear infinite; }
+  .result-stage > img { animation: result-fade .28s ease backwards; }
+}
 .output-foot { display: flex; gap: 8px; margin-top: auto; padding-top: 18px; }
 .output-foot button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: 1; min-height: 36px; border: 1px solid var(--line); background: transparent; color: #c9cdc5; cursor: pointer; font-size: 11px; }
 .output-foot button:hover { border-color: rgba(239,235,222,.34); background: rgba(255,255,255,.04); }
@@ -91,36 +142,65 @@
   flex-direction: column;
   gap: 8px;
 }
-.history-sidebar-item {
+/* ---- 生成记录卡片：大图展示（对齐下方近期归档），悬浮显示信息，左键预览 / 右键载入预览区 ---- */
+.history-card-list {
   display: flex;
-  gap: 12px;
-  padding: 8px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(239, 235, 222, 0.08);
-  border-radius: 7px;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  flex-direction: column;
+  gap: 10px;
 }
-.history-sidebar-item:hover {
-  background: rgba(0, 0, 0, 0.5);
-  border-color: rgba(239, 235, 222, 0.15);
-  transform: translateX(2px);
-}
-.history-item-thumbnail {
-  width: 60px;
-  height: 60px;
-  min-width: 60px;
-  border-radius: 5px;
+.history-card {
+  position: relative;
+  aspect-ratio: 4 / 3;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  border: 1px solid rgba(239, 235, 222, 0.1);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
-.history-item-thumbnail img {
+.history-card:hover,
+.history-card:focus-visible {
+  border-color: rgba(239, 235, 222, 0.32);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+}
+.history-card > img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.history-card-overlay {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 26px 10px 9px;
+  background: linear-gradient(180deg, transparent, rgba(8, 11, 12, 0.88));
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+.history-card:hover .history-card-overlay,
+.history-card:focus-visible .history-card-overlay {
+  opacity: 1;
+}
+.history-card-overlay b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 12px;
+  font-weight: 500;
+}
+.history-card-overlay small {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 10px;
+}
+.history-card-overlay span {
+  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.55);
+  font: 9px "IBM Plex Mono", monospace;
+  letter-spacing: 0.04em;
 }
 .empty-thumbnail {
   display: flex;
@@ -129,26 +209,6 @@
   width: 100%;
   height: 100%;
   color: rgba(255, 255, 255, 0.55);
-}
-.history-item-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-  min-width: 0;
-}
-.history-item-name {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.95);
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.history-item-meta {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.65);
 }
 .history-empty {
   display: flex;
@@ -562,61 +622,7 @@
   border-color: rgba(239, 235, 222, 0.34);
   background: rgba(255, 255, 255, 0.04);
 }
-.workbench-history {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-}
-.workbench-history .section-line button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border: 0;
-  background: transparent;
-  color: #cdcdcd;
-  cursor: pointer;
-  font-size: 11px;
-}
-.workbench-history-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-top: 10px;
-}
-.workbench-history-item {
-  position: relative;
-  aspect-ratio: 1;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  background: #242424;
-}
-.workbench-history-item img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.workbench-history-actions {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  display: flex;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-.workbench-history-item:hover .workbench-history-actions {
-  opacity: 1;
-}
-.workbench-history-actions button {
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border: 0;
-  background: rgba(12, 15, 16, 0.82);
-  color: #fff;
-  cursor: pointer;
-}
+/* 「近期归档」区块已移除：历史统一由左侧「生成记录」承担，预览区借此获得更大的展示高度 */
 /* 閺夆晜鐟ょ悮杈ㄧ▔椤忓嫬闅橀柛鈺冨枎濠€?index.css 闂佹彃鑻畷鐔兼偑椤掑倹鏆伴弶?8px 婵犲﹥鑹炬慨鈺呭级閳藉懐绀夐梺顐㈩槹鐎氥劑宕抽妸銈囧枠闁稿繐鐗忔鍥即閹绢喚褰柨娑樼焸濞撳爼寮伴幆褏纭€闁稿繗娅曠敮鈧?*/
 .image-composer {
   scrollbar-width: none;
@@ -626,4 +632,230 @@
   width: 0;
   height: 0;
   display: none;
+}
+/* ---- 预览区编辑工具条：标注 / 超分 / 扩图 / 裁剪，无图时整体置灰 ---- */
+.edit-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+.edit-toolbar > .eyebrow {
+  margin: 0;
+  flex: 0 0 auto;
+}
+.edit-toolbar-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.edit-toolbar-buttons button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #c9cdc5;
+  cursor: pointer;
+  font-size: 11px;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.edit-toolbar-buttons button:hover:not(:disabled) {
+  border-color: rgba(239, 235, 222, 0.34);
+  background: rgba(255, 255, 255, 0.07);
+  color: #f2efe6;
+}
+.edit-toolbar-buttons button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+/* 送入画布 / 查看归档：收缩为紧凑行，把视觉重心让给编辑工具条 */
+.output-foot.compact {
+  padding-top: 12px;
+}
+.output-foot.compact button {
+  min-height: 30px;
+  border-radius: 6px;
+  font-size: 10px;
+}
+/* ---- 历史记录小弹窗预览（刻意小于全屏 lightbox） ---- */
+.history-preview-dialog {
+  max-width: 440px;
+  background: #171c1e;
+}
+.history-preview-stage {
+  display: grid;
+  place-items: center;
+  min-height: 200px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #101516;
+}
+.history-preview-stage img {
+  width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+}
+.history-preview-actions {
+  justify-content: flex-start;
+}
+.history-preview-actions button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #e8e5dc;
+  cursor: pointer;
+  font-size: 11px;
+}
+.history-preview-actions button:hover {
+  border-color: rgba(239, 235, 222, 0.34);
+  background: rgba(255, 255, 255, 0.08);
+}
+/* ---- 编辑弹窗（超分 / 扩图 / 裁剪）共享样式 ---- */
+.edit-dialog {
+  max-width: 460px;
+  background: #171c1e;
+}
+.edit-dialog [data-slot="dialog-title"] {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+}
+.edit-dialog-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.edit-dialog-fields label {
+  display: block;
+  color: #b9b9b9;
+  font: 10px "IBM Plex Mono", monospace;
+}
+.edit-dialog-fields select,
+.edit-dialog-fields input {
+  width: 100%;
+  height: 34px;
+  margin-top: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  outline: none;
+  background: #262626;
+  color: #e0ded5;
+  font: 11px "Noto Sans SC", sans-serif;
+}
+.edit-dialog-fields select:focus,
+.edit-dialog-fields input:focus {
+  border-color: rgba(255, 255, 255, 0.55);
+}
+.outpaint-fields .outpaint-prompt {
+  grid-column: 1 / -1;
+}
+.outpaint-prompt textarea {
+  width: 100%;
+  min-height: 76px;
+  margin-top: 6px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  outline: none;
+  resize: vertical;
+  background: #262626;
+  color: #e0ded5;
+  font: 11px/1.7 "Noto Sans SC", sans-serif;
+}
+.outpaint-prompt textarea:focus {
+  border-color: rgba(255, 255, 255, 0.55);
+}
+.edit-dialog .vermilion-button.small,
+.edit-dialog .outline-button.small {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 11px;
+}
+/* 裁剪弹窗：图片 + 可拖动选框 + 宽高比预设 */
+.crop-dialog {
+  max-width: 560px;
+}
+.crop-dialog-stage {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  padding: 14px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #101516;
+}
+.crop-dialog-frame {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+}
+.crop-dialog-frame img {
+  display: block;
+  max-width: 100%;
+  max-height: 340px;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.crop-dialog-box {
+  position: absolute;
+  border: 1.5px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 999px rgba(6, 9, 10, 0.55);
+  cursor: move;
+  touch-action: none;
+}
+.crop-dialog-box::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent calc(33.3% - .5px), rgba(255,255,255,.35) calc(33.3% - .5px), rgba(255,255,255,.35) calc(33.3% + .5px), transparent calc(33.3% + .5px)),
+    linear-gradient(90deg, transparent calc(66.6% - .5px), rgba(255,255,255,.35) calc(66.6% - .5px), rgba(255,255,255,.35) calc(66.6% + .5px), transparent calc(66.6% + .5px)),
+    linear-gradient(0deg, transparent calc(33.3% - .5px), rgba(255,255,255,.35) calc(33.3% - .5px), rgba(255,255,255,.35) calc(33.3% + .5px), transparent calc(33.3% + .5px)),
+    linear-gradient(0deg, transparent calc(66.6% - .5px), rgba(255,255,255,.35) calc(66.6% - .5px), rgba(255,255,255,.35) calc(66.6% + .5px), transparent calc(66.6% + .5px));
+  pointer-events: none;
+}
+.crop-dialog-presets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.crop-dialog-presets button {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #c9cdc5;
+  cursor: pointer;
+  font-size: 10px;
+}
+.crop-dialog-presets button:hover {
+  border-color: rgba(239, 235, 222, 0.34);
+  color: #f2efe6;
+}
+.crop-fields {
+  grid-template-columns: repeat(4, 1fr);
 }

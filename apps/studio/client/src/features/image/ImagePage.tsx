@@ -5,17 +5,25 @@ import {
   BookOpen,
   Check,
   Clapperboard,
+  Crop,
+  Expand,
   Image as ImageIcon,
   ImagePlus,
   Layers3,
   Loader2,
+  Maximize2,
+  PenLine,
   Plus,
   RefreshCcw,
   Search,
+  Sparkles,
   Square,
+  Trash2,
   Upload,
   WandSparkles,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -28,6 +36,18 @@ import { usePreferencesQuery } from "@/features/settings";
 import { publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 import PromptLibraryDialog from "@/components/PromptLibraryDialog";
+import { CanvasImageAnnotationDialog } from "@/components/canvas/CanvasImageAnnotationDialog";
+import {
+  createOutpaintMaskDataUrl,
+  createOutpaintSourceDataUrl,
+  cropDataUrl,
+  upscaleDataUrl,
+  type ImageCropRect,
+  type ImageUpscaleAlgorithm,
+  type OutpaintMargins,
+} from "@/lib/canvas-image-data";
+
+import { CropDialog, HistoryPreviewDialog, OutpaintDialog, UpscaleDialog } from "./ui/ImageEditDialogs";
 
 import {
   generateImages,
@@ -76,6 +96,11 @@ function downloadBlob(blob: Blob, fileName: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
+async function dataUrlToFile(dataUrl: string, name: string) {
+  const blob = await fetch(dataUrl).then((response) => response.blob());
+  return new File([blob], name, { type: blob.type || "image/png" });
+}
+
 function priorityRank(value: PromptPreset["priority"]) {
   return { pinned: 0, high: 1, normal: 2, low: 3 }[value] ?? 2;
 }
@@ -85,12 +110,18 @@ function priorityLabel(value: PromptPreset["priority"]) {
 }
 
 const MAX_REFERENCE_IMAGES = 11;
+/* 放大查看（lightbox）缩放边界与步进：0.25x–4x，滚轮/按钮均按 0.25 步进 */
+const LIGHTBOX_ZOOM_MIN = 0.25;
+const LIGHTBOX_ZOOM_MAX = 4;
+const LIGHTBOX_ZOOM_STEP = 0.25;
+const clampLightboxZoom = (value: number) => Math.min(LIGHTBOX_ZOOM_MAX, Math.max(LIGHTBOX_ZOOM_MIN, Math.round(value * 100) / 100));
 
 type ReferenceImage = { id: string; file: File; previewUrl: string };
 
 export function ImageWorkbenchView() {
   const [, navigate] = useLocation();
   const referenceInputRef = useRef<HTMLInputElement>(null);
+  const lightboxStageRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const catalogInitializedRef = useRef(false);
   const preferencesInitializedRef = useRef(false);
@@ -117,6 +148,16 @@ export function ImageWorkbenchView() {
   const [jobProgress, setJobProgress] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxZoom, setLightboxZoom] = useState(1);
+  const [historyPreview, setHistoryPreview] = useState<Asset | null>(null);
+  const [historyPreviewUrl, setHistoryPreviewUrl] = useState("");
+  const [annotateOpen, setAnnotateOpen] = useState(false);
+  const [upscaleOpen, setUpscaleOpen] = useState(false);
+  const [outpaintOpen, setOutpaintOpen] = useState(false);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [editUrl, setEditUrl] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
   const [historyUrls, setHistoryUrls] = useState<Record<string, string>>({});
   const catalogQuery = useImageModelCatalogQuery();
   const preferencesQuery = usePreferencesQuery();
@@ -274,11 +315,51 @@ export function ImageWorkbenchView() {
     };
   }, [assetPickerItems, scope]);
 
+  const selectedIndex = useMemo(() => (result[selectedResult] ? selectedResult : 0), [result, selectedResult]);
   const selectedImage = useMemo(() => result[selectedResult] || result[0], [result, selectedResult]);
   const visiblePromptPresets = useMemo(() => [...promptPresets]
     .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.sort_order - b.sort_order || a.title.localeCompare(b.title, "zh-CN"))
     .slice(0, 8), [promptPresets]);
   const resultSrc = useCallback((image: GeneratedImage) => image.src || (image.assetId ? resultUrls[image.assetId] || "" : ""), [resultUrls]);
+  const selectedSrc = selectedImage ? resultSrc(selectedImage) : "";
+  const openLightbox = useCallback(() => {
+    if (!selectedSrc) return;
+    setLightboxZoom(1);
+    setLightboxOpen(true);
+  }, [selectedSrc]);
+  /* 放大查看：Esc 关闭 */
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setLightboxOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxOpen]);
+  /* 放大查看：滚轮缩放（原生非 passive 监听，避免页面跟着滚动） */
+  useEffect(() => {
+    const node = lightboxStageRef.current;
+    if (!lightboxOpen || !node) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      setLightboxZoom((z) => clampLightboxZoom(z + (event.deltaY < 0 ? LIGHTBOX_ZOOM_STEP : -LIGHTBOX_ZOOM_STEP)));
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, [lightboxOpen]);
+
+  /* 历史记录小弹窗：打开时拉取 640px 预览图（先展示侧栏缩略图兜底），关闭时回收 object URL */
+  useEffect(() => {
+    if (!historyPreview) {
+      setHistoryPreviewUrl("");
+      return;
+    }
+    setHistoryPreviewUrl(historyUrls[historyPreview.id] || "");
+    let disposed = false;
+    let objectUrl = "";
+    getAssetContentObjectUrl(historyPreview.id, scope, 640)
+      .then((url) => { if (disposed) URL.revokeObjectURL(url); else { objectUrl = url; setHistoryPreviewUrl(url); } })
+      .catch(() => { if (!disposed) setHistoryPreviewUrl(""); });
+    return () => { disposed = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [historyPreview, historyUrls, scope]);
 
   const removeReference = (id: string) => setReferences((items) => {
     const target = items.find((item) => item.id === id);
@@ -388,6 +469,140 @@ export function ImageWorkbenchView() {
     }
   };
 
+  /* 读取选中图片的完整可用 URL（优先内存 data/blob，归档图片回源拉取） */
+  const resolveFullImageUrl = useCallback(async (image: GeneratedImage) => {
+    if (image.src) return image.src;
+    if (image.assetId) return getAssetContentObjectUrl(image.assetId, scope);
+    return "";
+  }, [scope]);
+
+  /* 本地编辑（标注/超分/裁剪）产物：追加到结果区并选中，走与生成结果一致的预览/下载链路 */
+  const pushLocalResult = (dataUrl: string, name: string) => {
+    setResult((current) => [...current, { id: crypto.randomUUID(), src: dataUrl, name }]);
+    setSelectedResult(result.length);
+    toast.success("已加入预览区域");
+  };
+
+  const openEditor = async (kind: "annotate" | "upscale" | "crop") => {
+    if (!selectedImage || generating) return;
+    try {
+      const url = await resolveFullImageUrl(selectedImage);
+      if (!url) return toast.info("当前图片还没有可用内容");
+      setEditUrl(url);
+      if (kind === "annotate") setAnnotateOpen(true);
+      else if (kind === "upscale") setUpscaleOpen(true);
+      else setCropOpen(true);
+    } catch (error) {
+      toast.error(publicApiError(error, "读取图片失败"));
+    }
+  };
+
+  const runUpscale = async (targetLongEdge: number, algorithm: ImageUpscaleAlgorithm) => {
+    if (!selectedImage || editBusy) return;
+    setEditBusy(true);
+    try {
+      const url = editUrl || await resolveFullImageUrl(selectedImage);
+      const dataUrl = await upscaleDataUrl(url, { targetLongEdge, algorithm });
+      pushLocalResult(dataUrl, `${selectedImage.name || "结果"}-超分${targetLongEdge}`);
+      setUpscaleOpen(false);
+    } catch (error) {
+      toast.error(publicApiError(error, "超分失败"));
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
+  const runCrop = async (rect: ImageCropRect) => {
+    if (!selectedImage || editBusy) return;
+    setEditBusy(true);
+    try {
+      const url = editUrl || await resolveFullImageUrl(selectedImage);
+      const dataUrl = await cropDataUrl(url, rect);
+      pushLocalResult(dataUrl, `${selectedImage.name || "结果"}-裁剪`);
+      setCropOpen(false);
+    } catch (error) {
+      toast.error(publicApiError(error, "裁剪失败"));
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
+  /* 扩图：外扩画布 + 遮罩走 /edits 生成链路，与画布扩图同一套数据来源 */
+  const runOutpaint = async (margins: OutpaintMargins, promptText: string) => {
+    if (generating || !model || !selectedImage) return;
+    setOutpaintOpen(false);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setGenerating(true);
+    setResult([]);
+    setResultUrls({});
+    setSelectedResult(0);
+    setJobProgress(0);
+    try {
+      const url = await resolveFullImageUrl(selectedImage);
+      if (!url) throw new Error("当前图片还没有可用内容");
+      const referenceFile = await dataUrlToFile(await createOutpaintSourceDataUrl(url, margins), "outpaint-source.png");
+      const maskFile = await dataUrlToFile(await createOutpaintMaskDataUrl(url, margins), "outpaint-mask.png");
+      const generated = await generateImages({
+        model,
+        prompt: promptText,
+        size: "auto",
+        quality,
+        count: 1,
+        referenceFiles: [referenceFile],
+        maskFile,
+        scope,
+        sourceType: "image_workbench",
+      }, {
+        signal: controller.signal,
+        onAccepted: (job) => setJobId(job.job_id || job.id || null),
+        onProgress: (job) => { setJobId(job.id); setJobProgress(job.progress ?? 0); },
+      });
+      setResult(generated.images);
+      setJobProgress(100);
+      toast.success("扩图完成");
+      reloadHistory();
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") toast.info("已停止本次扩图");
+      else toast.error(publicApiError(error, "扩图失败"));
+    } finally {
+      abortRef.current = null;
+      setGenerating(false);
+    }
+  };
+
+  /* 历史记录（侧栏 / 近期归档）右键：重新载入预览区域，载入后底部编辑按钮变为可用 */
+  const loadAssetIntoPreview = (asset: Asset) => {
+    if (generating) return toast.info("任务执行中，完成后再载入");
+    setHistoryPreview(null);
+    setResult([{ id: asset.id, assetId: asset.id, src: historyUrls[asset.id] || "", name: asset.name }]);
+    setSelectedResult(0);
+    toast.info("已载入预览区域，可使用下方编辑功能");
+  };
+
+  const downloadHistoryAsset = async (asset: Asset) => {
+    try {
+      const url = await getAssetContentObjectUrl(asset.id, scope);
+      const blob = await fetch(url).then((response) => response.blob());
+      downloadBlob(blob, asset.name);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error(publicApiError(error, "下载失败"));
+    }
+  };
+
+  /* 从预览区域移除单张结果：仅移出当前预览，不影响已归档的资产；清空后自动回到等待落点态 */
+  const removeResult = (index: number) => {
+    const target = result[index];
+    const next = result.filter((_, itemIndex) => itemIndex !== index);
+    if (target?.src?.startsWith("blob:") && !Object.values(resultUrls).includes(target.src)) URL.revokeObjectURL(target.src);
+    setResult(next);
+    setSelectedResult((current) => (current >= next.length ? Math.max(0, next.length - 1) : current));
+    toast.info("已从预览区域移除");
+  };
+
+  const canEditPreview = Boolean(selectedImage) && !generating;
+
   return <div className="feature-page image-page">
     <input ref={referenceInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { if (event.target.files) addReferenceFiles(event.target.files); event.target.value = ""; }} />
     <PromptLibraryDialog open={promptLibraryOpen} onOpenChange={setPromptLibraryOpen} onSelect={(value) => { setPrompt(value); setPromptLibraryOpen(false); }} />
@@ -406,19 +621,27 @@ export function ImageWorkbenchView() {
         </div>
         <div className="history-sidebar-content">
           {history.length > 0 ? (
-            <div className="history-sidebar-list">
+            <div className="history-card-list">
               {history.map((asset) => (
-                <div className="history-sidebar-item" key={asset.id}>
-                  <div className="history-item-thumbnail">
-                    {historyUrls[asset.id] ? (
-                      <img src={historyUrls[asset.id]} alt={asset.name} />
-                    ) : (
-                      <div className="empty-thumbnail"><ImageIcon size={20} /></div>
-                    )}
-                  </div>
-                  <div className="history-item-info">
-                    <p className="history-item-name">{asset.name}</p>
-                    <small className="history-item-meta">{new Date(asset.created_at || Date.now()).toLocaleDateString()}</small>
+                <div
+                  className="history-card"
+                  key={asset.id}
+                  role="button"
+                  tabIndex={0}
+                  title="左键放大预览 · 右键载入预览区域"
+                  onClick={() => setHistoryPreview(asset)}
+                  onKeyDown={(event) => { if (event.key === "Enter") setHistoryPreview(asset); }}
+                  onContextMenu={(event) => { event.preventDefault(); loadAssetIntoPreview(asset); }}
+                >
+                  {historyUrls[asset.id] ? (
+                    <img src={historyUrls[asset.id]} alt={asset.name} />
+                  ) : (
+                    <div className="empty-thumbnail"><ImageIcon size={20} /></div>
+                  )}
+                  <div className="history-card-overlay">
+                    <b>{asset.name}</b>
+                    <small>{new Date(asset.created_at || Date.now()).toLocaleDateString()}</small>
+                    <span>左键预览 · 右键载入预览区</span>
                   </div>
                 </div>
               ))}
@@ -465,15 +688,98 @@ export function ImageWorkbenchView() {
       </section>
       <aside className="generation-output">
         <div className="output-heading"><div><p className="eyebrow">RESULTS / {String(result.length).padStart(2, "0")}</p><h3>{generating ? "任务执行中" : result.length ? "本次落点" : "等待落点"}</h3>{jobId && <small>JOB · {jobId}</small>}</div>{result.length > 0 && !generating && <button className="outline-button small" onClick={() => void generate(1)}><RefreshCcw size={13} /> 重试一张</button>}</div>
-        {result.length ? <div className="result-grid">{result.map((image, index) => <button key={image.id} className={index === selectedResult ? "result-card selected" : "result-card"} onClick={() => setSelectedResult(index)}>{resultSrc(image) ? <img src={resultSrc(image)} alt={image.name || "结果"} /> : <div className="empty-output"><Loader2 className="spin" size={18} /></div>}<span>V-{String(index + 1).padStart(2, "0")}</span>{index === selectedResult && <i><Check size={14} /></i>}</button>)}</div> : <div className="empty-output"><ImageIcon size={27} /><p>生成结果会在这里形成。</p></div>}
-        {selectedImage && <div className="result-actions"><button onClick={() => void downloadResult(selectedImage)}><ArrowDownToLine size={14} /> 下载</button><button onClick={() => void addResultAsReference(selectedImage)}><ImagePlus size={14} /> 设为参考图</button></div>}
-        <div className="output-foot"><button onClick={() => void sendToCanvas()} disabled={!selectedImage?.assetId}><Layers3 size={15} /> 送入画布</button><button onClick={() => window.location.assign(`/assets?scope=${encodeURIComponent(scope)}`)}><Clapperboard size={15} /> 查看归档</button></div>
-        <div className="workbench-history">
-          <div className="section-line"><span className="eyebrow">近期归档</span><button onClick={reloadHistory}><RefreshCcw size={13} /> 刷新</button></div>
-          {history.length ? <div className="workbench-history-grid">{history.map((asset) => <div className="workbench-history-item" key={asset.id}>{historyUrls[asset.id] ? <img src={historyUrls[asset.id]} alt={asset.name} /> : <div className="empty-output"><ImageIcon size={16} /></div>}<div className="workbench-history-actions"><button title="设为参考图" onClick={() => void addAssetAsReference(asset)}><ImagePlus size={13} /></button><button title="下载" onClick={() => void getAssetContentObjectUrl(asset.id, scope).then(async (url) => { const blob = await fetch(url).then((response) => response.blob()); downloadBlob(blob, asset.name); URL.revokeObjectURL(url); })}><ArrowDownToLine size={13} /></button></div></div>)}</div> : <p className="reference-empty">生成成功后会自动归档到资产库，并展示在这里。</p>}
+        {generating ? (
+          <div className="result-stage generating">
+            <div className="generation-waiting">
+              <span className="waiting-ring"><Loader2 className="spin" size={24} /></span>
+              <p>关键帧生成中</p>
+              <small>{jobProgress}% · 已等待 {elapsedSeconds}s</small>
+              <div className="waiting-progress"><i style={{ width: `${Math.max(jobProgress, 6)}%` }} /></div>
+            </div>
+          </div>
+        ) : result.length ? (
+          <>
+            <div className="result-stage">
+              {selectedImage && resultSrc(selectedImage) ? (
+                <img className="result-stage-image" src={resultSrc(selectedImage)} alt={selectedImage.name || "结果"} title="点击放大查看" onClick={openLightbox} />
+              ) : (
+                <div className="empty-output"><Loader2 className="spin" size={20} /><p>正在读取生成结果…</p></div>
+              )}
+              {selectedImage && <span className="result-stage-tag">V-{String(selectedIndex + 1).padStart(2, "0")} / {String(result.length).padStart(2, "0")}</span>}
+              {selectedSrc && <button className="result-stage-zoom" title="放大查看" onClick={openLightbox}><Maximize2 size={13} /></button>}
+              {selectedImage && <button className="result-stage-remove" title="从预览区域移除" onClick={() => removeResult(selectedIndex)}><Trash2 size={13} /></button>}
+            </div>
+            {result.length > 1 && (
+              <div className="result-strip">
+                {result.map((image, index) => (
+                  <button key={image.id} className={index === selectedResult ? "result-thumb selected" : "result-thumb"} title={image.name || `V-${index + 1}`} onClick={() => setSelectedResult(index)}>
+                    {resultSrc(image) ? <img src={resultSrc(image)} alt={image.name || "结果"} /> : <Loader2 className="spin" size={14} />}
+                    <span>V-{String(index + 1).padStart(2, "0")}</span>
+                    {index === selectedResult && <i><Check size={11} /></i>}
+                    <b className="result-thumb-remove" title="从预览区域移除" onClick={(event) => { event.stopPropagation(); removeResult(index); }}><X size={10} /></b>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="empty-output"><ImageIcon size={27} /><p>生成结果会在这里形成。</p></div>
+        )}
+        <div className="edit-toolbar">
+          <span className="eyebrow">编辑</span>
+          <div className="edit-toolbar-buttons">
+            <button disabled={!canEditPreview} title={canEditPreview ? "在图片上绘制标注" : "预览区域没有图片"} onClick={() => void openEditor("annotate")}><PenLine size={13} /> 标注</button>
+            <button disabled={!canEditPreview} title={canEditPreview ? "本地超分放大" : "预览区域没有图片"} onClick={() => void openEditor("upscale")}><Sparkles size={13} /> 超分</button>
+            <button disabled={!canEditPreview || !model} title={canEditPreview ? "AI 外扩画布并补全" : "预览区域没有图片"} onClick={() => setOutpaintOpen(true)}><Expand size={13} /> 扩图</button>
+            <button disabled={!canEditPreview} title={canEditPreview ? "裁剪图片" : "预览区域没有图片"} onClick={() => void openEditor("crop")}><Crop size={13} /> 裁剪</button>
+          </div>
         </div>
+        {selectedImage && <div className="result-actions"><button onClick={() => void downloadResult(selectedImage)}><ArrowDownToLine size={14} /> 下载</button><button onClick={() => void addResultAsReference(selectedImage)}><ImagePlus size={14} /> 设为参考图</button></div>}
+        <div className="output-foot compact"><button onClick={() => void sendToCanvas()} disabled={!selectedImage?.assetId}><Layers3 size={13} /> 送入画布</button><button onClick={() => window.location.assign(`/assets?scope=${encodeURIComponent(scope)}`)}><Clapperboard size={13} /> 查看归档</button></div>
       </aside>
     </div>
+    {annotateOpen && editUrl && (
+      <CanvasImageAnnotationDialog
+        dataUrl={editUrl}
+        open={annotateOpen}
+        onClose={() => setAnnotateOpen(false)}
+        onConfirm={(payload) => { setAnnotateOpen(false); pushLocalResult(payload.dataUrl, `${selectedImage?.name || "结果"}-标注`); }}
+      />
+    )}
+    <UpscaleDialog open={upscaleOpen} busy={editBusy} onClose={() => setUpscaleOpen(false)} onRun={(targetLongEdge, algorithm) => void runUpscale(targetLongEdge, algorithm)} />
+    <OutpaintDialog open={outpaintOpen} busy={generating} onClose={() => setOutpaintOpen(false)} onRun={(margins, promptText) => void runOutpaint(margins, promptText)} />
+    <CropDialog open={cropOpen} imageUrl={editUrl} busy={editBusy} onClose={() => setCropOpen(false)} onRun={(rect) => void runCrop(rect)} />
+    <HistoryPreviewDialog
+      asset={historyPreview}
+      imageUrl={historyPreviewUrl}
+      onClose={() => setHistoryPreview(null)}
+      onLoadIntoPreview={loadAssetIntoPreview}
+      onAddReference={(asset) => { setHistoryPreview(null); void addAssetAsReference(asset); }}
+      onDownload={(asset) => void downloadHistoryAsset(asset)}
+    />
+    {lightboxOpen && selectedSrc && (
+      <div className="image-lightbox" role="presentation" onClick={() => setLightboxOpen(false)}>
+        <div className="image-lightbox-toolbar" onClick={(event) => event.stopPropagation()}>
+          <span className="image-lightbox-title">V-{String(selectedIndex + 1).padStart(2, "0")} · {selectedImage?.name || "生成结果"}</span>
+          <div className="image-lightbox-controls">
+            <button title="缩小" disabled={lightboxZoom <= LIGHTBOX_ZOOM_MIN} onClick={() => setLightboxZoom((z) => clampLightboxZoom(z - LIGHTBOX_ZOOM_STEP))}><ZoomOut size={14} /></button>
+            <b>{Math.round(lightboxZoom * 100)}%</b>
+            <button title="放大" disabled={lightboxZoom >= LIGHTBOX_ZOOM_MAX} onClick={() => setLightboxZoom((z) => clampLightboxZoom(z + LIGHTBOX_ZOOM_STEP))}><ZoomIn size={14} /></button>
+            <button title="适配窗口" onClick={() => setLightboxZoom(1)}>适配</button>
+            {selectedImage && <button title="下载" onClick={() => void downloadResult(selectedImage)}><ArrowDownToLine size={14} /></button>}
+            <button title="关闭 (Esc)" onClick={() => setLightboxOpen(false)}><X size={15} /></button>
+          </div>
+        </div>
+        <div className="image-lightbox-stage" ref={lightboxStageRef} onClick={() => setLightboxOpen(false)}>
+          <img
+            src={selectedSrc}
+            alt={selectedImage?.name || "生成结果"}
+            style={lightboxZoom === 1 ? undefined : { maxWidth: "none", maxHeight: "none", width: `${Math.round(lightboxZoom * 100)}%` }}
+            onClick={(event) => { event.stopPropagation(); setLightboxZoom((z) => (z === 1 ? 2 : 1)); }}
+          />
+        </div>
+      </div>
+    )}
   </div>;
 }
 
