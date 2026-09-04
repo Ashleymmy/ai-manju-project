@@ -9,6 +9,11 @@
 .project-card-wrap {
   position: relative;
 }
+/* 复选框（左上 10px/24px 宽）与卡片状态缎带（state-ribbon 默认 left:12px）同位冲突：
+   在带选择框的卡片里把缎带整体右移让位 */
+.project-card-wrap .state-ribbon {
+  left: 42px;
+}
 .project-card-wrap .project-card {
   width: 100%;
 }

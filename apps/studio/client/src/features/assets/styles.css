@@ -171,9 +171,11 @@
   border: 1px dashed var(--line);
   border-radius: 10px;
   color: #cdcdcd;
-}.detail-audio audio { width: 100%; height: 34px; }.asset-meta-edit {
+}.detail-audio audio { width: 100%; height: 34px; /* 注意：必须带 .asset-metadata 前缀提高优先级，否则会被 .asset-metadata > div 的
+   display:flex 覆盖（0,1,1 > 0,1,0），导致整行 flex 不换行并溢出面板 —— 即此前的"组件错乱" */
+}.asset-metadata > .asset-meta-edit {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 6px 8px;
   padding: 8px 0;
@@ -218,3 +220,19 @@
   cursor: pointer;
   font-size: 10px;
 }.asset-tag-pool button:hover:not(:disabled) { border-color: rgba(255, 255, 255, 0.75); color: #ffd9d2; }.asset-tag-manager small { color: #818181; font-size: 10px; }
+/* 资产卡片左上角：复选框（.asset-check，8px/16px 宽）与分类标签（.asset-category 默认 left:7px）
+   同位重叠遮挡，这里把分类标签右移让位；更高优先级确保覆盖压缩行内的旧规则 */
+.library-asset .asset-category {
+  left: 34px;
+}
+/* 复选框本体加深色底 + 描边，避免在亮色图片上看不清 */
+.library-asset .asset-check {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 5px;
+  background: rgba(12, 15, 16, 0.72);
+  cursor: pointer;
+}
