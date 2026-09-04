@@ -231,9 +231,8 @@
   .real-canvas-workspace { grid-template-columns: 1fr; }
   .real-canvas-workspace .inspector-panel { border-top: 1px solid var(--line); }
 }
-.scope-switch { display: inline-flex; gap: 6px; padding: 4px; border: 1px solid var(--line); background: rgba(255,255,255,.03); }
-.scope-switch button { min-height: 30px; padding: 0 11px; border: 0; background: transparent; color: #c0c0c0; cursor: pointer; font-size: 11px; }
-.scope-switch button.active { color: #f4f4f4; background: rgba(255,255,255,.14); }
+/* .scope-switch 的基础视觉已统一收敛到 shared/styles/base.css（胶囊分段控件），
+   这里只保留画布场景下的局部微调，避免全局覆盖。 */
 .public-prompt-note { margin-top: 14px; padding: 12px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); }
 .public-prompt-note b { display: block; margin-bottom: 4px; color: #f4f4f4; font-size: 11px; }
 .public-prompt-note span { color: #c7c7c7; font-size: 11px; line-height: 1.6; }
@@ -379,6 +378,11 @@
 .canvas-project-check span { display: grid; width: 17px; height: 17px; place-items: center; border: 1px solid rgba(255,255,255,.32); color: #0c0c0c; }
 .canvas-project-check input:checked + span { border-color: #ffffff; background: #ffffff; }
 .canvas-project-check:focus-within { outline: 2px solid rgba(255,255,255,.7); outline-offset: 2px; }
+/* 画布项目卡片的「设置封面」入口：悬停浮现，置于 SHEET/PROJECT 缎带下方避免重叠 */
+.canvas-project-cover-btn { position: absolute; top: 32px; right: 10px; z-index: 3; display: grid; width: 26px; height: 26px; place-items: center; border: 1px solid rgba(255,255,255,.22); border-radius: 6px; background: rgba(10,14,15,.78); color: #e8e5dc; cursor: pointer; opacity: 0; transition: opacity .15s ease, border-color .15s ease; }
+.canvas-project-selectable:hover .canvas-project-cover-btn,
+.canvas-project-cover-btn:focus-visible { opacity: 1; }
+.canvas-project-cover-btn:hover { border-color: rgba(255,255,255,.5); }
 .canvas-project-selectable .project-info { padding: 0; }
 .canvas-project-open { display: flex; width: 100%; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 15px 16px; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
 .canvas-project-open > span { min-width: 0; }
@@ -456,7 +460,7 @@
 }
 /* 閻犱讲鏅犻妴宥夋儎椤斿墽绉归柡宥夋？缁″啴鏌ч悜妯哄К */
 .canvas-workspace-full .project-grid {
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)) !important;
+  grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)) !important;
 }
 @media (max-width: 760px) {
   .canvas-workspace-full {
@@ -1386,6 +1390,16 @@
   background: rgba(255,255,255,.08); border-color: rgba(255, 255, 255, 0.43);
 }
 .canvas-switcher-trigger:disabled { opacity: .5; cursor: not-allowed; }
+/* 标题行内重命名输入框：视觉与触发器对齐，Enter/失焦提交、Esc 取消 */
+.canvas-switcher-title-input {
+  width: 320px; max-width: 60vw;
+  padding: 6px 12px; background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.45); border-radius: 7px;
+  color: var(--text, #fff); font-size: 15px; font-weight: 600;
+  outline: none; caret-color: #fff;
+}
+.canvas-switcher-title-input:focus { border-color: rgba(255,255,255,.75); }
+.canvas-switcher-title-input:disabled { opacity: .6; }
 .canvas-switcher-trigger svg:last-child { transition: transform .2s; flex-shrink: 0; }
 .canvas-switcher-trigger svg:last-child.rotated { transform: rotate(180deg); }
 .canvas-switcher-avatar {

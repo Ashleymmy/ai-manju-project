@@ -57,6 +57,47 @@ func TestProjectHandlerSnapshotVersionIncrements(t *testing.T) {
 	}
 }
 
+func TestProjectHandlerUpdateCoverAsset(t *testing.T) {
+	router := newProjectTestRouter()
+
+	createRecorder := httptest.NewRecorder()
+	createRequest := httptest.NewRequest(http.MethodPost, "/projects", strings.NewReader(`{"title":"Cover Test"}`))
+	createRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(createRecorder, createRequest)
+	if createRecorder.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d; body = %s", createRecorder.Code, http.StatusCreated, createRecorder.Body.String())
+	}
+	projectID := extractString(t, createRecorder.Body.String(), "id")
+
+	// 设置封面
+	setRecorder := httptest.NewRecorder()
+	setRequest := httptest.NewRequest(http.MethodPut, "/projects/"+projectID, strings.NewReader(`{"cover_asset_id":"asset_cover_1"}`))
+	setRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(setRecorder, setRequest)
+	if setRecorder.Code != http.StatusOK {
+		t.Fatalf("set cover status = %d, want %d; body = %s", setRecorder.Code, http.StatusOK, setRecorder.Body.String())
+	}
+	if cover := extractString(t, setRecorder.Body.String(), "cover_asset_id"); cover != "asset_cover_1" {
+		t.Fatalf("cover_asset_id = %q, want %q", cover, "asset_cover_1")
+	}
+
+	// 清除封面（空字符串）后应回到默认
+	clearRecorder := httptest.NewRecorder()
+	clearRequest := httptest.NewRequest(http.MethodPut, "/projects/"+projectID, strings.NewReader(`{"cover_asset_id":""}`))
+	clearRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(clearRecorder, clearRequest)
+	if clearRecorder.Code != http.StatusOK {
+		t.Fatalf("clear cover status = %d, want %d; body = %s", clearRecorder.Code, http.StatusOK, clearRecorder.Body.String())
+	}
+
+	getRecorder := httptest.NewRecorder()
+	getRequest := httptest.NewRequest(http.MethodGet, "/projects/"+projectID, nil)
+	router.ServeHTTP(getRecorder, getRequest)
+	if cover := extractString(t, getRecorder.Body.String(), "cover_asset_id"); cover != "" {
+		t.Fatalf("cover_asset_id after clear = %q, want empty", cover)
+	}
+}
+
 func TestProjectHandlerEmptySnapshotVersion(t *testing.T) {
 	router := newProjectTestRouter()
 

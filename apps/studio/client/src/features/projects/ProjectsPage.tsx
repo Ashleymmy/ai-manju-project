@@ -1,6 +1,7 @@
 import {
   ArrowDownToLine,
   FolderKanban,
+  Image as ImageIcon,
   Pencil,
   Plus,
   Trash2,
@@ -17,11 +18,13 @@ import {
   type CanvasProject,
 } from "@/entities/project";
 import { createZip } from "@/lib/zip";
+import { ProjectCoverPickerDialog } from "@/components/ProjectCoverPickerDialog";
 import { publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 import { PageIntro } from "@/shared/ui";
 
 import { createAndOpenProject } from "./commands";
+import { useProjectCoverUrls } from "./covers";
 import { projectToCard, type ProjectCardData } from "./model";
 import { ProjectCard } from "./ProjectCard";
 import "./styles.css";
@@ -40,6 +43,8 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [coverProject, setCoverProject] = useState<CanvasProject | null>(null);
+  const coverUrls = useProjectCoverUrls(apiProjects, scope);
 
   useEffect(() => {
     setLoading(true);
@@ -73,6 +78,18 @@ export default function ProjectsPage() {
       refresh();
     } catch (error) {
       toast.error(publicApiError(error, "重命名项目失败"));
+    }
+  };
+
+  const saveCover = async (assetId: string) => {
+    if (!coverProject) return;
+    try {
+      await updateProject(coverProject.id, { cover_asset_id: assetId, scope });
+      toast.success(assetId ? "封面已更新" : "已恢复默认封面");
+      setCoverProject(null);
+      refresh();
+    } catch (error) {
+      toast.error(publicApiError(error, "设置封面失败"));
     }
   };
 
@@ -214,6 +231,17 @@ export default function ProjectsPage() {
               </label>
               <div className="project-card-tools">
                 <button
+                  title="设置封面"
+                  onClick={() => {
+                    const source = apiProjects.find(
+                      item => item.id === project.id
+                    );
+                    if (source) setCoverProject(source);
+                  }}
+                >
+                  <ImageIcon size={13} />
+                </button>
+                <button
                   title="重命名"
                   onClick={() => {
                     const source = apiProjects.find(
@@ -233,7 +261,7 @@ export default function ProjectsPage() {
                   <Trash2 size={13} />
                 </button>
               </div>
-              <ProjectCard {...project} scope={scope} />
+              <ProjectCard {...project} image={(project.id && coverUrls[project.id]) || project.image} scope={scope} />
             </div>
           ))
         ) : (
@@ -247,6 +275,13 @@ export default function ProjectsPage() {
           </div>
         )}
       </div>
+      <ProjectCoverPickerDialog
+        open={Boolean(coverProject)}
+        scope={scope}
+        currentCoverAssetId={coverProject?.cover_asset_id}
+        onClose={() => setCoverProject(null)}
+        onSelect={(assetId) => void saveCover(assetId)}
+      />
     </div>
   );
 }

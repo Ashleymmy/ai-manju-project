@@ -7,6 +7,8 @@ export type CanvasProject = {
   workspace_id?: string;
   scope?: WorkspaceScope;
   data?: unknown;
+  /** 用户自定义封面资产 ID；为空时卡片回退到默认抽象封面 */
+  cover_asset_id?: string;
   created_at: string;
   updated_at: string;
 };

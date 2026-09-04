@@ -46,6 +46,8 @@ type CreateProjectInput struct {
 type UpdateProjectInput struct {
 	Title *string
 	Data  *model.JSONB
+	// CoverAssetID 指针语义：nil 不动封面，指向空字符串表示清除封面恢复默认。
+	CoverAssetID *string
 }
 
 func (s *ProjectService) List(userID string, scope string) ([]model.Project, error) {
@@ -108,6 +110,9 @@ func (s *ProjectService) Update(id string, userID string, scope string, input Up
 	}
 	if input.Data != nil {
 		current.Data = NormalizeJSON(input.Data)
+	}
+	if input.CoverAssetID != nil {
+		current.CoverAssetID = strings.TrimSpace(*input.CoverAssetID)
 	}
 
 	updated, err := s.repo.UpdateByWorkspace(current, workspaceID)

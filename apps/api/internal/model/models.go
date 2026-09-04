@@ -112,8 +112,11 @@ type Project struct {
 	WorkspaceID string    `json:"workspace_id" gorm:"index"`
 	Scope       string    `json:"scope" gorm:"-"`
 	Data        JSONB     `json:"data" gorm:"-"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	// CoverAssetID 用户自定义的项目封面资产 ID；为空时前端回退到默认抽象封面。
+	// 独立于 Data（画布快照）持久化，避免被画布保存覆盖。
+	CoverAssetID string    `json:"cover_asset_id" gorm:"type:text;default:''"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // CanvasSnapshot stores the latest canvas document for an MVP project.

@@ -7,6 +7,7 @@ import {
   Copy,
   Download,
   Eraser,
+  Image as ImageIcon,
   Palette,
   Home,
   Loader2,
@@ -90,6 +91,8 @@ import {
   imageModelLabel,
   type ImageModelCatalog,
 } from "@/features/image";
+import { useProjectCoverUrls } from "@/features/projects";
+import { ProjectCoverPickerDialog } from "@/components/ProjectCoverPickerDialog";
 import { getPreferences } from "@/features/settings";
 import {
   isLongSeedanceVideoModel,
@@ -423,6 +426,11 @@ export default function CanvasWorkspaceViewContent() {
   const scope = useCanvasStore((state) => state.session.scope);
   const setScope = canvasCommands.session.setScope;
   const [projects, setProjects] = useState<CanvasProject[]>([]);
+  const [coverProjectId, setCoverProjectId] = useState("");
+  /* 画布标题行内重命名：双击标题进入编辑（命名带 project 前缀，避开节点标题编辑的 titleDraft） */
+  const [projectTitleEditing, setProjectTitleEditing] = useState(false);
+  const [projectTitleDraft, setProjectTitleDraft] = useState("");
+  const [projectTitleSaving, setProjectTitleSaving] = useState(false);
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set());
   const [projectBatchBusy, setProjectBatchBusy] = useState(false);
   const [projectDeleteIds, setProjectDeleteIds] = useState<string[]>([]);
@@ -738,16 +746,31 @@ export default function CanvasWorkspaceViewContent() {
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
 
-  const renameCurrentProject = async () => {
-    const nextTitle = window.prompt("重命名画布项目", projectTitle)?.trim();
-    if (!nextTitle || nextTitle === projectTitle || !projectId) return;
+  /* 双击画布标题进入行内编辑；Enter/失焦提交，Esc 取消 */
+  const beginTitleEdit = () => {
+    if (!projectId || projectActionDisabled) return;
+    setCanvasSwitcherOpen(false);
+    setProjectTitleDraft(projectTitle);
+    setProjectTitleEditing(true);
+  };
+  const commitTitleEdit = async () => {
+    if (projectTitleSaving) return;
+    const nextTitle = projectTitleDraft.trim();
+    if (!nextTitle || nextTitle === projectTitle || !projectId) {
+      setProjectTitleEditing(false);
+      return;
+    }
+    setProjectTitleSaving(true);
     try {
       await updateProject(projectId, { title: nextTitle, scope: canonicalProjectScope || "personal" });
       setProjectTitle(nextTitle);
       setProjects((items) => items.map((project) => project.id === projectId ? { ...project, title: nextTitle } : project));
       toast.success("项目已重命名");
+      setProjectTitleEditing(false);
     } catch (error) {
       toast.error(publicApiError(error, "重命名项目失败"));
+    } finally {
+      setProjectTitleSaving(false);
     }
   };
   const selectedGroup = groups.find((group) => group.id === selectedGroupId);
@@ -875,6 +898,8 @@ export default function CanvasWorkspaceViewContent() {
     : null;
   const currentProjectDisplayScope = projectId ? canonicalProjectScope ?? scope : scope;
   const projectListScope = projectId ? canonicalProjectScope ?? scope : scope;
+  /* 画布选择页的自定义封面缩略图（无封面时保持默认抽象占位） */
+  const projectCoverUrls = useProjectCoverUrls(projects, projectListScope);
   const projectScopePending = Boolean(projectId && !canonicalProjectScope);
   const projectActionDisabled = loading || switching || projectScopePending;
   const canvasInteractionBlocked = projectActionDisabled;
@@ -3695,9 +3720,28 @@ export default function CanvasWorkspaceViewContent() {
     }
   };
 
+  /* 画布选择页：设置/清除项目自定义封面，只更新列表内的字段，不整表重拉 */
+  const saveProjectCover = async (targetProjectId: string, assetId: string) => {
+    try {
+      const updated = await updateProject(targetProjectId, { cover_asset_id: assetId, scope: projectListScope });
+      setProjects((current) => current.map((item) => (item.id === targetProjectId ? { ...item, cover_asset_id: updated.cover_asset_id } : item)));
+      toast.success(assetId ? "封面已更新" : "已恢复默认封面");
+      setCoverProjectId("");
+    } catch (error) {
+      toast.error(publicApiError(error, "设置封面失败"));
+    }
+  };
+
   if (!projectId) {
     return (
       <>
+        <ProjectCoverPickerDialog
+          open={Boolean(coverProjectId)}
+          scope={projectListScope}
+          currentCoverAssetId={projects.find((item) => item.id === coverProjectId)?.cover_asset_id}
+          onClose={() => setCoverProjectId("")}
+          onSelect={(assetId) => void saveProjectCover(coverProjectId, assetId)}
+        />
         <input ref={projectArchiveInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectArchiveBusy || projectBatchBusy} onChange={(event) => void importCanvasProjectArchive(event.target.files?.[0])} />
         <div className="page-content canvas-workspace-full">
           <div className="canvas-workspace-header">
@@ -3723,7 +3767,12 @@ export default function CanvasWorkspaceViewContent() {
               return (
                 <article className={`project-card canvas-project-selectable ${selected ? "selected" : ""}`} key={project.id} onClick={() => { if (!switching && !projectBatchBusy) navigate(canvasProjectHref(project.id, projectScopeFromServer(project, scope))); }}>
                   <div className="project-visual">
-                    <div className="abstract-canvas" aria-hidden="true"><span className="abstract-card one" /><span className="abstract-card two" /></div>
+                    {projectCoverUrls[project.id] ? (
+                      <img className="canvas-project-cover" src={projectCoverUrls[project.id]} alt="" />
+                    ) : (
+                      <div className="abstract-canvas" aria-hidden="true"><span className="abstract-card one" /><span className="abstract-card two" /></div>
+                    )}
+                    <button type="button" className="canvas-project-cover-btn" title="设置封面" onClick={(event) => { event.stopPropagation(); setCoverProjectId(project.id); }}><ImageIcon size={13} /></button>
                     <label className="canvas-project-check" onClick={(event) => event.stopPropagation()}>
                       <input type="checkbox" checked={selected} disabled={switching || projectBatchBusy} onChange={(event) => toggleProjectSelection(project.id, event.target.checked)} aria-label={`选择 ${project.title}`} />
                       <span>{selected ? <Check size={13} /> : null}</span>
@@ -3911,9 +3960,27 @@ export default function CanvasWorkspaceViewContent() {
       <div className="canvas-heading">
         <div className="page-intro">
           <div className="canvas-switcher-container">
+            {projectTitleEditing ? (
+              <input
+                className="canvas-switcher-title-input"
+                autoFocus
+                value={projectTitleDraft}
+                disabled={projectTitleSaving}
+                aria-label="画布名称"
+                onChange={(event) => setProjectTitleDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void commitTitleEdit();
+                  }
+                  if (event.key === "Escape") setProjectTitleEditing(false);
+                }}
+                onBlur={() => void commitTitleEdit()}
+              />
+            ) : (
             <Popover open={canvasSwitcherOpen} onOpenChange={setCanvasSwitcherOpen}>
               <PopoverTrigger asChild>
-                <button className="canvas-switcher-trigger" disabled={projectActionDisabled}>
+                <button className="canvas-switcher-trigger" disabled={projectActionDisabled} title="单击切换画布 · 双击重命名" onDoubleClick={(event) => { event.preventDefault(); beginTitleEdit(); }}>
                   <span className="canvas-switcher-title">{projectTitle || "无限画布"}</span>
                   <ChevronDown size={16} className={canvasSwitcherOpen ? "rotated" : ""} />
                 </button>
@@ -3960,6 +4027,7 @@ export default function CanvasWorkspaceViewContent() {
                 </div>
               </PopoverContent>
             </Popover>
+            )}
             <p className="canvas-switcher-desc">节点、连线和生成结果都会保存到 {currentProjectDisplayScope === "team" ? "团队" : "个人"} 工作区服务端快照。</p>
           </div>
         </div>

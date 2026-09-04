@@ -1,0 +1,66 @@
+/* ---- 项目封面选择弹窗 ---- */
+.cover-picker-dialog {
+  max-width: 560px;
+  background: #171c1e;
+}
+.cover-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.cover-picker-grid > .empty-output {
+  grid-column: 1 / -1;
+  min-height: 140px;
+}
+.cover-picker-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #c2c8c0;
+  cursor: pointer;
+  font-size: 10px;
+}
+.cover-picker-item:hover {
+  border-color: rgba(255, 255, 255, 0.45);
+}
+.cover-picker-item.selected {
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+.cover-picker-item img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.cover-picker-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.cover-picker-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: #cdcdcd;
+  cursor: pointer;
+  font-size: 11px;
+}
+.cover-picker-reset:hover {
+  border-color: rgba(239, 235, 222, 0.4);
+  color: #f2efe6;
+}

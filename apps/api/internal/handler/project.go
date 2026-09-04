@@ -117,9 +117,10 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 
 	scope := requestWorkspaceScope(c)
 	var req struct {
-		Title   *string      `json:"title"`
-		OwnerID *string      `json:"owner_id"`
-		Data    *model.JSONB `json:"data"`
+		Title        *string      `json:"title"`
+		OwnerID      *string      `json:"owner_id"`
+		Data         *model.JSONB `json:"data"`
+		CoverAssetID *string      `json:"cover_asset_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -128,8 +129,9 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 	}
 
 	project, err := h.projects.Update(c.Param("id"), user.ID, scope, service.UpdateProjectInput{
-		Title: req.Title,
-		Data:  req.Data,
+		Title:        req.Title,
+		Data:         req.Data,
+		CoverAssetID: req.CoverAssetID,
 	})
 	if errors.Is(err, service.ErrTitleRequired) {
 		response.Error(c, 400, "title is required")

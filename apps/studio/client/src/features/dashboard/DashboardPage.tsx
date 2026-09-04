@@ -13,6 +13,7 @@ import {
   createAndOpenProject,
   ProjectCard,
   projectToCard,
+  useProjectCoverUrls,
 } from "@/features/projects";
 import { PageIntro } from "@/shared/ui";
 
@@ -171,6 +172,7 @@ export default function DashboardPage() {
       .catch(() => setRecentProjects([]));
   }, []);
 
+  const recentCoverUrls = useProjectCoverUrls(recentProjects, "personal");
   const recentCards = recentProjects.slice(0, 3).map(projectToCard);
   const latestProject = recentProjects[0];
   const openLatest = () =>
@@ -243,7 +245,7 @@ export default function DashboardPage() {
       <div className="project-row">
         {recentCards.length ? (
           recentCards.map(project => (
-            <ProjectCard key={project.id} {...project} />
+            <ProjectCard key={project.id} {...project} image={(project.id && recentCoverUrls[project.id]) || project.image} />
           ))
         ) : (
           <button
