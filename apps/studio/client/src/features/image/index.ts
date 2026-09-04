@@ -1,11 +1,7 @@
-import { lazy } from "react";
-
-// Keep the public feature entry light so consumers of the typed image API do
-// not pull the full workbench (and its prompt dialog) into their route chunk.
-const ImageWorkbenchView = lazy(() => import("./ImagePage"));
-
-export { ImageWorkbenchView };
-export default ImageWorkbenchView;
+// 由路由层统一负责 React.lazy() 代码分割；这里导出具体组件，避免
+// feature 入口再次嵌套 lazy，导致路由模块默认导出无法被 React 解析。
+export { ImageWorkbenchView } from "./ImagePage";
+export { default } from "./ImagePage";
 export {
   fetchImageModels,
   fetchTextModels,
