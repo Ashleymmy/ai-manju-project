@@ -1,1 +1,422 @@
+/* ============================================================
+   Chat 页（剧本创作入口）—— 统一为 studio 的 midnight editorial
+   设计语言：rail 顶栏、mono eyebrow、切角主按钮、project-card 卡片、
+   rise-in / menu-pop / 扫描加载动画（均尊重 prefers-reduced-motion）
+   ============================================================ */
 
+.chat-page {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+  color: var(--foreground);
+  /* 与 page-content 一致的纵向参考线 */
+  background-image: linear-gradient(90deg, transparent 0, transparent 2.4%, rgba(236,231,215,.05) 2.4%, rgba(236,231,215,.05) calc(2.4% + 1px), transparent calc(2.4% + 1px));
+}
+
+/* ---- 顶栏 ---- */
+.chat-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  height: 60px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--line);
+  background: var(--rail);
+}
+.chat-topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.chat-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.chat-topbar-brand h1 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.chat-topbar-brand p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font: 10px "IBM Plex Mono", monospace;
+}
+
+/* 模式 Tab：与 composer-tabs / detail-tabs 一致的下划线激活态 */
+.chat-mode-tabs {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 18px;
+}
+.chat-mode-tabs button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: color .16s ease;
+}
+.chat-mode-tabs button:hover {
+  color: var(--foreground);
+}
+.chat-mode-tabs button.active {
+  color: var(--foreground);
+}
+.chat-mode-tabs button.active::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -2px;
+  left: 0;
+  height: 2px;
+  background: var(--red);
+}
+
+.chat-topbar-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.chat-user {
+  position: relative;
+}
+.chat-user-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px 5px 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--foreground);
+  cursor: pointer;
+  font-size: 12px;
+  transition: border-color .15s ease, background .15s ease;
+}
+.chat-user-trigger:hover {
+  border-color: rgba(239, 235, 222, 0.3);
+  background: rgba(255, 255, 255, 0.06);
+}
+.chat-user-trigger svg:last-child {
+  color: var(--muted-foreground);
+  transition: transform .18s ease;
+}
+.chat-user-trigger svg:last-child.rotated {
+  transform: rotate(180deg);
+}
+.chat-user-avatar {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.chat-login {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+
+/* 下拉菜单：统一 pop-in 动画 + 深色描边面板 */
+.chat-menu {
+  position: absolute;
+  z-index: 50;
+  min-width: 176px;
+  padding: 5px;
+  border: 1px solid rgba(239, 235, 222, 0.14);
+  border-radius: 10px;
+  background: #1a2022;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+  animation: ui-menu-pop .18s cubic-bezier(.34, 1.3, .64, 1) backwards;
+  transform-origin: top center;
+}
+.chat-user-menu {
+  top: calc(100% + 8px);
+  right: 0;
+}
+.chat-menu button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  transition: background .14s ease;
+}
+.chat-menu button:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+.chat-menu button.active {
+  color: var(--primary);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ---- 主区域 ---- */
+.chat-main {
+  flex: 1;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 72px 32px 64px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.chat-hero {
+  margin-bottom: 26px;
+}
+.chat-hero .eyebrow {
+  margin: 0 0 10px;
+}
+.chat-hero h2 {
+  margin: 0;
+  color: #f4f0e7;
+  font-size: clamp(30px, 3.4vw, 42px);
+  line-height: 1.12;
+  letter-spacing: -0.065em;
+}
+.chat-hero-sub {
+  max-width: 560px;
+  margin: 12px 0 0;
+  color: #c3c3c3;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+/* ---- 创作输入区 ---- */
+.chat-composer {
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: #1a2022;
+  transition: border-color .18s ease, box-shadow .18s ease;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+}
+.chat-composer:focus-within {
+  border-color: rgba(239, 235, 222, 0.3);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+}
+.chat-composer textarea {
+  width: 100%;
+  min-height: 96px;
+  padding: 4px;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--foreground);
+  font: 13px/1.8 "Noto Sans SC", sans-serif;
+}
+.chat-composer textarea::placeholder {
+  color: var(--muted-foreground);
+}
+.chat-composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.chat-composer-hint {
+  color: #979797;
+  font: 10px "IBM Plex Mono", monospace;
+}
+.chat-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.chat-model {
+  position: relative;
+}
+.chat-model-menu {
+  bottom: calc(100% + 8px);
+  right: 0;
+  transform-origin: bottom center;
+}
+.chat-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #d7d3c9;
+  cursor: pointer;
+  font-size: 11px;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.chat-tool-btn:hover {
+  border-color: rgba(239, 235, 222, 0.3);
+  background: rgba(255, 255, 255, 0.07);
+  color: #f4f0e7;
+}
+.chat-tool-btn svg:last-child {
+  transition: transform .18s ease;
+}
+.chat-tool-btn svg.rotated {
+  transform: rotate(180deg);
+}
+.chat-mic {
+  width: 30px;
+  padding: 0;
+  justify-content: center;
+}
+.chat-mic.listening {
+  border-color: rgba(233, 81, 62, 0.55);
+  background: rgba(233, 81, 62, 0.14);
+  color: #ffb3a6;
+}
+.chat-send {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+}
+.chat-send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---- 最近项目 ---- */
+.chat-recent {
+  margin-top: 42px;
+}
+.chat-recent .section-line {
+  margin-bottom: 14px;
+}
+.chat-recent .section-line button:hover {
+  color: #f4f0e7;
+}
+/* 新建入口卡：虚线边框占位，与 project-card 同高 */
+.chat-new-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 100%;
+  border: 1px dashed rgba(239, 235, 222, 0.22);
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.chat-new-card::before {
+  content: none;
+}
+.chat-new-card:hover {
+  color: #f4f0e7;
+  border-color: rgba(239, 235, 222, 0.4);
+}
+
+/* ---- 发送后的全屏加载覆盖层 ---- */
+.chat-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(10, 12, 13, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+.chat-loading svg {
+  color: var(--primary);
+}
+.chat-loading p {
+  margin: 6px 0 0;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 500;
+}
+.chat-loading small {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.chat-loading-bar {
+  position: relative;
+  width: 190px;
+  height: 3px;
+  margin-top: 12px;
+  overflow: hidden;
+  background: #2c2c2c;
+}
+.chat-loading-bar i {
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, #f2f1ed, transparent);
+}
+
+/* ---- 动效（尊重系统减弱动效设置） ---- */
+@media (prefers-reduced-motion: no-preference) {
+  .chat-hero { animation: rise-in .42s var(--ease-out) both; }
+  .chat-composer { animation: rise-in .42s .06s var(--ease-out) both; }
+  .chat-recent { animation: rise-in .42s .12s var(--ease-out) both; }
+  .chat-mic.listening { animation: chat-mic-pulse 1.6s var(--ease-out) infinite; }
+  .chat-loading-bar i { animation: chat-loading-sheen 1.15s linear infinite; }
+}
+@keyframes chat-mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(233, 81, 62, 0.3); }
+  50% { box-shadow: 0 0 0 7px rgba(233, 81, 62, 0); }
+}
+@keyframes chat-loading-sheen {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
+@media (max-width: 860px) {
+  .chat-mode-tabs {
+    position: static;
+    transform: none;
+    gap: 10px;
+  }
+  .chat-topbar {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 10px 16px;
+    row-gap: 8px;
+  }
+  .chat-main {
+    padding: 48px 18px 44px;
+  }
+}
