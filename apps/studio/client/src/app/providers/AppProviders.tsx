@@ -15,7 +15,8 @@ export default function AppProviders({ children }: { children: ReactNode }) {
         <ThemeProvider defaultTheme="dark">
           <AuthProvider>
             <TooltipProvider>
-              <Toaster position="bottom-right" theme="dark" richColors />
+              {/* 成功提示放顶部居中，避免挡住画布右下角内容 */}
+              <Toaster position="top-center" theme="dark" richColors />
               {children}
             </TooltipProvider>
           </AuthProvider>
