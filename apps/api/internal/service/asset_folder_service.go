@@ -474,17 +474,27 @@ func (s *AssetFolderService) FolderIDsForQuery(folderID string, includeDescendan
 }
 
 func (s *AssetFolderService) ensureSystemFolder(userID string, workspaceID string, parentID string, name string, systemKey string, sourceRefType string, sourceRefID string, sortOrder int) (model.AssetFolder, error) {
+	return s.ensureSystemFolderNamed(userID, workspaceID, parentID, name, systemKey, sourceRefType, sourceRefID, sortOrder, false)
+}
+
+func (s *AssetFolderService) ensureSystemFolderNamed(userID string, workspaceID string, parentID string, name string, systemKey string, sourceRefType string, sourceRefID string, sortOrder int, disambiguated bool) (model.AssetFolder, error) {
 	name, normalized, err := normalizeAssetFolderName(name)
 	if err != nil {
 		return model.AssetFolder{}, err
 	}
 	identity := strings.Join([]string{workspaceID, systemKey, sourceRefID}, "|")
-	return s.folders.EnsureSystem(model.AssetFolder{
+	folder, err := s.folders.EnsureSystem(model.AssetFolder{
 		ID: "asset_folder_" + randomHex(12), WorkspaceID: workspaceID, CreatedBy: userID,
 		ParentID: parentID, Name: name, NormalizedName: normalized, Kind: model.AssetFolderKindSystem,
 		SystemKey: systemKey, SourceRefType: sourceRefType, SourceRefID: sourceRefID,
 		SystemIdentity: &identity, SortOrder: sortOrder,
 	})
+	if err == nil || disambiguated || !errors.Is(err, repository.ErrAssetFolderConflict) {
+		return folder, err
+	}
+	// Two canvases or comic projects can share a display title. Keep the first
+	// folder's pretty name and suffix later collisions with a stable ref.
+	return s.ensureSystemFolderNamed(userID, workspaceID, parentID, disambiguateSystemFolderName(name, sourceRefID), systemKey, sourceRefType, sourceRefID, sortOrder, true)
 }
 
 func (s *AssetFolderService) ensureUserChild(userID string, workspaceID string, parent model.AssetFolder, name string, sortOrder int) (model.AssetFolder, error) {
@@ -648,6 +658,29 @@ func descendantFolderIDs(folderID string, children map[string][]string) []string
 		queue = append(queue, children[id]...)
 	}
 	return result
+}
+
+func disambiguateSystemFolderName(name string, sourceRefID string) string {
+	suffix := strings.TrimSpace(sourceRefID)
+	if suffix == "" {
+		suffix = randomHex(4)
+	}
+	if runes := []rune(suffix); len(runes) > 8 {
+		suffix = string(runes[len(runes)-8:])
+	}
+	separator := " · "
+	keep := AssetFolderMaxNameRunes - utf8.RuneCountInString(separator) - utf8.RuneCountInString(suffix)
+	if keep < 1 {
+		keep = 1
+	}
+	nameRunes := []rune(strings.TrimSpace(name))
+	if len(nameRunes) > keep {
+		nameRunes = nameRunes[:keep]
+	}
+	if len(nameRunes) == 0 {
+		return suffix
+	}
+	return string(nameRunes) + separator + suffix
 }
 
 func defaultFolderName(value string, fallback string) string {

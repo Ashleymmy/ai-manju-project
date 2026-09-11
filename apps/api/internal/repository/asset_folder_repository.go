@@ -214,7 +214,16 @@ func (r *GormAssetFolderRepository) EnsureSystem(folder model.AssetFolder) (mode
 	if result.RowsAffected > 0 {
 		return folder, nil
 	}
-	return r.FindSystem(folder.WorkspaceID, folder.SystemKey, folder.SourceRefID)
+	found, findErr := r.FindSystem(folder.WorkspaceID, folder.SystemKey, folder.SourceRefID)
+	if findErr == nil {
+		return found, nil
+	}
+	// Sibling-name unique index can collide across different canvas/comic
+	// projects that share a display title. That is not "the same folder".
+	if errors.Is(findErr, ErrAssetFolderNotFound) {
+		return model.AssetFolder{}, ErrAssetFolderConflict
+	}
+	return model.AssetFolder{}, findErr
 }
 
 func (r *GormAssetFolderRepository) Update(folder model.AssetFolder, workspaceID string) (model.AssetFolder, error) {
