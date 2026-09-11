@@ -7,6 +7,7 @@ import {
   Loader2,
   Music2,
   Search,
+  Star,
 } from "lucide-react";
 import {
   Dialog,
@@ -16,22 +17,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import type {
+  CanvasAssetPickerFolderOption,
+  CanvasAssetPickerItem,
+  CanvasAssetPickerKind,
+} from "@/features/canvas/controllers/assets-mentions/types";
 import type { WorkspaceScope } from "@/shared/config/workspace";
 
-export type CanvasAssetPickerKind = "all" | "text" | "image" | "video" | "audio";
+export type { CanvasAssetPickerItem, CanvasAssetPickerKind };
 
-export type CanvasAssetPickerItem = {
-  id: string;
-  type: Exclude<CanvasAssetPickerKind, "all">;
-  name: string;
-  scope: WorkspaceScope;
-  source: "server" | "local-text";
-  serverAsset?: unknown;
-  textAsset?: unknown;
-  category?: string;
-  size?: number;
-  contentType?: string;
-};
+const PICKER_KIND_CHIPS: Array<{ value: CanvasAssetPickerKind; label: string }> = [
+  { value: "all", label: "全部" },
+  { value: "favorite", label: "收藏夹" },
+  { value: "text", label: "文本" },
+  { value: "image", label: "图片" },
+  { value: "video", label: "视频" },
+  { value: "audio", label: "音频" },
+];
 
 export type CanvasAssetPickerDialogProps = {
   open: boolean;
@@ -41,12 +43,16 @@ export type CanvasAssetPickerDialogProps = {
   loading: boolean;
   query: string;
   kind: CanvasAssetPickerKind;
+  folderId: string;
+  folders: CanvasAssetPickerFolderOption[];
   error: string;
   items: CanvasAssetPickerItem[];
   selectedIds: string[];
+  thumbnails: Record<string, string>;
   onOpenChange: (open: boolean) => void;
   onScopeChange: (scope: WorkspaceScope) => void;
   onKindChange: (kind: CanvasAssetPickerKind) => void;
+  onFolderChange: (folderId: string) => void;
   onQueryChange: (query: string) => void;
   onSearch: () => void;
   onToggleItem: (itemId: string) => void;
@@ -62,12 +68,16 @@ export function CanvasAssetPickerDialog({
   loading,
   query,
   kind,
+  folderId,
+  folders,
   error,
   items,
   selectedIds,
+  thumbnails,
   onOpenChange,
   onScopeChange,
   onKindChange,
+  onFolderChange,
   onQueryChange,
   onSearch,
   onToggleItem,
@@ -96,18 +106,32 @@ export function CanvasAssetPickerDialog({
             ))}
           </div>
           <div className="scope-switch canvas-asset-kind-switch">
-            {(["all", "text", "image", "video", "audio"] as CanvasAssetPickerKind[]).map((itemKind) => (
+            {PICKER_KIND_CHIPS.map((chip) => (
               <button
-                key={itemKind}
+                key={chip.value}
                 type="button"
-                className={kind === itemKind ? "active" : ""}
+                className={kind === chip.value ? "active" : ""}
                 disabled={loading || insertBusy}
-                onClick={() => onKindChange(itemKind)}
+                onClick={() => onKindChange(chip.value)}
               >
-                {itemKind === "all" ? "全部" : itemKind === "text" ? "文本" : itemKind === "image" ? "图片" : itemKind === "video" ? "视频" : "音频"}
+                {chip.value === "favorite" ? <Star size={12} fill={kind === "favorite" ? "currentColor" : "none"} /> : null}
+                {chip.label}
               </button>
             ))}
           </div>
+          <label className="canvas-asset-picker-location">
+            <span>位置</span>
+            <select
+              value={folderId}
+              disabled={loading || insertBusy}
+              onChange={(event) => onFolderChange(event.target.value)}
+            >
+              <option value="">全部目录</option>
+              {folders.map((folder) => (
+                <option key={folder.id} value={folder.id}>{folder.label}</option>
+              ))}
+            </select>
+          </label>
           <label>
             <Search size={15} />
             <input
@@ -127,18 +151,22 @@ export function CanvasAssetPickerDialog({
           {items.map((asset) => {
             const selected = selectedIds.includes(asset.id);
             const Icon = asset.type === "text" ? BookOpen : asset.type === "image" ? ImageIcon : asset.type === "video" ? Film : Music2;
+            const thumb = thumbnails[asset.id] || "";
             return (
               <button
                 type="button"
                 key={asset.id}
                 className={selected ? "selected" : ""}
                 disabled={insertBusy}
+                title={asset.name}
                 onClick={() => onToggleItem(asset.id)}
               >
-                <span><Icon size={19} /></span>
-                <b>{asset.name}</b>
-                <small>{asset.type === "text" ? `文本 · ${asset.source === "local-text" ? "本地持久化" : "资产库"}` : `${asset.type} · ${asset.category || "未分类"} · ${asset.size ? formatBytes(asset.size) : "未知体积"}`}</small>
-                <i>{selected ? <Check size={14} /> : null}</i>
+                {thumb ? (
+                  <img className="canvas-asset-picker-thumb" src={thumb} alt="" />
+                ) : (
+                  <span className="canvas-asset-picker-fallback"><Icon size={22} /></span>
+                )}
+                {selected ? <i><Check size={13} /></i> : null}
               </button>
             );
           })}
@@ -153,11 +181,4 @@ export function CanvasAssetPickerDialog({
       </DialogContent>
     </Dialog>
   );
-}
-
-function formatBytes(value: number) {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
-  return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }

@@ -1,5 +1,5 @@
 import { getAsset, getAssetContentObjectUrl, uploadAsset } from "@/entities/asset";
-import { cancelJob } from "@/entities/job";
+import { cancelJob, getJobs } from "@/entities/job";
 import {
   generateImages,
   generatedImagesFromJob,
@@ -19,6 +19,7 @@ export const browserCanvasGenerationServices: CanvasGenerationServices = {
   getAssetContentObjectUrl,
   uploadAsset,
   cancelJob,
+  getJobs,
   generateImages,
   generatedImagesFromJob,
   waitForImageJob,

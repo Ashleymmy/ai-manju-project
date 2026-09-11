@@ -22,8 +22,9 @@ import {
   Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   AlertDialog,
@@ -74,6 +75,10 @@ import {
   getAssetContentObjectUrl,
   getAssetExport,
   getAssetLibrary,
+  invalidateAssetRecord,
+  publishAssetNameChange,
+  subscribeAssetNameChanges,
+  updateAssetMetadata,
   updateAssetUserState,
   uploadAsset,
   type Asset,
@@ -127,6 +132,7 @@ import {
 } from "@/features/canvas/controllers/autosave";
 import { CanvasHistoryController } from "@/features/canvas/controllers/history";
 import {
+  CANVAS_PROJECT_SESSION_MESSAGES,
   CanvasProjectSessionController,
   type CanvasProjectSessionLoaded,
 } from "@/features/canvas/controllers/project-session";
@@ -241,6 +247,11 @@ import {
   canvasAgentSnapshotFromCanvas,
 } from "@/features/canvas/domain/snapshotCodec";
 import {
+  applyAssetNameToLinkedNodes,
+  collectLinkedAssetRefs,
+  reconcileLinkedAssetNames,
+} from "@/features/canvas/domain/assetNameSync";
+import {
   assetIdFromNode,
   imageSrcFromNode,
   looksLikeImageSource,
@@ -249,20 +260,22 @@ import {
   normalizeCanvasNode,
   normalizeCanvasNodeKind,
 } from "@/features/canvas/domain/nodes";
+import { canvasPinnedNodes, normalizeCanvasPinColor } from "@/features/canvas/domain/pin";
 import {
   batchChildGridPosition,
   refreshImageBatchRoot,
   snapImageBatchChildrenToGrid,
 } from "@/features/canvas/domain/batch";
 import { isRecord, numberValue, stringValue } from "@/features/canvas/domain/value";
+import { collectCanvasGenerationHistory, cloneCanvasNodeFromGenerationHistory, cloneCanvasNodeFromGenerationRevision, parseCanvasGenerationHistoryItemId } from "@/features/canvas/domain/generationHistory";
 import {
   canvasListHref,
   canvasProjectHref,
   isWorkspaceScope,
   projectScopeFromServer,
+  scopeFromCanvasSearch,
   workspaceScopeValue,
 } from "@/features/canvas/domain/workspace";
-import { scopeFromCanvasLocation as scopeFromLocation } from "@/features/canvas/adapters/workspaceLocation";
 import type {
   CanvasBackgroundMode,
   CanvasEdgeData,
@@ -283,6 +296,8 @@ import {
   cloneCanvasNodes,
   defaultGenerationModeForKind,
   defaultMediaMimeType,
+  applyCanvasImageNaturalSize,
+  canvasImageParamDefaults,
   fragmentMediaFileName,
   fragmentMediaMimeType,
   generationModeFromNode,
@@ -359,6 +374,11 @@ function formatCanvasSyncTime(value: string) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("zh-CN");
 }
 
+// 模型 id 形如 "provider_xxx::gpt-image-1"：界面展示只保留 :: 后的纯模型名
+function shortModelName(model: string) {
+  return model.split("::").at(-1) || model;
+}
+
 function starterNodes(): CanvasNodeData[] {
   return [
     {
@@ -370,7 +390,7 @@ function starterNodes(): CanvasNodeData[] {
       y: 130,
       width: 290,
       height: 178,
-      metadata: { content: "", prompt: "", composerContent: "", status: "idle", size: "auto", quality: "auto", count: 1 },
+      metadata: { content: "", prompt: "", composerContent: "", status: "idle", ...canvasImageParamDefaults(), count: 1 },
     },
     {
       id: crypto.randomUUID(),
@@ -381,7 +401,7 @@ function starterNodes(): CanvasNodeData[] {
       y: 82,
       width: 300,
       height: 178,
-      metadata: { content: "", prompt: "", composerContent: "", status: "idle", size: "auto", quality: "auto", count: 1 },
+      metadata: { content: "", prompt: "", composerContent: "", status: "idle", ...canvasImageParamDefaults(), count: 1 },
     },
   ];
 }
@@ -419,13 +439,20 @@ function canvasArchiveMediaKind(mimeType: string): "image" | "video" | "audio" {
 
 export default function CanvasWorkspaceViewContent() {
   const [location, navigate] = useLocation();
+  /* wouter 的 useLocation 只返回 pathname（不含 ?query），search 变化需要 useSearch 订阅，
+     否则列表页点击"个人/团队空间"只改 query 时不会触发 scope 同步 */
+  const searchString = useSearch();
   const { user } = useAuth();
   const projectId = location.startsWith("/canvas/") ? decodeURIComponent(location.slice("/canvas/".length).split("?")[0]) : "";
   const canvasCommands = useCanvasCommands();
   const canvasStore = useCanvasStoreApi();
+  const queryClient = useQueryClient();
+  const assetNameSyncGeneration = useRef(0);
   const scope = useCanvasStore((state) => state.session.scope);
   const setScope = canvasCommands.session.setScope;
   const [projects, setProjects] = useState<CanvasProject[]>([]);
+  /* 列表加载中标记：切换空间/刷新列表期间显示"加载中"，避免闪烁误导性的"还没有画布项目" */
+  const [projectListLoading, setProjectListLoading] = useState(true);
   const [coverProjectId, setCoverProjectId] = useState("");
   /* 画布标题行内重命名：双击标题进入编辑（命名带 project 前缀，避开节点标题编辑的 titleDraft） */
   const [projectTitleEditing, setProjectTitleEditing] = useState(false);
@@ -499,8 +526,7 @@ export default function CanvasWorkspaceViewContent() {
   const [agentUndoSnapshot, setAgentUndoSnapshot] = useState<CanvasAgentSnapshot | null>(null);
   const inspectorOpen = useCanvasStore((state) => state.ui.inspectorOpen);
   const setInspectorOpen = canvasCommands.ui.setInspectorOpen;
-  const pinnedToolbarNodeId = useCanvasStore((state) => state.ui.pinnedToolbarNodeId);
-  const setPinnedToolbarNodeId = canvasCommands.ui.setPinnedToolbarNodeId;
+  const [generationHistoryOpen, setGenerationHistoryOpen] = useState(false);
   const shortcutsRef = useRef<CanvasShortcutBindings>({ ...DEFAULT_CANVAS_SHORTCUTS });
   // 快捷键处理器声明在生成逻辑之前，用 ref 间接调用以避免前向引用。
   const runSelectedGenerationRef = useRef<() => Promise<void>>(async () => undefined);
@@ -631,6 +657,7 @@ export default function CanvasWorkspaceViewContent() {
     connectionPreviewPoint,
     pendingConnectionCreate,
     selectionBox,
+    alignmentGuides,
     stageBounds,
   } = stageInteraction;
   const panelRef = useRef<HTMLElement>(null);
@@ -726,6 +753,7 @@ export default function CanvasWorkspaceViewContent() {
     previewMentionReference,
     queueMentionAssetSearch,
     searchAssetPicker,
+    setAssetPickerFolder,
     setAssetPickerKind,
     setAssetPickerOpen,
     setAssetPickerQuery,
@@ -739,9 +767,12 @@ export default function CanvasWorkspaceViewContent() {
     loading: assetPickerLoading,
     query: assetPickerQuery,
     kind: assetPickerKind,
+    folderId: assetPickerFolderId,
+    folders: assetPickerFolders,
     error: assetPickerError,
     items: assetPickerItems,
     selectedIds: assetPickerSelectedIds,
+    thumbnails: assetPickerThumbnails,
   } = assetPicker;
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
@@ -787,6 +818,11 @@ export default function CanvasWorkspaceViewContent() {
     [edges, nodes, panX, panY, projectId, projectTitle, selectedNodeIds, zoom],
   );
   const visibleNodes = useMemo(() => nodes.filter((node) => !isHiddenCanvasBatchChild(node, nodes)), [nodes]);
+  const pinnedMarkers = useMemo(() => canvasPinnedNodes(visibleNodes), [visibleNodes]);
+  const generationHistoryItems = useMemo(
+    () => collectCanvasGenerationHistory(nodes, previews, canvasAssets),
+    [canvasAssets, nodes, previews],
+  );
   // 视口裁剪（移植自旧优化引擎的可见区剔除思路）：只为"可视范围 + 600px 屏幕缓冲"内的节点挂载 DOM。
   // 缓冲区同时保证节点入场动画在屏外播完，正常平移不会看到节点闪现；缩略图/连线仍用全量 visibleNodes。
   const renderedNodes = useMemo(() => {
@@ -1011,7 +1047,7 @@ export default function CanvasWorkspaceViewContent() {
     endGroupResize,
     endResize,
     fitCanvasToContent,
-    focusNodeInViewport,
+    panNodesIntoViewport,
     getCanvasCenter,
     handleCanvasDoubleClick,
     handleCanvasLinesClick,
@@ -1156,11 +1192,12 @@ export default function CanvasWorkspaceViewContent() {
   }, []);
 
   useEffect(() => {
-    setScope(scopeFromLocation(location));
-  }, [location]);
+    setScope(scopeFromCanvasSearch(searchString));
+  }, [searchString]);
 
   useEffect(() => {
     let disposed = false;
+    setProjectListLoading(true);
     setProjects([]);
     setSelectedProjectIds(new Set());
     setProjectDeleteIds([]);
@@ -1171,7 +1208,10 @@ export default function CanvasWorkspaceViewContent() {
       })
       .catch(() => {
         if (!disposed) setProjects([]);
-    });
+      })
+      .finally(() => {
+        if (!disposed) setProjectListLoading(false);
+      });
     return () => { disposed = true; };
   }, [projectListScope]);
 
@@ -1271,6 +1311,49 @@ export default function CanvasWorkspaceViewContent() {
       abortAllGenerationRequests();
     };
   }, [abortAllGenerationRequests, projectId, projectSessionController, scope]);
+
+  useEffect(() => {
+    if (loading || switching || !projectId) return;
+    const activeScope = projectSessionController.canonicalScope;
+    if (!activeScope) return;
+    const generation = ++assetNameSyncGeneration.current;
+    const nodes = nodesRef.current;
+    const refs = collectLinkedAssetRefs(nodes, activeScope);
+    if (!refs.length) return;
+    let disposed = false;
+    void Promise.all(refs.map(async item => {
+      try {
+        const asset = await getAsset(item.assetId, item.scope);
+        return [item.assetId, asset.name] as const;
+      } catch {
+        return [item.assetId, ""] as const;
+      }
+    })).then(entries => {
+      if (disposed || generation !== assetNameSyncGeneration.current) return;
+      const names = Object.fromEntries(entries.filter(([, name]) => name.trim()));
+      const result = reconcileLinkedAssetNames(nodesRef.current, names, activeScope);
+      if (result.nodes !== nodesRef.current) {
+        nodesRef.current = result.nodes;
+        setNodes(result.nodes);
+      }
+      for (const push of result.pushes) {
+        void updateAssetMetadata(push.assetId, { name: push.name }, push.scope)
+          .then(() => {
+            publishAssetNameChange(push);
+            void invalidateAssetRecord(queryClient, push.scope, push.assetId);
+          })
+          .catch(() => undefined);
+      }
+    });
+    return () => { disposed = true; };
+  }, [canonicalProjectScope, loading, projectId, queryClient, switching]);
+
+  useEffect(() => subscribeAssetNameChanges(message => {
+    const nextNodes = applyAssetNameToLinkedNodes(nodesRef.current, message.assetId, message.name);
+    if (nextNodes === nodesRef.current) return;
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+  }), []);
 
   useEffect(() => {
     uploadingRef.current = uploading;
@@ -1467,6 +1550,15 @@ export default function CanvasWorkspaceViewContent() {
       bootstrapPromptRef.current = "";
       setBootstrapActive(false);
     },
+    onProjectMissing: targetScope => {
+      /* 陈旧/已删除的画布链接：兜底跳回列表页，避免页面永远卡在"确认工作区"、所有按钮失效 */
+      setSyncStatus("error");
+      setSyncError(CANVAS_PROJECT_SESSION_MESSAGES.projectMissing);
+      toast.error(CANVAS_PROJECT_SESSION_MESSAGES.projectMissing);
+      bootstrapPromptRef.current = "";
+      setBootstrapActive(false);
+      navigate(canvasListHref(targetScope), { replace: true });
+    },
     onSettled: () => {
       setLoading(false);
       setSwitching(false);
@@ -1625,14 +1717,14 @@ export default function CanvasWorkspaceViewContent() {
       content: "",
       x: basePosition.x,
       y: basePosition.y,
-      width: normalizedKind === "image" ? 300 : normalizedKind === "video" ? 420 : 300,
-      height: normalizedKind === "audio" ? 120 : normalizedKind === "image" ? 220 : 170,
+      width: normalizedKind === "image" ? 320 : normalizedKind === "video" ? 420 : 300,
+      height: normalizedKind === "audio" ? 120 : normalizedKind === "image" ? 238 : 170,
       metadata: {
         content: "",
         generationMode: defaultGenerationModeForKind(normalizedKind),
         model: normalizedKind === "video" ? videoModel : normalizedKind === "audio" ? audioModel : normalizedKind === "image" ? imageModel : normalizedKind === "text" ? textModel : undefined,
         status: "idle",
-        size: "auto",
+        ...canvasImageParamDefaults(),
         resolution: "720p",
         seconds: "5",
         generateAudio: false,
@@ -1641,7 +1733,6 @@ export default function CanvasWorkspaceViewContent() {
         audioFormat: "mp3",
         audioSpeed: "1",
         audioInstructions: "",
-        quality: "auto",
         count: 1,
         ...(normalizedKind === "director" ? {
           directorInstanceId: `director-${crypto.randomUUID()}`,
@@ -1718,6 +1809,16 @@ export default function CanvasWorkspaceViewContent() {
     const nextNodes = nodesRef.current.map((node) => node.id === id ? { ...node, ...patch } : node);
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
+  };
+
+  const setNodePinColor = (nodeId: string, color: string) => {
+    const node = nodesRef.current.find((item) => item.id === nodeId);
+    if (!node) return;
+    const pinColor = normalizeCanvasPinColor(color);
+    const metadata = { ...node.metadata };
+    if (pinColor) metadata.pinColor = pinColor;
+    else delete metadata.pinColor;
+    updateNode(nodeId, { metadata });
   };
 
   const updateNodePrompt = (id: string, content: string) => {
@@ -2559,6 +2660,17 @@ export default function CanvasWorkspaceViewContent() {
     }
   };
 
+  const fitCanvasImageNodeFrame = (nodeId: string, naturalWidth: number, naturalHeight: number) => {
+    const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
+    if (!sourceNode || sourceNode.kind !== "image") return;
+    const nextNode = applyCanvasImageNaturalSize(sourceNode, naturalWidth, naturalHeight);
+    if (nextNode === sourceNode) return;
+    const nextNodes = nodesRef.current.map((node) => node.id === nodeId ? nextNode : node);
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    void persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+  };
+
   const replaceCanvasImage = async (file: File | undefined) => {
     const sourceNode = nodesRef.current.find((node) => node.id === replaceImageNodeId);
     setReplaceImageNodeId("");
@@ -2588,6 +2700,8 @@ export default function CanvasWorkspaceViewContent() {
           bytes: asset.size || file.size,
           editRelation: "replace",
           status: "success" as const,
+          naturalWidth: undefined,
+          naturalHeight: undefined,
         },
       } : node);
       nodesRef.current = nextNodes;
@@ -2790,9 +2904,14 @@ export default function CanvasWorkspaceViewContent() {
 
   stageInteractionController.updateBindings({
     isSwitching: () => projectSessionController.switching,
-    isInteractionBlocked: () => projectSessionController.switching
-      || projectSessionController.loading
-      || Boolean(projectId && !projectSessionController.canonicalScope),
+    isInteractionBlocked: () => {
+      const ui = canvasStore.getState().ui;
+      return projectSessionController.switching
+        || projectSessionController.loading
+        || Boolean(projectId && !projectSessionController.canonicalScope)
+        || Boolean(ui.imageAnnotationNodeId)
+        || Boolean(ui.imageMaskNodeId);
+    },
     isProjectActionDisabled: () => projectActionDisabled,
     getWheelZoomRequiresCtrl: () => wheelZoomRequiresCtrl,
     getShortcuts: () => shortcutsRef.current,
@@ -2836,10 +2955,36 @@ export default function CanvasWorkspaceViewContent() {
     onWarning: message => toast.warning(message),
   });
 
+  const syncLinkedAssetTitle = (node: CanvasNodeData, nextTitle: string) => {
+    const title = nextTitle.trim();
+    if (!title) return;
+    const assetId = assetIdFromNode(node);
+    const nextNodes = applyAssetNameToLinkedNodes(nodesRef.current, assetId, title, node.id);
+    if (nextNodes !== nodesRef.current) {
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
+    }
+    if (!assetId) return;
+    const assetScope = workspaceScopeValue(node.metadata?.assetScope) || projectSessionController.canonicalScope;
+    if (!assetScope) return;
+    void updateAssetMetadata(assetId, { name: title }, assetScope)
+      .then(() => {
+        publishAssetNameChange({ assetId, name: title, scope: assetScope });
+        void invalidateAssetRecord(queryClient, assetScope, assetId);
+      })
+      .catch(() => toast.warning("画布名称已改，但资产库同步失败"));
+  };
+
   const commitNodeTitle = (node: CanvasNodeData) => {
     const nextTitle = titleDraft.trim();
-    if (nextTitle && nextTitle !== node.title) updateNode(node.id, { title: nextTitle });
     setTitleEditingNodeId("");
+    if (!nextTitle || nextTitle === node.title) return;
+    syncLinkedAssetTitle(node, nextTitle);
+  };
+
+  const commitLinkedAssetTitle = (node: CanvasNodeData) => {
+    const current = nodesRef.current.find(item => item.id === node.id) || node;
+    syncLinkedAssetTitle(current, current.title);
   };
 
   const startPanelWidthResize = (event: PointerEvent, node: CanvasNodeData) => {
@@ -2910,6 +3055,33 @@ export default function CanvasWorkspaceViewContent() {
     void persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
   };
   toggleCanvasBatchRef.current = toggleCanvasBatch;
+
+  const applyGenerationHistoryItem = async (nodeId: string) => {
+    const parsed = parseCanvasGenerationHistoryItemId(nodeId);
+    const host = nodesRef.current.find((item) => item.id === parsed.nodeId);
+    if (!host || (host.kind !== "image" && host.kind !== "video")) return;
+    const center = getCanvasCenter();
+    const placement = {
+      id: crypto.randomUUID(),
+      x: Math.round(center.x - host.width / 2),
+      y: Math.round(center.y - host.height / 2),
+    };
+    const revision = parsed.revisionId
+      ? (host.metadata?.generationRevisions || []).find((item) => item.id === parsed.revisionId)
+      : undefined;
+    if (parsed.revisionId && !revision) return;
+    const created = revision
+      ? cloneCanvasNodeFromGenerationRevision(host, revision, placement)
+      : cloneCanvasNodeFromGenerationHistory(host, placement);
+    const nextNodes = [...nodesRef.current, created];
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    applyNodeSelection([created.id], created.id, true);
+    setGenerationHistoryOpen(false);
+    panNodesIntoViewport([created.id]);
+    toast.success(created.kind === "video" ? "已将视频添加到画布" : "已将图片添加到画布");
+    await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+  };
 
   const setBatchPrimaryNode = (child: CanvasNodeData) => {
     const rootId = child.metadata?.batchRootId;
@@ -3732,9 +3904,75 @@ export default function CanvasWorkspaceViewContent() {
     }
   };
 
+  // 新建画布对话框：画布列表页与画布工作区共用（之前只挂在列表页分支，导致画布内点"新建画布"无反应）
+  const createProjectDialog = (
+    <Dialog
+      open={createDialogOpen}
+      onOpenChange={(open) => {
+        if (!open && createDialogBusy) return;
+        setCreateDialogOpen(open);
+        if (!open) setCreateDialogError("");
+      }}
+    >
+      <DialogContent
+        className="sm:max-w-[520px]"
+        showCloseButton={!createDialogBusy}
+        onEscapeKeyDown={(event) => { if (createDialogBusy) event.preventDefault(); }}
+        onPointerDownOutside={(event) => { if (createDialogBusy) event.preventDefault(); }}
+        onInteractOutside={(event) => { if (createDialogBusy) event.preventDefault(); }}
+      >
+        <DialogHeader>
+          <DialogTitle>新建分镜画布</DialogTitle>
+          <DialogDescription>选择工作空间并命名。创建请求失败时会保留当前表单，不会生成假的本地项目。</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-2">
+          <label className="grid gap-2 text-sm">
+            <span>工作空间</span>
+            <div className="scope-switch">
+              {scopeOptions.map((item) => (
+                <button key={item.value} type="button" className={createDialogScope === item.value ? "active" : ""} onClick={() => setCreateDialogScope(item.value)} disabled={createDialogBusy}>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </label>
+          <label className="grid gap-2 text-sm">
+            <span>画布名称</span>
+            <input
+              autoFocus
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              value={createDialogTitle}
+              maxLength={120}
+              placeholder="例如：第一集分镜"
+              disabled={createDialogBusy}
+              onChange={(event) => {
+                setCreateDialogTitle(event.target.value);
+                if (createDialogError) setCreateDialogError("");
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void submitCreateProject();
+                }
+              }}
+            />
+          </label>
+          {createDialogError ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{createDialogError}</p> : null}
+        </div>
+        <DialogFooter>
+          <button className="outline-button small" type="button" onClick={() => setCreateDialogOpen(false)} disabled={createDialogBusy}>取消</button>
+          <button className="vermilion-button" type="button" onClick={() => void submitCreateProject()} disabled={createDialogBusy || !createDialogTitle.trim()}>
+            {createDialogBusy ? "创建中…" : "创建并进入"}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (!projectId) {
     return (
       <>
+        {createProjectDialog}
         <ProjectCoverPickerDialog
           open={Boolean(coverProjectId)}
           scope={projectListScope}
@@ -3788,70 +4026,9 @@ export default function CanvasWorkspaceViewContent() {
                 </article>
               );
             })}
-            {!projects.length && <div className="empty-output"><p>还没有画布项目。</p></div>}
+            {!projects.length && <div className="empty-output"><p>{projectListLoading ? "正在加载画布列表…" : "还没有画布项目。"}</p></div>}
           </div>
         </div>
-        <Dialog
-          open={createDialogOpen}
-          onOpenChange={(open) => {
-            if (!open && createDialogBusy) return;
-            setCreateDialogOpen(open);
-            if (!open) setCreateDialogError("");
-          }}
-        >
-          <DialogContent
-            className="sm:max-w-[520px]"
-            showCloseButton={!createDialogBusy}
-            onEscapeKeyDown={(event) => { if (createDialogBusy) event.preventDefault(); }}
-            onPointerDownOutside={(event) => { if (createDialogBusy) event.preventDefault(); }}
-            onInteractOutside={(event) => { if (createDialogBusy) event.preventDefault(); }}
-          >
-            <DialogHeader>
-              <DialogTitle>新建分镜画布</DialogTitle>
-              <DialogDescription>选择工作空间并命名。创建请求失败时会保留当前表单，不会生成假的本地项目。</DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-2">
-              <label className="grid gap-2 text-sm">
-                <span>工作空间</span>
-                <div className="scope-switch">
-                  {scopeOptions.map((item) => (
-                    <button key={item.value} type="button" className={createDialogScope === item.value ? "active" : ""} onClick={() => setCreateDialogScope(item.value)} disabled={createDialogBusy}>
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              </label>
-              <label className="grid gap-2 text-sm">
-                <span>画布名称</span>
-                <input
-                  autoFocus
-                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                  value={createDialogTitle}
-                  maxLength={120}
-                  placeholder="例如：第一集分镜"
-                  disabled={createDialogBusy}
-                  onChange={(event) => {
-                    setCreateDialogTitle(event.target.value);
-                    if (createDialogError) setCreateDialogError("");
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void submitCreateProject();
-                    }
-                  }}
-                />
-              </label>
-              {createDialogError ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{createDialogError}</p> : null}
-            </div>
-            <DialogFooter>
-              <button className="outline-button small" type="button" onClick={() => setCreateDialogOpen(false)} disabled={createDialogBusy}>取消</button>
-              <button className="vermilion-button" type="button" onClick={() => void submitCreateProject()} disabled={createDialogBusy || !createDialogTitle.trim()}>
-                {createDialogBusy ? "创建中…" : "创建并进入"}
-              </button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
         <AlertDialog open={projectDeleteIds.length > 0} onOpenChange={(open) => { if (!open && !projectBatchBusy) { setProjectDeleteIds([]); setProjectDeleteError(""); } }}>
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -3894,7 +4071,7 @@ export default function CanvasWorkspaceViewContent() {
     setReplaceImageNodeId,
     setImagePreviewNodeId,
     setEditingInlineNodeId,
-    setPinnedToolbarNodeId,
+    setNodePinColor,
     setMaterialNodeId,
     setImageAnnotationNodeId,
     setImageMaskNodeId,
@@ -3933,6 +4110,7 @@ export default function CanvasWorkspaceViewContent() {
     retryAudioNode,
     retryVideoNode,
     removeNode,
+    fitCanvasImageNodeFrame,
   });
 
   return (
@@ -3957,6 +4135,7 @@ export default function CanvasWorkspaceViewContent() {
       <input ref={replaceMediaInputRef} type="file" accept="video/*,audio/*" hidden disabled={projectActionDisabled} onChange={(event) => { const file = event.target.files?.[0]; const kind = file?.type.startsWith("video/") ? "video" as const : "audio" as const; void uploadMediaToNode(replaceMediaNodeIdRef.current, file, kind); }} />
       <input ref={fragmentInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectActionDisabled || fragmentBusy} onChange={(event) => void importCanvasFragment(event.target.files?.[0])} />
       <input ref={projectArchiveInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectActionDisabled || projectArchiveBusy} onChange={(event) => void importCanvasProjectArchive(event.target.files?.[0])} />
+      {createProjectDialog}
       <div className="canvas-heading">
         <div className="page-intro">
           <div className="canvas-switcher-container">
@@ -4020,7 +4199,7 @@ export default function CanvasWorkspaceViewContent() {
                   ) : null}
                 </div>
                 <div className="canvas-switcher-footer">
-                  <button className="canvas-switcher-new" onClick={() => { setCanvasSwitcherOpen(false); setCreateDialogOpen(true); }} disabled={projectActionDisabled}>
+                  <button className="canvas-switcher-new" onClick={() => { setCanvasSwitcherOpen(false); openCreateProjectDialog(); }} disabled={projectActionDisabled}>
                     <Plus size={14} />
                     新建画布
                   </button>
@@ -4033,7 +4212,8 @@ export default function CanvasWorkspaceViewContent() {
         </div>
         <div className="canvas-head-actions">
           <button className="outline-button small canvas-home-button" onClick={() => navigate("/dashboard")} title="返回首页" aria-label="返回首页"><Home size={15} /> 首页</button>
-          <div className="scope-switch mini-scope">{scopeOptions.map((item) => <button key={item.value} className={currentProjectDisplayScope === item.value ? "active" : ""} onClick={() => void switchCanvasScope(item.value)} disabled={projectActionDisabled}>{item.label}</button>)}</div>
+          {/* 空间切换是"离开当前画布"的导航出口：项目加载中/未确认时直接回列表页，不参与保存门禁，避免按钮卡死 */}
+          <div className="scope-switch mini-scope">{scopeOptions.map((item) => <button key={item.value} className={currentProjectDisplayScope === item.value ? "active" : ""} onClick={() => { if (loading || projectScopePending) { navigate(canvasListHref(item.value)); return; } void switchCanvasScope(item.value); }} disabled={switching} title={loading || projectScopePending ? "返回该工作区的画布列表" : undefined}>{item.label}</button>)}</div>
           <button className="outline-button small canvas-icon-button" title="撤销" aria-label="撤销" onClick={() => void undoCanvas()} disabled={!canUndo || projectActionDisabled}><Undo2 size={15} /></button>
           <button className="outline-button small canvas-icon-button" title="重做" aria-label="重做" onClick={() => void redoCanvas()} disabled={!canRedo || projectActionDisabled}><Redo2 size={15} /></button>
           <button
@@ -4075,6 +4255,12 @@ export default function CanvasWorkspaceViewContent() {
           panX={panX}
           panY={panY}
           projectActionDisabled={projectActionDisabled}
+          pinnedMarkers={pinnedMarkers}
+          onFocusPinnedNode={(nodeIds) => {
+            if (!nodeIds.length) return;
+            applyNodeSelection(nodeIds, nodeIds[0], false);
+            panNodesIntoViewport(nodeIds);
+          }}
           topToolbar={{
             disabled: projectActionDisabled,
             connecting: Boolean(connectFrom),
@@ -4119,6 +4305,8 @@ export default function CanvasWorkspaceViewContent() {
             onFit: fitCanvasToContent,
             onToggleImageInfo: () => setShowImageInfo((value) => !value),
             onSetBackground: setBackgroundMode,
+            onOpenGenerationHistory: () => setGenerationHistoryOpen(true),
+            generationHistoryOpen,
           }}
           canvasInteractionBlocked={canvasInteractionBlocked}
           switching={switching}
@@ -4126,6 +4314,7 @@ export default function CanvasWorkspaceViewContent() {
           groups={groups}
           selectedGroupId={selectedGroupId}
           selectionBoxStyle={selectionBoxStyle}
+          alignmentGuides={alignmentGuides}
           connectionLayerBounds={connectionLayerBounds}
           edges={edges}
           nodes={nodes}
@@ -4149,7 +4338,6 @@ export default function CanvasWorkspaceViewContent() {
             isInlineEditing: editingInlineNodeId === node.id,
             isRunning: runningNodeIds.has(node.id),
             progress: jobProgressByNode[node.id] || 0,
-            isPinned: pinnedToolbarNodeId === node.id,
             captureBusy: Boolean(captureFrameNodeId),
             isCapturingFrame: captureFrameNodeId === node.id,
             showImageInfo,
@@ -4227,12 +4415,12 @@ export default function CanvasWorkspaceViewContent() {
           selectedGenerationModel={selectedGenerationModel}
           selectedGenerationModelLabel={(textModelLabels[selectedGenerationModel] || selectedGenerationModel || "选择模型").split("::").at(-1) || "选择模型"}
           generationModelOptions={selectedGenerationMode === "text"
-            ? textModels.map((item) => ({ value: item, label: textModelLabels[item] || item }))
+            ? textModels.map((item) => ({ value: item, label: shortModelName(textModelLabels[item] || item) }))
             : selectedGenerationMode === "image"
               ? (modelCatalog?.models || []).map((item) => ({ value: item, label: imageModelLabel(item, modelCatalog || undefined) }))
               : selectedGenerationMode === "video"
-                ? videoModels.map((item) => ({ value: item, label: textModelLabels[item] || item }))
-                : audioModels.map((item) => ({ value: item, label: textModelLabels[item] || item }))}
+                ? videoModels.map((item) => ({ value: item, label: shortModelName(textModelLabels[item] || item) }))
+                : audioModels.map((item) => ({ value: item, label: shortModelName(textModelLabels[item] || item) }))}
           selectedVideoConfig={selectedVideoConfig || null}
           selectedVideoSeedance={selectedVideoSeedance}
           selectedVideoDurations={selectedVideoConfig
@@ -4261,6 +4449,7 @@ export default function CanvasWorkspaceViewContent() {
             runCanvasGroupGeneration,
             ungroupCanvasGroup,
             updateNode,
+            commitLinkedAssetTitle,
             generateFromNode,
             openAssetPicker,
             selectGenerationModel: (value) => {
@@ -4381,15 +4570,30 @@ export default function CanvasWorkspaceViewContent() {
         assetPicker={{
           open: assetPickerOpen, insertBusy: assetPickerInsertBusy, scopeOptions, scope: assetPickerScope,
           loading: assetPickerLoading, query: assetPickerQuery, kind: assetPickerKind,
+          folderId: assetPickerFolderId, folders: assetPickerFolders,
           error: assetPickerError, items: assetPickerItems, selectedIds: assetPickerSelectedIds,
+          thumbnails: assetPickerThumbnails,
           onOpenChange: setAssetPickerOpen,
           onScopeChange: setAssetPickerScope,
           onKindChange: setAssetPickerKind,
+          onFolderChange: setAssetPickerFolder,
           onQueryChange: setAssetPickerQuery,
           onSearch: searchAssetPicker,
           onToggleItem: toggleAssetPickerItem,
           onCancel: cancelAssetPicker,
           onInsert: () => void insertAssetPickerSelection(),
+        }}
+        generationHistory={{
+          open: generationHistoryOpen,
+          items: generationHistoryItems,
+          preferredNodeId: selectedId,
+          formatModel: (model, kind) => {
+            if (!model) return "—";
+            if (kind === "image") return imageModelLabel(model, modelCatalog || undefined);
+            return shortModelName(textModelLabels[model] || model);
+          },
+          onOpenChange: setGenerationHistoryOpen,
+          onApply: applyGenerationHistoryItem,
         }}
         connectSelection={{
           open: connectSelectionOpen, selectedNodeCount: selectedNodeIds.size,

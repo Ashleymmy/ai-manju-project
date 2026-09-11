@@ -4,6 +4,7 @@ import {
   Download,
   GalleryHorizontalEnd,
   Image as ImageIcon,
+  X,
 } from "lucide-react";
 import type { ComponentProps } from "react";
 import { CanvasImageAnnotationDialog } from "@/components/canvas/CanvasImageAnnotationDialog";
@@ -57,7 +58,7 @@ export function CanvasStoryboardDialog({
 }: CanvasStoryboardDialogProps) {
   return (
     <Dialog open={Boolean(nodeId)} onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
-      <DialogContent className="sm:max-w-[560px] canvas-storyboard-dialog" showCloseButton={!busy}>
+      <DialogContent className="sm:max-w-[560px] canvas-storyboard-dialog canvas-tool-dialog" showCloseButton={!busy}>
         <DialogHeader>
           <DialogTitle>故事板导出</DialogTitle>
           <DialogDescription>使用当前所选图片生成一张带标题与提示词备注的故事板 PNG。</DialogDescription>
@@ -76,7 +77,7 @@ export function CanvasStoryboardDialog({
         </div>
         <p className="canvas-storyboard-count">将导出当前选择中的 {selectedCount} 张图片；没有多选时仅使用当前图片。</p>
         <DialogFooter>
-          <button className="outline-button small" type="button" onClick={onClose} disabled={busy}>取消</button>
+          <button className="outline-button" type="button" onClick={onClose} disabled={busy}><X size={15} /> 取消</button>
           <button className="vermilion-button" type="button" onClick={onExport} disabled={busy || !selectedCount}><GalleryHorizontalEnd size={15} /> {busy ? "合成中…" : "导出故事板"}</button>
         </DialogFooter>
       </DialogContent>

@@ -22,8 +22,96 @@ import type {
   ImageSizeValue,
 } from "./types";
 import { assetIdFromNode, looksLikeImageSource } from "./nodes";
-import { isRecord, stringValue } from "./value";
+import { isRecord, numberValue, stringValue } from "./value";
 import { workspaceScopeValue } from "./workspace";
+
+/** 空图片节点默认尺寸（约 4:3）。有图后按原图像素比适配。 */
+export const CANVAS_IMAGE_NODE_WIDTH = 320;
+export const CANVAS_IMAGE_NODE_HEIGHT = 238;
+/** 竖图允许的最大节点高度，避免 9:16 把画布撑得过高。 */
+export const CANVAS_IMAGE_NODE_MAX_HEIGHT = 560;
+export const CANVAS_IMAGE_NODE_MIN_WIDTH = 120;
+export const CANVAS_IMAGE_NODE_MIN_HEIGHT = 90;
+const CANVAS_IMAGE_NODE_ASPECT_EPSILON = 0.02;
+
+/** 画布图片「详细参数」默认：1K、自适应、低。 */
+export const CANVAS_IMAGE_DEFAULT_RESOLUTION = "1K" as const;
+export const CANVAS_IMAGE_DEFAULT_SIZE = "auto" as const;
+export const CANVAS_IMAGE_DEFAULT_QUALITY: ImageQualityValue = "low";
+export const CANVAS_IMAGE_RESOLUTIONS = ["1K", "2K", "4K"] as const;
+export type CanvasImageResolution = (typeof CANVAS_IMAGE_RESOLUTIONS)[number];
+
+export function canvasImageParamDefaults() {
+  return {
+    size: CANVAS_IMAGE_DEFAULT_SIZE,
+    quality: CANVAS_IMAGE_DEFAULT_QUALITY,
+    imageResolution: CANVAS_IMAGE_DEFAULT_RESOLUTION,
+  } as const;
+}
+
+export function fitCanvasImageNodeSize(naturalWidth: number, naturalHeight: number) {
+  if (!(naturalWidth > 0) || !(naturalHeight > 0)) {
+    return { width: CANVAS_IMAGE_NODE_WIDTH, height: CANVAS_IMAGE_NODE_HEIGHT };
+  }
+  const scale = Math.min(
+    CANVAS_IMAGE_NODE_WIDTH / naturalWidth,
+    CANVAS_IMAGE_NODE_MAX_HEIGHT / naturalHeight,
+  );
+  return {
+    width: Math.max(CANVAS_IMAGE_NODE_MIN_WIDTH, Math.round(naturalWidth * scale)),
+    height: Math.max(CANVAS_IMAGE_NODE_MIN_HEIGHT, Math.round(naturalHeight * scale)),
+  };
+}
+
+export function isDefaultCanvasImageNodeSize(width: number, height: number) {
+  return (
+    (Math.abs(width - CANVAS_IMAGE_NODE_WIDTH) <= 1 && Math.abs(height - CANVAS_IMAGE_NODE_HEIGHT) <= 1)
+    || (Math.abs(width - 300) <= 1 && Math.abs(height - 220) <= 1)
+  );
+}
+
+export function canvasImageNodeNeedsFit(
+  node: { width: number; height: number; metadata?: { naturalWidth?: unknown; naturalHeight?: unknown } },
+  naturalWidth: number,
+  naturalHeight: number,
+) {
+  if (!(naturalWidth > 0) || !(naturalHeight > 0)) return false;
+  const fitted = fitCanvasImageNodeSize(naturalWidth, naturalHeight);
+  const nodeAspect = node.width / Math.max(1, node.height);
+  const imageAspect = fitted.width / Math.max(1, fitted.height);
+  if (Math.abs(nodeAspect - imageAspect) <= CANVAS_IMAGE_NODE_ASPECT_EPSILON) return false;
+  const storedWidth = numberValue(node.metadata?.naturalWidth);
+  const storedHeight = numberValue(node.metadata?.naturalHeight);
+  const sameBitmap = storedWidth != null
+    && storedHeight != null
+    && Math.abs(storedWidth - naturalWidth) <= 1
+    && Math.abs(storedHeight - naturalHeight) <= 1;
+  if (sameBitmap && !isDefaultCanvasImageNodeSize(node.width, node.height)) return false;
+  return true;
+}
+
+export function applyCanvasImageNaturalSize<T extends {
+  width: number;
+  height: number;
+  metadata?: Record<string, unknown>;
+}>(node: T, naturalWidth: number, naturalHeight: number): T {
+  if (!(naturalWidth > 0) || !(naturalHeight > 0)) return node;
+  const needsFit = canvasImageNodeNeedsFit(node, naturalWidth, naturalHeight);
+  const storedWidth = numberValue(node.metadata?.naturalWidth);
+  const storedHeight = numberValue(node.metadata?.naturalHeight);
+  const sameMeta = storedWidth === naturalWidth && storedHeight === naturalHeight;
+  if (!needsFit && sameMeta) return node;
+  const fitted = needsFit ? fitCanvasImageNodeSize(naturalWidth, naturalHeight) : null;
+  return {
+    ...node,
+    ...(fitted ? { width: fitted.width, height: fitted.height } : {}),
+    metadata: {
+      ...node.metadata,
+      naturalWidth,
+      naturalHeight,
+    },
+  };
+}
 
 export const VIDEO_SUBMODES = [
   { value: "text", label: "文生视频" },
@@ -119,16 +207,24 @@ export function generationModeLabel(mode: CanvasGenerationMode) {
 }
 
 export function sizeFromNode(node: CanvasNodeData): string {
-  return stringValue(node.metadata?.size).toLowerCase() || "auto";
+  return stringValue(node.metadata?.size).toLowerCase() || CANVAS_IMAGE_DEFAULT_SIZE;
 }
 
 export function toImageSizeValue(size: string): ImageSizeValue {
-  return size === "1:1" || size === "16:9" || size === "9:16" || size === "2:1" || size === "auto" ? size : "auto";
+  return size === "1:1" || size === "16:9" || size === "9:16" || size === "2:1" || size === "auto" ? size : CANVAS_IMAGE_DEFAULT_SIZE;
+}
+
+export function imageResolutionFromNode(node: CanvasNodeData): CanvasImageResolution {
+  const value = stringValue(node.metadata?.imageResolution);
+  return CANVAS_IMAGE_RESOLUTIONS.includes(value as CanvasImageResolution)
+    ? (value as CanvasImageResolution)
+    : CANVAS_IMAGE_DEFAULT_RESOLUTION;
 }
 
 export function qualityFromNode(node: CanvasNodeData): ImageQualityValue {
   const value = stringValue(node.metadata?.quality).toLowerCase();
-  return value === "low" || value === "medium" || value === "high" || value === "auto" ? value : "auto";
+  if (value === "low" || value === "medium" || value === "high") return value;
+  return CANVAS_IMAGE_DEFAULT_QUALITY;
 }
 
 export function imageCountFromNode(node: CanvasNodeData) {

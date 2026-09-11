@@ -4,6 +4,29 @@ import type { CanvasGroupData } from "./groups";
 import type { CanvasHistoryEntry } from "./history";
 import type { CanvasVideoReferenceSnapshot } from "./video";
 
+export type CanvasNodeGenerationRevision = {
+  id: string;
+  kind?: "image" | "video";
+  title?: string;
+  prompt?: string;
+  model?: string;
+  generatedAt?: string;
+  assetId?: string;
+  imageSrc?: string;
+  seed?: string | number;
+  size?: string;
+  seconds?: string;
+  width?: number;
+  height?: number;
+  naturalWidth?: number;
+  naturalHeight?: number;
+  mimeType?: string;
+  bytes?: number;
+  typeLabel?: string;
+  modeLabel?: string;
+  assetScope?: WorkspaceScope;
+};
+
 export type CanvasNodeKind =
   | "prompt"
   | "image"
@@ -56,6 +79,8 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   mimeType?: string;
   bytes?: number;
   captureTimeSeconds?: number;
+  naturalWidth?: number;
+  naturalHeight?: number;
   promptPanelWidth?: number;
   promptEditorHeight?: number;
   generationType?: "generation" | "edit";
@@ -76,6 +101,15 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   ownImageSrc?: string;
   imageBatchExpanded?: boolean;
   fontSize?: number;
+  /** Location pin color; empty/missing means the node is not pinned. */
+  pinColor?: string;
+  /** ISO timestamp when this node last finished a generation. */
+  generatedAt?: string;
+  /** True when this node was inserted from generation history, not a new generation. */
+  appliedFromHistory?: boolean;
+  /** Previous generations overwritten in place on this node. */
+  generationRevisions?: CanvasNodeGenerationRevision[];
+  seed?: string | number;
   seedanceMaterialAssets?: Array<{
     id: string;
     name?: string;

@@ -1,5 +1,8 @@
 export { default } from "./CanvasPage";
 export {
+  CANVAS_IMAGE_DEFAULT_QUALITY,
+  CANVAS_IMAGE_DEFAULT_RESOLUTION,
+  CANVAS_IMAGE_DEFAULT_SIZE,
   buildCanvasSnapshot,
   canvasAgentSnapshotFromCanvas,
   canvasViewportFromAgent,

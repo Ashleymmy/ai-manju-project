@@ -1,6 +1,7 @@
-import type {
-  CanvasAnnotationPoint,
-  CanvasImageAnnotation,
+import {
+  canvasArrowGeometry,
+  type CanvasAnnotationPoint,
+  type CanvasImageAnnotation,
 } from "../domain/annotation";
 
 export async function exportCanvasAnnotations(
@@ -71,22 +72,16 @@ function drawArrow(
   end: CanvasAnnotationPoint,
   strokeWidth: number,
 ) {
-  const angle = Math.atan2(end.y - start.y, end.x - start.x);
-  const head = Math.max(12, strokeWidth * 3.2);
+  const arrow = canvasArrowGeometry(start, end, strokeWidth);
   context.beginPath();
-  context.moveTo(start.x, start.y);
-  context.lineTo(end.x, end.y);
-  context.stroke();
-  context.beginPath();
-  context.moveTo(end.x, end.y);
-  context.lineTo(
-    end.x - head * Math.cos(angle - Math.PI / 6),
-    end.y - head * Math.sin(angle - Math.PI / 6),
-  );
-  context.lineTo(
-    end.x - head * Math.cos(angle + Math.PI / 6),
-    end.y - head * Math.sin(angle + Math.PI / 6),
-  );
+  context.moveTo(arrow.startLeft.x, arrow.startLeft.y);
+  context.lineTo(arrow.neckLeft.x, arrow.neckLeft.y);
+  context.lineTo(arrow.left.x, arrow.left.y);
+  context.lineTo(arrow.tip.x, arrow.tip.y);
+  context.lineTo(arrow.right.x, arrow.right.y);
+  context.lineTo(arrow.neckRight.x, arrow.neckRight.y);
+  context.lineTo(arrow.startRight.x, arrow.startRight.y);
+  context.quadraticCurveTo(arrow.tail.x, arrow.tail.y, arrow.startLeft.x, arrow.startLeft.y);
   context.closePath();
   context.fill();
 }

@@ -1,15 +1,22 @@
-import type { Asset } from "@/entities/asset";
+import type { Asset, AssetCategory } from "@/entities/asset";
 import type { CanvasMentionReference } from "@/features/canvas/domain/mentions";
 import type { CanvasEdgeData, CanvasNodeData } from "@/features/canvas/domain/types";
 import type { CanvasTextAsset } from "@/features/canvas/repositories/textAssetsRepository";
 import type { CanvasServiceExecutor } from "@/features/canvas/services/contracts";
 import type { WorkspaceScope } from "@/shared/config";
 
-export type CanvasAssetPickerKind = "all" | "text" | "image" | "video" | "audio";
+export type CanvasAssetPickerMediaType = "text" | "image" | "video" | "audio";
+
+export type CanvasAssetPickerKind = "all" | "favorite" | CanvasAssetPickerMediaType;
+
+export type CanvasAssetPickerFolderOption = {
+  id: string;
+  label: string;
+};
 
 export type CanvasAssetPickerItem = {
   id: string;
-  type: Exclude<CanvasAssetPickerKind, "all">;
+  type: CanvasAssetPickerMediaType;
   name: string;
   scope: WorkspaceScope;
   source: "server" | "local-text";
@@ -27,9 +34,12 @@ export type CanvasAssetPickerState = {
   loading: boolean;
   query: string;
   kind: CanvasAssetPickerKind;
+  folderId: string;
+  folders: CanvasAssetPickerFolderOption[];
   error: string;
   items: CanvasAssetPickerItem[];
   selectedIds: string[];
+  thumbnails: Record<string, string>;
 };
 
 export type CanvasMentionMediaPreview = {
@@ -68,6 +78,7 @@ export type CanvasAssetsMentionsBindings = {
 
 export type CanvasAssetsMentionsServices = {
   getAssetLibrary: typeof import("@/entities/asset").getAssetLibrary;
+  getAssetFolders: typeof import("@/entities/asset").getAssetFolders;
   getAssetContentObjectUrl: typeof import("@/entities/asset").getAssetContentObjectUrl;
   listCanvasTextAssets: typeof import("@/features/canvas/repositories/textAssetsRepository").listCanvasTextAssets;
   createId(): string;
@@ -86,7 +97,7 @@ export type CanvasPreviewSyncInput = {
 
 export type CanvasMentionCommands = {
   mentionReferencesForNode(nodeId: string): CanvasMentionReference[];
-  queueMentionAssetSearch(query: string): void;
+  queueMentionAssetSearch(query: string, category?: AssetCategory | ""): void;
   mentionThumbnailFor(reference: CanvasMentionReference): string;
   previewMentionReference(reference: CanvasMentionReference): void;
   locateMentionReference(reference: CanvasMentionReference): void;

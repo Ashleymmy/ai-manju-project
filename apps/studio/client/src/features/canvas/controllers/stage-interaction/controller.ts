@@ -11,6 +11,12 @@ import {
 } from "@/features/canvas/domain/connections";
 import { nearestCanvasEdgeIdAtPoint } from "@/features/canvas/domain/geometry";
 import {
+  canvasNodeDockThreshold,
+  snapMovingBoxesToDock,
+  type CanvasAlignGuide,
+  type CanvasNodeSnapBox,
+} from "@/features/canvas/domain/nodeSnap";
+import {
   resizeCanvasGroup,
   type CanvasGroupData,
   type CanvasGroupResizeCorner,
@@ -128,6 +134,8 @@ type PendingGraphFrame = {
   groups?: CanvasGroupData[];
 };
 
+const EMPTY_ALIGN_GUIDES: CanvasAlignGuide[] = [];
+
 const emptyView: CanvasStageInteractionView = {
   stageBounds: { width: 0, height: 0 },
   connectFrom: "",
@@ -136,6 +144,7 @@ const emptyView: CanvasStageInteractionView = {
   connectionPreviewPoint: null,
   pendingConnectionCreate: null,
   selectionBox: null,
+  alignmentGuides: EMPTY_ALIGN_GUIDES,
 };
 
 const emptyBindings: CanvasStageInteractionBindings = {
@@ -186,6 +195,12 @@ const emptyBindings: CanvasStageInteractionBindings = {
   onInfo: () => undefined,
   onWarning: () => undefined,
 };
+
+function canvasConnectionModeHint(handleType: CanvasConnectionHandleType) {
+  return handleType === "target"
+    ? "已选择接入节点，请点击参考图节点完成连线；按 Esc 可取消"
+    : "已选择连接起点，请点击目标节点完成连线；按 Esc 可取消";
+}
 
 export class CanvasStageInteractionController {
   private bindings = emptyBindings;
@@ -384,6 +399,35 @@ export class CanvasStageInteractionController {
     });
     this.bindings.applyNodeSelection([node.id], node.id, true);
     this.resetConnectionAndPending();
+  };
+
+  /** Pan to the given nodes at the current zoom. Does not change scale. */
+  readonly panNodesIntoViewport = (nodeIds: readonly string[]) => {
+    if (!nodeIds.length) return;
+    const wanted = new Set(nodeIds);
+    const nodes = this.currentNodes().filter((item) => wanted.has(item.id));
+    if (!nodes.length) return;
+    const rect = this.adapter.getRect(this.stage);
+    const width = rect?.width ?? this.view.stageBounds.width;
+    const height = rect?.height ?? this.view.stageBounds.height;
+    const zoom = Math.max(0.05, this.viewport.zoom / 100);
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const node of nodes) {
+      minX = Math.min(minX, node.x);
+      minY = Math.min(minY, node.y);
+      maxX = Math.max(maxX, node.x + node.width);
+      maxY = Math.max(maxY, node.y + node.height);
+    }
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    this.applyCanvasViewport({
+      zoom: this.viewport.zoom,
+      panX: (width > 0 ? width / 2 : 0) - centerX * zoom,
+      panY: (height > 0 ? (height - CANVAS_STAGE_OFFSET) / 2 : 0) - centerY * zoom,
+    });
   };
 
   readonly navigateFromMinimap = (event: CanvasStageMouseEvent<SVGSVGElement>) => {
@@ -598,18 +642,19 @@ export class CanvasStageInteractionController {
     const deltaY = (event.clientY - drag.startY) / scale;
     if (!drag.moved && Math.abs(deltaX) < 2 && Math.abs(deltaY) < 2) return;
     drag.moved = Math.abs(deltaX) > 0.01 || Math.abs(deltaY) > 0.01;
+    const snapped = this.snapDragDelta(deltaX, deltaY, drag.origins, event.altKey);
     const nextGroups = this.currentGroups().map(group => group.id === drag.id ? {
       ...group,
       position: {
-        x: drag.position.x + deltaX,
-        y: drag.position.y + deltaY,
+        x: drag.position.x + snapped.deltaX,
+        y: drag.position.y + snapped.deltaY,
       },
     } : group);
     const nextNodes = moveCanvasNodesFromOrigins(
       this.currentNodes(),
       drag.origins,
-      deltaX,
-      deltaY,
+      snapped.deltaX,
+      snapped.deltaY,
     );
     this.scheduleGraphFrame({ groups: nextGroups, nodes: nextNodes });
   };
@@ -617,6 +662,7 @@ export class CanvasStageInteractionController {
   readonly endGroupDrag = () => {
     const drag = this.groupDrag;
     this.groupDrag = null;
+    this.clearAlignmentGuides();
     this.releaseCapture("group-drag");
     this.flushGraphFrame();
     this.bindings.resumeHistory(Boolean(drag?.moved));
@@ -731,12 +777,13 @@ export class CanvasStageInteractionController {
     const deltaY = (event.clientY - drag.startY) / scale;
     if (!drag.moved && Math.abs(deltaX) < 2 && Math.abs(deltaY) < 2) return;
     drag.moved = Math.abs(deltaX) > 0.01 || Math.abs(deltaY) > 0.01;
+    const snapped = this.snapDragDelta(deltaX, deltaY, drag.origins, event.altKey);
     this.scheduleGraphFrame({
       nodes: moveCanvasNodesFromOrigins(
         this.currentNodes(),
         drag.origins,
-        deltaX,
-        deltaY,
+        snapped.deltaX,
+        snapped.deltaY,
       ),
     });
   };
@@ -752,6 +799,7 @@ export class CanvasStageInteractionController {
       }, 0);
     }
     this.drag = null;
+    this.clearAlignmentGuides();
     this.releaseCapture("node-drag");
     this.flushGraphFrame();
     this.bindings.resumeHistory(Boolean(drag?.moved));
@@ -810,6 +858,55 @@ export class CanvasStageInteractionController {
     this.flushGraphFrame();
     this.bindings.resumeHistory(Boolean(resize?.moved));
   };
+
+  private snapDragDelta(
+    deltaX: number,
+    deltaY: number,
+    origins: CanvasNodeOrigins,
+    disableSnap: boolean,
+  ) {
+    if (disableSnap) {
+      this.clearAlignmentGuides();
+      return { deltaX, deltaY };
+    }
+    const nodes = this.currentNodes();
+    const moving: CanvasNodeSnapBox[] = [];
+    const targets: CanvasNodeSnapBox[] = [];
+    for (const node of nodes) {
+      if (isHiddenCanvasBatchChild(node, nodes)) continue;
+      const origin = origins[node.id];
+      if (origin) {
+        moving.push({
+          id: node.id,
+          x: origin.x + deltaX,
+          y: origin.y + deltaY,
+          width: node.width,
+          height: node.height,
+        });
+      } else {
+        targets.push({
+          id: node.id,
+          x: node.x,
+          y: node.y,
+          width: node.width,
+          height: node.height,
+        });
+      }
+    }
+    const snap = snapMovingBoxesToDock(
+      moving,
+      targets,
+      canvasNodeDockThreshold(this.viewport.zoom),
+    );
+    this.patchView({
+      alignmentGuides: snap.guides.length ? snap.guides : EMPTY_ALIGN_GUIDES,
+    });
+    return { deltaX: deltaX + snap.deltaX, deltaY: deltaY + snap.deltaY };
+  }
+
+  private clearAlignmentGuides() {
+    this.patchView({ alignmentGuides: EMPTY_ALIGN_GUIDES });
+  }
 
   private currentNodes() {
     return this.pendingGraphFrame.nodes || this.bindings.getNodes();
@@ -872,7 +969,7 @@ export class CanvasStageInteractionController {
     this.pendingConnectionCreate = null;
     this.publishConnectionState();
     this.bindings.setContextMenu(null);
-    this.bindings.onInfo("已选择连接起点，请点击目标节点完成连线；按 Esc 可取消");
+    this.bindings.onInfo(canvasConnectionModeHint(this.connectHandleType));
   };
 
   readonly beginConnection = (
@@ -1088,7 +1185,7 @@ export class CanvasStageInteractionController {
       this.connectionPreviewPoint = null;
       this.pendingConnectionCreate = null;
       this.publishConnectionState();
-      this.bindings.onInfo("已选择连接起点，请点击目标节点完成连线；按 Esc 可取消");
+      this.bindings.onInfo(canvasConnectionModeHint(handleType));
       return;
     }
     if (!dropTarget.isNearNode) {

@@ -46,6 +46,9 @@ export type CanvasImageTargetRunInput = {
   projectKey: string;
   scope: WorkspaceScope;
   prompt: string;
+  /** 发给模型的提示词；缺省时使用 prompt。节点上仍保存原始 prompt。 */
+  requestPrompt?: string;
+  seed?: number;
   model: string;
   size: ImageSizeValue;
   quality: ImageQualityValue;
@@ -134,6 +137,7 @@ export type CanvasGenerationServices = {
   getAssetContentObjectUrl: typeof import("@/entities/asset").getAssetContentObjectUrl;
   uploadAsset: typeof import("@/entities/asset").uploadAsset;
   cancelJob: typeof import("@/entities/job").cancelJob;
+  getJobs: typeof import("@/entities/job").getJobs;
   generateImages: typeof import("@/features/image").generateImages;
   generatedImagesFromJob: typeof import("@/features/image").generatedImagesFromJob;
   waitForImageJob: typeof import("@/features/image").waitForImageJob;

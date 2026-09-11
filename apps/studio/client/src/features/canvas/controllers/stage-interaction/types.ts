@@ -1,5 +1,6 @@
 import type { CanvasGroupData } from "@/features/canvas/domain/groups";
 import type { CanvasMinimapModel } from "@/features/canvas/domain/minimap";
+import type { CanvasAlignGuide } from "@/features/canvas/domain/nodeSnap";
 import type { CanvasPoint } from "@/features/canvas/domain/selection";
 import type { CanvasConnectionHandleType } from "@/features/canvas/domain/connections";
 import type { CanvasShortcutBindings } from "@/features/canvas/domain/hotkeys";
@@ -56,6 +57,7 @@ export type CanvasStageInteractionView = {
   connectionPreviewPoint: CanvasPoint | null;
   pendingConnectionCreate: PendingConnectionCreateState | null;
   selectionBox: CanvasSelectionBoxState | null;
+  alignmentGuides: CanvasAlignGuide[];
 };
 
 export type CanvasStageInteractionMode =
@@ -76,6 +78,7 @@ export type CanvasStagePointerEvent<T extends Element = Element> = {
   shiftKey: boolean;
   ctrlKey: boolean;
   metaKey: boolean;
+  altKey: boolean;
   target: EventTarget | null;
   currentTarget: T;
   preventDefault(): void;

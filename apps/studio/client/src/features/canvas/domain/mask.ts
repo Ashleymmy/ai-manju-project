@@ -7,6 +7,19 @@ export type CanvasMaskRect = {
   height: number;
 };
 
+/** Matches `--canvas-image-mask-stage-max-height` in canvas styles. */
+export const CANVAS_MASK_STAGE_MAX_HEIGHT_VAR = "--canvas-image-mask-stage-max-height";
+
+export function canvasMaskStageStyle(imageWidth: number, imageHeight: number) {
+  const width = Math.max(1, imageWidth);
+  const height = Math.max(1, imageHeight);
+  return {
+    aspectRatio: `${width} / ${height}`,
+    // Cap width so a portrait image cannot be stretched when max-height binds.
+    width: `min(100%, calc(var(${CANVAS_MASK_STAGE_MAX_HEIGHT_VAR}) * ${width} / ${height}))`,
+  };
+}
+
 export function canvasMaskPoint(
   clientX: number,
   clientY: number,

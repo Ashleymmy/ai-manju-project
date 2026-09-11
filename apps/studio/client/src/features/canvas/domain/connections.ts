@@ -116,7 +116,8 @@ export function normalizeCanvasConnection(
   if (!first || !second || first.id === second.id) return null;
   if (first.kind === "config" && second.kind === "config") return null;
   if (second.kind === "config") return { from: first.id, to: second.id };
-  if (first.kind === "config" && firstHandleType === "target") return { from: second.id, to: first.id };
+  // 从目标端（左柄 / 检查器「+」）发起时，对端是参考源、当前节点是接入点。
+  if (firstHandleType === "target") return { from: second.id, to: first.id };
   return { from: first.id, to: second.id };
 }
 
@@ -403,6 +404,30 @@ function generationInputType(node: CanvasConnectionNode): CanvasGenerationInput[
 
 function isDirectMediaResource(node: CanvasConnectionNode) {
   return (node.kind === "image" || node.kind === "video" || node.kind === "audio") && hasMediaResource(node);
+}
+
+export type IncomingCanvasMediaKind = "image" | "video";
+
+export type IncomingCanvasMediaSource<TNode extends CanvasConnectionNode = CanvasConnectionNode> = {
+  edgeId: string;
+  node: TNode;
+};
+
+export function incomingCanvasMediaSources<TNode extends CanvasConnectionNode>(
+  nodeId: string,
+  nodes: readonly TNode[],
+  edges: readonly { id: string; from: string; to: string }[],
+  kinds: readonly IncomingCanvasMediaKind[] = ["image"],
+): IncomingCanvasMediaSource<TNode>[] {
+  const allowed = new Set<string>(kinds);
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+  return edges.flatMap((edge) => {
+    if (edge.to !== nodeId) return [];
+    const source = nodeMap.get(edge.from);
+    if (!source || !allowed.has(source.kind) || isHiddenCanvasBatchChild(source, nodes)) return [];
+    if (!hasMediaResource(source)) return [];
+    return [{ edgeId: edge.id, node: source }];
+  });
 }
 
 function hasMediaResource(node: CanvasConnectionNode) {

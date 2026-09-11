@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_CANVAS_SHORTCUTS } from "@/features/canvas/domain/hotkeys";
+import { CANVAS_NODE_DOCK_GAP } from "@/features/canvas/domain/nodeSnap";
 import type { CanvasEdgeData, CanvasNodeData } from "@/features/canvas/domain/types";
 import { CanvasStageInteractionController } from "./controller";
 import type {
@@ -113,6 +114,7 @@ function pointer(
     shiftKey: false,
     ctrlKey: false,
     metaKey: false,
+    altKey: false,
     target: currentTarget,
     currentTarget,
     preventDefault: vi.fn(),
@@ -222,6 +224,35 @@ describe("CanvasStageInteractionController", () => {
     expect([...harness.adapter.timers.values()].map(timer => timer.delay)).toContain(0);
   });
 
+  it("docks a dragged node beside a sibling and shows white alignment guides", () => {
+    const harness = createHarness();
+    const nodeElement = {} as HTMLElement;
+    const dockX = 300 - 100 - CANVAS_NODE_DOCK_GAP;
+    harness.controller.startDrag(pointer(nodeElement), harness.nodes[0]);
+    harness.controller.moveDrag(pointer(nodeElement, { clientX: dockX + 4, clientY: 0 }));
+    harness.adapter.runFrames();
+    expect(harness.nodes[0]).toMatchObject({ x: dockX, y: 0 });
+    expect(harness.controller.getSnapshot().alignmentGuides).toEqual([
+      { axis: "y", position: 0, start: dockX, end: 400 },
+      { axis: "y", position: 50, start: dockX, end: 400 },
+      { axis: "y", position: 100, start: dockX, end: 400 },
+    ]);
+
+    harness.controller.endDrag();
+    expect(harness.controller.getSnapshot().alignmentGuides).toEqual([]);
+  });
+
+  it("skips magnetic dock while Alt is held", () => {
+    const harness = createHarness();
+    const nodeElement = {} as HTMLElement;
+    const dockX = 300 - 100 - CANVAS_NODE_DOCK_GAP;
+    harness.controller.startDrag(pointer(nodeElement), harness.nodes[0]);
+    harness.controller.moveDrag(pointer(nodeElement, { clientX: dockX + 4, clientY: 0, altKey: true }));
+    harness.adapter.runFrames();
+    expect(harness.nodes[0]).toMatchObject({ x: dockX + 4, y: 0 });
+    expect(harness.controller.getSnapshot().alignmentGuides).toEqual([]);
+  });
+
   it("keeps a sub-4px connection as click mode and opens creation at the 4px threshold", () => {
     const harness = createHarness([node("source")]);
     const handle = {} as HTMLElement;
@@ -290,7 +321,7 @@ describe("CanvasStageInteractionController", () => {
     const harness = createHarness();
     const nodeElement = {} as HTMLElement;
     harness.controller.startDrag(pointer(nodeElement), harness.nodes[0]);
-    harness.controller.moveDrag(pointer(nodeElement, { clientX: 9, clientY: 4 }));
+    harness.controller.moveDrag(pointer(nodeElement, { clientX: 9, clientY: 20 }));
     harness.controller.handleNodeHoverEnd("a");
     harness.adapter.emit("keydown", {
       code: "Escape",
@@ -305,10 +336,19 @@ describe("CanvasStageInteractionController", () => {
     expect(harness.controller.mode).toBe("drag");
 
     harness.controller.dispose();
-    expect(harness.nodes[0]).toMatchObject({ x: 9, y: 4 });
+    expect(harness.nodes[0]).toMatchObject({ x: 9, y: 20 });
     expect(harness.adapter.frames.size).toBe(0);
     expect(harness.adapter.timers.size).toBe(0);
     expect(harness.adapter.releases).toContainEqual({ element: nodeElement, pointerId: 1 });
     expect(harness.resumeHistory).toHaveBeenLastCalledWith(true);
+  });
+
+  it("pans pinned nodes into view without changing zoom", () => {
+    const harness = createHarness([node("a", 0), node("b", 400)]);
+    harness.controller.syncViewport({ zoom: 50, panX: 12, panY: 8 });
+    harness.controller.panNodesIntoViewport(["a", "b"]);
+    expect(harness.viewport.zoom).toBe(50);
+    expect(harness.viewport.panX).toBe(375);
+    expect(harness.viewport.panY).toBe(349);
   });
 });

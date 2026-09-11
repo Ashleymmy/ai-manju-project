@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { canvasMaskBrushSize, canvasMaskPoint, type CanvasMaskPoint } from "@/features/canvas/domain/mask";
+import { canvasMaskBrushSize, canvasMaskPoint, canvasMaskStageStyle, type CanvasMaskPoint } from "@/features/canvas/domain/mask";
 
 export type CanvasImageMaskPayload = {
   maskDataUrl: string;
@@ -87,14 +87,14 @@ export function CanvasImageMaskDialog({ dataUrl, open, busy = false, error = "",
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next && !busy) onClose(); }}>
-      <DialogContent className="canvas-image-mask-dialog">
+      <DialogContent className="canvas-image-mask-dialog canvas-tool-dialog">
         <DialogHeader>
-          <DialogTitle>蒙版编辑</DialogTitle>
+          <DialogTitle>蒙版修改</DialogTitle>
           <DialogDescription>涂抹需要 AI 修改的区域，未涂抹区域会保持不变。</DialogDescription>
         </DialogHeader>
         <div className="canvas-image-mask-layout">
-          <div className="canvas-image-mask-stage" style={{ aspectRatio: `${imageSize.width} / ${imageSize.height}` }}>
-            <img src={dataUrl} alt="蒙版编辑原图" draggable={false} />
+          <div className="canvas-image-mask-stage" style={canvasMaskStageStyle(imageSize.width, imageSize.height)}>
+            <img src={dataUrl} alt="蒙版修改原图" draggable={false} />
             <canvas
               ref={canvasRef}
               width={imageSize.width}
@@ -118,7 +118,7 @@ export function CanvasImageMaskDialog({ dataUrl, open, busy = false, error = "",
               />
               <b>{Math.round(brushSize)} px</b>
             </label>
-            <button type="button" className="full-outline" onClick={reset} disabled={busy || !hasPaint}><RotateCcw size={14} /> 清空蒙版</button>
+            <button type="button" className="canvas-tool-clear" onClick={reset} disabled={busy || !hasPaint}><RotateCcw size={15} /> 清空蒙版</button>
             <label className="canvas-image-mask-prompt">
               <span>修改要求</span>
               <textarea value={prompt} maxLength={500} onChange={(event) => setPrompt(event.target.value)} placeholder="例如：把选中区域改成红色雨伞" />
@@ -128,7 +128,7 @@ export function CanvasImageMaskDialog({ dataUrl, open, busy = false, error = "",
         </div>
         <DialogFooter>
           <button type="button" className="outline-button" onClick={onClose} disabled={busy}><X size={15} /> 取消</button>
-          <button type="button" className="primary-button" onClick={() => void submit()} disabled={busy || !hasPaint || !prompt.trim()}><Check size={15} /> {busy ? "生成中…" : "生成局部修改"}</button>
+          <button type="button" className="vermilion-button" onClick={() => void submit()} disabled={busy || !hasPaint || !prompt.trim()}><Check size={15} /> {busy ? "生成中…" : "生成局部修改"}</button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

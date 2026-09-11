@@ -10,6 +10,7 @@ import {
   GitMerge,
   Grid2X2,
   Grid3x3,
+  History,
   Image as ImageIcon,
   Link2,
   Loader2,
@@ -144,6 +145,8 @@ export type CanvasBottomToolbarProps = {
   onFit: () => void;
   onToggleImageInfo: () => void;
   onSetBackground: (mode: CanvasBackgroundMode) => void;
+  onOpenGenerationHistory: () => void;
+  generationHistoryOpen?: boolean;
 };
 
 export function CanvasBottomToolbar({
@@ -162,6 +165,8 @@ export function CanvasBottomToolbar({
   onFit,
   onToggleImageInfo,
   onSetBackground,
+  onOpenGenerationHistory,
+  generationHistoryOpen = false,
 }: CanvasBottomToolbarProps) {
   return (
     <div className="canvas-bottom-tools" data-canvas-ui data-canvas-no-zoom>
@@ -173,11 +178,45 @@ export function CanvasBottomToolbar({
       <span />
       <button className={minimapOpen ? "active" : ""} title={minimapOpen ? "关闭缩略导航" : "打开缩略导航"} onClick={onToggleMinimap} disabled={disabled}><MapIcon size={15} /></button>
       <button onClick={onFit} disabled={disabled} title="适配"><Maximize2 size={15} /></button>
+      <button className={generationHistoryOpen ? "active" : ""} title="生成历史" onClick={onOpenGenerationHistory} disabled={disabled}><History size={15} /></button>
       <span />
       <button title="显示或隐藏图片信息" className={showImageInfo ? "active" : ""} onClick={onToggleImageInfo} disabled={disabled}><Eye size={15} /></button>
       <button title="点阵背景" className={backgroundMode === "dots" ? "active" : ""} onClick={() => onSetBackground("dots")} disabled={disabled}><Grid3x3 size={15} /></button>
       <button title="网格背景" className={backgroundMode === "lines" ? "active" : ""} onClick={() => onSetBackground("lines")} disabled={disabled}><Grid2X2 size={15} /></button>
       <button title="空白背景" className={backgroundMode === "blank" ? "active" : ""} onClick={() => onSetBackground("blank")} disabled={disabled}><Square size={14} /></button>
+    </div>
+  );
+}
+
+export type CanvasPinRailProps = {
+  markers: Array<{ nodeIds: string[]; title: string; color: string }>;
+  onFocus: (nodeIds: string[]) => void;
+};
+
+export function CanvasPinRail({ markers, onFocus }: CanvasPinRailProps) {
+  if (!markers.length) return null;
+  return (
+    <div className="canvas-pin-rail" data-canvas-ui aria-label="已标记节点">
+      {markers.map((marker) => {
+        const label = marker.nodeIds.length > 1
+          ? `定位到 ${marker.nodeIds.length} 个标记节点`
+          : `定位到 ${marker.title}`;
+        return (
+          <button
+            key={marker.color}
+            type="button"
+            className="canvas-pin-rail-dot"
+            title={label}
+            aria-label={label}
+            style={{ backgroundColor: marker.color }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onFocus(marker.nodeIds);
+            }}
+          />
+        );
+      })}
     </div>
   );
 }

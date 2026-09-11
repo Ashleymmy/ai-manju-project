@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { CanvasNodeData } from "@/features/canvas/domain/types";
-import { assetIdFromNode } from "@/features/canvas/domain/nodes";
-import { mediaKindFromNode } from "@/features/canvas/domain/nodeUtils";
+import { collectCanvasPreviewAssetRefs } from "@/features/canvas/domain/generationHistory";
 import { workspaceScopeValue } from "@/features/canvas/domain/workspace";
 import { CanvasAssetsMentionsController } from "./controller";
 import type { CanvasAssetsMentionsBindings } from "./types";
@@ -54,11 +53,9 @@ export function canvasPreviewAssetSignature(
 ) {
   const keys: string[] = [];
   const seen = new Set<string>();
-  for (const node of nodes) {
-    const id = assetIdFromNode(node);
-    if (!id) continue;
-    const scope = workspaceScopeValue(node.metadata?.assetScope) || canonicalScope || fallbackScope;
-    const key = `${scope}:${mediaKindFromNode(node)}:${id}`;
+  for (const ref of collectCanvasPreviewAssetRefs(nodes)) {
+    const scope = workspaceScopeValue(ref.scope) || canonicalScope || fallbackScope;
+    const key = `${scope}:${ref.kind}:${ref.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
     keys.push(key);

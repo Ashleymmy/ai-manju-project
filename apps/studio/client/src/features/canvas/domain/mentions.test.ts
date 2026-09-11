@@ -4,7 +4,12 @@ import {
   applyCanvasMentionEditorEdit,
   buildCanvasMentionEditorModel,
   buildCanvasMentionGenerationContext,
+  buildCanvasMentionMenuItems,
   buildCanvasMentionReferences,
+  canvasMentionEditorDisplayText,
+  canvasMentionEditorSpacer,
+  CANVAS_MENTION_IMAGE_CHIP_GAP,
+  filterCanvasMentionAssetCategories,
   filterCanvasMentionReferences,
   serializeCanvasMentionEditorValue,
   splitCanvasMentionEditorDisplay,
@@ -38,6 +43,20 @@ const assets = [
     name: "旁白",
     scope: "team" as const,
   },
+  {
+    id: "fruit-stall",
+    type: "image" as const,
+    name: "水果摊",
+    category: "environment",
+    scope: "personal" as const,
+  },
+  {
+    id: "hero",
+    type: "image" as const,
+    name: "主角立绘",
+    category: "character",
+    scope: "personal" as const,
+  },
 ];
 
 describe("canvas mention references", () => {
@@ -64,6 +83,56 @@ describe("canvas mention references", () => {
     expect(
       filterCanvasMentionReferences(references, "角色").map(item => item.key)
     ).toEqual(["node:image"]);
+  });
+
+  it("without mentions still uses connected nodes as inputs by default", () => {
+    const result = buildCanvasMentionGenerationContext(
+      "prompt",
+      nodes,
+      edges,
+      "生成画面",
+      assets,
+      "personal"
+    );
+    expect(result.prompt).toContain("生成画面");
+    expect(result.prompt).toContain("红色风衣");
+    expect(result.inputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ nodeId: "image", type: "image" }),
+        expect.objectContaining({ nodeId: "text", type: "text" }),
+      ])
+    );
+  });
+
+  it("can ignore connected inputs until the prompt explicitly @ mentions them", () => {
+    const withoutMention = buildCanvasMentionGenerationContext(
+      "prompt",
+      nodes,
+      edges,
+      "生成画面",
+      assets,
+      "personal",
+      { includeConnectedInputs: false }
+    );
+    expect(withoutMention).toEqual({
+      prompt: "生成画面",
+      inputs: [],
+      missingKeys: [],
+    });
+
+    const withMention = buildCanvasMentionGenerationContext(
+      "prompt",
+      nodes,
+      edges,
+      "用 @[node:image] 生成画面",
+      assets,
+      "personal",
+      { includeConnectedInputs: false }
+    );
+    expect(withMention.inputs).toEqual([
+      expect.objectContaining({ nodeId: "image", type: "image", assetId: "asset-node" }),
+    ]);
+    expect(withMention.prompt).toContain("图片1");
   });
 
   it("resolves explicit node and asset tokens and reports stale references", () => {
@@ -151,7 +220,9 @@ describe("canvas mention references", () => {
     const canonical = "前景 @[node:image] 后景";
     const model = buildCanvasMentionEditorModel(canonical, references);
     expect(model.displayValue).not.toContain("@[node:image]");
-    expect(model.displayValue).toContain("角色参考");
+    expect(model.displayValue).not.toContain("角色参考");
+    expect(model.displayValue).toContain("前景");
+    expect(model.displayValue).toContain(canvasMentionEditorSpacer("image"));
     const parts = splitCanvasMentionEditorDisplay(
       model.displayValue,
       model.segments,
@@ -172,6 +243,45 @@ describe("canvas mention references", () => {
     ).toBe(canonical);
   });
 
+  it("reserves only spacer width for image mention chips", () => {
+    const references = buildCanvasMentionReferences(
+      "prompt",
+      nodes,
+      edges,
+      assets,
+      "personal"
+    );
+    const image = references.find(item => item.key === "node:image");
+    const text = references.find(item => item.key === "node:text");
+    expect(canvasMentionEditorDisplayText(image)).toBe(
+      canvasMentionEditorSpacer("image")
+    );
+    expect(canvasMentionEditorDisplayText(image)).not.toContain("角色参考");
+    expect(canvasMentionEditorDisplayText(text)).toContain("设定");
+  });
+
+  it("widens the display gap between adjacent image mentions", () => {
+    const references = buildCanvasMentionReferences(
+      "prompt",
+      nodes,
+      edges,
+      assets,
+      "personal"
+    );
+    const withSpace = buildCanvasMentionEditorModel(
+      "@[asset:fruit-stall] @[asset:hero]",
+      references
+    );
+    const adjacent = buildCanvasMentionEditorModel(
+      "@[asset:fruit-stall]@[asset:hero]",
+      references
+    );
+    expect(withSpace.displayValue).toContain(CANVAS_MENTION_IMAGE_CHIP_GAP);
+    expect(adjacent.displayValue).toContain(CANVAS_MENTION_IMAGE_CHIP_GAP);
+    expect(withSpace.displayValue.includes(" ")).toBe(false);
+    expect(adjacent.displayValue.split(CANVAS_MENTION_IMAGE_CHIP_GAP).length).toBeGreaterThan(1);
+  });
+
   it("moves mention offsets when text is inserted after a chip", () => {
     const references = buildCanvasMentionReferences(
       "prompt",
@@ -190,5 +300,51 @@ describe("canvas mention references", () => {
     expect(serializeCanvasMentionEditorValue(nextDisplay, nextSegments)).toBe(
       "@[node:image]继续编辑"
     );
+  });
+
+  it("lists asset-library categories before images when the query is empty", () => {
+    const references = buildCanvasMentionReferences(
+      "prompt",
+      nodes,
+      edges,
+      assets,
+      "personal"
+    );
+    const items = buildCanvasMentionMenuItems(references, "", null);
+    expect(
+      items.filter(item => item.kind === "category").map(item => item.label)
+    ).toEqual(["人物", "场景", "服饰", "道具", "UI", "参考", "其他"]);
+    expect(
+      items.some(
+        item =>
+          item.kind === "reference" && item.reference.group === "asset-library"
+      )
+    ).toBe(false);
+    expect(filterCanvasMentionAssetCategories("场").map(item => item.value)).toEqual(
+      ["environment"]
+    );
+  });
+
+  it("shows only assets in the selected category after drilling into a folder", () => {
+    const references = buildCanvasMentionReferences(
+      "prompt",
+      nodes,
+      edges,
+      assets,
+      "personal"
+    );
+    expect(
+      buildCanvasMentionMenuItems(references, "", "environment")
+        .filter(
+          (item): item is Extract<typeof item, { kind: "reference" }> =>
+            item.kind === "reference" && item.reference.group === "asset-library"
+        )
+        .map(item => item.reference.key)
+    ).toEqual(["asset:fruit-stall"]);
+    expect(
+      buildCanvasMentionMenuItems(references, "水果", null)
+        .filter(item => item.kind === "reference")
+        .map(item => (item.kind === "reference" ? item.reference.key : ""))
+    ).toContain("asset:fruit-stall");
   });
 });

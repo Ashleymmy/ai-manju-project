@@ -35,7 +35,8 @@ function createServices(overrides: Partial<CanvasAssetsMentionsServices> = {}) {
   let sequence = 0;
   return {
     getAssetLibrary: vi.fn(async () => ({ items: [], total: 0, page: 1, page_size: 60 })),
-    getAssetContentObjectUrl: vi.fn(),
+    getAssetFolders: vi.fn(async () => []),
+    getAssetContentObjectUrl: vi.fn(async (assetId: string) => `blob:thumb-${assetId}`),
     listCanvasTextAssets: vi.fn(async () => []),
     createId: () => `node-${++sequence}`,
     confirm: vi.fn(() => true),
@@ -144,6 +145,17 @@ describe("CanvasAssetsMentionsController", () => {
       "server:asset-1",
     ]);
     expect(harness.controller.getAssets()).toEqual([{ ...imageAsset, scope: "personal" }]);
+    await vi.waitFor(() => {
+      expect(harness.controller.getSnapshot().picker.thumbnails).toEqual({
+        "server:asset-1": "blob:thumb-asset-1",
+      });
+    });
+    expect(services.getAssetContentObjectUrl).toHaveBeenCalledWith(
+      "asset-1",
+      "personal",
+      320,
+      expect.anything(),
+    );
 
     harness.controller.toggleAssetPickerItem("server:asset-1");
     await harness.controller.insertAssetPickerSelection();
@@ -167,6 +179,80 @@ describe("CanvasAssetsMentionsController", () => {
       true,
     );
     expect(harness.onSuccess).toHaveBeenCalledWith("已插入 1 个资产节点");
+  });
+
+  it("收藏夹视图按 smart_view 拉取且不含本地文本", async () => {
+    const getAssetLibrary = vi.fn(async () => ({
+      items: [imageAsset],
+      total: 1,
+      page: 1,
+      page_size: 60,
+    }));
+    const listCanvasTextAssets = vi.fn(async () => [{
+      id: "text-1",
+      title: "分镜描述",
+      content: "角色走进雨夜街道",
+      scope: "personal" as const,
+      createdAt: "2026-09-03T00:00:00.000Z",
+      updatedAt: "2026-09-03T00:00:00.000Z",
+    }]);
+    const harness = createHarness([], createServices({
+      getAssetLibrary: getAssetLibrary as CanvasAssetsMentionsServices["getAssetLibrary"],
+      listCanvasTextAssets: listCanvasTextAssets as CanvasAssetsMentionsServices["listCanvasTextAssets"],
+    }));
+
+    harness.controller.openAssetPicker();
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.loading).toBe(false));
+    harness.controller.setAssetPickerKind("favorite");
+    await vi.waitFor(() => expect(getAssetLibrary).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.loading).toBe(false));
+
+    expect(getAssetLibrary).toHaveBeenLastCalledWith(
+      "personal",
+      expect.objectContaining({ smartView: "favorite", pageSize: 60 }),
+      expect.anything(),
+    );
+    expect(harness.controller.getSnapshot().picker.items.map(item => item.id)).toEqual(["server:asset-1"]);
+    expect(listCanvasTextAssets).toHaveBeenCalledTimes(1);
+  });
+
+  it("位置筛选把 folderId 传给资产库并列出文件夹选项", async () => {
+    const getAssetLibrary = vi.fn(async () => ({
+      items: [imageAsset],
+      total: 1,
+      page: 1,
+      page_size: 60,
+    }));
+    const getAssetFolders = vi.fn(async () => [{
+      id: "folder-role",
+      parent_id: "",
+      name: "角色",
+      kind: "user" as const,
+      asset_count: 2,
+      descendant_asset_count: 2,
+      sort_order: 0,
+    }]);
+    const harness = createHarness([], createServices({
+      getAssetLibrary: getAssetLibrary as CanvasAssetsMentionsServices["getAssetLibrary"],
+      getAssetFolders: getAssetFolders as CanvasAssetsMentionsServices["getAssetFolders"],
+    }));
+
+    harness.controller.openAssetPicker();
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.loading).toBe(false));
+    expect(harness.controller.getSnapshot().picker.folders).toEqual([
+      { id: "folder-role", label: "角色" },
+    ]);
+
+    harness.controller.setAssetPickerFolder("folder-role");
+    await vi.waitFor(() => expect(getAssetLibrary).toHaveBeenCalledTimes(2));
+    expect(getAssetLibrary).toHaveBeenLastCalledWith(
+      "personal",
+      expect.objectContaining({
+        folderId: "folder-role",
+        includeDescendants: true,
+      }),
+      expect.anything(),
+    );
   });
 
   it("按 owner 复用并释放节点预览与 mention 详情 Object URL", async () => {
@@ -252,5 +338,16 @@ describe("CanvasAssetsMentionsController", () => {
     expect(schedule).toHaveBeenCalledTimes(2);
     expect(scheduled.has(1)).toBe(false);
     expect(scheduled.has(2)).toBe(true);
+  });
+
+  it("按分类加载 mention 资产目录", async () => {
+    const getAssetLibrary = vi.fn(async () => ({ items: [], total: 0, page: 1, page_size: 100 }));
+    const harness = createHarness([], createServices({ getAssetLibrary }));
+    await harness.controller.loadMentionCatalog("", "personal", "character");
+    expect(getAssetLibrary).toHaveBeenCalledWith(
+      "personal",
+      expect.objectContaining({ category: "character", pageSize: 100 }),
+      expect.anything(),
+    );
   });
 });

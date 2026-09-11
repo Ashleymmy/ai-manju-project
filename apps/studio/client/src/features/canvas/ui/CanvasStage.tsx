@@ -27,6 +27,7 @@ import {
 } from "@/features/canvas/domain/connections";
 import type { CanvasGroupData, CanvasGroupResizeCorner } from "@/features/canvas/domain/groups";
 import type { CanvasMinimapModel } from "@/features/canvas/domain/minimap";
+import type { CanvasAlignGuide } from "@/features/canvas/domain/nodeSnap";
 import { imageSrcFromNode } from "@/features/canvas/domain/nodes";
 import type {
   CanvasBackgroundMode,
@@ -34,6 +35,7 @@ import type {
   CanvasNodeData,
   CanvasNodeKind,
 } from "@/features/canvas/domain/types";
+import type { CanvasPinnedMarker } from "@/features/canvas/domain/pin";
 import {
   CanvasNodeCard,
   type CanvasNodeCardActions,
@@ -42,6 +44,7 @@ import {
 } from "./CanvasNodeCard";
 import {
   CanvasBottomToolbar,
+  CanvasPinRail,
   CanvasTopToolbar,
   type CanvasBottomToolbarProps,
   type CanvasTopToolbarProps,
@@ -118,12 +121,15 @@ export type CanvasStageProps = {
   projectActionDisabled: boolean;
   topToolbar: CanvasTopToolbarProps;
   bottomToolbar: CanvasBottomToolbarProps;
+  pinnedMarkers: CanvasPinnedMarker[];
+  onFocusPinnedNode: (nodeIds: string[]) => void;
   canvasInteractionBlocked: boolean;
   switching: boolean;
   projectScopePending: boolean;
   groups: CanvasGroupData[];
   selectedGroupId: string;
   selectionBoxStyle?: CSSProperties;
+  alignmentGuides?: CanvasAlignGuide[];
   connectionLayerBounds: ReturnType<typeof buildCanvasConnectionLayerBounds>;
   edges: CanvasEdgeData[];
   nodes: CanvasNodeData[];
@@ -159,12 +165,15 @@ export function CanvasStage({
   projectActionDisabled,
   topToolbar,
   bottomToolbar,
+  pinnedMarkers,
+  onFocusPinnedNode,
   canvasInteractionBlocked,
   switching,
   projectScopePending,
   groups,
   selectedGroupId,
   selectionBoxStyle,
+  alignmentGuides = [],
   connectionLayerBounds,
   edges,
   nodes,
@@ -251,14 +260,17 @@ export function CanvasStage({
         <section
           ref={stageRef}
           className={`canvas-stage real-canvas-stage canvas-background-${backgroundMode}`}
-          style={{ "--canvas-grid-size": `${40 * zoom / 100}px`, "--canvas-grid-x": `${panX}px`, "--canvas-grid-y": `${panY}px` } as CSSProperties}
+          style={{ "--canvas-grid-size": `${40 * zoom / 100}px`, "--canvas-grid-x": `${panX}px`, "--canvas-grid-y": `${panY}px`, "--canvas-zoom": String(zoom) } as CSSProperties}
           onPointerDown={handleStagePointerDown}
           onContextMenu={(event) => { if (projectActionDisabled) { event.preventDefault(); return; } openCanvasContextMenu(event); }}
           onDoubleClick={(event) => { if (!projectActionDisabled) handleCanvasDoubleClick(event); }}
           onDragOver={(event) => { if (!projectActionDisabled) event.preventDefault(); }}
           onDrop={(event) => { event.preventDefault(); if (!projectActionDisabled) void uploadFilesAsNodes(event.dataTransfer.files); }}
         >
-          <CanvasTopToolbar {...topToolbar} />
+          <div className="canvas-left-dock" data-canvas-ui data-canvas-no-zoom>
+            <CanvasTopToolbar {...topToolbar} />
+            <CanvasPinRail markers={pinnedMarkers} onFocus={onFocusPinnedNode} />
+          </div>
 
           {canvasInteractionBlocked ? (
             <div className="empty-output"><Loader2 className="spin" size={28} /><p>{switching ? "正在保存当前画布，切换完成前请勿操作…" : projectScopePending ? "正在确认项目工作区，暂不可操作画布…" : "正在读取画布快照…"}</p></div>
@@ -306,6 +318,22 @@ export function CanvasStage({
                 </section>
               ))}
               {selectionBoxStyle ? <div className="canvas-selection-box" style={selectionBoxStyle} /> : null}
+              {alignmentGuides.length ? (
+                <svg className="canvas-align-guides" aria-hidden="true" fill="none">
+                  {alignmentGuides.map((guide, index) => {
+                    const x1 = guide.axis === "x" ? guide.position : guide.start;
+                    const y1 = guide.axis === "y" ? guide.position : guide.start;
+                    const x2 = guide.axis === "x" ? guide.position : guide.end;
+                    const y2 = guide.axis === "y" ? guide.position : guide.end;
+                    return (
+                      <g key={`${guide.axis}-${guide.position}-${index}`}>
+                        <line className="canvas-align-guide-shadow" x1={x1} y1={y1} x2={x2} y2={y2} />
+                        <line className="canvas-align-guide" x1={x1} y1={y1} x2={x2} y2={y2} />
+                      </g>
+                    );
+                  })}
+                </svg>
+              ) : null}
               <svg
                 className="real-canvas-lines"
                 aria-hidden="true"
@@ -432,7 +460,7 @@ export function CanvasStage({
                             <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "crop"); setContextMenu(null); }}>裁剪图片</button>
                             <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "focus"); setContextMenu(null); }}>聚焦提取</button>
                             <button className="full-outline" onClick={() => { setImageAnnotationNodeId(contextMenuNode.id); setContextMenu(null); }}>图片标注</button>
-                            <button className="full-outline" onClick={() => { setImageMaskNodeId(contextMenuNode.id); setImageToolError(""); setContextMenu(null); }}>蒙版编辑</button>
+                            <button className="full-outline" onClick={() => { setImageMaskNodeId(contextMenuNode.id); setImageToolError(""); setContextMenu(null); }}>蒙版修改</button>
                             <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "outpaint"); setContextMenu(null); }}>扩图</button>
                             <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "split"); setContextMenu(null); }}>切分图片</button>
                             <button className="full-outline" onClick={() => { void flipCanvasImageNode(contextMenuNode, "horizontal"); setContextMenu(null); }}>水平翻转</button>
