@@ -1,0 +1,29 @@
+# 仅本地验收，新实例与旧库/资产完全隔离；公开值只用于临时测试数据库。
+name: studio-phase2-check
+services:
+  studio-db:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: studio_test, POSTGRES_PASSWORD: disposable_test_only, POSTGRES_DB: studio_test}
+    ports: ["127.0.0.1:55438:5432"]
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U studio_test -d studio_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  sdvideo-db:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: sdvideo_test, POSTGRES_PASSWORD: disposable_test_only, POSTGRES_DB: sdvideo_test}
+    ports: ["127.0.0.1:${SDVIDEO_TEST_DB_PORT:-55439}:5432"]
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U sdvideo_test -d sdvideo_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  studio-redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:16388:6379"]
+  sdvideo-redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:16389:6379"]

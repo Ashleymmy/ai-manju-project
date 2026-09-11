@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -88,6 +89,7 @@ type AssetExportService struct {
 	usage   interface {
 		RecordExport(workspaceID string, userID string, exportID string, assetIDs []string) error
 	}
+	dispatchProgress atomic.Int64
 }
 
 func NewAssetExportService(exports repository.AssetExportRepository, assets *AssetService, folders *AssetFolderService, store storage.Storage) *AssetExportService {
@@ -226,6 +228,7 @@ func (s *AssetExportService) StartDispatcher(ctx context.Context, interval time.
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
+		defer s.dispatchProgress.Store(0)
 		for {
 			_ = s.DispatchOnce(context.WithoutCancel(ctx))
 			_, _ = s.CleanupExpired(context.WithoutCancel(ctx))
@@ -240,6 +243,9 @@ func (s *AssetExportService) StartDispatcher(ctx context.Context, interval time.
 
 func (s *AssetExportService) DispatchOnce(ctx context.Context) error {
 	batch, items, claimed, err := s.exports.ClaimNext(time.Now().UTC().Add(-AssetExportRunningLease))
+	if err == nil {
+		s.recordDispatchProgress()
+	}
 	if err != nil || !claimed {
 		return err
 	}
@@ -257,6 +263,7 @@ func (s *AssetExportService) CleanupExpired(ctx context.Context) (int, error) {
 			continue
 		}
 		count++
+		s.recordDispatchProgress()
 	}
 	return count, nil
 }
@@ -376,7 +383,7 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 			archivePath := uniqueExportArchivePath(asset, row.FolderPath, usedPaths)
 			content, contentErr := s.assets.openContentForAsset(ctx, asset, batch.UserID, WorkspaceScopeFromID(batch.WorkspaceID))
 			if contentErr == nil {
-				contentErr = copyAssetToZip(archive, archivePath, asset, content.Reader, copyBuffer)
+				contentErr = copyAssetToZip(archive, archivePath, asset, exportProgressReader{content.Reader, s.recordDispatchProgress}, copyBuffer)
 				_ = content.Reader.Close()
 			}
 			if contentErr != nil {
@@ -439,7 +446,7 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 	defer file.Close()
 	storageKey := assetExportStorageKey(batch.WorkspaceID, batch.ID)
 	_ = s.storage.Delete(ctx, storageKey)
-	object, err := s.storage.Put(ctx, storageKey, file, storage.PutMeta{ContentType: "application/zip"})
+	object, err := s.storage.Put(ctx, storageKey, exportProgressReader{file, s.recordDispatchProgress}, storage.PutMeta{ContentType: "application/zip"})
 	if err != nil {
 		return s.failBatch(batch.ID, err)
 	}

@@ -34,6 +34,7 @@ export type ImageGenerationProtocol =
   | "stability_image";
 
 export type ModelProviderConfig = {
+  version?: number;
   configured?: boolean;
   id?: string;
   name?: string;

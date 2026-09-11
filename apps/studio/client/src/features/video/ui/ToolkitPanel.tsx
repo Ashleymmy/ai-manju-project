@@ -1,9 +1,12 @@
 import { Eraser, Sparkles } from "lucide-react";
+import { useRef } from "react";
+import { useVideoToolkit } from "../hooks/useVideoToolkit";
 
-/* 工具箱视图：字幕擦除 / 视频增强入口。
-   两者依赖外部 AI MediaKit 服务，当前为配置缺失时的占位说明（对齐画布超分占位的处理方式）。 */
+/* 擦除接入持久任务；增强不属于本轮接口范围。 */
 
 export function ToolkitPanel() {
+  const input = useRef<HTMLInputElement>(null);
+  const { busy, erase } = useVideoToolkit();
   return (
     <div className="wb-toolkit">
       <div className="wb-history-head">
@@ -15,8 +18,13 @@ export function ToolkitPanel() {
           <span className="wb-toolkit-icon"><Eraser size={20} /></span>
           <b>字幕擦除</b>
           <p>识别并移除视频中的硬字幕与台标区域，支持标准/专业两档处理强度。</p>
-          <button type="button" className="outline-button small" disabled title="依赖管理员配置的外部媒体服务">
-            即将上线
+          <input ref={input} type="file" accept="video/*" hidden onChange={event => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            if (file) void erase(file);
+          }} />
+          <button type="button" className="outline-button small" disabled={busy} onClick={() => input.current?.click()} title="选择视频并提交标准擦除任务">
+            {busy ? "提交中…" : "选择视频"}
           </button>
         </div>
         <div className="wb-toolkit-card">

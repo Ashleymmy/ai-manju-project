@@ -10,10 +10,13 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/ai-manju/api/internal/auth"
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/provider"
 	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/response"
+	"github.com/ai-manju/api/internal/sdvideo"
+	"github.com/ai-manju/api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -25,6 +28,7 @@ type ModelProviderHandler struct {
 	repo       repository.ModelProviderRepository
 	secretBox  provider.SecretBox
 	gateSecret string
+	sdVideo    *sdvideo.Client
 }
 
 type modelProviderRequest struct {
@@ -127,6 +131,16 @@ func (h *ModelProviderHandler) List(c *gin.Context) {
 	for _, config := range configs {
 		items = append(items, modelProviderResponse(config))
 	}
+	if h.sdVideo != nil && h.sdVideo.Enabled() {
+		remote, err := h.sdVideoModels(c)
+		if err == nil {
+			for _, item := range remote {
+				items = append(items, sdVideoModelProvider(item))
+			}
+		} else {
+			c.Header("X-SD-Video-Status", "unavailable")
+		}
+	}
 	response.OK(c, gin.H{"providers": items})
 }
 
@@ -168,6 +182,9 @@ func (h *ModelProviderHandler) Create(c *gin.Context) {
 }
 
 func (h *ModelProviderHandler) GetByID(c *gin.Context) {
+	if h.handleSDVideoModel(c, "get") {
+		return
+	}
 	config, err := h.repo.GetModelProvider(c.Param("id"))
 	if err != nil {
 		writeModelProviderRepoError(c, err)
@@ -178,10 +195,16 @@ func (h *ModelProviderHandler) GetByID(c *gin.Context) {
 }
 
 func (h *ModelProviderHandler) PutByID(c *gin.Context) {
+	if h.handleSDVideoModel(c, "update") {
+		return
+	}
 	h.putProvider(c, c.Param("id"))
 }
 
 func (h *ModelProviderHandler) Delete(c *gin.Context) {
+	if h.handleSDVideoModel(c, "delete") {
+		return
+	}
 	id := strings.TrimSpace(c.Param("id"))
 	if id == "" {
 		response.Error(c, http.StatusBadRequest, "provider id is required")
@@ -267,6 +290,9 @@ func (h *ModelProviderHandler) Test(c *gin.Context) {
 }
 
 func (h *ModelProviderHandler) TestByID(c *gin.Context) {
+	if h.handleSDVideoModel(c, "test") {
+		return
+	}
 	h.testProvider(c, c.Param("id"))
 }
 
@@ -338,6 +364,9 @@ func (h *ModelProviderHandler) Models(c *gin.Context) {
 }
 
 func (h *ModelProviderHandler) ModelsByID(c *gin.Context) {
+	if h.handleSDVideoModel(c, "models") {
+		return
+	}
 	h.modelsForProvider(c, c.Param("id"))
 }
 
@@ -770,6 +799,69 @@ func (h *ModelProviderHandler) AggregatedModels(c *gin.Context) {
 		return
 	}
 	response.OK(c, aggregateModelProviders(configs))
+}
+
+// AggregatedModelsWithSDVideo keeps the browser-facing model contract stable
+// while adding models owned by the private SD-video service.  A SD-video
+// outage is intentionally non-fatal: Studio's configured text/image/audio
+// providers remain available and the video list simply omits the remote
+// namespace until it recovers.
+func (h *ModelProviderHandler) AggregatedModelsWithSDVideo(c *gin.Context, client *sdvideo.Client) {
+	configs, err := h.normalizedProviders()
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	result := aggregateModelProviders(configs)
+	if client == nil || !client.Enabled() {
+		response.OK(c, result)
+		return
+	}
+	user := auth.MustCurrentUser(c)
+	workspaceID := service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID)
+	remote, remoteErr := client.ListModels(c.Request.Context(), user, workspaceID)
+	if remoteErr != nil {
+		log.Printf("sd-video model discovery failed request_id=%s error=%v", response.RequestID(c), remoteErr)
+		response.OK(c, result)
+		return
+	}
+	var payload struct {
+		Items []struct {
+			Key       string `json:"key"`
+			Name      string `json:"name"`
+			Available bool   `json:"available"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(remote.Data, &payload); err != nil {
+		log.Printf("sd-video model discovery returned invalid data request_id=%s error=%v", response.RequestID(c), err)
+		response.OK(c, result)
+		return
+	}
+	models, _ := result["models"].([]string)
+	videoModels, _ := result["video_models"].([]string)
+	labels, _ := result["model_labels"].(map[string]string)
+	providerNames, _ := result["model_provider_names"].(map[string]string)
+	for _, item := range payload.Items {
+		key := strings.TrimSpace(item.Key)
+		if key == "" || !item.Available {
+			continue
+		}
+		encoded := "sdvideo/" + key
+		models = append(models, encoded)
+		videoModels = append(videoModels, encoded)
+		if name := strings.TrimSpace(item.Name); name != "" {
+			labels[encoded] = name
+		}
+		providerNames[encoded] = "SD-video"
+		if stringFromAny(result["default_video_model"]) == "" {
+			result["default_video_model"] = encoded
+		}
+	}
+	result["models"] = uniqueStrings(models)
+	result["video_models"] = uniqueStrings(videoModels)
+	result["model_labels"] = labels
+	result["model_provider_names"] = providerNames
+	response.OK(c, result)
 }
 
 func (h *ModelProviderHandler) normalizedProviders() ([]model.ModelProviderConfig, error) {

@@ -2,4 +2,7 @@ celery[redis]>=5.4,<6
 fastapi>=0.111,<1
 psycopg[binary]>=3.2,<4
 requests>=2.32,<3
+# Storage 流式传输和可注入 transport，与独立 SD-video 使用相同的 HTTP 契约。
+httpx==0.28.1
 uvicorn[standard]>=0.30,<1
+oss2==2.19.1

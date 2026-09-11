@@ -1,0 +1,21 @@
+{
+  "private_key_file": "/etc/studio-storage-issuer/signing-key.pem",
+  "kid": "studio-storage-test-1",
+  "ssh": {
+    "host": "ecs-private.example.invalid",
+    "port": 22,
+    "user": "storage-token-receiver",
+    "identity_file": "/etc/studio-storage-issuer/delivery-key",
+    "known_hosts_file": "/etc/studio-storage-issuer/known_hosts"
+  },
+  "targets": {
+    "studio": {
+      "subject": "REPLACE_WITH_NEW_FIXED_STUDIO_MACHINE_UUID",
+      "buckets": ["studio-test-assets"]
+    },
+    "sdvideo": {
+      "subject": "REPLACE_WITH_NEW_FIXED_SDVIDEO_MACHINE_UUID",
+      "buckets": ["studio-sdvideo-test-inputs", "studio-sdvideo-test-results", "studio-sdvideo-test-thumbnails", "studio-sdvideo-test-volcano"]
+    }
+  }
+}

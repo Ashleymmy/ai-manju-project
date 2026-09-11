@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/queue"
@@ -64,6 +65,106 @@ type EnqueueJobInput struct {
 type EnqueueJobResult struct {
 	Job     model.Job
 	Created bool
+}
+
+type ExternalJobInput struct {
+	UserID           string
+	Scope            string
+	Type             string
+	ExternalProvider string
+	ExternalTaskID   string
+	Payload          model.JSONB
+	IdempotencyKey   string
+}
+
+// CreateExternal records a bridge job without publishing it to the Studio
+// worker queue. The external service owns execution; Studio workers only
+// reconcile the external task and import its result asset.
+func (s *JobService) CreateExternal(input ExternalJobInput) (EnqueueJobResult, error) {
+	workspaceID := WorkspaceIDForScope(input.Scope, input.UserID)
+	idempotencyKey := strings.TrimSpace(input.IdempotencyKey)
+	if idempotencyKey == "" {
+		idempotencyKey = fingerprintJob(input.UserID, workspaceID, input.Type, NormalizeJSON(&input.Payload))
+	}
+	// 外部请求的幂等键不可跨用户或空间复用。
+	idempotencyKey = fingerprintJob(input.UserID, workspaceID, input.Type, model.JSONB(idempotencyKey))
+	if existing, err := s.repo.GetByIdempotencyKey(idempotencyKey); err == nil {
+		return EnqueueJobResult{Job: existing, Created: false}, nil
+	}
+	job := model.Job{
+		ID:               "job_" + randomHex(12),
+		IdempotencyKey:   idempotencyKey,
+		UserID:           input.UserID,
+		WorkspaceID:      workspaceID,
+		Type:             input.Type,
+		Status:           model.JobStatusQueued,
+		Payload:          NormalizeJSON(&input.Payload),
+		Result:           model.JSONB("{}"),
+		Error:            model.JSONB("{}"),
+		MaxAttempts:      s.maxAttempts,
+		ExternalProvider: strings.TrimSpace(input.ExternalProvider),
+		ExternalTaskID:   strings.TrimSpace(input.ExternalTaskID),
+		ExternalStatus:   "queued",
+		BridgeMetadata:   model.JSONB("{}"),
+		BridgeState:      "pending",
+	}
+	created, err := s.repo.Create(job)
+	if err != nil {
+		return EnqueueJobResult{}, err
+	}
+	return EnqueueJobResult{Job: created, Created: created.ID == job.ID}, nil
+}
+
+func (s *JobService) UpdateExternalState(id string, provider string, externalTaskID string, status string, metadata model.JSONB) (model.Job, error) {
+	return s.repo.SetExternalState(id, provider, externalTaskID, status, metadata)
+}
+
+func (s *JobService) UpdateExternalProgress(id string, provider string, externalTaskID string, status string, progress int, metadata model.JSONB) (model.Job, error) {
+	return s.repo.SetExternalProgress(id, provider, externalTaskID, status, progress, metadata)
+}
+
+func (s *JobService) SetResult(id string, result model.JSONB) (model.Job, error) {
+	return s.repo.SetResult(id, result)
+}
+
+func (s *JobService) SetError(id string, errorPayload model.JSONB) (model.Job, error) {
+	return s.repo.SetError(id, errorPayload)
+}
+
+func (s *JobService) GetExternalForUser(provider string, externalTaskID string, userID string) (model.Job, error) {
+	return s.repo.GetByExternalTaskID(provider, externalTaskID, userID)
+}
+
+// 运维核对只授权全局超级管理员，绝不从浏览器接受目标身份或目标服务地址。
+func (s *JobService) GetSDVideoForAdmin(id string, actor model.User) (model.Job, error) {
+	if actor.Role != model.UserRoleSuperAdmin {
+		return model.Job{}, repository.ErrJobNotFound
+	}
+	job, err := s.repo.GetByID(id)
+	if err != nil || job.ExternalProvider != "sd-video" || job.ExternalTaskID == "" {
+		return model.Job{}, repository.ErrJobNotFound
+	}
+	return job, nil
+}
+
+func (s *JobService) WakeSDVideoReconciliation(id string, now time.Time) error {
+	return s.repo.WithExternalLock(context.Background(), id, func() error {
+		job, err := s.repo.GetByID(id)
+		if err != nil {
+			return err
+		}
+		if repository.IsUncertainSubmission(job) {
+			return s.repo.DelayBridge(id, now)
+		}
+		return nil
+	})
+}
+
+// ListExternalPending returns durable bridge jobs that still need a remote
+// status check.  The repository applies the provider/status scope so a bridge
+// worker never scans ordinary Studio jobs or terminal rows.
+func (s *JobService) ListExternalPending(provider string, statuses []string, limit int) ([]model.Job, error) {
+	return s.repo.ListByExternal(strings.TrimSpace(provider), statuses, limit)
 }
 
 func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (EnqueueJobResult, error) {
@@ -156,6 +257,29 @@ func (s *JobService) CancelForUser(id string, userID string) (model.Job, error) 
 	job, err := s.GetForUser(id, userID)
 	if err != nil {
 		return model.Job{}, err
+	}
+	if job.ExternalProvider == "sd-video" {
+		var canceled model.Job
+		err := s.repo.WithExternalLock(context.Background(), id, func() error {
+			current, err := s.GetForUser(id, userID)
+			if err != nil {
+				return err
+			}
+			uncertain := repository.IsUncertainSubmission(current)
+			if current.Status == model.JobStatusSucceeded || (current.Status == model.JobStatusFailed && !uncertain) || current.Status == model.JobStatusCanceled {
+				canceled = current
+				return nil
+			}
+			canceled, err = s.repo.UpdateStatus(id, model.JobStatusCanceled)
+			if err == nil && uncertain {
+				err = s.repo.SetBridgeState(id, "pending")
+				if err == nil {
+					err = s.repo.DelayBridge(id, time.Now().UTC())
+				}
+			}
+			return err
+		})
+		return canceled, err
 	}
 	if job.Status == model.JobStatusSucceeded || job.Status == model.JobStatusFailed || job.Status == model.JobStatusCanceled {
 		s.cleanupJobInputs(context.Background(), job)

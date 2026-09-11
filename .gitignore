@@ -30,6 +30,7 @@ apps/*
 !apps/studio/
 !apps/canvas-agent/
 !apps/director-desk/
+!apps/sd-video/
 packages/*
 !packages/canvas-agent-protocol/
 ui重构参考/

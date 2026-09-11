@@ -44,8 +44,14 @@ const directorDeskMimeTypes: Record<string, string> = {
 };
 
 function directorDeskIntegration(): Plugin {
+  let outputDirectory = path.resolve(import.meta.dirname, "dist", "public");
+  let copyOnClose = false;
   return {
     name: "director-desk-integration",
+    configResolved(config) {
+      outputDirectory = path.resolve(config.root, config.build.outDir);
+      copyOnClose = config.command === "build";
+    },
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
         const requestUrl = request.url || "/";
@@ -116,7 +122,8 @@ function directorDeskIntegration(): Plugin {
       });
     },
     closeBundle() {
-      const target = path.resolve(import.meta.dirname, "dist", "public", "director-desk");
+      if (!copyOnClose) return;
+      const target = path.join(outputDirectory, "director-desk");
       if (!existsSync(directorDeskSource)) {
         throw new Error("[copy-director-desk] apps/director-desk/dist not found; run the workspace build dependencies first");
       }

@@ -1,0 +1,22 @@
+[Unit]
+Description=Issue and deliver isolated Studio Storage tokens
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=studio-storage-issuer
+Group=studio-storage-issuer
+UMask=0077
+ExecStart=/opt/studio-storage-tools/venv/bin/python /opt/studio-storage-tools/storage-token-sync.py publish --config /etc/studio-storage-issuer/publisher.json
+TimeoutStartSec=45s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+LimitCORE=0
+StandardOutput=journal
+StandardError=journal

@@ -31,6 +31,7 @@ import (
 	"github.com/ai-manju/api/internal/provider"
 	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/response"
+	"github.com/ai-manju/api/internal/sdvideo"
 	"github.com/ai-manju/api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -57,6 +58,9 @@ type AIHandler struct {
 	materials       *service.SeedanceMaterialService
 	seedanceAssets  *service.SeedanceAssetService
 	assetFolders    *service.AssetFolderService
+	assets          *service.AssetService
+	sdVideo         *sdvideo.Client
+	projects        *service.ProjectService
 }
 
 func NewAIHandler(providerHandler *ModelProviderHandler, jobService *service.JobService, monitoringRepo ...repository.MonitoringRepository) *AIHandler {
@@ -81,6 +85,18 @@ func (h *AIHandler) SetJobInputService(jobInputs *service.JobInputService) {
 
 func (h *AIHandler) SetAssetFolderService(folders *service.AssetFolderService) {
 	h.assetFolders = folders
+}
+
+func (h *AIHandler) SetAssetService(assets *service.AssetService) {
+	h.assets = assets
+}
+
+func (h *AIHandler) SetProjectService(projects *service.ProjectService) { h.projects = projects }
+
+// SetSDVideoClient configures the optional private SD-video Gateway. The
+// browser-facing API remains unchanged when the gateway is disabled.
+func (h *AIHandler) SetSDVideoClient(client *sdvideo.Client) {
+	h.sdVideo = client
 }
 
 func (h *AIHandler) Models(c *gin.Context) {
@@ -356,6 +372,10 @@ func (h *AIHandler) VideoTaskCreate(c *gin.Context) {
 			return
 		}
 		defer closeProxyMultipartFiles(files)
+		if h.shouldUseSDVideo(fields["model"]) {
+			h.createSDVideoMultipart(c, fields, files)
+			return
+		}
 		workspaceID = service.WorkspaceIDForScope(requestWorkspaceScope(c), auth.MustCurrentUser(c).ID)
 		stagedInputs, err = h.stageProxyMultipartInputs(c.Request.Context(), workspaceID, files)
 		if err == nil {
@@ -375,6 +395,10 @@ func (h *AIHandler) VideoTaskCreate(c *gin.Context) {
 		return
 	}
 	requestedModel := stringFromAny(payloadMap["model"])
+	if h.shouldUseSDVideo(requestedModel) {
+		h.createSDVideoTask(c, payloadMap)
+		return
+	}
 	config, apiKey, modelID, ok := h.providerHandler.LoadConfigForModel(c, model.ModelCapabilityVideo, requestedModel)
 	if !ok {
 		h.cleanupStagedInputs(c, workspaceID, stagedInputs)
@@ -450,10 +474,18 @@ func aiJobResponse(job model.Job) gin.H {
 }
 
 func (h *AIHandler) VideoTaskGet(c *gin.Context) {
+	if h.shouldUseSDVideoTask(c) {
+		h.getSDVideoTask(c)
+		return
+	}
 	h.proxyProviderJSON(c, http.MethodGet, "/videos/"+url.PathEscape(c.Param("id")), nil, false, model.ModelCapabilityVideo, c.Query("model"))
 }
 
 func (h *AIHandler) VideoTaskContent(c *gin.Context) {
+	if h.shouldUseSDVideoTask(c) {
+		h.getSDVideoTaskContent(c)
+		return
+	}
 	client, config, _, ok := h.providerHandler.LoadClientForModel(c, model.ModelCapabilityVideo, c.Query("model"))
 	if !ok {
 		return
@@ -473,6 +505,10 @@ func (h *AIHandler) SeedanceTaskCreate(c *gin.Context) {
 	var body map[string]any
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if h.shouldUseSDVideo(stringFromAny(body["model"])) {
+		h.createSDVideoTask(c, body)
 		return
 	}
 	if err := h.ensureSeedanceAssetsActive(c.Request.Context(), body); err != nil {
@@ -530,6 +566,10 @@ func (h *AIHandler) ensureSeedanceAssetsActive(ctx context.Context, payload map[
 
 func (h *AIHandler) SeedanceTaskGet(c *gin.Context) {
 	requestedModel := c.Query("model")
+	if h.shouldUseSDVideoTask(c) {
+		h.getSDVideoTask(c)
+		return
+	}
 	config, configOK := h.providerConfigForVideoModel(c, requestedModel)
 	if !configOK {
 		return
@@ -778,6 +818,10 @@ func integerValue(value any, fallback int) int {
 }
 
 func (h *AIHandler) SeedanceTaskContent(c *gin.Context) {
+	if h.shouldUseSDVideoTask(c) {
+		h.getSDVideoTaskContent(c)
+		return
+	}
 	requestedModel := c.Query("model")
 	client, config, _, ok := h.providerHandler.LoadClientForModel(c, model.ModelCapabilityVideo, requestedModel)
 	if !ok {

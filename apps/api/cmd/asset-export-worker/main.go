@@ -33,18 +33,41 @@ func main() {
 	if err := folderService.SetArchiveTimezone(cfg.AssetArchiveTimezone); err != nil {
 		log.Fatalf("invalid ASSET_ARCHIVE_TIMEZONE: %v", err)
 	}
-	assetService := service.NewAssetService(assetRepo, storage.NewLocalFSStorage(cfg.AssetStorageDir))
+	assetStore, err := storage.NewConfiguredStorage(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	assetService := service.NewAssetService(assetRepo, assetStore)
 	assetService.SetFolderService(folderService)
 	exportService := service.NewAssetExportService(
-		repository.NewGormAssetExportRepository(db), assetService, folderService, storage.NewLocalFSStorage(cfg.AssetStorageDir),
+		repository.NewGormAssetExportRepository(db), assetService, folderService, assetStore,
 	)
 	exportService.SetAssetUsageRecorder(service.NewAssetUsageService(
 		repository.NewGormAssetUsageRepository(db), assetRepo, repository.NewGormAssetReferenceRepository(db), repository.NewGormAssetLineageRepository(db),
 	))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatal("export worker database handle unavailable")
+	}
+	defer sqlDB.Close()
+	health, stopped, err := startExportHealth(exportHealthChecks{
+		database:   sqlDB.PingContext,
+		storage:    func(ctx context.Context) error { return probeExportStorage(ctx, assetStore) },
+		dispatcher: exportService.DispatcherReady,
+		temporary:  probeExportTemporary,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer health.Close()
 	log.Printf("asset export worker started")
 	exportService.StartDispatcher(ctx, service.AssetExportDispatchInterval)
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+	case <-stopped:
+		log.Fatal("asset export worker health server stopped")
+	}
 	log.Printf("asset export worker stopped")
 }

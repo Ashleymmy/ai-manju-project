@@ -13,6 +13,7 @@ import (
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/response"
+	"github.com/ai-manju/api/internal/sdvideo"
 	"github.com/ai-manju/api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -25,11 +26,57 @@ const (
 )
 
 type JobHandler struct {
-	jobs *service.JobService
+	jobs    *service.JobService
+	sdVideo *sdvideo.Client
 }
 
 func NewJobHandler(jobs *service.JobService) *JobHandler {
 	return &JobHandler{jobs: jobs}
+}
+
+func (h *JobHandler) SetSDVideoClient(client *sdvideo.Client) { h.sdVideo = client }
+
+func (h *JobHandler) Retry(c *gin.Context) {
+	user := auth.MustCurrentUser(c)
+	previous, err := h.jobs.GetForUser(c.Param("id"), user.ID)
+	if err != nil || previous.WorkspaceID != service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID) {
+		response.Error(c, 404, "job not found")
+		return
+	}
+	if previous.ExternalProvider != "sd-video" || (previous.Status != model.JobStatusFailed && previous.Status != model.JobStatusCanceled) {
+		response.Error(c, 409, "only failed or canceled SD-video jobs can be retried")
+		return
+	}
+	if h.sdVideo == nil || !h.sdVideo.Enabled() || h.sdVideo.Mode() != "active" {
+		response.Error(c, 503, "new video submissions are disabled")
+		return
+	}
+	var failure map[string]any
+	_ = json.Unmarshal(previous.Error, &failure)
+	if failure["code"] == "submission_uncertain" {
+		response.Error(c, 409, "provider submission must be reconciled before retry")
+		return
+	}
+	var payload map[string]any
+	if json.Unmarshal(previous.Payload, &payload) != nil {
+		response.Error(c, 409, "job request unavailable")
+		return
+	}
+	if !h.sdVideo.AllowsCreation(previous.WorkspaceID, stringFromAny(payload["model"])) {
+		response.Error(c, 403, "video model is not enabled for this workspace")
+		return
+	}
+	payload["idempotency_key"], payload["retry_of"] = "retry:"+previous.ID, previous.ID
+	if previous.ExternalTaskID != "" {
+		payload["retry_task_id"] = previous.ExternalTaskID
+	}
+	raw, _ := json.Marshal(payload)
+	created, err := h.jobs.CreateExternal(service.ExternalJobInput{UserID: user.ID, Scope: requestWorkspaceScope(c), Type: previous.Type, ExternalProvider: "sd-video", Payload: model.JSONB(raw), IdempotencyKey: "retry:" + previous.ID})
+	if err != nil {
+		response.Error(c, 500, "could not persist retry")
+		return
+	}
+	response.Accepted(c, jobResponse(created.Job))
 }
 
 func (h *JobHandler) Create(c *gin.Context) {
@@ -117,6 +164,16 @@ func (h *JobHandler) Get(c *gin.Context) {
 	user := auth.MustCurrentUser(c)
 	job, err := h.jobs.GetForUser(c.Param("id"), user.ID)
 	if err != nil {
+		if errors.Is(err, repository.ErrJobNotFound) && h.sdVideo != nil && h.sdVideo.Enabled() && strings.HasPrefix(c.Param("id"), "sdv_") {
+			workspaceID := service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID)
+			remote, remoteErr := h.sdVideo.GetTask(c.Request.Context(), user, workspaceID, c.Param("id"))
+			if remoteErr == nil {
+				var payload map[string]any
+				_ = json.Unmarshal(remote.Data, &payload)
+				response.OK(c, gin.H{"id": c.Param("id"), "job_id": c.Param("id"), "external_provider": "sd-video", "external_task_id": c.Param("id"), "status": payload["status"], "progress": payload["progress"], "result": payload["result"], "error": payload["error"]})
+				return
+			}
+		}
 		if errors.Is(err, repository.ErrJobNotFound) {
 			response.Error(c, http.StatusNotFound, "job not found")
 			return
@@ -129,6 +186,41 @@ func (h *JobHandler) Get(c *gin.Context) {
 
 func (h *JobHandler) Cancel(c *gin.Context) {
 	user := auth.MustCurrentUser(c)
+	// Bridge jobs use a local `job_*` id while the standalone service owns the
+	// `sdv_*` task. Forward cancellation for both forms so closing the browser
+	// or canceling from the queue cannot leave provider work running.
+	current, lookupErr := h.jobs.GetForUser(c.Param("id"), user.ID)
+	if strings.HasPrefix(c.Param("id"), "sdv_") {
+		current, lookupErr = h.jobs.GetExternalForUser("sd-video", c.Param("id"), user.ID)
+	}
+	if lookupErr == nil && current.ExternalProvider == "sd-video" {
+		if current.WorkspaceID != service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID) {
+			response.Error(c, http.StatusNotFound, "job not found")
+			return
+		}
+		// 先在导入锁内持久化取消；远端故障由 Bridge 补偿，不放行迟到结果。
+		canceled, cancelErr := h.jobs.CancelForUser(current.ID, user.ID)
+		if cancelErr != nil {
+			response.Error(c, http.StatusInternalServerError, "could not cancel job")
+			return
+		}
+		response.OK(c, jobResponse(canceled))
+		return
+	}
+	if h.sdVideo != nil && h.sdVideo.Enabled() && strings.HasPrefix(c.Param("id"), "sdv_") {
+		workspaceID := service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID)
+		remote, remoteErr := h.sdVideo.CancelTask(c.Request.Context(), user, workspaceID, c.Param("id"))
+		if remoteErr == nil {
+			var payload map[string]any
+			_ = json.Unmarshal(remote.Data, &payload)
+			response.OK(c, gin.H{"id": c.Param("id"), "job_id": c.Param("id"), "external_provider": "sd-video", "external_task_id": c.Param("id"), "status": payload["status"], "progress": payload["progress"]})
+			return
+		}
+		if !sdvideo.IsNotFound(remoteErr) {
+			response.Error(c, http.StatusBadGateway, remoteErr.Error())
+			return
+		}
+	}
 	if strings.TrimSpace(c.Query("scope")) != "" {
 		current, err := h.jobs.GetForUser(c.Param("id"), user.ID)
 		if err != nil || current.WorkspaceID != service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID) {
@@ -215,25 +307,29 @@ func normalizeJobType(value string) string {
 
 func jobResponse(job model.Job) gin.H {
 	return gin.H{
-		"id":              job.ID,
-		"job_id":          job.ID,
-		"idempotency_key": job.IdempotencyKey,
-		"user_id":         job.UserID,
-		"workspace_id":    job.WorkspaceID,
-		"scope":           workspaceScopeFromID(job.WorkspaceID),
-		"type":            job.Type,
-		"status":          job.Status,
-		"payload":         job.Payload,
-		"result":          job.Result,
-		"error":           job.Error,
-		"attempts":        job.Attempts,
-		"max_attempts":    job.MaxAttempts,
-		"progress":        job.Progress,
-		"queue_phase":     job.QueuePhase,
-		"created_at":      job.CreatedAt,
-		"updated_at":      job.UpdatedAt,
-		"started_at":      job.StartedAt,
-		"finished_at":     job.FinishedAt,
+		"id":                job.ID,
+		"job_id":            job.ID,
+		"idempotency_key":   job.IdempotencyKey,
+		"user_id":           job.UserID,
+		"workspace_id":      job.WorkspaceID,
+		"scope":             workspaceScopeFromID(job.WorkspaceID),
+		"type":              job.Type,
+		"status":            job.Status,
+		"payload":           job.Payload,
+		"result":            job.Result,
+		"error":             job.Error,
+		"attempts":          job.Attempts,
+		"max_attempts":      job.MaxAttempts,
+		"progress":          job.Progress,
+		"queue_phase":       job.QueuePhase,
+		"created_at":        job.CreatedAt,
+		"updated_at":        job.UpdatedAt,
+		"started_at":        job.StartedAt,
+		"finished_at":       job.FinishedAt,
+		"external_provider": job.ExternalProvider,
+		"external_task_id":  job.ExternalTaskID,
+		"external_status":   job.ExternalStatus,
+		"bridge_metadata":   job.BridgeMetadata,
 	}
 }
 

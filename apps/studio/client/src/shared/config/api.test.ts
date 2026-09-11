@@ -5,6 +5,7 @@ import { API_BASE_URL, DEFAULT_API_BASE_URL, normalizeApiBaseUrl } from "./api";
 describe("API runtime config", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     vi.resetModules();
   });
 
@@ -29,5 +30,15 @@ describe("API runtime config", () => {
     const configured = await import("./api");
 
     expect(configured.API_BASE_URL).toBe("https://api.example.com");
+  });
+
+  it("resolves the same-origin build option without a localhost fallback", async () => {
+    vi.stubGlobal("window", { location: { origin: "https://studio.example.com" } });
+    vi.stubEnv("VITE_API_URL", "/");
+    const configured = await import("./api");
+    expect(configured.API_BASE_URL).toBe(window.location.origin);
+    const url = new URL(`${configured.API_BASE_URL}/api/sd-video/conversations`);
+    expect(url.origin).toBe(window.location.origin);
+    expect(url.pathname).toBe("/api/sd-video/conversations");
   });
 });

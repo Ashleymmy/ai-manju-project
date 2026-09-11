@@ -1,0 +1,183 @@
+name: ai-manju-sd-video
+
+services:
+  sd-video-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${SDVIDEO_POSTGRES_USER:?set SDVIDEO_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${SDVIDEO_POSTGRES_PASSWORD:?set SDVIDEO_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${SDVIDEO_POSTGRES_DB:?set SDVIDEO_POSTGRES_DB}
+    ports:
+      - "127.0.0.1:${SDVIDEO_POSTGRES_HOST_PORT:-55433}:5432"
+    volumes:
+      - sdvideo-postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  sd-video-redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:${SDVIDEO_REDIS_HOST_PORT:-6380}:6379"
+    volumes:
+      - sdvideo-redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  sd-video-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment: &sdvideo-runtime
+      APP_ENV: ${SDVIDEO_APP_ENV:-development}
+      SDVIDEO_OSS_ENDPOINT: ${SDVIDEO_OSS_ENDPOINT:-}
+      SDVIDEO_OSS_PUBLIC_ENDPOINT: ${SDVIDEO_OSS_PUBLIC_ENDPOINT:-}
+      SDVIDEO_OSS_ACCESS_KEY_ID: ${SDVIDEO_OSS_ACCESS_KEY_ID:-}
+      SDVIDEO_OSS_ACCESS_KEY_SECRET: ${SDVIDEO_OSS_ACCESS_KEY_SECRET:-}
+      SDVIDEO_OSS_RESULT_BUCKET: ${SDVIDEO_OSS_RESULT_BUCKET:-}
+      SDVIDEO_OSS_INPUT_BUCKET: ${SDVIDEO_OSS_INPUT_BUCKET:-}
+      SDVIDEO_OSS_THUMBNAIL_BUCKET: ${SDVIDEO_OSS_THUMBNAIL_BUCKET:-}
+      SDVIDEO_OSS_VOLCANO_BUCKET: ${SDVIDEO_OSS_VOLCANO_BUCKET:-}
+      AMK_API_KEY: ${SDVIDEO_AMK_API_KEY:-}
+      API_PREFIX: /v1
+      SD_VIDEO_EXECUTION_MODE: ${SD_VIDEO_EXECUTION_MODE:-mock}
+      SD_VIDEO_MODE: ${SD_VIDEO_MODE:-active}
+      LOCAL_DEMO_MODE: ${LOCAL_DEMO_MODE:-false}
+      SERVICE_JWT_PUBLIC_KEY: ${SERVICE_JWT_PUBLIC_KEY:-}
+      SERVICE_JWT_ISSUER: ${SERVICE_JWT_ISSUER:-ai-manju-studio}
+      SERVICE_JWT_AUDIENCE: ${SERVICE_JWT_AUDIENCE:-sd-video}
+      SDVIDEO_DATABASE_URL: postgresql://${SDVIDEO_POSTGRES_USER:?set SDVIDEO_POSTGRES_USER}:${SDVIDEO_POSTGRES_PASSWORD:?set SDVIDEO_POSTGRES_PASSWORD}@sd-video-postgres:5432/${SDVIDEO_POSTGRES_DB:?set SDVIDEO_POSTGRES_DB}
+      SDVIDEO_REDIS_URL: redis://sd-video-redis:6379/0
+      STORAGE_BACKEND: ${SDVIDEO_STORAGE_BACKEND:-local}
+      SDVIDEO_DATA_DIR: /app/data
+      SDVIDEO_S3_ENDPOINT_URL: ${SDVIDEO_S3_ENDPOINT_URL:-}
+      SDVIDEO_S3_REGION: ${SDVIDEO_S3_REGION:-us-east-1}
+      SDVIDEO_S3_BUCKET: ${SDVIDEO_S3_BUCKET:-sdvideo-results}
+      SDVIDEO_S3_INPUT_BUCKET: ${SDVIDEO_S3_INPUT_BUCKET:-sdvideo-inputs}
+      SDVIDEO_S3_RESULT_BUCKET: ${SDVIDEO_S3_RESULT_BUCKET:-sdvideo-results}
+      SDVIDEO_S3_THUMBNAIL_BUCKET: ${SDVIDEO_S3_THUMBNAIL_BUCKET:-sdvideo-thumbnails}
+      SDVIDEO_S3_VOLCANO_BUCKET: ${SDVIDEO_S3_VOLCANO_BUCKET:-sdvideo-volcano-assets}
+      SDVIDEO_S3_ACCESS_KEY_ID: ${SDVIDEO_S3_ACCESS_KEY_ID:-}
+      SDVIDEO_S3_SECRET_ACCESS_KEY: ${SDVIDEO_S3_SECRET_ACCESS_KEY:-}
+      SDVIDEO_SUPABASE_URL: ${SDVIDEO_SUPABASE_URL:-}
+      SDVIDEO_SUPABASE_PUBLIC_URL: ${SDVIDEO_SUPABASE_PUBLIC_URL:-}
+      SDVIDEO_SUPABASE_STORAGE_TOKEN: ${SDVIDEO_SUPABASE_STORAGE_TOKEN:-}
+      SDVIDEO_SUPABASE_STORAGE_TOKEN_FILE: ${SDVIDEO_SUPABASE_STORAGE_TOKEN_FILE:-}
+      SDVIDEO_SUPABASE_API_KEY: ${SDVIDEO_SUPABASE_API_KEY:-}
+      SDVIDEO_SUPABASE_API_KEY_FILE: ${SDVIDEO_SUPABASE_API_KEY_FILE:-}
+      SDVIDEO_SUPABASE_CA_FILE: ${SDVIDEO_SUPABASE_CA_FILE:-}
+      SDVIDEO_SUPABASE_INPUT_BUCKET: ${SDVIDEO_SUPABASE_INPUT_BUCKET:-}
+      SDVIDEO_SUPABASE_RESULT_BUCKET: ${SDVIDEO_SUPABASE_RESULT_BUCKET:-}
+      SDVIDEO_SUPABASE_THUMBNAIL_BUCKET: ${SDVIDEO_SUPABASE_THUMBNAIL_BUCKET:-}
+      SDVIDEO_SUPABASE_VOLCANO_BUCKET: ${SDVIDEO_SUPABASE_VOLCANO_BUCKET:-}
+      ARK_API_KEY: ${SDVIDEO_ARK_API_KEY:-}
+      SEEDANCE20_URL: ${SDVIDEO_SEEDANCE20_URL:-}
+      SEEDANCE20_KEY: ${SDVIDEO_SEEDANCE20_KEY:-}
+      SEEDANCE20_PROVIDER: ${SDVIDEO_SEEDANCE20_PROVIDER:-legacy_proxy}
+      TOKENSPACE_BASE_URL: ${SDVIDEO_TOKENSPACE_BASE_URL:-}
+      TOKENSPACE_API_KEY: ${SDVIDEO_TOKENSPACE_API_KEY:-}
+      VIDU_BASE_URL: ${SDVIDEO_VIDU_BASE_URL:-https://api.vidu.com}
+      VIDU_API_KEY: ${SDVIDEO_VIDU_API_KEY:-}
+      YIKE_API_KEY: ${SDVIDEO_YIKE_API_KEY:-}
+      YIKE_API_HOST: ${SDVIDEO_YIKE_API_HOST:-}
+      YIKE_WORKSPACE_ID: ${SDVIDEO_YIKE_WORKSPACE_ID:-}
+      REDIS_URL: redis://sd-video-redis:6379/0
+      CELERY_BROKER_URL: redis://sd-video-redis:6379/0
+    depends_on:
+      sd-video-postgres:
+        condition: service_healthy
+      sd-video-redis:
+        condition: service_healthy
+    volumes:
+      - sdvideo-data:/app/data
+    ports:
+      - "127.0.0.1:${SDVIDEO_API_HOST_PORT:-8201}:8201"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8201/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    command: ["sh", "-c", "python scripts/migrate.py && exec uvicorn api.main:app --host 0.0.0.0 --port 8201"]
+    restart: unless-stopped
+
+  sd-video-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "worker.runner"]
+    restart: unless-stopped
+    environment:
+      <<: *sdvideo-runtime
+      APP_ENV: ${SDVIDEO_APP_ENV:-development}
+      SD_VIDEO_EXECUTION_MODE: ${SD_VIDEO_EXECUTION_MODE:-mock}
+      SD_VIDEO_MODE: ${SD_VIDEO_MODE:-active}
+      LOCAL_DEMO_MODE: ${LOCAL_DEMO_MODE:-false}
+      SDVIDEO_DATABASE_URL: postgresql://${SDVIDEO_POSTGRES_USER:?set SDVIDEO_POSTGRES_USER}:${SDVIDEO_POSTGRES_PASSWORD:?set SDVIDEO_POSTGRES_PASSWORD}@sd-video-postgres:5432/${SDVIDEO_POSTGRES_DB:?set SDVIDEO_POSTGRES_DB}
+      SDVIDEO_REDIS_URL: redis://sd-video-redis:6379/0
+      STORAGE_BACKEND: ${SDVIDEO_STORAGE_BACKEND:-local}
+      SDVIDEO_DATA_DIR: /app/data
+      SDVIDEO_S3_ENDPOINT_URL: ${SDVIDEO_S3_ENDPOINT_URL:-}
+      SDVIDEO_S3_REGION: ${SDVIDEO_S3_REGION:-us-east-1}
+      SDVIDEO_S3_BUCKET: ${SDVIDEO_S3_BUCKET:-sdvideo-results}
+      SDVIDEO_S3_INPUT_BUCKET: ${SDVIDEO_S3_INPUT_BUCKET:-sdvideo-inputs}
+      SDVIDEO_S3_RESULT_BUCKET: ${SDVIDEO_S3_RESULT_BUCKET:-sdvideo-results}
+      SDVIDEO_S3_THUMBNAIL_BUCKET: ${SDVIDEO_S3_THUMBNAIL_BUCKET:-sdvideo-thumbnails}
+      SDVIDEO_S3_VOLCANO_BUCKET: ${SDVIDEO_S3_VOLCANO_BUCKET:-sdvideo-volcano-assets}
+      SDVIDEO_S3_ACCESS_KEY_ID: ${SDVIDEO_S3_ACCESS_KEY_ID:-}
+      SDVIDEO_S3_SECRET_ACCESS_KEY: ${SDVIDEO_S3_SECRET_ACCESS_KEY:-}
+      ARK_API_KEY: ${SDVIDEO_ARK_API_KEY:-}
+      SEEDANCE20_URL: ${SDVIDEO_SEEDANCE20_URL:-}
+      SEEDANCE20_KEY: ${SDVIDEO_SEEDANCE20_KEY:-}
+      SEEDANCE20_PROVIDER: ${SDVIDEO_SEEDANCE20_PROVIDER:-legacy_proxy}
+      TOKENSPACE_BASE_URL: ${SDVIDEO_TOKENSPACE_BASE_URL:-}
+      TOKENSPACE_API_KEY: ${SDVIDEO_TOKENSPACE_API_KEY:-}
+      VIDU_BASE_URL: ${SDVIDEO_VIDU_BASE_URL:-https://api.vidu.com}
+      VIDU_API_KEY: ${SDVIDEO_VIDU_API_KEY:-}
+      YIKE_API_KEY: ${SDVIDEO_YIKE_API_KEY:-}
+      YIKE_API_HOST: ${SDVIDEO_YIKE_API_HOST:-}
+      YIKE_WORKSPACE_ID: ${SDVIDEO_YIKE_WORKSPACE_ID:-}
+      REDIS_URL: redis://sd-video-redis:6379/0
+      CELERY_BROKER_URL: redis://sd-video-redis:6379/0
+      SDVIDEO_WORKER_HEALTH_PORT: 8202
+    depends_on:
+      sd-video-api:
+        condition: service_healthy
+      sd-video-redis:
+        condition: service_healthy
+    volumes:
+      - sdvideo-data:/app/data
+    expose:
+      - "8202"
+    ports:
+      - "127.0.0.1:${SDVIDEO_WORKER_HOST_PORT:-8202}:8202"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8202/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  sd-video-asset-worker:
+    build: {context: ., dockerfile: Dockerfile}
+    command: [python, -m, worker.asset_worker]
+    environment: *sdvideo-runtime
+    volumes: [sdvideo-data:/app/data]
+    restart: unless-stopped
+    depends_on:
+      sd-video-api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8203/health/ready',timeout=8)"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  sdvideo-postgres-data:
+  sdvideo-redis-data:
+  sdvideo-data:

@@ -1,0 +1,10 @@
+[Unit]
+Description=Studio isolated database backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/bin/python3 /srv/studio/deploy/cloud/backup.py backup --compose-env /srv/studio-config/compose.env --directory /srv/studio-backups
+TimeoutStartSec=29min

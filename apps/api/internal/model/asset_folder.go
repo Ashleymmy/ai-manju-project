@@ -31,6 +31,7 @@ const (
 	AssetSourceImageWorkbench = "image_workbench"
 	AssetSourceCanvas         = "canvas"
 	AssetSourceComicBatch     = "comic_batch"
+	AssetSourceSDVideo        = "sd_video"
 	AssetSourceLegacy         = "legacy"
 	AssetSourceUnknown        = "unknown"
 

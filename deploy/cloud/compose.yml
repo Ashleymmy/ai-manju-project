@@ -1,0 +1,226 @@
+name: studio-cloud-internal
+
+x-runtime: &runtime
+  restart: unless-stopped
+  init: true
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+  security_opt: [no-new-privileges:true]
+
+x-studio: &studio
+  <<: *runtime
+  image: ${STUDIO_API_IMAGE:?provide a tested image digest}
+  env_file: ["${STUDIO_RUNTIME_ENV:?provide private Studio runtime env file}"]
+  networks: [studio-private, service-link, egress]
+  volumes:
+    - ${STUDIO_SECRET_DIR:?provide Studio secret directory}:/run/secrets/studio:ro
+    - ${SDVIDEO_CA_FILE:?provide private service CA}:/run/tls/sdvideo-ca.crt:ro
+  tmpfs: ["/tmp:size=268435456,mode=1777", "/app/data/assets:size=536870912,mode=1777"]
+  read_only: true
+  mem_limit: 2g
+
+x-sdvideo: &sdvideo
+  <<: *runtime
+  image: ${SDVIDEO_IMAGE:?provide a tested image digest}
+  env_file: ["${SDVIDEO_RUNTIME_ENV:?provide private SD-video runtime env file}"]
+  networks: [sdvideo-private, service-link, egress]
+  volumes:
+    - ${SDVIDEO_SECRET_DIR:?provide SD-video secret directory}:/run/secrets/sdvideo:ro
+    - ${SDVIDEO_TLS_DIR:?provide private service TLS directory}:/run/tls/sdvideo:ro
+  tmpfs: ["/tmp:size=268435456,mode=1777", "/app/data:size=536870912,mode=1777", "/app/logs:size=16777216,mode=1777"]
+  read_only: true
+  mem_limit: 2g
+
+services:
+  postgres:
+    <<: *runtime
+    image: ${POSTGRES_IMAGE:?provide a pinned PostgreSQL image}
+    environment:
+      POSTGRES_USER: studio
+      POSTGRES_DB: studio_cloud
+      POSTGRES_PASSWORD_FILE: /run/secrets/password
+    volumes:
+      - studio-db:/var/lib/postgresql/data
+      - ${STUDIO_DB_PASSWORD_FILE:?provide Studio database password file}:/run/secrets/password:ro
+    networks: [studio-private]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U studio -d studio_cloud"]
+      interval: 10s
+      retries: 12
+      timeout: 3s
+    mem_limit: 1g
+
+  sd-video-postgres:
+    <<: *runtime
+    image: ${POSTGRES_IMAGE:?provide a pinned PostgreSQL image}
+    environment:
+      POSTGRES_USER: sdvideo
+      POSTGRES_DB: sdvideo_cloud
+      POSTGRES_PASSWORD_FILE: /run/secrets/password
+    volumes:
+      - sdvideo-db:/var/lib/postgresql/data
+      - ${SDVIDEO_DB_PASSWORD_FILE:?provide SD-video database password file}:/run/secrets/password:ro
+    networks: [sdvideo-private]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U sdvideo -d sdvideo_cloud"]
+      interval: 10s
+      retries: 12
+      timeout: 3s
+    mem_limit: 1g
+
+  redis:
+    <<: *runtime
+    image: ${REDIS_IMAGE:?provide a pinned Redis image}
+    command: [redis-server, --appendonly, "yes", --maxmemory, 256mb, --maxmemory-policy, noeviction]
+    volumes: [studio-queue:/data]
+    networks: [studio-private]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    mem_limit: 384m
+
+  sd-video-redis:
+    <<: *runtime
+    image: ${REDIS_IMAGE:?provide a pinned Redis image}
+    command: [redis-server, --appendonly, "yes", --maxmemory, 256mb, --maxmemory-policy, noeviction]
+    volumes: [sdvideo-queue:/data]
+    networks: [sdvideo-private]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    mem_limit: 384m
+
+  api:
+    <<: *studio
+    command: [/app/ai-manju-api]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD-SHELL, "wget -qO- http://127.0.0.1:3101/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  sd-video-bridge:
+    <<: *studio
+    command: [/app/ai-manju-sd-video-bridge]
+    environment:
+      SD_VIDEO_BRIDGE_HEALTH_ADDR: 0.0.0.0:3103
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD-SHELL, "wget -qO- http://127.0.0.1:3103/health/ready >/dev/null"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+  asset-export-worker:
+    <<: *studio
+    command: [/app/ai-manju-asset-export-worker]
+    environment:
+      ASSET_EXPORT_HEALTH_ADDR: 0.0.0.0:3104
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD-SHELL, "wget -qO- http://127.0.0.1:3104/health/ready >/dev/null"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+
+  worker:
+    <<: *studio
+    image: ${STUDIO_WORKER_IMAGE:?provide a tested Worker image digest}
+    mem_limit: 3g
+    command: [python, -m, worker.runtime]
+    stop_grace_period: 45s
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, curl, -fsS, http://127.0.0.1:8101/health]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  sd-video-api:
+    <<: *sdvideo
+    command: [sh, -c, "python scripts/migrate.py && exec uvicorn api.main:app --host 0.0.0.0 --port 8201 --ssl-keyfile /run/tls/sdvideo/server.key --ssl-certfile /run/tls/sdvideo/server.crt"]
+    depends_on:
+      sd-video-postgres: {condition: service_healthy}
+      sd-video-redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import ssl,urllib.request; urllib.request.urlopen('https://sd-video-api:8201/health/ready',context=ssl.create_default_context(cafile='/run/tls/sdvideo/ca.crt'),timeout=8)"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+
+  sd-video-worker:
+    <<: *sdvideo
+    command: [python, -m, worker.runner]
+    depends_on:
+      sd-video-api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8202/health/ready',timeout=8)"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  sd-video-asset-worker:
+    <<: *sdvideo
+    command: [python, -m, worker.asset_worker]
+    depends_on:
+      sd-video-api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8203/health/ready',timeout=8)"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  web:
+    <<: *runtime
+    image: ${STUDIO_WEB_IMAGE:?provide a tested Studio image digest}
+    networks: [studio-private]
+    depends_on:
+      api: {condition: service_healthy}
+    volumes: [./web.nginx.conf:/etc/nginx/conf.d/default.conf:ro]
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD-SHELL, "wget -qO- http://127.0.0.1:3100/ >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  edge:
+    <<: *runtime
+    image: ${NGINX_IMAGE:?provide a pinned Nginx image}
+    ports: ["443:443"]
+    environment:
+      STUDIO_DOMAIN: ${STUDIO_DOMAIN:?provide internal test domain}
+    volumes:
+      - ./edge.nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${STUDIO_TLS_DIR:?provide public TLS directory}:/run/tls/public:ro
+    networks: [studio-private, egress]
+    depends_on:
+      web: {condition: service_healthy}
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD-SHELL, "wget -qO- http://127.0.0.1:8080/health/live >/dev/null"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+networks:
+  studio-private: {internal: true}
+  sdvideo-private: {internal: true}
+  service-link: {internal: true}
+  egress: {}
+volumes:
+  studio-db: {}
+  sdvideo-db: {}
+  studio-queue: {}
+  sdvideo-queue: {}

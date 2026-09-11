@@ -16,6 +16,7 @@ import (
 	"github.com/ai-manju/api/internal/queue"
 	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/response"
+	"github.com/ai-manju/api/internal/sdvideo"
 	"github.com/ai-manju/api/internal/service"
 	"github.com/ai-manju/api/internal/storage"
 	"github.com/gin-contrib/cors"
@@ -43,8 +44,8 @@ func New() *gin.Engine {
 }
 
 func NewWithConfig(cfg config.Config) *gin.Engine {
-	r := gin.Default()
-	r.Use(middleware.RequestID())
+	r := gin.New()
+	r.Use(middleware.RequestID(), middleware.SafeAccessLog(gin.DefaultWriter), middleware.SafeRecovery(gin.DefaultErrorWriter))
 	r.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Expose-Headers", middleware.RequestIDHeader)
 		c.Next()
@@ -52,7 +53,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     cfg.FrontendURLs,
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     corsAllowedHeaders,
 		ExposeHeaders:    []string{middleware.RequestIDHeader},
 		AllowCredentials: true,
@@ -66,7 +67,10 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 
 	projectService := service.NewProjectService(repos.projectRepo)
 	projectService.SetAssetReferenceRepository(repos.assetReferenceRepo)
-	assetStore := storage.NewLocalFSStorage(cfg.AssetStorageDir)
+	assetStore, assetStoreErr := storage.NewConfiguredStorage(cfg)
+	if assetStoreErr != nil {
+		panic(assetStoreErr)
+	}
 	jobInputService := service.NewJobInputService(assetStore, cfg.MaxAssetUploadBytes)
 	jobService := service.NewJobService(
 		repos.jobRepo,
@@ -132,6 +136,15 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	materialService := service.NewSeedanceMaterialService(repos.modelProviderRepo, secretBox)
 	seedanceAssetService := service.NewSeedanceAssetService(repos.modelProviderRepo, repos.seedanceAssetRepo, secretBox, assetStore, cfg.PublicAssetBaseURL)
 	aiHandler := handler.NewAIHandler(modelProviderHandler, jobService, repos.monitoringRepo)
+	aiHandler.SetProjectService(projectService)
+	sdVideoClient := sdvideo.NewClient(cfg)
+	modelProviderHandler.SetSDVideoClient(sdVideoClient)
+	aiHandler.SetSDVideoClient(sdVideoClient)
+	aiHandler.SetAssetService(assetService)
+	if cfg.StorageDriver != "postgres" && cfg.SDVideoBridgeEnabled && sdVideoClient.Enabled() {
+		bridge := service.NewSDVideoBridge(jobService, repos.userRepo, sdVideoClient, assetService, time.Duration(cfg.SDVideoBridgeIntervalSec)*time.Second, cfg.SDVideoBridgeBatchSize)
+		bridge.Start(context.Background())
+	}
 	aiHandler.SetJobInputService(jobInputService)
 	aiHandler.SetAssetFolderService(assetFolderService)
 	aiHandler.SetSeedanceMaterialService(materialService)
@@ -139,6 +152,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	materialHandler := handler.NewSeedanceMaterialHandler(materialService)
 	seedanceAssetHandler := handler.NewSeedanceAssetHandler(seedanceAssetService, cfg)
 	jobHandler := handler.NewJobHandler(jobService)
+	jobHandler.SetSDVideoClient(sdVideoClient)
 	adminMonitoringHandler := handler.NewAdminMonitoringHandler(repos.monitoringRepo, storageStatus, dbStatus)
 	announcementHandler := handler.NewAnnouncementHandler(repos.announcementRepo)
 	userPreferenceHandler := handler.NewUserPreferenceHandler(repos.userPreferenceRepo)
@@ -149,6 +163,14 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	}
 
 	r.GET("/health", func(c *gin.Context) {
+		if probe, ok := assetStore.(interface{ Probe(context.Context) error }); ok {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+			defer cancel()
+			if err := probe.Probe(ctx); err != nil {
+				response.Error(c, 503, "asset storage unavailable")
+				return
+			}
+		}
 		response.OK(c, gin.H{
 			"service":             "AI Manju API (Go)",
 			"storage":             storageStatus,
@@ -182,8 +204,9 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			userRoutes.PUT("/preferences", userPreferenceHandler.Put)
 		}
 
-		admin := api.Group("/admin", middleware.RequireSuperAdmin(authService))
+		admin := api.Group("/admin", middleware.RequireSuperAdmin(authService), handler.SDVideoAssetCompatibility(sdVideoClient))
 		{
+			handler.RegisterSDVideoReconciliation(admin, jobService, sdVideoClient)
 			admin.GET("/users", authHandler.ListUsers)
 			admin.POST("/users", authHandler.CreateUser)
 			admin.PUT("/users/:id", authHandler.UpdateUser)
@@ -221,9 +244,9 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			admin.DELETE("/seedance-assets/:id/tags/:tag_id", seedanceAssetHandler.RemoveTag)
 		}
 
-		ai := api.Group("/ai", middleware.RequireAuth(authService))
+		ai := api.Group("/ai", middleware.RequireAuth(authService), handler.SDVideoAssetCompatibility(sdVideoClient))
 		{
-			ai.GET("/models", modelProviderHandler.AggregatedModels)
+			ai.GET("/models", func(c *gin.Context) { modelProviderHandler.AggregatedModelsWithSDVideo(c, sdVideoClient) })
 			ai.POST("/text", aiHandler.Text)
 			ai.POST("/images/generations", aiHandler.ImageGenerations)
 			ai.POST("/image/generations", aiHandler.ImageGenerations)
@@ -251,6 +274,12 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 		}
 
 		projects := api.Group("/projects", middleware.RequireAuth(authService))
+		sdVideoRoutes := api.Group("/sd-video", middleware.RequireAuth(authService))
+		handler.RegisterSDVideoGateway(sdVideoRoutes, sdVideoClient, jobService)
+		sdVideoRoutes.POST("/toolkit/erase", aiHandler.CreateSDVideoErase)
+		sdVideoRoutes.GET("/volcano/assets/:id/content", handler.SDVideoAssetContent(sdVideoClient))
+		sdVideoRoutes.GET("/volcano/assets/:id/thumbnail", handler.SDVideoThumbnail(sdVideoClient, "volcano"))
+		sdVideoRoutes.GET("/media/:id/thumbnail", handler.SDVideoThumbnail(sdVideoClient, "media"))
 		{
 			projects.GET("", projectHandler.GetProjects)
 			projects.POST("", projectHandler.CreateProject)
@@ -306,6 +335,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			jobs.GET("", jobHandler.List)
 			jobs.GET("/:id", jobHandler.Get)
 			jobs.POST("/:id/cancel", jobHandler.Cancel)
+			jobs.POST("/:id/retry", jobHandler.Retry)
 			jobs.GET("/:id/stream", jobHandler.Stream)
 		}
 

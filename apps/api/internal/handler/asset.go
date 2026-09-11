@@ -323,6 +323,18 @@ func (h *AssetHandler) Content(c *gin.Context) {
 		return
 	}
 	download := queryBool(c.Query("download"))
+	if thumbnailWidth == 0 && !download {
+		deliveryURL, err := h.assets.ContentDeliveryURL(c.Request.Context(), content)
+		if err != nil {
+			response.Error(c, http.StatusBadGateway, "asset delivery unavailable")
+			return
+		}
+		if deliveryURL != "" {
+			c.Header("Cache-Control", "private, no-store")
+			c.Redirect(http.StatusTemporaryRedirect, deliveryURL)
+			return
+		}
+	}
 	variant := ""
 	if thumbnailWidth > 0 && !download && content.Asset.Type == "image" {
 		variant = fmt.Sprintf("-thumb-%d", thumbnailWidth)
@@ -357,6 +369,13 @@ func (h *AssetHandler) Content(c *gin.Context) {
 			return
 		}
 		c.Data(http.StatusOK, contentType, original)
+		return
+	}
+	// 本地文件可随机读取，交给标准库处理 Range/If-Range，避免视频拖动时重传整个文件。
+	// 对象存储的正常媒体读取已在上方转到短期签名 URL，由 Storage/CDN 处理 Range。
+	if reader, ok := content.Reader.(io.ReadSeeker); ok {
+		c.Header("Content-Type", contentType)
+		http.ServeContent(c.Writer, c.Request, content.Asset.Name, content.Object.ModifiedAt, reader)
 		return
 	}
 	c.DataFromReader(http.StatusOK, content.Object.Size, contentType, content.Reader, nil)

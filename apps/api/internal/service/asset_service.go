@@ -1,12 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -139,6 +141,16 @@ type AssetContent struct {
 	Asset  model.Asset
 	Object storage.StorageObject
 	Reader io.ReadCloser
+}
+
+// 调用者已经通过 OpenContent 完成空间鉴权；仅对象存储生成短期访问地址。
+func (s *AssetService) ContentDeliveryURL(ctx context.Context, content AssetContent) (string, error) {
+	switch s.storage.(type) {
+	case *storage.OSSStorage, *storage.SupabaseStorage:
+		return s.storage.URL(ctx, content.Object.Key)
+	default:
+		return "", nil
+	}
 }
 
 type AssetTrashPreflight struct {
@@ -357,11 +369,34 @@ func (s *AssetService) Upload(ctx context.Context, input AssetUploadInput) (mode
 	key := AssetStorageKey(workspaceID, input.ID, input.Extension)
 	hasher := sha256.New()
 	object, err := s.storage.Put(ctx, key, io.TeeReader(input.Reader, hasher), storage.PutMeta{ContentType: input.ContentType, Size: input.SizeLimit})
+	recoveredExisting := false
+	if errors.Is(err, os.ErrExist) && input.IdempotencyKey != "" {
+		// 对象成功但数据库落库前崩溃：核对完整内容后认领，绝不覆盖未知对象。
+		if _, readErr := io.Copy(hasher, input.Reader); readErr != nil {
+			return model.Asset{}, readErr
+		}
+		existing, meta, readErr := s.storage.Get(ctx, key)
+		if readErr != nil {
+			return model.Asset{}, readErr
+		}
+		digest := sha256.New()
+		_, readErr = io.Copy(digest, existing)
+		_ = existing.Close()
+		if readErr != nil {
+			return model.Asset{}, readErr
+		}
+		if !bytes.Equal(digest.Sum(nil), hasher.Sum(nil)) {
+			return model.Asset{}, errors.New("asset ingestion object checksum conflict")
+		}
+		object, err, recoveredExisting = meta, nil, true
+	}
 	if err != nil {
 		return model.Asset{}, err
 	}
 	if input.SizeLimit > 0 && object.Size > input.SizeLimit {
-		_ = s.storage.Delete(ctx, key)
+		if !recoveredExisting {
+			_ = s.storage.Delete(ctx, key)
+		}
 		return model.Asset{}, ErrPayloadTooLarge
 	}
 
@@ -388,7 +423,9 @@ func (s *AssetService) Upload(ctx context.Context, input AssetUploadInput) (mode
 		IngestionMode:   normalizeAssetIngestionMode(input.IngestionMode, registration.SourceType),
 	})
 	if err != nil {
-		_ = s.storage.Delete(ctx, key)
+		if input.IdempotencyKey == "" {
+			_ = s.storage.Delete(ctx, key)
+		}
 		return model.Asset{}, err
 	}
 	if s.tagSyncer != nil && (len(input.TagIDs) > 0 || len(input.Tags) > 0) {
@@ -757,6 +794,9 @@ func (s *AssetService) resolveAssetObject(ctx context.Context, workspaceID strin
 		object, err := s.storage.Stat(ctx, key)
 		if err == nil {
 			return key, object, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", storage.StorageObject{}, err
 		}
 	}
 	return "", storage.StorageObject{}, repository.ErrAssetNotFound

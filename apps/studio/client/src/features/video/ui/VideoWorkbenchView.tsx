@@ -25,9 +25,6 @@ import {
 import {
   createVideoWorkbenchConversation,
   createVideoWorkbenchMessage,
-  loadVideoWorkbenchConversations,
-  persistWorkbenchAttachment,
-  queueVideoWorkbenchWrite,
   removeWorkbenchMediaByPrefix,
   storeWorkbenchMedia,
   loadWorkbenchMedia,
@@ -36,6 +33,7 @@ import {
   type VideoWorkbenchConversation,
   type VideoWorkbenchMessage,
 } from "../repositories/conversationRepository";
+import { createCloudConversationRepository } from "../repositories/cloudConversationRepository";
 import { Composer, type MentionCandidate } from "./Composer";
 import { ConversationSidebar, type WorkbenchView } from "./ConversationSidebar";
 import { HistoryPanel } from "./HistoryPanel";
@@ -74,7 +72,8 @@ type SubmitPayload = {
   references: WorkbenchReference[];
 };
 
-export default function VideoWorkbenchView() {
+export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
+  const repositoryRef = useRef<ReturnType<typeof createCloudConversationRepository> | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [config, setConfig] = useState<VideoGenerationConfig>({ model: "", size: "1280x720", resolution: "720p", seconds: "6", generateAudio: true, watermark: false });
@@ -127,6 +126,9 @@ export default function VideoWorkbenchView() {
   /* ---------- 初始化：模型目录 + 本地对话 ---------- */
   useEffect(() => {
     mountedRef.current = true;
+    const repository = createCloudConversationRepository(ownerId);
+    repositoryRef.current = repository;
+    let active = true;
     void (async () => {
       try {
         const catalog = await fetchVideoModelCatalog();
@@ -139,20 +141,22 @@ export default function VideoWorkbenchView() {
         if (mountedRef.current) toast.error(publicApiError(error, "读取视频模型失败"));
       }
       try {
-        const stored = await loadVideoWorkbenchConversations();
-        if (!mountedRef.current) return;
+        const stored = await repository.load();
+        if (!active) return;
         const next = stored.length ? stored : [createVideoWorkbenchConversation()];
         conversationsRef.current = next;
         setConversations(next);
         setCurrentId(next[0].id);
         // 恢复未完成的任务轮询
         next.forEach((conversation) => conversation.messages.forEach((message) => {
-          if (message.role === "system" && message.taskId && (message.taskStatus === "queued" || message.taskStatus === "running")) {
+          if (!repository.isLegacy(conversation.id) && message.role === "system" && message.taskId && (message.taskStatus === "queued" || message.taskStatus === "running")) {
             void resumeTaskPolling(conversation.id, message);
           }
         }));
       } catch (error) {
+        if (!active) return;
         console.warn("读取视频对话失败", error);
+        toast.error(publicApiError(error, "服务端对话加载失败，请刷新后重试"));
         const fallback = [createVideoWorkbenchConversation()];
         conversationsRef.current = fallback;
         if (mountedRef.current) {
@@ -164,6 +168,8 @@ export default function VideoWorkbenchView() {
       }
     })();
     return () => {
+      active = false;
+      repository.dispose();
       mountedRef.current = false;
       pollingRef.current.forEach((controller) => controller.abort());
       pollingRef.current.clear();
@@ -178,7 +184,9 @@ export default function VideoWorkbenchView() {
   const commitConversations = useCallback((next: VideoWorkbenchConversation[]) => {
     conversationsRef.current = next;
     if (mountedRef.current) setConversations(next);
-    void queueVideoWorkbenchWrite(next).catch((error) => console.warn("保存视频对话失败", error));
+    void repositoryRef.current?.write(next).catch((error) => {
+      if (mountedRef.current) toast.error(publicApiError(error, "对话未同步，可能存在版本冲突，请刷新后重试"));
+    });
   }, []);
 
   const patchConversation = useCallback((conversationId: string, patch: (conversation: VideoWorkbenchConversation) => VideoWorkbenchConversation) => {
@@ -403,13 +411,13 @@ export default function VideoWorkbenchView() {
     const attachments: VideoWorkbenchAttachment[] = [];
     try {
       for (const reference of references) {
-        attachments.push(await persistWorkbenchAttachment(userMessage.id, attachmentFromReference(reference), reference.file));
+        attachments.push(await repositoryRef.current!.persistAttachment(userMessage.id, attachmentFromReference(reference), reference.file));
       }
       if (framesEnabled && firstFrame) {
-        attachments.push(await persistWorkbenchAttachment(userMessage.id, attachmentFromReference(firstFrame), firstFrame.file));
+        attachments.push(await repositoryRef.current!.persistAttachment(userMessage.id, attachmentFromReference(firstFrame), firstFrame.file));
       }
       if (framesEnabled && lastFrame) {
-        attachments.push(await persistWorkbenchAttachment(userMessage.id, attachmentFromReference(lastFrame), lastFrame.file));
+        attachments.push(await repositoryRef.current!.persistAttachment(userMessage.id, attachmentFromReference(lastFrame), lastFrame.file));
       }
     } catch (error) {
       toast.error(publicApiError(error, "附件本地保存失败，请重试"));
@@ -459,7 +467,9 @@ export default function VideoWorkbenchView() {
     setRuntime(message.id, { status: "queued", progress: 0 });
     try {
       const references = generationReferencesFrom(splitWorkbenchReferences(payload.references));
-      const task = await createVideoGenerationTask(payload.config, payload.text, references, { signal: controller.signal });
+      await repositoryRef.current!.flush();
+      if (repositoryRef.current!.isLegacy(conversationId)) throw new Error("旧本地对话仅保留读取，请新建对话后生成");
+      const task = await createVideoGenerationTask(payload.config, payload.text, references, { signal: controller.signal, conversationId, messageId: message.id });
       patchMessage(conversationId, message.id, { taskId: task.id, taskProvider: task.provider, taskStatus: "running" });
       setRuntime(message.id, { status: "running" });
 
@@ -598,11 +608,13 @@ export default function VideoWorkbenchView() {
     setRuntime(message.id, { cancelling: true });
     pollingRef.current.get(message.id)?.abort();
     pollingRef.current.delete(message.id);
-    if (message.taskProvider === "openai" && message.taskId) {
+    if (message.taskId && (message.taskProvider === "openai" || message.taskId.startsWith("job_"))) {
       try {
         await cancelJob(message.taskId, pickerScope);
       } catch (error) {
-        console.warn("取消上游任务失败", error);
+        toast.error(publicApiError(error, "取消任务失败，任务仍可恢复"));
+        setRuntime(message.id, { cancelling: false });
+        return;
       }
     }
     patchMessage(currentConversation.id, message.id, { taskStatus: "canceled", taskError: "已手动取消" });
