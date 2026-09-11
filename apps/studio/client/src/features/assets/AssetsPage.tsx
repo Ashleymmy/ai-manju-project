@@ -13,15 +13,17 @@ import {
   Plus,
   RefreshCcw,
   Search,
-  Sparkles,
+  Star,
   Tag,
+  ThumbsDown,
   Trash2,
   Upload,
   Video,
   WandSparkles,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -46,6 +48,10 @@ import {
   updateAssetMetadata,
   updateAssetUserState,
   uploadAsset,
+  invalidateAssetRecord,
+  publishAssetNameChange,
+  subscribeAssetNameChanges,
+  ASSET_CATEGORY_OPTIONS,
   type Asset,
   type AssetCategory,
   type AssetFolder,
@@ -71,6 +77,9 @@ import {
   createAssetPackage,
   readAssetPackage,
 } from "./model/assetPackage";
+import { isAssetFavorited, nextAssetReaction } from "./model/reactions";
+import { formatTrashCountdown, isTrashCountdownUrgent, remainingTrashDays } from "./model/trashRetention";
+import { AssetPreviewLightbox } from "./ui/AssetPreviewLightbox";
 import {
   collectFolderSubtreeIds,
   flattenFolderTree,
@@ -97,14 +106,11 @@ const scopeOptions: Array<Option<WorkspaceScope>> = [
 
 const assetCategoryOptions: Array<Option<AssetCategory | "">> = [
   { value: "", label: "全部分类" },
-  { value: "character", label: "人物" },
-  { value: "environment", label: "场景" },
-  { value: "costume", label: "服饰" },
-  { value: "prop", label: "道具" },
-  { value: "ui", label: "UI" },
-  { value: "reference", label: "参考" },
-  { value: "other", label: "其他" },
+  ...ASSET_CATEGORY_OPTIONS,
 ];
+
+/** 导入资产时的默认分类；分类可在详情栏再改，筛选栏不再单独放一份下拉 */
+const DEFAULT_UPLOAD_CATEGORY: AssetCategory = "other";
 
 const sourceTypeOptions: Array<Option<AssetSourceType | "">> = [
   { value: "", label: "全部来源" },
@@ -164,6 +170,7 @@ function formatStatus(status?: string) {
 }
 
 export function AssetLibraryView() {
+  const queryClient = useQueryClient();
   const [, navigate] = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const deepLinkAssetRef = useRef<string>(new URLSearchParams(window.location.search).get("asset") || "");
@@ -188,11 +195,8 @@ export function AssetLibraryView() {
     const tag = new URLSearchParams(window.location.search).get("tag");
     return tag ? [tag] : [];
   });
-  const [uploadTagIds, setUploadTagIds] = useState<string[]>([]);
-  const [uploadCategory, setUploadCategory] = useState<AssetCategory | "">("other");
   const [tagMatch, setTagMatch] = useState<"and" | "or">("and");
   const [showAllFilterTags, setShowAllFilterTags] = useState(false);
-  const [showAllUploadTags, setShowAllUploadTags] = useState(false);
   const [detailTab, setDetailTab] = useState("详情");
   const [sendPanelOpen, setSendPanelOpen] = useState(false);
   const [sendProjectId, setSendProjectId] = useState("");
@@ -209,12 +213,17 @@ export function AssetLibraryView() {
   const [detailMediaUrl, setDetailMediaUrl] = useState("");
   const [folderMoveFor, setFolderMoveFor] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [lightboxAsset, setLightboxAsset] = useState<Asset | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState("");
+  const [favoriteBusyId, setFavoriteBusyId] = useState("");
+  const lightboxUrlRef = useRef("");
+  const lightboxRequestRef = useRef(0);
+  lightboxUrlRef.current = lightboxUrl;
   const selected = assets.find((asset) => asset.id === selectedId) || assets[0];
   const selectedIdsFromUi = selectedIds.length ? selectedIds : selected ? [selected.id] : [];
   const roots = tags.filter((tag) => !tag.parent_id || !tags.some((parent) => parent.id === tag.parent_id));
   const activeFolder = folders.find((folder) => folder.id === activeFolderId);
   const filterRoots = showAllFilterTags ? roots : roots.slice(0, 8);
-  const uploadTags = showAllUploadTags ? tags : tags.slice(0, 24);
   const folderRows = useMemo(() => flattenFolderTree(folders), [folders]);
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<string[]>(() => {
     try {
@@ -309,7 +318,6 @@ export function AssetLibraryView() {
     setMoveFolderId("");
     setSelectedIds([]);
     setSelectedTagIds([]);
-    setUploadTagIds([]);
     setSendPanelOpen(false);
     setSendProjectId("");
   }, [scope]);
@@ -363,6 +371,11 @@ export function AssetLibraryView() {
     setDetailCategory(selected?.category || "");
     setSendPanelOpen(false);
   }, [selected?.id, selected?.name, selected?.category, selected?.note, selected?.user_state?.private_note]);
+
+  useEffect(() => subscribeAssetNameChanges(message => {
+    if (message.scope !== scope) return;
+    setAssets(items => items.map(item => item.id === message.assetId ? { ...item, name: message.name } : item));
+  }), [scope]);
 
   // 视频/音频资产的内嵌预览：读取完整内容 Object URL（图片走缩略图通道）
   useEffect(() => {
@@ -435,6 +448,11 @@ export function AssetLibraryView() {
     };
   }, [assets, scope]);
 
+  useEffect(() => () => {
+    lightboxRequestRef.current += 1;
+    if (lightboxUrlRef.current) URL.revokeObjectURL(lightboxUrlRef.current);
+  }, []);
+
   const reloadExports = useCallback(() => {
     void exportsQuery.refetch();
   }, [exportsQuery.refetch]);
@@ -448,8 +466,7 @@ export function AssetLibraryView() {
       try {
         const metadata: Record<string, string> = { name: file.name, source_type: "manual_upload" };
         if (activeFolderId) metadata.folder_id = activeFolderId;
-        if (uploadCategory) metadata.category = uploadCategory;
-        if (uploadTagIds.length) metadata.tag_ids = uploadTagIds.join(",");
+        metadata.category = DEFAULT_UPLOAD_CATEGORY;
         await uploadAsset(file, metadata, scope);
         succeeded += 1;
       } catch (error) {
@@ -465,7 +482,6 @@ export function AssetLibraryView() {
 
   const toggleSelectedAsset = (id: string) => setSelectedIds((ids) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]);
   const toggleFilterTag = (id: string) => setSelectedTagIds((ids) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]);
-  const toggleUploadTag = (id: string) => setUploadTagIds((ids) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]);
   const bulkIds = selectedIdsFromUi.length ? selectedIdsFromUi : [];
 
   const saveNote = async () => {
@@ -485,6 +501,8 @@ export function AssetLibraryView() {
     try {
       const saved = await updateAssetMetadata(selected.id, { name, category: detailCategory || "" }, scope);
       setAssets((items) => items.map((item) => item.id === saved.id ? saved : item));
+      publishAssetNameChange({ assetId: saved.id, name: saved.name, scope });
+      void invalidateAssetRecord(queryClient, scope, saved.id);
       toast.success("资产名称与分类已保存");
     } catch (error) {
       toast.error(publicApiError(error, "保存资产信息失败"));
@@ -530,11 +548,82 @@ export function AssetLibraryView() {
     }
   };
 
+  const closeLightbox = useCallback(() => {
+    lightboxRequestRef.current += 1;
+    setLightboxAsset(null);
+    setLightboxUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return "";
+    });
+  }, []);
+
+  const openAssetPreview = async (asset: Asset) => {
+    setSelectedId(asset.id);
+    if (asset.type === "audio") {
+      toast.info("音频请在右侧详情中播放");
+      return;
+    }
+    const requestId = lightboxRequestRef.current + 1;
+    lightboxRequestRef.current = requestId;
+    setLightboxAsset(asset);
+    setLightboxUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return "";
+    });
+    try {
+      const url = await getAssetContentObjectUrl(asset.id, scope);
+      if (lightboxRequestRef.current !== requestId) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+      setLightboxUrl(url);
+    } catch (error) {
+      if (lightboxRequestRef.current !== requestId) return;
+      setLightboxAsset(null);
+      toast.error(publicApiError(error, "读取预览失败"));
+    }
+  };
+
+  const applyAssetUserState = (assetId: string, userState: Asset["user_state"]) => {
+    setAssets((items) => {
+      const next = items.map((item) => item.id === assetId ? { ...item, user_state: userState } : item);
+      if (smartView === "favorite" && userState?.reaction !== "favorite") {
+        return next.filter((item) => item.id !== assetId);
+      }
+      return next;
+    });
+  };
+
+  const toggleAssetFavorite = async (asset: Asset, event?: MouseEvent) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (smartView === "trash" || favoriteBusyId === asset.id) return;
+    setFavoriteBusyId(asset.id);
+    try {
+      const nextReaction = nextAssetReaction(asset.user_state?.reaction, "favorite");
+      const userState = await updateAssetUserState(asset.id, { reaction: nextReaction }, scope);
+      applyAssetUserState(asset.id, userState);
+      toast.success(nextReaction === "favorite" ? "已收藏" : "已取消收藏");
+    } catch (error) {
+      toast.error(publicApiError(error, "更新收藏失败"));
+    } finally {
+      setFavoriteBusyId("");
+    }
+  };
+
   const toggleReaction = async (reaction: "favorite" | "dislike") => {
     if (!selected) return;
-    const nextReaction = selected.user_state?.reaction === reaction ? "none" : reaction;
-    const userState = await updateAssetUserState(selected.id, { reaction: nextReaction }, scope);
-    setAssets((items) => items.map((item) => item.id === selected.id ? { ...item, user_state: userState } : item));
+    if (reaction === "favorite") {
+      await toggleAssetFavorite(selected);
+      return;
+    }
+    try {
+      const nextReaction = nextAssetReaction(selected.user_state?.reaction, reaction);
+      const userState = await updateAssetUserState(selected.id, { reaction: nextReaction }, scope);
+      applyAssetUserState(selected.id, userState);
+    } catch (error) {
+      toast.error(publicApiError(error, "更新评价失败"));
+    }
   };
 
   const deleteOrRestore = async () => {
@@ -827,8 +916,10 @@ export function AssetLibraryView() {
           );
         })}
         <hr />
-        <button onClick={() => void createFolder()}><Plus size={14} /> 新建文件夹</button>
-        <button onClick={() => void deleteFolder()} disabled={!activeFolderId}>删除当前文件夹</button>
+        <div className="library-tree-actions">
+          <button type="button" onClick={() => void createFolder()}><Plus size={14} /> 新建文件夹</button>
+          <button type="button" onClick={() => void deleteFolder()} disabled={!activeFolderId}><Trash2 size={14} /> 删除当前文件夹</button>
+        </div>
       </aside>
       <section className="asset-browser" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (smartView !== "seedance") void handleFiles(event.dataTransfer.files); }}>{smartView === "seedance" ? <SeedanceAssetPanel scope={scope} /> : <>
         <div className="asset-browser-top"><div><button className="breadcrumb">{scope === "personal" ? "个人素材" : "团队素材"} <ChevronRight size={13} /></button><h2>{activeFolder?.name || smartViews.find((item) => item.value === smartView)?.label}</h2></div><div className="tag-search"><Search size={15} /><input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索资产名称、来源或标签" /></div></div>
@@ -839,16 +930,52 @@ export function AssetLibraryView() {
           <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as typeof sortOrder)}><option value="created_at_desc">最新优先</option><option value="created_at_asc">最早优先</option><option value="name_asc">名称 A-Z</option><option value="name_desc">名称 Z-A</option></select>
           <input className="asset-date-input" type="date" value={createdFrom} onChange={(event) => setCreatedFrom(event.target.value)} title="创建时间起" />
           <input className="asset-date-input" type="date" value={createdTo} onChange={(event) => setCreatedTo(event.target.value)} title="创建时间止" />
-          <select value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value as AssetCategory | "")}><option value="">上传不指定分类</option>{assetCategoryOptions.filter((item) => item.value).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
           <button className="outline-button small" disabled={uploading} onClick={() => fileInputRef.current?.click()}><Upload size={15} /> {uploading ? "上传中…" : "导入资产"}</button>
         </div>
-        <div className="upload-tag-row"><span>上传默认标签</span>{uploadTags.map((tag) => <button key={tag.id} className={uploadTagIds.includes(tag.id) ? "selected" : ""} onClick={() => toggleUploadTag(tag.id)}>#{tag.name}</button>)}{tags.length > 24 && <button className="more-tag-button" onClick={() => setShowAllUploadTags((value) => !value)}>{showAllUploadTags ? "收起标签" : `展开全部 ${tags.length}`}</button>}</div>
         <div className="asset-bulk-bar"><label><input type="checkbox" checked={assets.length > 0 && selectedIds.length === assets.length} onChange={(event) => setSelectedIds(event.target.checked ? assets.map((asset) => asset.id) : [])} /> 本页全选</label><span>已选 {bulkIds.length} 项</span><select value={moveFolderId} onChange={(event) => setMoveFolderId(event.target.value)}><option value="">移动到目录…</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select><button onClick={() => void moveSelectedAssets()} disabled={!moveFolderId || !bulkIds.length}>移动</button><button onClick={() => void deleteOrRestore()} disabled={!bulkIds.length}>{smartView === "trash" ? "恢复" : "删除"}</button>{smartView === "trash" && <button onClick={() => void permanentDeleteSelected()} disabled={!bulkIds.length}>永久删除</button>}{smartView === "trash" && <button onClick={() => void emptyTrash()}>清空回收站</button>}<button onClick={() => void applySelectedTags("add")} disabled={!selectedTagIds.length || !bulkIds.length}>追加筛选标签</button><button onClick={() => void applySelectedTags("remove")} disabled={!selectedTagIds.length || !bulkIds.length}>移除筛选标签</button><button onClick={() => void createExport("selected")} disabled={exportBusy === "selected" || !bulkIds.length}>导出选中</button><button onClick={() => void createExport("filter")} disabled={exportBusy === "filter"}>导出筛选</button><button onClick={() => void createExport("folder")} disabled={!activeFolderId || exportBusy === "folder"}>导出目录</button><button onClick={() => void exportAssetPackage()} disabled={!bulkIds.length || packageBusy === "export"}>{packageBusy === "export" ? "打包中…" : "打包选中"}</button><button onClick={() => packageInputRef.current?.click()} disabled={packageBusy === "import"}>{packageBusy === "import" ? "导入中…" : "导入资产包"}</button></div>
-        {loading ? <div className="empty-output"><Loader2 className="spin" size={26} /><p>正在读取资产…</p></div> : assets.length ? <div className="asset-thumb-grid">{assets.map((asset) => <article key={asset.id} className={selected?.id === asset.id ? "library-asset selected" : "library-asset"}><label className="asset-check"><input type="checkbox" checked={selectedIds.includes(asset.id)} onChange={() => toggleSelectedAsset(asset.id)} /></label><button onClick={() => setSelectedId(asset.id)}>{previewUrls[asset.id] ? <img src={previewUrls[asset.id]} alt={asset.name} /> : <div className="empty-output"><ImageIcon size={22} /></div>}<span className="asset-category">{asset.category || asset.type}</span><i>{asset.id.slice(-8)}</i><div><b>{asset.name}</b><small>{asset.source_type || "unknown"}</small></div></button></article>)}</div> : <div className="empty-output"><Archive size={26} /><p>当前筛选下没有资产<br />可直接把文件拖入此区域上传。</p></div>}
+        {loading ? <div className="empty-output"><Loader2 className="spin" size={26} /><p>正在读取资产…</p></div> : assets.length ? <div className="asset-thumb-grid">{assets.map((asset) => {
+          const favorited = isAssetFavorited(asset.user_state?.reaction);
+          const trashDays = smartView === "trash" ? remainingTrashDays(asset) : 0;
+          return (
+            <article key={asset.id} className={selected?.id === asset.id ? "library-asset selected" : "library-asset"}>
+              <label className="asset-check"><input type="checkbox" checked={selectedIds.includes(asset.id)} onChange={() => toggleSelectedAsset(asset.id)} /></label>
+              {smartView !== "trash" ? (
+                <button
+                  type="button"
+                  className={favorited ? "asset-favorite active" : "asset-favorite"}
+                  title={favorited ? "取消收藏" : "收藏"}
+                  disabled={favoriteBusyId === asset.id}
+                  onClick={(event) => void toggleAssetFavorite(asset, event)}
+                >
+                  <Star size={14} fill={favorited ? "currentColor" : "none"} />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="library-asset-preview"
+                title="单击选中，双击放大查看"
+                onClick={() => setSelectedId(asset.id)}
+                onDoubleClick={() => void openAssetPreview(asset)}
+              >
+                {previewUrls[asset.id] ? <img src={previewUrls[asset.id]} alt={asset.name} /> : <div className="empty-output"><ImageIcon size={22} /></div>}
+                <span className="asset-category">{asset.category || asset.type}</span>
+                <div>
+                  <b title={asset.name}>{asset.name}</b>
+                  {smartView === "trash" ? (
+                    <small className={isTrashCountdownUrgent(trashDays) ? "asset-trash-countdown urgent" : "asset-trash-countdown"}>
+                      {formatTrashCountdown(trashDays)}
+                    </small>
+                  ) : null}
+                </div>
+              </button>
+            </article>
+          );
+        })}</div> : <div className="empty-output"><Archive size={26} /><p>当前筛选下没有资产<br />可直接把文件拖入此区域上传。</p></div>}
         <div className="batch-actions"><button className="outline-button small" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button><span>{page} / {Math.max(1, Math.ceil(total / 30))}</span><button className="outline-button small" disabled={page * 30 >= total} onClick={() => setPage((value) => value + 1)}>下一页</button></div>
       </>}</section>
-      <aside className="asset-detail">{selected ? <><div className="detail-head"><div><p className="eyebrow">ASSET / {selected.id.slice(-8)}</p><h3>{selected.name}</h3></div><button className="icon-button subtle" onClick={() => void deleteOrRestore()}>{smartView === "trash" ? <Archive size={16} /> : <Trash2 size={16} />}</button></div>{selected.type === "video" ? (detailMediaUrl ? <video className="detail-image detail-media" src={detailMediaUrl} controls preload="metadata" /> : <div className="empty-output"><Video size={28} /><p>读取视频预览…</p></div>) : selected.type === "audio" ? (detailMediaUrl ? <div className="detail-audio"><Music2 size={22} /><audio src={detailMediaUrl} controls preload="metadata" /></div> : <div className="empty-output"><Music2 size={28} /><p>读取音频预览…</p></div>) : previewUrls[selected.id] ? <img className="detail-image" src={previewUrls[selected.id]} alt={selected.name} /> : <div className="empty-output"><ImageIcon size={28} /></div>}<div className="detail-tabs">{["详情", "标签", "血缘", "使用", "导出"].map((tab) => <button className={detailTab === tab ? "active" : ""} onClick={() => setDetailTab(tab)} key={tab}>{tab}</button>)}</div>{detailTab === "详情" ? <div className="asset-metadata"><div className="asset-meta-edit"><span>名称</span><input value={detailName} onChange={(event) => setDetailName(event.target.value)} placeholder="资产名称" /><span>分类</span><select value={detailCategory} onChange={(event) => setDetailCategory(event.target.value as AssetCategory | "")}><option value="">不指定分类</option>{assetCategoryOptions.filter((item) => item.value).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><button className="outline-button small" onClick={() => void saveMeta()}>保存</button></div><div><span>来源</span><b>{selected.source_type || "unknown"}</b></div><div><span>体积</span><b>{selected.size ? `${(selected.size / 1024 / 1024).toFixed(2)} MB` : "—"}</b></div><div><span>标签</span><b>{selected.tags?.join(" · ") || "未绑定"}</b></div><label className="asset-note-editor"><span>备注</span><textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /><button onClick={() => void saveNote()}>保存备注</button></label></div> : detailTab === "标签" ? <AssetTagManager assetId={selected.id} scope={scope} allTags={tags} refreshKey={refreshKey} /> : detailTab === "血缘" ? <div className="lineage-detail"><div className="lineage-flow"><span>{selected.source_type || "来源未知"}</span><i /><strong>{selected.name}</strong></div>{lineage ? <>{lineage.parents?.length ? <div className="lineage-group"><p className="field-label">上游来源 {lineage.parents.length}</p>{lineage.parents.map((entry, index) => <button key={entry.id || index} onClick={() => entry.parent_asset_id && setSelectedId(entry.parent_asset_id)}><b>{entry.parent_asset_id?.slice(-8) || "—"}</b><span>{entry.relation_type || "derived"}</span></button>)}</div> : <small className="lineage-empty">没有上游来源记录</small>}{lineage.children?.length ? <div className="lineage-group"><p className="field-label">下游产物 {lineage.children.length}</p>{lineage.children.map((entry, index) => <button key={entry.id || index} onClick={() => entry.child_asset_id && setSelectedId(entry.child_asset_id)}><b>{entry.child_asset_id?.slice(-8) || "—"}</b><span>{entry.relation_type || "derived"}</span></button>)}</div> : <small className="lineage-empty">没有派生产物记录</small>}</> : <small className="lineage-empty">读取血缘中…</small>}</div> : detailTab === "使用" ? <div className="usage-list"><div><b>生成调用</b><small>{selected.usage_stats?.generation_use_count || 0} 次</small></div><div><b>有效引用</b><small>{selected.usage_stats?.active_reference_count || 0} 处</small></div><div><b>下载导出</b><small>{(selected.usage_stats?.download_count || 0) + (selected.usage_stats?.export_count || 0)} 次</small></div>{usageEvents.length > 0 && <div className="usage-events"><p className="field-label">最近事件</p>{usageEvents.slice(0, 8).map((event) => <div key={event.id}><span>{event.event_type}</span><small>{event.source_type || "—"}{event.created_at ? ` · ${new Date(event.created_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}</small></div>)}</div>}</div> :<div className="export-list">{exportBatches.slice(0, 5).map((batch) => <div key={batch.id}><span className={`status-chip ${batch.status}`}>{formatStatus(batch.status)}</span><b>{batch.succeeded}/{batch.total}</b><small>{batch.file_name || batch.id.slice(-8)}</small>{batch.status === "succeeded" || batch.status === "partial_failed" ? <button onClick={() => void downloadAssetExport(batch.id, scope).then((blob) => downloadBlob(blob, batch.file_name || `${batch.id}.zip`))}>下载</button> : batch.status === "queued" || batch.status === "running" ? <button onClick={() => void cancelAssetExport(batch.id, scope).then(reloadExports)}>取消</button> : null}</div>)}</div>}<div className="asset-detail-actions"><button onClick={() => void toggleReaction("favorite")}><Sparkles size={15} /> {selected.user_state?.reaction === "favorite" ? "取消收藏" : "收藏"}</button><button onClick={() => void toggleReaction("dislike")}><Trash2 size={15} /> {selected.user_state?.reaction === "dislike" ? "取消踩" : "踩"}</button><button onClick={() => void getAssetContentObjectUrl(selected.id, scope).then((url) => fetch(url).then((resp) => resp.blob()).then((blob) => { downloadBlob(blob, selected.name); URL.revokeObjectURL(url); }))}><Archive size={15} /> 下载</button></div><div className="asset-detail-actions"><button onClick={() => void sendToNewCanvas()}><Layers3 size={15} /> 发送到新画布</button><button onClick={() => setSendPanelOpen((value) => !value)}><FolderOpen size={15} /> 发送到已有画布</button>{selected.type === "image" && <button onClick={openInImageWorkbench}><WandSparkles size={15} /> 在生图工作台打开</button>}</div>{sendPanelOpen && <div className="asset-send-panel"><select value={sendProjectId} onChange={(event) => setSendProjectId(event.target.value)}>{sendProjects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}{!sendProjects.length && <option value="">暂无画布项目</option>}</select><button className="outline-button small" disabled={!sendProjectId} onClick={() => void sendToExistingCanvas()}>加入画布</button></div>}</> : <div className="empty-output"><p>选择一项资产查看详情</p></div>}</aside>
+      <aside className="asset-detail">{selected ? <><div className="detail-head"><div><p className="eyebrow">ASSET / {selected.id.slice(-8)}</p><h3>{selected.name}</h3></div><button className="icon-button subtle" onClick={() => void deleteOrRestore()}>{smartView === "trash" ? <Archive size={16} /> : <Trash2 size={16} />}</button></div>{selected.type === "video" ? (detailMediaUrl ? <video className="detail-image detail-media" src={detailMediaUrl} controls preload="metadata" /> : <div className="empty-output"><Video size={28} /><p>读取视频预览…</p></div>) : selected.type === "audio" ? (detailMediaUrl ? <div className="detail-audio"><Music2 size={22} /><audio src={detailMediaUrl} controls preload="metadata" /></div> : <div className="empty-output"><Music2 size={28} /><p>读取音频预览…</p></div>) : previewUrls[selected.id] ? <img className="detail-image" src={previewUrls[selected.id]} alt={selected.name} title="双击放大查看" onDoubleClick={() => void openAssetPreview(selected)} /> : <div className="empty-output"><ImageIcon size={28} /></div>}<div className="detail-tabs">{["详情", "标签", "血缘", "使用", "导出"].map((tab) => <button className={detailTab === tab ? "active" : ""} onClick={() => setDetailTab(tab)} key={tab}>{tab}</button>)}</div>{detailTab === "详情" ? <div className="asset-metadata"><div className="asset-meta-edit"><span>名称</span><input value={detailName} onChange={(event) => setDetailName(event.target.value)} placeholder="资产名称" /><span>分类</span><select value={detailCategory} onChange={(event) => setDetailCategory(event.target.value as AssetCategory | "")}><option value="">不指定分类</option>{assetCategoryOptions.filter((item) => item.value).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><button className="outline-button small" onClick={() => void saveMeta()}>保存</button></div><div><span>来源</span><b>{selected.source_type || "unknown"}</b></div><div><span>体积</span><b>{selected.size ? `${(selected.size / 1024 / 1024).toFixed(2)} MB` : "—"}</b></div>{smartView === "trash" ? <div><span>自动清除</span><b>{formatTrashCountdown(remainingTrashDays(selected))}</b></div> : null}<div><span>标签</span><b>{selected.tags?.join(" · ") || "未绑定"}</b></div><label className="asset-note-editor"><span>备注</span><textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /><button onClick={() => void saveNote()}>保存备注</button></label></div> : detailTab === "标签" ? <AssetTagManager assetId={selected.id} scope={scope} allTags={tags} refreshKey={refreshKey} /> : detailTab === "血缘" ? <div className="lineage-detail"><div className="lineage-flow"><span>{selected.source_type || "来源未知"}</span><i /><strong>{selected.name}</strong></div>{lineage ? <>{lineage.parents?.length ? <div className="lineage-group"><p className="field-label">上游来源 {lineage.parents.length}</p>{lineage.parents.map((entry, index) => <button key={entry.id || index} onClick={() => entry.parent_asset_id && setSelectedId(entry.parent_asset_id)}><b>{entry.parent_asset_id?.slice(-8) || "—"}</b><span>{entry.relation_type || "derived"}</span></button>)}</div> : <small className="lineage-empty">没有上游来源记录</small>}{lineage.children?.length ? <div className="lineage-group"><p className="field-label">下游产物 {lineage.children.length}</p>{lineage.children.map((entry, index) => <button key={entry.id || index} onClick={() => entry.child_asset_id && setSelectedId(entry.child_asset_id)}><b>{entry.child_asset_id?.slice(-8) || "—"}</b><span>{entry.relation_type || "derived"}</span></button>)}</div> : <small className="lineage-empty">没有派生产物记录</small>}</> : <small className="lineage-empty">读取血缘中…</small>}</div> : detailTab === "使用" ? <div className="usage-list"><div><b>生成调用</b><small>{selected.usage_stats?.generation_use_count || 0} 次</small></div><div><b>有效引用</b><small>{selected.usage_stats?.active_reference_count || 0} 处</small></div><div><b>下载导出</b><small>{(selected.usage_stats?.download_count || 0) + (selected.usage_stats?.export_count || 0)} 次</small></div>{usageEvents.length > 0 && <div className="usage-events"><p className="field-label">最近事件</p>{usageEvents.slice(0, 8).map((event) => <div key={event.id}><span>{event.event_type}</span><small>{event.source_type || "—"}{event.created_at ? ` · ${new Date(event.created_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}</small></div>)}</div>}</div> :<div className="export-list">{exportBatches.slice(0, 5).map((batch) => <div key={batch.id}><span className={`status-chip ${batch.status}`}>{formatStatus(batch.status)}</span><b>{batch.succeeded}/{batch.total}</b><small>{batch.file_name || batch.id.slice(-8)}</small>{batch.status === "succeeded" || batch.status === "partial_failed" ? <button onClick={() => void downloadAssetExport(batch.id, scope).then((blob) => downloadBlob(blob, batch.file_name || `${batch.id}.zip`))}>下载</button> : batch.status === "queued" || batch.status === "running" ? <button onClick={() => void cancelAssetExport(batch.id, scope).then(reloadExports)}>取消</button> : null}</div>)}</div>}<div className="asset-detail-actions"><button onClick={() => void toggleReaction("favorite")}><Star size={15} fill={selected.user_state?.reaction === "favorite" ? "currentColor" : "none"} /> {selected.user_state?.reaction === "favorite" ? "取消收藏" : "收藏"}</button><button onClick={() => void toggleReaction("dislike")}><ThumbsDown size={15} /> {selected.user_state?.reaction === "dislike" ? "取消踩" : "踩"}</button><button onClick={() => void getAssetContentObjectUrl(selected.id, scope).then((url) => fetch(url).then((resp) => resp.blob()).then((blob) => { downloadBlob(blob, selected.name); URL.revokeObjectURL(url); }))}><Archive size={15} /> 下载</button></div><div className="asset-detail-actions"><button onClick={() => void sendToNewCanvas()}><Layers3 size={15} /> 发送到新画布</button><button onClick={() => setSendPanelOpen((value) => !value)}><FolderOpen size={15} /> 发送到已有画布</button>{selected.type === "image" && <button onClick={openInImageWorkbench}><WandSparkles size={15} /> 在生图工作台打开</button>}</div>{sendPanelOpen && <div className="asset-send-panel"><select value={sendProjectId} onChange={(event) => setSendProjectId(event.target.value)}>{sendProjects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}{!sendProjects.length && <option value="">暂无画布项目</option>}</select><button className="outline-button small" disabled={!sendProjectId} onClick={() => void sendToExistingCanvas()}>加入画布</button></div>}</> : <div className="empty-output"><p>选择一项资产查看详情</p></div>}</aside>
     </div>
+    <AssetPreviewLightbox asset={lightboxAsset} url={lightboxUrl} onClose={closeLightbox} />
   </div>;
 }
 
