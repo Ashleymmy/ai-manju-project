@@ -10,9 +10,10 @@ export type TextModelCatalog = CapabilityModelCatalog;
 export type ImageGenerationInput = {
   prompt: string;
   model?: string;
-  size?: "auto" | "1:1" | "3:2" | "2:3" | "4:3" | "3:4" | "16:9" | "9:16" | "2:1";
+  size?: "auto" | "1:1" | "3:2" | "2:3" | "4:3" | "3:4" | "16:9" | "9:16" | "2:1" | (string & {});
   quality?: "auto" | "low" | "medium" | "high";
   count?: number;
+  seed?: number;
   referenceFiles?: File[];
   maskFile?: File;
   scope?: "personal" | "team";
@@ -65,6 +66,7 @@ export async function submitImageGeneration(input: ImageGenerationInput, signal?
       size: input.size || "auto",
       quality: input.quality || "auto",
       n: Math.max(1, Math.min(15, Math.floor(input.count || 1))),
+      ...(imageSeedFromInput(input.seed) !== undefined ? { seed: imageSeedFromInput(input.seed) } : {}),
       response_format: "b64_json",
       output_format: "png",
       asset_context: {
@@ -88,6 +90,8 @@ export async function submitImageEdit(input: ImageGenerationInput, signal?: Abor
   body.set("size", input.size || "auto");
   body.set("quality", input.quality || "auto");
   body.set("n", String(Math.max(1, Math.min(15, Math.floor(input.count || 1)))));
+  const seed = imageSeedFromInput(input.seed);
+  if (seed !== undefined) body.set("seed", String(seed));
   body.set("response_format", "b64_json");
   body.set("output_format", "png");
   body.set("asset_context", JSON.stringify({
@@ -221,4 +225,10 @@ function wait(ms: number, signal?: AbortSignal) {
     const timer = globalThis.setTimeout(finish, ms);
     signal?.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+function imageSeedFromInput(seed: unknown): number | undefined {
+  if (typeof seed !== "number" || !Number.isFinite(seed)) return undefined;
+  const value = Math.trunc(seed);
+  return value >= 0 ? value : undefined;
 }

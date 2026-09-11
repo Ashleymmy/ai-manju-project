@@ -411,5 +411,60 @@ class ProviderTest(unittest.TestCase):
         self.assertEqual(Path(result["outputs"][0]["path"]).suffix, ".webp")
         self.assertEqual(result["outputs"][0]["size"], len(b"webp-image"))
 
+    def test_image_generation_body_forwards_seed_for_seedream(self) -> None:
+        body = provider_module.image_generation_body(
+            {"prompt": "apple", "size": "1024x1024", "n": 1, "seed": 42},
+            {"model": "seedream-4-0"},
+        )
+        self.assertEqual(body["seed"], 42)
+
+    def test_image_generation_body_omits_seed_for_gpt_image(self) -> None:
+        body = provider_module.image_generation_body(
+            {"prompt": "apple", "size": "1024x1024", "n": 1, "seed": 42},
+            {"model": "gpt-image-2"},
+        )
+        self.assertNotIn("seed", body)
+
+    def test_image_generation_body_converts_ratio_to_pixels(self) -> None:
+        body = provider_module.image_generation_body(
+            {"prompt": "wide shot", "size": "16:9", "quality": "auto", "n": 1},
+            {"model": "gpt-image-2"},
+        )
+        self.assertEqual(body["size"], "1824x1024")
+        portrait = provider_module.image_generation_body(
+            {"prompt": "tall shot", "size": "9:16", "n": 1},
+            {"model": "gpt-image-2"},
+        )
+        self.assertEqual(portrait["size"], "1024x1824")
+
+    def test_openai_responses_body_converts_ratio_to_pixels(self) -> None:
+        body = provider_module.openai_responses_image_body(
+            {"prompt": "wide shot", "size": "16:9", "quality": "auto"},
+            {"model": "gpt-image-2"},
+            test_settings("."),
+        )
+        self.assertEqual(body["tools"][0]["size"], "1824x1024")
+
+    def test_dashscope_body_forwards_seed(self) -> None:
+        body = provider_module.dashscope_multimodal_image_body(
+            {"prompt": "apple", "seed": 7},
+            {"model": "qwen-image"},
+            test_settings("."),
+        )
+        self.assertEqual(body["parameters"]["seed"], 7)
+
+    def test_openai_responses_body_injects_seed_into_prompt(self) -> None:
+        body = provider_module.openai_responses_image_body(
+            {"prompt": "四个不一样的苹果", "seed": 88},
+            {"model": "gpt-image-2"},
+            test_settings("."),
+        )
+        text = body["input"][0]["content"][0]["text"]
+        self.assertIn("四个不一样的苹果", text)
+        self.assertIn("内部变体 88", text)
+        self.assertNotIn("seed", body)
+        self.assertNotIn("seed", body["tools"][0])
+
+
 if __name__ == "__main__":
     unittest.main()
