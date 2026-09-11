@@ -70,7 +70,7 @@ def browser_acceptance(api_env, sd_env, admin, secret, extension):
     nginx.write_text((ROOT / "deploy/cloud/web.nginx.conf").read_text(encoding="utf-8")
                      .replace("http://api:3101", "http://host.docker.internal:33111"), encoding="utf-8")
     name = "studio-phase2-browser-" + uuid.uuid4().hex[:12]
-    image = "studio-phase2-web:check" if BROWSER_IMAGE else "nginx:1.27-alpine"
+    image = os.getenv("E2E_PHASE2_WEB_IMAGE", "studio-phase2-web:check") if BROWSER_IMAGE else "nginx:1.27-alpine"
     content_mount = [] if BROWSER_IMAGE else ["--mount", f"type=bind,source={bundle},target=/usr/share/nginx/html,readonly"]
     try:
         subprocess.run(["docker", "run", "-d", "--name", name, "--label", "studio.test=phase2-browser",

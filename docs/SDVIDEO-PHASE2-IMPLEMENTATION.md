@@ -1,6 +1,36 @@
 # SD-video 第二阶段执行记录
 
-基线：`72b3ab7`。集成分支：`codex/sdvideo-phase2`。未提交、未推送。
+基线：`72b3ab7`。集成分支：`codex/sdvideo-phase2`。
+
+## Beta 集成验收（2026-09-11，当前批次）
+
+用户授权拉取协作者最新代码、合并本地第二阶段改动并推送 GitHub，后续由用户在 ECS 拉取部署。当前定位是 **Beta 云端实测候选版本**，不代表真实 Provider 或生产验收完成。
+
+- 本地原有 200 个文件项保存为 `bd80ae1`；协作者的 10 个提交截至 `5e8e6bc`，包含全局搜索、Canvas 编辑与生成恢复、资产库和关键帧改进。合并提交为 `103713d`，唯一文本冲突是 `asset_service.go` 的 `math` / `os` import，均已保留。没有改写协作者历史。
+- 新增代码已执行凭据特征检查；命中的 PEM 标记、示例 URL 和随机测试凭据均核对为解析代码或测试配置。没有将实际 `.env`、私钥、NAS Token、数据库或运行媒体纳入提交。
+- 浏览器检查支持 `E2E_PHASE2_WEB_IMAGE`，本批明确使用新构建的 `studio-beta-web:20260911`，不覆盖之前的候选镜像标签。测试仅对未授权外部网络做拦截，同源业务直达真实服务，不替换业务响应。
+
+| 本批实际验证 | 结果 |
+| --- | --- |
+| Go `build ./...` / `vet ./...` / `test ./...` | 全部通过；额外在新建隔离 PostgreSQL 库执行 repository / service 回归通过 |
+| Studio `check` / `test` | 类型检查通过；**104 files / 505 tests** 通过 |
+| SD-video `pytest -q tests checks`，Memory + PostgreSQL | **168 passed**，14 个迁移实际应用 |
+| 新图片 Worker Linux 镜像 + 只读 tests + 专用 Redis | **65 tests，0 skipped，OK** |
+| Linux 运维工具 `pytest -q /tools/tests` | **36 passed** |
+| Canvas Agent 协议 / Agent / Director Desk | **4 / 1 / 686 tests** 通过；Director 为 **87 files** |
+| Docker 构建：Go / Web / 图片 Worker / SD-video | 四类镜像均通过；Web 构建包含协议、Director 与 Studio，保留既有 Director 大 chunk 警告 |
+| 新图片 Worker / SD-video 镜像 `compileall` | 两者均通过 |
+| 根 Compose / 独立 SD-video / cloud + Token 覆盖 | 三套配置解析通过；不读取真实运行时凭据 |
+| 独立跨服务 Mock E2E | 通过：任务、参考素材、幂等、取消、重启恢复、核对/重试、缩略图、资产导入、作用域与备份恢复 |
+| 新 Web 镜像 + cloud Nginx 测试上游的 Playwright | **5 passed**：登录与深链接、跨浏览器视频历史、移动端、mention/取消/重试和越权拒绝 |
+
+过程失败如实保留：Windows 运维测试首次为 35 passed / 1 failed，原因是宿主缺少创建符号链接权限，随后在目标 Linux 环境完整通过，未新增 skip。首次浏览器测试为 4 passed / 1 failed；第二浏览器对话请求在发送阶段被取消，服务端未收到请求。收窄测试网络拦截范围后原有全部断言通过，没有放宽应用超时、增加自动 retry 或改动业务 UI。
+
+最新 Mock 备份为 `.tmp/sdvideo-phase2/e2e/backup-63015a82b3ee49b5896eb338d8c5052d/20260911T080000Z-8cd389b0/`；恢复到独立新库，Studio 35 张表、SD-video 15 张表。测试日志保留在 `.tmp/beta-20260911/`，这些运行产物不入库。
+
+部署边界：用户仍可沿用 GitHub 拉代码、根 Compose 构建的更新流程，不必先开通镜像仓库。现有 ECS 的本地资产卷和数据库必须保留，不能执行 `down -v`；重建时保留服务器已有 override 和 `compose.nas-ipv6.yml`。本次没有修改 ECS 容器或切换存储。根 Compose 默认 `ASSET_STORAGE_BACKEND=local`、`SD_VIDEO_MODE=disabled`；新 SD-video 服务还需显式 profile、独立数据库、服务 JWT/TLS 与 Token 目录挂载，不能把拉取代码等同于链路已经启用。
+
+NAS 基础设施已由用户在真实 ECS/NAS 验证五桶读写、签名 Range、跨身份/公开路径拒绝及 Token 自动投递续期；**应用容器实际使用 NAS、浏览器/Provider 的媒体可达性、OSS/CDN、真实付费任务、完整云栈与回滚仍未验收**。旧本地资产不能通过改一个存储开关自动迁移。下面保留的是各历史批次记录，其中的“未提交／未验证”仅描述当时状态。
 
 最新增量（2026-09-10）：用户明确授权新一轮 Go 镜像构建验证后，**Go 发布镜像构建通过，耗时 10.2 秒**；镜像内 API、导出 Worker、视频 Bridge 在隔离空 PG/Redis、production 配置、只读容器中启动与健康检查通过。此前新图片 Worker、SD-video 镜像、Go build/vet/test、图片 Worker **59 tests**、运维工具 **36 tests**、Studio **88 files / 407 tests** 已通过；客户端 **586 文件零改动**。9 月 9 日的 **5 项 Playwright 浏览器检查**及 Web 镜像结果仍作为上一批证据。**Go 构建阻塞已解除，但 NAS/真实 Provider/云端整栈联测仍未完成**。未提交、push 或部署。各批次实际验证及限制见文末。**旧腾讯云/WireGuard 测试路线已由用户确认停用，不能再作为可用资源或候选通道。**
 

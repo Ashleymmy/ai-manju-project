@@ -7,7 +7,8 @@ const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 
 // 业务响应完全由真实服务提供；拒绝页面意外直连外部服务并记录失败接口。
 async function guardNetwork(context: BrowserContext) {
-  await context.route("**/*", async route => {
+  // 同源业务请求直接走真实网络，避免拦截器干扰多个浏览器上下文中的 SSE/媒体连接。
+  await context.route(url => ["http:", "https:"].includes(url.protocol) && url.origin !== E2E_BASE_URL, async route => {
     const url = new URL(route.request().url());
     // 原页面使用 Google Fonts；仅允许无凭证的字体 GET，不影响业务接口审计。
     const font = route.request().method() === "GET" && url.protocol === "https:" &&
@@ -17,6 +18,12 @@ async function guardNetwork(context: BrowserContext) {
       throw new Error(`Unexpected browser egress: ${url.origin}${url.pathname}`);
     }
     await route.continue();
+  });
+  context.on("requestfailed", request => {
+    const url = new URL(request.url());
+    if (url.origin === E2E_BASE_URL && url.pathname.startsWith("/api/") && !url.pathname.endsWith("/stream")) {
+      console.warn(`Business request failed: ${request.method()} ${url.pathname}: ${request.failure()?.errorText}`);
+    }
   });
 }
 test.beforeEach(async ({ context }) => guardNetwork(context));
