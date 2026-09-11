@@ -1,4 +1,4 @@
-import { Crop, Expand, Loader2, ZoomIn } from "lucide-react";
+import { Check, Crop, Expand, Loader2, X, ZoomIn } from "lucide-react";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import {
@@ -12,18 +12,17 @@ import {
 import type { Asset } from "@/entities/asset";
 import type {
   ImageCropRect,
+  ImageCropResizeHandle,
   ImageUpscaleAlgorithm,
   OutpaintMargins,
 } from "@/lib/canvas-image-data";
+import { moveImageCropRect, resizeImageCropRect } from "@/lib/canvas-image-data";
+import { cropRectForAspectRatio, DEFAULT_IMAGE_CROP_RECT } from "@/features/image/model/cropRect";
+import "@/shared/styles/annotation-dialog.css";
 
 /* ---- 关键帧工作台的图片编辑弹窗集合：历史预览 / 超分 / 扩图 / 裁剪 ---- */
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-
-/* 裁剪框初始值（百分比）：居中 76% 区域，与画布裁剪默认草稿对齐 */
-const DEFAULT_CROP_RECT = { x: 12, y: 12, width: 76, height: 76 };
-/* 裁剪框允许的最小边长（百分比），防止拖出不可见的框 */
-const MIN_CROP_EDGE = 5;
 /* 裁剪宽高比预设按钮：label + 目标宽高比（null 表示自由框） */
 const CROP_RATIO_PRESETS: Array<{ label: string; ratio: number | null }> = [
   { label: "自由", ratio: null },
@@ -33,22 +32,16 @@ const CROP_RATIO_PRESETS: Array<{ label: string; ratio: number | null }> = [
   { label: "9:16", ratio: 9 / 16 },
   { label: "2:3", ratio: 2 / 3 },
 ];
+const CROP_RESIZE_HANDLES: ImageCropResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 /* 超分目标长边选项（px），与画布图片工具保持一致 */
 const UPSCALE_LONG_EDGE_OPTIONS = [2048, 3072, 4096] as const;
 /* 扩图单方向最大扩展比例（%），与画布图片工具保持一致 */
 const MAX_OUTPAINT_MARGIN = 75;
 
-type CropRectDraft = { x: number; y: number; width: number; height: number };
-
-function clampCropRect(rect: CropRectDraft): CropRectDraft {
-  const width = clamp(rect.width, MIN_CROP_EDGE, 100);
-  const height = clamp(rect.height, MIN_CROP_EDGE, 100);
-  return {
-    width,
-    height,
-    x: clamp(rect.x, 0, 100 - width),
-    y: clamp(rect.y, 0, 100 - height),
-  };
+function cropHandleStyle(handle: ImageCropResizeHandle) {
+  const top = handle.includes("n") ? "-6px" : handle.includes("s") ? "calc(100% - 6px)" : "calc(50% - 6px)";
+  const left = handle.includes("w") ? "-6px" : handle.includes("e") ? "calc(100% - 6px)" : "calc(50% - 6px)";
+  return { top, left, cursor: `${handle}-resize` };
 }
 
 /* ===================== 历史记录小弹窗预览 ===================== */
@@ -109,7 +102,7 @@ export function UpscaleDialog({
   const [algorithm, setAlgorithm] = useState<ImageUpscaleAlgorithm>("high");
   return (
     <Dialog open={open} onOpenChange={(value) => { if (!value) onClose(); }}>
-      <DialogContent className="edit-dialog">
+      <DialogContent className="edit-dialog canvas-tool-dialog">
         <DialogHeader>
           <DialogTitle><ZoomIn size={16} /> 超分放大</DialogTitle>
           <DialogDescription>本地高质量放大，结果会作为新图片加入预览区域。</DialogDescription>
@@ -129,9 +122,9 @@ export function UpscaleDialog({
           </label>
         </div>
         <DialogFooter>
-          <button className="outline-button small" onClick={onClose} disabled={busy}>取消</button>
-          <button className="vermilion-button small" onClick={() => onRun(longEdge, algorithm)} disabled={busy}>
-            {busy ? <Loader2 className="spin" size={13} /> : null} 开始超分
+          <button type="button" className="outline-button" onClick={onClose} disabled={busy}><X size={15} /> 取消</button>
+          <button type="button" className="vermilion-button" onClick={() => onRun(longEdge, algorithm)} disabled={busy}>
+            {busy ? <Loader2 className="spin" size={13} /> : <Check size={15} />} {busy ? "处理中…" : "开始超分"}
           </button>
         </DialogFooter>
       </DialogContent>
@@ -164,7 +157,7 @@ export function OutpaintDialog({
   );
   return (
     <Dialog open={open} onOpenChange={(value) => { if (!value) onClose(); }}>
-      <DialogContent className="edit-dialog">
+      <DialogContent className="edit-dialog canvas-tool-dialog">
         <DialogHeader>
           <DialogTitle><Expand size={16} /> AI 扩图</DialogTitle>
           <DialogDescription>向外扩展画布并由当前模型补全边缘，走生成队列，完成后自动归档。</DialogDescription>
@@ -179,9 +172,9 @@ export function OutpaintDialog({
           </label>
         </div>
         <DialogFooter>
-          <button className="outline-button small" onClick={onClose} disabled={busy}>取消</button>
-          <button className="vermilion-button small" onClick={() => onRun({ top: top / 100, right: right / 100, bottom: bottom / 100, left: left / 100 }, prompt.trim() || "延展画面边缘，保持主体、光线、材质和画风一致")} disabled={busy}>
-            {busy ? <Loader2 className="spin" size={13} /> : null} 开始扩图
+          <button type="button" className="outline-button" onClick={onClose} disabled={busy}><X size={15} /> 取消</button>
+          <button type="button" className="vermilion-button" onClick={() => onRun({ top: top / 100, right: right / 100, bottom: bottom / 100, left: left / 100 }, prompt.trim() || "延展画面边缘，保持主体、光线、材质和画风一致")} disabled={busy}>
+            {busy ? <Loader2 className="spin" size={13} /> : <Check size={15} />} {busy ? "生成中…" : "开始扩图"}
           </button>
         </DialogFooter>
       </DialogContent>
@@ -204,76 +197,69 @@ export function CropDialog({
   onClose: () => void;
   onRun: (rect: ImageCropRect) => void;
 }) {
-  const [rect, setRect] = useState<CropRectDraft>(DEFAULT_CROP_RECT);
+  const [rect, setRect] = useState<ImageCropRect>(DEFAULT_IMAGE_CROP_RECT);
   const [imageAspect, setImageAspect] = useState(1);
+  const [presetLabel, setPresetLabel] = useState("自由");
   const stageRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ stage: DOMRect; startX: number; startY: number; origin: CropRectDraft } | null>(null);
+  const rectRef = useRef(rect);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+  rectRef.current = rect;
 
   useEffect(() => {
-    if (open) setRect(DEFAULT_CROP_RECT);
-  }, [open, imageUrl]);
-
-  const applyPreset = (ratio: number | null) => {
-    if (!ratio) {
-      setRect(DEFAULT_CROP_RECT);
+    if (!open) {
+      dragCleanupRef.current?.();
       return;
     }
-    /* 在图片内取目标宽高比的最大居中区域，再缩到 92% 留边 */
-    let frameWidth: number;
-    let frameHeight: number;
-    if (imageAspect >= ratio) {
-      frameHeight = 1;
-      frameWidth = ratio / imageAspect;
-    } else {
-      frameWidth = 1;
-      frameHeight = imageAspect / ratio;
-    }
-    frameWidth *= 0.92;
-    frameHeight *= 0.92;
-    setRect({
-      x: ((1 - frameWidth) / 2) * 100,
-      y: ((1 - frameHeight) / 2) * 100,
-      width: frameWidth * 100,
-      height: frameHeight * 100,
-    });
+    setRect(DEFAULT_IMAGE_CROP_RECT);
+    setPresetLabel("自由");
+  }, [open, imageUrl]);
+
+  useEffect(() => () => { dragCleanupRef.current?.(); }, []);
+
+  const applyPreset = (label: string, ratio: number | null) => {
+    setPresetLabel(label);
+    if (!ratio) return;
+    setRect(cropRectForAspectRatio(imageAspect, ratio));
   };
 
-  const onBoxPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const stage = stageRef.current?.getBoundingClientRect();
-    if (!stage) return;
+  const startCropPointer = (
+    event: ReactPointerEvent<HTMLDivElement | HTMLButtonElement>,
+    mode: "move" | "resize",
+    handle: ImageCropResizeHandle = "se",
+  ) => {
+    if (event.button !== 0) return;
+    const box = stageRef.current?.getBoundingClientRect();
+    if (!box || box.width <= 0 || box.height <= 0 || busy) return;
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = { stage, startX: event.clientX, startY: event.clientY, origin: rect };
+    event.stopPropagation();
+    dragCleanupRef.current?.();
+    const start = { clientX: event.clientX, clientY: event.clientY, crop: { ...rectRef.current } };
+    const locked = presetLabel !== "自由";
+    const move = (pointer: PointerEvent) => {
+      const dx = (pointer.clientX - start.clientX) / box.width;
+      const dy = (pointer.clientY - start.clientY) / box.height;
+      setRect(mode === "move"
+        ? moveImageCropRect(start.crop, dx, dy)
+        : resizeImageCropRect(start.crop, dx, dy, handle, locked, box));
+    };
+    const finish = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", finish);
+      document.removeEventListener("pointercancel", finish);
+      if (dragCleanupRef.current === finish) dragCleanupRef.current = null;
+    };
+    dragCleanupRef.current = finish;
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", finish);
+    document.addEventListener("pointercancel", finish);
   };
-  const onBoxPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    if (!drag) return;
-    const dx = ((event.clientX - drag.startX) / Math.max(1, drag.stage.width)) * 100;
-    const dy = ((event.clientY - drag.startY) / Math.max(1, drag.stage.height)) * 100;
-    setRect(clampCropRect({ ...drag.origin, x: drag.origin.x + dx, y: drag.origin.y + dy }));
-  };
-  const onBoxPointerUp = () => {
-    dragRef.current = null;
-  };
-
-  const numberField = (label: string, key: keyof CropRectDraft) => (
-    <label>{label}
-      <input
-        type="number"
-        min={0}
-        max={100}
-        value={Math.round(rect[key])}
-        onChange={(event) => setRect((current) => clampCropRect({ ...current, [key]: Number(event.target.value) || 0 }))}
-      />
-    </label>
-  );
 
   return (
     <Dialog open={open} onOpenChange={(value) => { if (!value) onClose(); }}>
-      <DialogContent className="edit-dialog crop-dialog">
+      <DialogContent className="edit-dialog crop-dialog canvas-tool-dialog">
         <DialogHeader>
           <DialogTitle><Crop size={16} /> 裁剪图片</DialogTitle>
-          <DialogDescription>拖动选框调整位置，或用下方数值 / 宽高比预设精确设置。</DialogDescription>
+          <DialogDescription>拖动选框移动，拖动边角或边缘调整大小。下方比例预设会约束裁剪框。</DialogDescription>
         </DialogHeader>
         <div className="crop-dialog-stage">
           {imageUrl ? (
@@ -281,29 +267,43 @@ export function CropDialog({
               <img src={imageUrl} alt="裁剪预览" draggable={false} onLoad={(event) => setImageAspect(event.currentTarget.naturalWidth / Math.max(1, event.currentTarget.naturalHeight))} />
               <div
                 className="crop-dialog-box"
-                style={{ left: `${rect.x}%`, top: `${rect.y}%`, width: `${rect.width}%`, height: `${rect.height}%` }}
-                onPointerDown={onBoxPointerDown}
-                onPointerMove={onBoxPointerMove}
-                onPointerUp={onBoxPointerUp}
-              />
+                style={{ left: `${rect.x * 100}%`, top: `${rect.y * 100}%`, width: `${rect.width * 100}%`, height: `${rect.height * 100}%` }}
+                onPointerDown={(event) => startCropPointer(event, "move")}
+              >
+                {CROP_RESIZE_HANDLES.map((handle) => (
+                  <button
+                    key={handle}
+                    type="button"
+                    className="crop-dialog-handle"
+                    style={cropHandleStyle(handle)}
+                    aria-label={`从 ${handle} 方向调整裁剪框`}
+                    disabled={busy}
+                    onPointerDown={(event) => startCropPointer(event, "resize", handle)}
+                  />
+                ))}
+              </div>
             </div>
           ) : (
             <Loader2 className="spin" size={22} />
           )}
         </div>
-        <div className="crop-dialog-presets">
-          {CROP_RATIO_PRESETS.map((preset) => <button key={preset.label} onClick={() => applyPreset(preset.ratio)}>{preset.label}</button>)}
-        </div>
-        <div className="edit-dialog-fields crop-fields">
-          {numberField("左（%）", "x")}
-          {numberField("上（%）", "y")}
-          {numberField("宽（%）", "width")}
-          {numberField("高（%）", "height")}
+        <div className="crop-dialog-presets" role="group" aria-label="裁剪比例">
+          {CROP_RATIO_PRESETS.map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              className={presetLabel === preset.label ? "active" : ""}
+              onClick={() => applyPreset(preset.label, preset.ratio)}
+              disabled={busy}
+            >
+              {preset.label}
+            </button>
+          ))}
         </div>
         <DialogFooter>
-          <button className="outline-button small" onClick={onClose} disabled={busy}>取消</button>
-          <button className="vermilion-button small" onClick={() => onRun({ x: rect.x / 100, y: rect.y / 100, width: rect.width / 100, height: rect.height / 100 })} disabled={busy || !imageUrl}>
-            {busy ? <Loader2 className="spin" size={13} /> : null} 确认裁剪
+          <button type="button" className="outline-button" onClick={onClose} disabled={busy}><X size={15} /> 取消</button>
+          <button type="button" className="vermilion-button" onClick={() => onRun(rect)} disabled={busy || !imageUrl}>
+            {busy ? <Loader2 className="spin" size={13} /> : <Check size={15} />} {busy ? "处理中…" : "确认裁剪"}
           </button>
         </DialogFooter>
       </DialogContent>

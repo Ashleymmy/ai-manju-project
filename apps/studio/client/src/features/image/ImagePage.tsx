@@ -13,7 +13,6 @@ import {
   Loader2,
   Maximize2,
   PenLine,
-  Plus,
   RefreshCcw,
   Search,
   Sparkles,
@@ -29,7 +28,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
-import { getAssetContentObjectUrl, type Asset } from "@/entities/asset";
+import {
+  getAssetContentObjectUrl,
+  preflightAssetTrash,
+  trashAssets,
+  type Asset,
+} from "@/entities/asset";
 import { createProject } from "@/entities/project";
 import type { PromptPreset } from "@/entities/prompt";
 import { usePreferencesQuery } from "@/features/settings";
@@ -57,10 +61,21 @@ import {
 } from "./api";
 import {
   IMAGE_WORKBENCH_SIZE_OPTIONS,
+  clampImagePixelSize,
+  flippedWorkbenchSizeOption,
+  nearestWorkbenchSizeOption,
   resolveImageWorkbenchRequestOptions,
+  snapPixelSizeForModel,
+  workbenchPixelDimensions,
+  workbenchRequestSize,
   type ImageWorkbenchQuality,
   type ImageWorkbenchSizeOption,
 } from "./model/options";
+import {
+  nextHistorySelectAll,
+  pruneHistorySelection,
+  toggleHistorySelection,
+} from "./model/historySelection";
 import {
   useImageAssetPickerQuery,
   useImageHistoryQuery,
@@ -159,6 +174,8 @@ export function ImageWorkbenchView() {
   const [editUrl, setEditUrl] = useState("");
   const [editBusy, setEditBusy] = useState(false);
   const [historyUrls, setHistoryUrls] = useState<Record<string, string>>({});
+  const [selectedHistoryIds, setSelectedHistoryIds] = useState<string[]>([]);
+  const [historyBusy, setHistoryBusy] = useState(false);
   const catalogQuery = useImageModelCatalogQuery();
   const preferencesQuery = usePreferencesQuery();
   const historyQuery = useImageHistoryQuery(scope);
@@ -195,7 +212,15 @@ export function ImageWorkbenchView() {
     setPromptPresets(preferences.canvas?.promptPresets || []);
     const generation = preferences.generation || {};
     if (generation.imageModel) setModel((current) => current || generation.imageModel || "");
-    if (generation.size && ["auto", "1:1", "16:9", "9:16"].includes(generation.size)) setSize(generation.size as typeof size);
+    if (generation.size && ["auto", "1:1", "16:9", "9:16"].includes(generation.size)) {
+      const nextSize = generation.size as ImageWorkbenchSizeOption;
+      setSize(nextSize);
+      const pixels = workbenchPixelDimensions(nextSize, quality);
+      if (pixels) {
+        setWidth(pixels.width);
+        setHeight(pixels.height);
+      }
+    }
     if (generation.count) setCount(Math.max(1, Math.min(15, Number(generation.count) || 1)));
   }, [
     preferencesQuery.data,
@@ -258,6 +283,15 @@ export function ImageWorkbenchView() {
   const reloadHistory = useCallback(() => {
     void historyQuery.refetch();
   }, [historyQuery.refetch]);
+
+  useEffect(() => {
+    setSelectedHistoryIds([]);
+  }, [scope]);
+
+  useEffect(() => {
+    const available = history.map((asset) => asset.id);
+    setSelectedHistoryIds((current) => pruneHistorySelection(current, available));
+  }, [history]);
 
   useEffect(() => {
     let disposed = false;
@@ -387,10 +421,12 @@ export function ImageWorkbenchView() {
     setJobProgress(0);
     try {
       const requestOptions = resolveImageWorkbenchRequestOptions(size, quality);
+      const pixels = snapPixelSizeForModel(model, clampImagePixelSize({ width, height }, align16));
       const generated = await generateImages({
         model,
         prompt,
-        ...requestOptions,
+        size: workbenchRequestSize(size, pixels.width, pixels.height, align16),
+        quality: requestOptions.quality,
         count: overrideCount ?? count,
         referenceFiles: references.map((item) => item.file),
         scope,
@@ -602,6 +638,35 @@ export function ImageWorkbenchView() {
   };
 
   const canEditPreview = Boolean(selectedImage) && !generating;
+  const historyIds = useMemo(() => history.map((asset) => asset.id), [history]);
+  const allHistorySelected = historyIds.length > 0 && selectedHistoryIds.length === historyIds.length;
+
+  const toggleHistorySelected = (assetId: string) => {
+    setSelectedHistoryIds((current) => toggleHistorySelection(current, assetId));
+  };
+
+  const toggleSelectAllHistory = () => {
+    setSelectedHistoryIds((current) => nextHistorySelectAll(current, historyIds));
+  };
+
+  const deleteSelectedHistory = async () => {
+    if (!selectedHistoryIds.length || historyBusy) return;
+    setHistoryBusy(true);
+    try {
+      const preflight = await preflightAssetTrash(selectedHistoryIds, scope);
+      const count = preflight.total || selectedHistoryIds.length;
+      if (!window.confirm(`将 ${count} 条生成记录移入回收站，已有引用仍可读。继续？`)) return;
+      await trashAssets(selectedHistoryIds, scope);
+      if (historyPreview && selectedHistoryIds.includes(historyPreview.id)) setHistoryPreview(null);
+      setSelectedHistoryIds([]);
+      reloadHistory();
+      toast.success(`已移入回收站 ${count} 条记录`);
+    } catch (error) {
+      toast.error(publicApiError(error, "删除生成记录失败"));
+    } finally {
+      setHistoryBusy(false);
+    }
+  };
 
   return <div className="feature-page image-page">
     <input ref={referenceInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { if (event.target.files) addReferenceFiles(event.target.files); event.target.value = ""; }} />
@@ -615,36 +680,66 @@ export function ImageWorkbenchView() {
           <span>{history.length}</span>
         </div>
         <div className="history-sidebar-actions">
-          <button className="outline-button small"><Plus size={14} /> 新建项目</button>
-          <button className="outline-button small">全选</button>
-          <button className="outline-button small">删除</button>
+          <button
+            type="button"
+            className="outline-button small"
+            onClick={toggleSelectAllHistory}
+            disabled={!history.length || historyBusy}
+          >
+            {allHistorySelected ? "取消全选" : "全选"}
+          </button>
+          <button
+            type="button"
+            className="outline-button small"
+            onClick={() => void deleteSelectedHistory()}
+            disabled={!selectedHistoryIds.length || historyBusy}
+          >
+            <Trash2 size={14} /> {historyBusy ? "删除中…" : selectedHistoryIds.length ? `删除 ${selectedHistoryIds.length}` : "删除"}
+          </button>
         </div>
         <div className="history-sidebar-content">
           {history.length > 0 ? (
             <div className="history-card-list">
-              {history.map((asset) => (
-                <div
-                  className="history-card"
+              {history.map((asset) => {
+                const checked = selectedHistoryIds.includes(asset.id);
+                return (
+                <article
+                  className={checked ? "history-card selected" : "history-card"}
                   key={asset.id}
-                  role="button"
-                  tabIndex={0}
-                  title="左键放大预览 · 右键载入预览区域"
-                  onClick={() => setHistoryPreview(asset)}
-                  onKeyDown={(event) => { if (event.key === "Enter") setHistoryPreview(asset); }}
-                  onContextMenu={(event) => { event.preventDefault(); loadAssetIntoPreview(asset); }}
                 >
-                  {historyUrls[asset.id] ? (
-                    <img src={historyUrls[asset.id]} alt={asset.name} />
-                  ) : (
-                    <div className="empty-thumbnail"><ImageIcon size={20} /></div>
-                  )}
-                  <div className="history-card-overlay">
-                    <b>{asset.name}</b>
-                    <small>{new Date(asset.created_at || Date.now()).toLocaleDateString()}</small>
-                    <span>左键预览 · 右键载入预览区</span>
-                  </div>
-                </div>
-              ))}
+                  <label
+                    className="history-card-check"
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleHistorySelected(asset.id)}
+                      aria-label={`选择 ${asset.name || "生成记录"}`}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="history-card-preview"
+                    title="左键放大预览 · 右键载入预览区域"
+                    onClick={() => setHistoryPreview(asset)}
+                    onContextMenu={(event) => { event.preventDefault(); loadAssetIntoPreview(asset); }}
+                  >
+                    {historyUrls[asset.id] ? (
+                      <img src={historyUrls[asset.id]} alt={asset.name} />
+                    ) : (
+                      <div className="empty-thumbnail"><ImageIcon size={20} /></div>
+                    )}
+                    <div className="history-card-overlay">
+                      <b>{asset.name}</b>
+                      <small>{new Date(asset.created_at || Date.now()).toLocaleDateString()}</small>
+                      <span>左键预览 · 右键载入预览区</span>
+                    </div>
+                  </button>
+                </article>
+                );
+              })}
             </div>
           ) : (
             <div className="history-empty">
@@ -658,7 +753,10 @@ export function ImageWorkbenchView() {
         const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
         if (files.length) { event.preventDefault(); addReferenceFiles(files); }
       }}>
-        <div className="composer-tabs"><button className={references.length ? "" : "active"} onClick={() => references.length && toast.info("移除全部参考图即可回到文生图")}>文生图</button><button className={references.length ? "active" : ""} onClick={() => !references.length && toast.info("添加参考图后自动切换为图生图")}>图生图 {references.length ? `· ${references.length}` : ""}</button></div>
+        <div className="composer-heading">
+          <p className="eyebrow">SETUP / FRAME</p>
+          <h3>生成设定</h3>
+        </div>
         <label className="prompt-editor"><span>SHOT PROMPT</span><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} /><small>{prompt.length} 字符</small></label>
         <div className="workbench-preset-strip"><span>提示词</span><button onClick={() => setPromptLibraryOpen(true)}><BookOpen size={13} /> 提示词库</button>{visiblePromptPresets.map((preset) => <button key={preset.id} title={preset.prompt} onClick={() => setPrompt(preset.prompt)}>{priorityLabel(preset.priority)} · {preset.title}</button>)}</div>
         <div className="reference-manager">
@@ -667,18 +765,65 @@ export function ImageWorkbenchView() {
           {assetPickerOpen && <div className="reference-asset-picker"><div className="tag-search"><Search size={14} /><input value={assetPickerKeyword} onChange={(event) => setAssetPickerKeyword(event.target.value)} placeholder="搜索资产库图片" /></div><div className="reference-asset-grid">{assetPickerItems.map((asset) => <button key={asset.id} title={asset.name} onClick={() => void addAssetAsReference(asset)}>{assetPickerUrls[asset.id] ? <img src={assetPickerUrls[asset.id]} alt={asset.name} /> : <ImageIcon size={18} />}<span>{asset.name}</span></button>)}{!assetPickerItems.length && <small>没有匹配的图片资产</small>}</div></div>}
         </div>
         <div className="composer-options">
-          <label>模型<select value={model} onChange={(e) => setModel(e.target.value)}>{catalog?.models.map((item) => <option key={item} value={item}>{imageModelLabel(item, catalog)}</option>)}</select></label>
+          <label>模型<select value={model} onChange={(e) => {
+            const nextModel = e.target.value;
+            setModel(nextModel);
+            const pixels = workbenchPixelDimensions(size, quality);
+            if (pixels) {
+              const snapped = snapPixelSizeForModel(nextModel, pixels);
+              setWidth(snapped.width);
+              setHeight(snapped.height);
+            }
+          }}>{catalog?.models.map((item) => <option key={item} value={item}>{imageModelLabel(item, catalog)}</option>)}</select></label>
         </div>
         <div className="composer-options">
-          <label>质量<div className="ratio-buttons">{(["auto", "high", "medium", "low"] as const).map((q) => <button key={q} className={quality === q ? "active" : ""} onClick={() => setQuality(q)}>{q === "auto" ? "自动" : q === "high" ? "高" : q === "medium" ? "中" : "低"}</button>)}</div></label>
+          <label>质量<div className="ratio-buttons">{(["auto", "high", "medium", "low"] as const).map((q) => <button key={q} className={quality === q ? "active" : ""} onClick={() => {
+            setQuality(q);
+            const pixels = workbenchPixelDimensions(size, q);
+            if (pixels) {
+              const snapped = snapPixelSizeForModel(model, pixels);
+              setWidth(snapped.width);
+              setHeight(snapped.height);
+            }
+          }}>{q === "auto" ? "自动" : q === "high" ? "高" : q === "medium" ? "中" : "低"}</button>)}</div></label>
           <label>数量<div className="counter"><button onClick={() => setCount((v) => Math.max(1, v - 1))}>−</button><input type="number" value={count} onChange={(e) => setCount(Math.max(1, Math.min(15, Number(e.target.value) || 1)))} min="1" max="15" /><button onClick={() => setCount((v) => Math.min(15, v + 1))}>+</button></div></label>
         </div>
         <div className="composer-size-settings">
-          <label>尺寸<div className="size-inputs"><span>W</span><input type="number" value={width} onChange={(e) => setWidth(Number(e.target.value))} min="256" max="2048" step={align16 ? "16" : "1"} /><button className="swap-size" onClick={() => { const tmp = width; setWidth(height); setHeight(tmp); }}>⇄</button><span>H</span><input type="number" value={height} onChange={(e) => setHeight(Number(e.target.value))} min="256" max="2048" step={align16 ? "16" : "1"} /><label className="align-toggle"><input type="checkbox" checked={align16} onChange={(e) => setAlign16(e.target.checked)} /><span>16倍数对齐</span></label></div></label>
+          <label>尺寸<div className="size-inputs"><span>W</span><input type="number" value={width} onChange={(e) => {
+            const nextWidth = Number(e.target.value);
+            setWidth(nextWidth);
+            if (size !== "auto" && !size.includes("(")) setSize(nearestWorkbenchSizeOption(nextWidth, height));
+          }} min="256" max="3840" step={align16 ? "16" : "1"} /><button className="swap-size" onClick={() => {
+            setWidth(height);
+            setHeight(width);
+            setSize(flippedWorkbenchSizeOption(size));
+          }}>⇄</button><span>H</span><input type="number" value={height} onChange={(e) => {
+            const nextHeight = Number(e.target.value);
+            setHeight(nextHeight);
+            if (size !== "auto" && !size.includes("(")) setSize(nearestWorkbenchSizeOption(width, nextHeight));
+          }} min="256" max="3840" step={align16 ? "16" : "1"} /><label className="align-toggle"><input type="checkbox" checked={align16} onChange={(e) => {
+            const next = e.target.checked;
+            setAlign16(next);
+            if (next) {
+              const pixels = clampImagePixelSize({ width, height }, true);
+              setWidth(pixels.width);
+              setHeight(pixels.height);
+            }
+          }} /><span>16倍数对齐</span></label></div></label>
         </div>
         <div className="composer-ratio-grid">
           <label>宽高比</label>
-          <div className="ratio-grid">{IMAGE_WORKBENCH_SIZE_OPTIONS.map((ratio) => <button key={ratio} className={size === ratio ? "active" : ""} onClick={() => setSize(ratio)}>{ratio}</button>)}</div>
+          <div className="ratio-grid">{IMAGE_WORKBENCH_SIZE_OPTIONS.map((ratio) => <button key={ratio} className={size === ratio ? "active" : ""} onClick={() => {
+            const resolved = resolveImageWorkbenchRequestOptions(ratio, quality);
+            setSize(ratio);
+            if (resolved.quality !== quality) setQuality(resolved.quality);
+            const pixels = workbenchPixelDimensions(ratio, resolved.quality);
+            if (pixels) {
+              const snapped = snapPixelSizeForModel(model, pixels);
+              setWidth(snapped.width);
+              setHeight(snapped.height);
+            }
+          }}>{ratio}</button>)}</div>
         </div>
         {generating && <div className="job-progress"><i style={{ width: `${jobProgress}%` }} /></div>}
         <div className="generate-row">
