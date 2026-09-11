@@ -4,6 +4,7 @@ import type { CanvasAgentSnapshot } from "@/lib/canvas-agent";
 
 import {
   createLocalAgentSseClient,
+  sendLocalAgentTurn,
   type LocalAgentClientServices,
 } from "./localSseClient";
 
@@ -122,5 +123,22 @@ describe("Canvas local Agent SSE client", () => {
     initial.client.close();
     expect(initial.source.close).toHaveBeenCalledTimes(2);
     expect(initial.callbacks.onDispose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sendLocalAgentTurn", () => {
+  it("forwards the abort signal on the turn request", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ threadId: "t1" }), { status: 200 }));
+    const controller = new AbortController();
+
+    await sendLocalAgentTurn(
+      "http://127.0.0.1:17371",
+      "token",
+      { prompt: "hello", canvasId: "canvas-1" },
+      { services: { fetch: fetchMock as typeof fetch }, signal: controller.signal },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ signal: controller.signal });
   });
 });

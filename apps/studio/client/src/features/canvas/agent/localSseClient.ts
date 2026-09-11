@@ -116,14 +116,19 @@ export async function sendLocalAgentTurn(
   endpoint: string,
   token: string,
   input: { prompt: string; canvasId: string; threadId?: string },
-  services: Pick<LocalAgentClientServices, "fetch"> = browserServices,
+  options: {
+    services?: Pick<LocalAgentClientServices, "fetch">;
+    signal?: AbortSignal;
+  } = {},
 ) {
+  const services = options.services ?? browserServices;
   const response = await services.fetch(
     `${normalizeLocalAgentEndpoint(endpoint)}/agent/codex/turn?token=${encodeURIComponent(token)}`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
+      signal: options.signal,
     },
   );
   if (!response.ok) throw new Error("请求被拒绝");

@@ -1,4 +1,17 @@
 export {
+  AGENT_DEFAULT_TEXT_MODEL_HINT,
+  AGENT_FEATURED_MODEL_COUNT,
+  extraAgentModels,
+  featuredAgentModels,
+  isGpt56LunaModel,
+  pickAgentDefaultModel,
+} from "./agentModelPrefs";
+export {
+  AGENT_INTERRUPTED_MESSAGE,
+  copyAgentMessageText,
+  isAgentTurnCancelled,
+} from "./agentTurnControl";
+export {
   agentConversationStorageKey,
   loadAgentConnectionSettings,
   loadAgentConversations,
