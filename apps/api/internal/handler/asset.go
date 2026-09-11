@@ -785,18 +785,21 @@ func assetResponse(asset model.Asset, contentType string) gin.H {
 		"updated_at":        asset.UpdatedAt,
 	}
 	if asset.TrashedAt != nil {
-		result["trashed_at"] = asset.TrashedAt
-		result["trash_expires_at"] = asset.TrashExpiresAt
-		result["trashed_by"] = asset.TrashedBy
+		expires := service.AssetTrashExpiresAt(asset.TrashedAt, asset.TrashExpiresAt)
+		now := time.Now().UTC()
 		remaining := time.Duration(0)
-		if asset.TrashExpiresAt != nil {
-			remaining = time.Until(*asset.TrashExpiresAt)
+		if expires != nil {
+			remaining = expires.Sub(now)
 			if remaining < 0 {
 				remaining = 0
 			}
 		}
+		result["trashed_at"] = asset.TrashedAt
+		result["trash_expires_at"] = expires
+		result["trashed_by"] = asset.TrashedBy
 		result["trash_remaining_seconds"] = int64(remaining.Seconds())
-		result["trash_risk_warning"] = asset.TrashExpiresAt != nil && remaining <= service.AssetTrashRiskWindow
+		result["trash_remaining_days"] = service.AssetTrashRemainingDays(expires, now)
+		result["trash_risk_warning"] = expires != nil && remaining <= service.AssetTrashRiskWindow
 	}
 	return result
 }
