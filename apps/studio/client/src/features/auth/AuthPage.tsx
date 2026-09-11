@@ -153,14 +153,21 @@ export function AuthView() {
           )}
           {!isRegister && (
             <div className="remember-line">
-              <button className={remember ? "check-box checked" : "check-box"} onClick={() => setRemember(!remember)}>
-                {remember && <Check size={13} />}
+              <button
+                type="button"
+                className={`remember-toggle${remember ? " is-on" : ""}`}
+                aria-pressed={remember}
+                onClick={() => setRemember(!remember)}
+              >
+                <span className={remember ? "check-box checked" : "check-box"}>
+                  {remember && <Check size={13} strokeWidth={3} />}
+                </span>
+                <span>记住本次登录</span>
               </button>
-              <span>记住本次登录</span>
-              <button onClick={() => toast.info("密码重置将在正式系统中发送邮件")}>忘记密码？</button>
+              <button type="button" onClick={() => toast.info("密码重置将在正式系统中发送邮件")}>忘记密码？</button>
             </div>
           )}
-          <button className="auth-submit" disabled={formLoading} onClick={handleSubmit}>
+          <button type="button" className="auth-submit" disabled={formLoading} onClick={handleSubmit}>
             {isRegister ? "创建账户" : isV2 ? "连接工作面" : "进入工作台"} <ChevronRight size={17} />
           </button>
           <div className="auth-switch">

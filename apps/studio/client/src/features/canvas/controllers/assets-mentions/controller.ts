@@ -1,19 +1,20 @@
 import { publicApiError } from "@/shared/api/errors";
+import type { Asset, AssetCategory, AssetFolder } from "@/entities/asset";
+import { flattenFolderTree, folderPathLabel } from "@/features/assets";
 import {
   buildCanvasMentionReferences,
   type CanvasMentionAsset,
   type CanvasMentionReference,
 } from "@/features/canvas/domain/mentions";
 import { isHiddenCanvasBatchChild } from "@/features/canvas/domain/connections";
-import { assetIdFromNode, imageSrcFromNode } from "@/features/canvas/domain/nodes";
-import {
-  isReadableMediaSource,
-  mediaKindFromNode,
-} from "@/features/canvas/domain/nodeUtils";
+import { collectCanvasPreviewAssetRefs } from "@/features/canvas/domain/generationHistory";
+import { imageSrcFromNode } from "@/features/canvas/domain/nodes";
+import { isReadableMediaSource } from "@/features/canvas/domain/nodeUtils";
 import { stringValue } from "@/features/canvas/domain/value";
 import { workspaceScopeValue } from "@/features/canvas/domain/workspace";
 import { browserCanvasAssetsMentionsServices } from "./browser-services";
 import type {
+  CanvasAssetPickerFolderOption,
   CanvasAssetPickerItem,
   CanvasAssetPickerKind,
   CanvasAssetsMentionsBindings,
@@ -21,6 +22,8 @@ import type {
   CanvasAssetsMentionsSnapshot,
   CanvasPreviewSyncInput,
 } from "./types";
+
+const PICKER_THUMBNAIL_WIDTH = 320 as const;
 
 const directExecutor: CanvasAssetsMentionsBindings["executeAssets"] = operation => operation();
 
@@ -48,12 +51,14 @@ export class CanvasAssetsMentionsController {
   private snapshot: CanvasAssetsMentionsSnapshot;
   private readonly listeners = new Set<() => void>();
   private readonly previewCache = new Map<string, { assetId: string; url: string }>();
+  private readonly pickerThumbCache = new Map<string, string>();
   private catalogAbort: AbortController | null = null;
   private pickerAbort: AbortController | null = null;
   private searchTimer: number | null = null;
   private mentionOwnedUrl = "";
   private previewRevision = 0;
   private mentionPreviewRevision = 0;
+  private pickerThumbRevision = 0;
   private disposed = false;
 
   constructor(
@@ -70,9 +75,12 @@ export class CanvasAssetsMentionsController {
         loading: false,
         query: "",
         kind: "all",
+        folderId: "",
+        folders: [],
         error: "",
         items: [],
         selectedIds: [],
+        thumbnails: {},
       },
       mentionPreview: null,
     };
@@ -98,13 +106,18 @@ export class CanvasAssetsMentionsController {
     this.patch({ assets: Array.from(byKey.values()) });
   };
 
-  readonly loadMentionCatalog = async (keyword = "", targetScope = this.bindings.getMentionScope()) => {
+  readonly loadMentionCatalog = async (
+    keyword = "",
+    targetScope = this.bindings.getMentionScope(),
+    category?: AssetCategory | "",
+  ) => {
     this.catalogAbort?.abort();
     const controller = new AbortController();
     this.catalogAbort = controller;
     try {
       const result = await this.assets(() => this.services.getAssetLibrary(targetScope, {
         keyword: keyword.trim() || undefined,
+        category: category || undefined,
         page: 1,
         pageSize: 100,
         sort: "created_at_desc",
@@ -117,11 +130,11 @@ export class CanvasAssetsMentionsController {
     }
   };
 
-  readonly queueMentionAssetSearch = (query: string) => {
+  readonly queueMentionAssetSearch = (query: string, category?: AssetCategory | "") => {
     if (this.searchTimer) this.services.cancelSchedule(this.searchTimer);
     this.searchTimer = this.services.schedule(() => {
       this.searchTimer = null;
-      void this.loadMentionCatalog(query);
+      void this.loadMentionCatalog(query, this.bindings.getMentionScope(), category);
     }, 240);
   };
 
@@ -132,10 +145,11 @@ export class CanvasAssetsMentionsController {
       scope,
       query: "",
       kind: "all",
+      folderId: "",
       error: "",
       selectedIds: [],
     });
-    void this.loadAssetPicker(scope, "", "all");
+    void this.loadAssetPicker(scope, "", "all", "");
   };
 
   readonly setAssetPickerOpen = (open: boolean) => {
@@ -143,22 +157,28 @@ export class CanvasAssetsMentionsController {
     this.patchPicker({ open });
     if (!open) {
       this.pickerAbort?.abort();
+      this.pickerThumbRevision += 1;
       this.patchPicker({ selectedIds: [], error: "" });
     }
   };
 
   readonly cancelAssetPicker = () => {
-    this.patchPicker({ open: false });
+    this.setAssetPickerOpen(false);
   };
 
   readonly setAssetPickerScope = (scope: "personal" | "team") => {
-    this.patchPicker({ scope, selectedIds: [] });
-    void this.loadAssetPicker(scope, this.snapshot.picker.query, this.snapshot.picker.kind);
+    this.patchPicker({ scope, selectedIds: [], folderId: "", folders: [] });
+    void this.loadAssetPicker(scope, this.snapshot.picker.query, this.snapshot.picker.kind, "");
   };
 
   readonly setAssetPickerKind = (kind: CanvasAssetPickerKind) => {
     this.patchPicker({ kind, selectedIds: [] });
     void this.loadAssetPicker(this.snapshot.picker.scope, this.snapshot.picker.query, kind);
+  };
+
+  readonly setAssetPickerFolder = (folderId: string) => {
+    this.patchPicker({ folderId, selectedIds: [] });
+    void this.loadAssetPicker(this.snapshot.picker.scope, this.snapshot.picker.query, this.snapshot.picker.kind, folderId);
   };
 
   readonly setAssetPickerQuery = (query: string) => {
@@ -167,7 +187,7 @@ export class CanvasAssetsMentionsController {
 
   readonly searchAssetPicker = () => {
     const picker = this.snapshot.picker;
-    void this.loadAssetPicker(picker.scope, picker.query, picker.kind);
+    void this.loadAssetPicker(picker.scope, picker.query, picker.kind, picker.folderId);
   };
 
   readonly toggleAssetPickerItem = (itemId: string) => {
@@ -296,15 +316,10 @@ export class CanvasAssetsMentionsController {
       kind: "image" | "video" | "audio";
       scope: "personal" | "team";
     }>();
-    for (const node of this.bindings.getNodes()) {
-      const id = assetIdFromNode(node);
-      if (!id) continue;
-      const descriptor = {
-        id,
-        kind: mediaKindFromNode(node),
-        scope: workspaceScopeValue(node.metadata?.assetScope) || canonicalScope || fallbackScope,
-      };
-      const key = `${descriptor.scope}:${descriptor.kind}:${id}`;
+    for (const ref of collectCanvasPreviewAssetRefs(this.bindings.getNodes())) {
+      const scope = workspaceScopeValue(ref.scope) || canonicalScope || fallbackScope;
+      const descriptor = { id: ref.id, kind: ref.kind, scope };
+      const key = `${descriptor.scope}:${descriptor.kind}:${descriptor.id}`;
       if (!needed.has(key)) needed.set(key, descriptor);
     }
     this.previewCache.forEach((entry, key) => {
@@ -357,6 +372,7 @@ export class CanvasAssetsMentionsController {
     this.searchTimer = null;
     this.releaseAllPreviewUrls();
     this.releaseMentionOwnedUrl();
+    this.releasePickerThumbs();
     this.listeners.clear();
     this.bindings = emptyBindings;
   }
@@ -365,31 +381,44 @@ export class CanvasAssetsMentionsController {
     scope: "personal" | "team",
     keyword: string,
     kind: CanvasAssetPickerKind,
+    folderId = this.snapshot.picker.folderId,
   ) {
     this.pickerAbort?.abort();
     const controller = new AbortController();
     this.pickerAbort = controller;
     this.patchPicker({ loading: true, error: "" });
+    const includeLocalText = (kind === "all" || kind === "text") && !folderId;
+    const mediaKind = kind === "image" || kind === "video" || kind === "audio" ? kind : undefined;
     try {
-      const [serverResult, textResult] = await Promise.allSettled([
+      const [serverResult, textResult, foldersResult] = await Promise.allSettled([
         kind === "text"
-          ? Promise.resolve({ items: [] as import("@/entities/asset").Asset[] })
+          ? Promise.resolve({ items: [] as Asset[] })
           : this.assets(() => this.services.getAssetLibrary(scope, {
             keyword: keyword.trim() || undefined,
+            type: mediaKind,
+            smartView: kind === "favorite" ? "favorite" : undefined,
+            folderId: folderId || undefined,
+            includeDescendants: folderId ? true : undefined,
             page: 1,
             pageSize: 60,
             sort: "created_at_desc",
           }, controller.signal)),
-        this.bindings.getUserId()
+        includeLocalText && this.bindings.getUserId()
           ? this.assets(() => this.services.listCanvasTextAssets(this.bindings.getUserId(), scope))
           : Promise.resolve([]),
+        this.assets(() => this.services.getAssetFolders(scope)),
       ]);
       if (controller.signal.aborted) return;
       const query = keyword.trim().toLowerCase();
       const serverAssets = serverResult.status === "fulfilled" ? serverResult.value.items || [] : [];
       const textAssets = textResult.status === "fulfilled" ? textResult.value : [];
+      const folderPatch = foldersResult.status === "fulfilled"
+        ? { folders: pickerFolderOptions(foldersResult.value) }
+        : this.snapshot.picker.folders.length
+          ? {}
+          : { folders: [] as CanvasAssetPickerFolderOption[] };
       const mediaItems: CanvasAssetPickerItem[] = serverAssets
-        .filter(asset => kind === "all" || asset.type === kind)
+        .filter(asset => !mediaKind || asset.type === mediaKind)
         .map(asset => ({
           id: `server:${asset.id}`,
           type: asset.type,
@@ -401,19 +430,26 @@ export class CanvasAssetsMentionsController {
           size: asset.size,
           contentType: asset.content_type,
         }));
-      const localTextItems: CanvasAssetPickerItem[] = textAssets
-        .filter(() => kind === "all" || kind === "text")
-        .filter(asset => !query || `${asset.title} ${asset.content}`.toLowerCase().includes(query))
-        .map(asset => ({
-          id: `text:${asset.id}`,
-          type: "text",
-          name: asset.title,
-          scope,
-          source: "local-text",
-          textAsset: asset,
-        }));
-      this.patchPicker({ items: [...localTextItems, ...mediaItems] });
+      const localTextItems: CanvasAssetPickerItem[] = includeLocalText
+        ? textAssets
+          .filter(asset => !query || `${asset.title} ${asset.content}`.toLowerCase().includes(query))
+          .map(asset => ({
+            id: `text:${asset.id}`,
+            type: "text" as const,
+            name: asset.title,
+            scope,
+            source: "local-text" as const,
+            textAsset: asset,
+          }))
+        : [];
+      const items = [...localTextItems, ...mediaItems];
+      this.patchPicker({
+        items,
+        thumbnails: this.cachedPickerThumbnails(items, scope),
+        ...folderPatch,
+      });
       if (serverAssets.length) this.mergeAssets(serverAssets, scope);
+      void this.loadPickerThumbnails(mediaItems, scope, controller.signal);
       if (serverResult.status === "rejected") {
         this.patchPicker({
           error: textAssets.length
@@ -425,7 +461,7 @@ export class CanvasAssetsMentionsController {
       }
     } catch (error) {
       if (controller.signal.aborted) return;
-      this.patchPicker({ items: [], error: publicApiError(error, "读取资产库失败") });
+      this.patchPicker({ items: [], thumbnails: {}, error: publicApiError(error, "读取资产库失败") });
     } finally {
       if (this.pickerAbort === controller) this.pickerAbort = null;
       if (!controller.signal.aborted) this.patchPicker({ loading: false });
@@ -485,6 +521,63 @@ export class CanvasAssetsMentionsController {
     }];
   }
 
+  private cachedPickerThumbnails(items: CanvasAssetPickerItem[], scope: "personal" | "team") {
+    const thumbnails: Record<string, string> = {};
+    items.forEach(item => {
+      const assetId = item.serverAsset?.id;
+      if (item.type !== "image" || !assetId) return;
+      const cached = this.pickerThumbCache.get(`${scope}:${assetId}`);
+      if (cached) thumbnails[item.id] = cached;
+    });
+    return thumbnails;
+  }
+
+  private async loadPickerThumbnails(
+    items: CanvasAssetPickerItem[],
+    scope: "personal" | "team",
+    signal: AbortSignal,
+  ) {
+    const revision = ++this.pickerThumbRevision;
+    const imageItems = items.filter(item => item.type === "image" && item.serverAsset);
+    const neededKeys = new Set(imageItems.map(item => `${scope}:${item.serverAsset!.id}`));
+    this.pickerThumbCache.forEach((url, key) => {
+      if (neededKeys.has(key)) return;
+      this.services.revokeObjectURL(url);
+      this.pickerThumbCache.delete(key);
+    });
+    await Promise.all(imageItems.map(async item => {
+      const assetId = item.serverAsset!.id;
+      const cacheKey = `${scope}:${assetId}`;
+      if (this.pickerThumbCache.has(cacheKey)) return;
+      try {
+        const url = await this.assets(() => this.services.getAssetContentObjectUrl(
+          assetId,
+          scope,
+          PICKER_THUMBNAIL_WIDTH,
+          signal,
+        ));
+        if (!url || signal.aborted || revision !== this.pickerThumbRevision) {
+          if (url) this.services.revokeObjectURL(url);
+          return;
+        }
+        this.pickerThumbCache.set(cacheKey, url);
+      } catch {
+        /* 缩略图失败时保留图标占位，不阻断插入 */
+      }
+    }));
+    if (this.disposed || signal.aborted || revision !== this.pickerThumbRevision) return;
+    this.patchPicker({ thumbnails: this.cachedPickerThumbnails(this.snapshot.picker.items, scope) });
+  }
+
+  private releasePickerThumbs() {
+    this.pickerThumbRevision += 1;
+    this.pickerThumbCache.forEach(url => this.services.revokeObjectURL(url));
+    this.pickerThumbCache.clear();
+    if (this.snapshot.picker.thumbnails && Object.keys(this.snapshot.picker.thumbnails).length) {
+      this.patchPicker({ thumbnails: {} });
+    }
+  }
+
   private patch(patch: Partial<CanvasAssetsMentionsSnapshot>) {
     if (this.disposed) return;
     this.snapshot = { ...this.snapshot, ...patch };
@@ -520,4 +613,11 @@ export class CanvasAssetsMentionsController {
   private assets<Result>(operation: () => Promise<Result>) {
     return this.bindings.executeAssets(operation);
   }
+}
+
+function pickerFolderOptions(folders: AssetFolder[]): CanvasAssetPickerFolderOption[] {
+  return flattenFolderTree(folders).map(({ folder }) => ({
+    id: folder.id,
+    label: folderPathLabel(folders, folder.id),
+  }));
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -272,6 +273,55 @@ func TestEnsureCanvasArchiveFolderAtUsesBusinessTimezone(t *testing.T) {
 	}
 	if folder.SystemKey != model.AssetFolderSystemKeyCanvasProjectDate || folder.Name != "2026-08-11" || folder.SourceRefID != "canvas_1:2026-08-11" {
 		t.Fatalf("archive folder = %+v", folder)
+	}
+}
+
+func TestCanvasArchiveFoldersAllowDuplicateProjectTitles(t *testing.T) {
+	fx := newAssetFolderFixture()
+	now := time.Now().UTC()
+	first, err := fx.service.EnsureCanvasArchiveFolderAt("user_a", WorkspaceScopePersonal, "proj_aaaaaaa1", "未命名画布", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := fx.service.EnsureCanvasArchiveFolderAt("user_a", WorkspaceScopePersonal, "proj_bbbbbbb2", "未命名画布", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == second.ID || first.ParentID == second.ParentID {
+		t.Fatalf("same-titled canvases shared archive folders: first=%+v second=%+v", first, second)
+	}
+	firstProject, err := fx.service.Get(first.ParentID, "user_a", WorkspaceScopePersonal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondProject, err := fx.service.Get(second.ParentID, "user_a", WorkspaceScopePersonal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstProject.Name != "未命名画布" {
+		t.Fatalf("first project folder name = %q", firstProject.Name)
+	}
+	if secondProject.Name == "未命名画布" || !strings.Contains(secondProject.Name, "bbbbbbb2") {
+		t.Fatalf("second project folder was not disambiguated: %+v", secondProject)
+	}
+	if firstProject.SourceRefID != "proj_aaaaaaa1" || secondProject.SourceRefID != "proj_bbbbbbb2" {
+		t.Fatalf("project source refs = %q / %q", firstProject.SourceRefID, secondProject.SourceRefID)
+	}
+	resolved, err := fx.service.ResolveRegistration("user_a", WorkspaceScopePersonal, AssetRegistrationContext{
+		SourceType: model.AssetSourceCanvas, SourceProjectID: "proj_bbbbbbb2", SourceProjectName: "未命名画布",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.FolderID != second.ID {
+		t.Fatalf("registration folder = %s, want %s", resolved.FolderID, second.ID)
+	}
+}
+
+func TestDisambiguateSystemFolderNameKeepsReadableSuffix(t *testing.T) {
+	name := disambiguateSystemFolderName("未命名画布", "proj_4ef6e1850465272f")
+	if name != "未命名画布 · 0465272f" {
+		t.Fatalf("disambiguated = %q", name)
 	}
 }
 

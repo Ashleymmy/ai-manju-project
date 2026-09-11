@@ -1,4 +1,4 @@
-import { ArrowDownToLine, Check, Loader2, Pin, Plus, Search, Trash2, WandSparkles } from "lucide-react";
+import { ArrowDownToLine, Check, Copy, Loader2, Pin, Plus, Search, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -145,7 +145,7 @@ export default function PromptPresetManagerDialog({ open, onOpenChange }: Props)
                   <p>{preset.prompt || "未填写提示词"}</p>
                   <div className="preset-manager-item-actions">
                     <button title={preset.priority === "pinned" ? "取消置顶" : "置顶"} onClick={(event) => { event.stopPropagation(); togglePin(preset); }}><Pin size={12} /></button>
-                    <button title="复制提示词" onClick={(event) => { event.stopPropagation(); void navigator.clipboard.writeText(preset.prompt).then(() => toast.success("已复制")); }}><WandSparkles size={12} /></button>
+                    <button title="复制提示词" onClick={(event) => { event.stopPropagation(); void navigator.clipboard.writeText(preset.prompt).then(() => toast.success("已复制")); }}><Copy size={12} /></button>
                     <button title="删除" onClick={(event) => { event.stopPropagation(); deletePreset(preset.id); }}><Trash2 size={12} /></button>
                   </div>
                 </div>

@@ -1028,6 +1028,38 @@ func TestAIImageGenerationsProxyUsesProviderAuthAndReturnsImages(t *testing.T) {
 	}
 }
 
+func TestAIImageGenerationsForwardsSeedToJobPayload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("provider should not be called synchronously")
+	}))
+	defer server.Close()
+
+	router, providerRepo := newProviderTestRouter(t, "secret")
+	configureOpenAICompatibleProvider(t, providerRepo, server.URL+"/v1", "sk-image", "gpt-image-1")
+	memberCookie := loginCookie(t, router, "member", "secret")
+	recorder := performJSON(router, http.MethodPost, "/api/ai/image/generations", `{"model":"gpt-image-1","prompt":"four apples","size":"1024x1024","n":1,"seed":42}`, memberCookie)
+	jobID := assertAcceptedJobResponse(t, recorder)
+	payload := fetchJobPayload(t, router, jobID, memberCookie)
+	if payload["prompt"] != "four apples" {
+		t.Fatalf("prompt = %+v", payload["prompt"])
+	}
+	switch seed := payload["seed"].(type) {
+	case float64:
+		if seed != 42 {
+			t.Fatalf("seed = %v", seed)
+		}
+	case int:
+		if seed != 42 {
+			t.Fatalf("seed = %v", seed)
+		}
+	default:
+		t.Fatalf("seed missing or wrong type: %+v", payload)
+	}
+	if strings.Contains(recorder.Body.String(), server.URL) || strings.Contains(strings.ToLower(recorder.Body.String()), "authorization") || strings.Contains(recorder.Body.String(), "sk-image") {
+		t.Fatalf("image response leaked provider details: %s", recorder.Body.String())
+	}
+}
+
 func TestAIImageGenerationsNormalizesSharedQualityAndRatioBeforeQueueing(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("provider should not be called synchronously")

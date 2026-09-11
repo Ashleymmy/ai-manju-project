@@ -1,9 +1,10 @@
-import { getAssetContentObjectUrl, getAssetLibrary } from "@/entities/asset";
+import { getAssetContentObjectUrl, getAssetFolders, getAssetLibrary } from "@/entities/asset";
 import { listCanvasTextAssets } from "@/features/canvas/repositories/textAssetsRepository";
 import type { CanvasAssetsMentionsServices } from "./types";
 
 export const browserCanvasAssetsMentionsServices: CanvasAssetsMentionsServices = {
   getAssetLibrary,
+  getAssetFolders,
   getAssetContentObjectUrl,
   listCanvasTextAssets,
   createId: () => crypto.randomUUID(),

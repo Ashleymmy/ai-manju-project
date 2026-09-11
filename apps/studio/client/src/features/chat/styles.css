@@ -26,7 +26,8 @@
   height: 60px;
   padding: 0 22px;
   border-bottom: 1px solid var(--line);
-  background: var(--rail);
+  background-color: var(--rail);
+  isolation: isolate;
 }
 .chat-topbar-brand {
   display: flex;
@@ -218,15 +219,29 @@
 
 /* ---- 创作输入区 ---- */
 .chat-composer {
+  /* 切角画在 ::before 上，避免 clip-path 裁掉向上展开的模型菜单 */
+  position: relative;
+  overflow: visible;
   padding: 16px;
+}
+.chat-composer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
   border: 1px solid var(--line);
   background: #1a2022;
-  transition: border-color .18s ease, box-shadow .18s ease;
   clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+  transition: border-color .18s ease, box-shadow .18s ease;
 }
-.chat-composer:focus-within {
+.chat-composer:focus-within::before {
   border-color: rgba(239, 235, 222, 0.3);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+}
+.chat-composer > * {
+  position: relative;
+  z-index: 1;
 }
 .chat-composer textarea {
   width: 100%;
@@ -261,10 +276,12 @@
 }
 .chat-model {
   position: relative;
+  overflow: visible;
 }
 .chat-model-menu {
   bottom: calc(100% + 8px);
   right: 0;
+  z-index: 60;
   transform-origin: bottom center;
 }
 .chat-tool-btn {
@@ -390,7 +407,8 @@
 /* ---- 动效（尊重系统减弱动效设置） ---- */
 @media (prefers-reduced-motion: no-preference) {
   .chat-hero { animation: rise-in .42s var(--ease-out) both; }
-  .chat-composer { animation: rise-in .42s .06s var(--ease-out) both; }
+  /* backwards：动画结束后不保留 transform，否则会把向上弹出的模型菜单裁掉 */
+  .chat-composer { animation: rise-in .42s .06s var(--ease-out) backwards; }
   .chat-recent { animation: rise-in .42s .12s var(--ease-out) both; }
   .chat-mic.listening { animation: chat-mic-pulse 1.6s var(--ease-out) infinite; }
   .chat-loading-bar i { animation: chat-loading-sheen 1.15s linear infinite; }

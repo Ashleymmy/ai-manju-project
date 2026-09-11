@@ -1,0 +1,212 @@
+/* 标注弹窗与工具弹窗底栏：画布 / 关键帧生成共用，避免只在画布页加载 styles.css 时样式丢失 */
+.canvas-annotation-dialog { width: min(1040px,calc(100vw - 2rem)); max-width: 1040px; max-height: 92vh; overflow-y: auto; border-color: var(--line); background: #171d1e; color: #e3e4dc; }
+.canvas-annotation-layout { display: grid; grid-template-columns: minmax(360px,1fr) 250px; gap: 18px; min-height: 430px; }
+.canvas-annotation-workspace { display: flex; min-width: 0; flex-direction: column; gap: 9px; }
+.canvas-annotation-toolbar { display: flex; flex-wrap: wrap; gap: 5px; }
+.canvas-annotation-toolbar button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--line); background: #101617; color: #cdcdcd; cursor: pointer; }
+.canvas-annotation-toolbar button:hover,
+.canvas-annotation-toolbar button.active { border-color: rgba(255, 255, 255, 0.8); background: rgba(255,255,255,.12); color: #fff0eb; }
+.canvas-annotation-toolbar button:disabled { opacity: .4; cursor: not-allowed; }
+.canvas-annotation-toolbar-separator { width: 1px; margin: 3px 4px; background: var(--line); }
+.canvas-annotation-stage { position: relative; display: grid; place-items: center; width: 100%; max-height: 68vh; overflow: hidden; border: 1px solid var(--line); background: #0c1112; touch-action: none; user-select: none; }
+.canvas-annotation-stage svg { display: block; width: 100%; height: 100%; max-height: 68vh; cursor: crosshair; }
+.canvas-annotation-stage[data-tool="select"] svg { cursor: default; }
+.canvas-annotation-stage[data-tool="text"] svg { cursor: crosshair; }
+.canvas-annotation-text-editor {
+  position: absolute;
+  z-index: 3;
+  display: inline-grid;
+  align-items: center;
+  justify-items: start;
+  width: max-content;
+  min-width: 0.85em;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: sans-serif;
+  font-weight: 600;
+  line-height: 1.15;
+  pointer-events: none;
+}
+.canvas-annotation-text-editor::before {
+  content: "";
+  position: absolute;
+  inset: calc(-0.12em - 1px);
+  border: 1.5px dashed #ffffff;
+  box-shadow: 0 0 0 1px rgba(18, 13, 32, 0.72);
+  pointer-events: none;
+}
+.canvas-annotation-text-editor > * {
+  grid-area: 1 / 1;
+}
+.canvas-annotation-text-sizer {
+  visibility: hidden;
+  white-space: pre;
+  font: inherit;
+  line-height: inherit;
+}
+.canvas-annotation-text-editor input {
+  width: 0;
+  min-width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  field-sizing: content;
+  font: inherit;
+  line-height: inherit;
+  color: inherit;
+  caret-color: inherit;
+  pointer-events: auto;
+}
+.canvas-annotation-text-editor input:focus,
+.canvas-annotation-text-editor input:focus-visible {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+}
+.canvas-annotation-controls { display: flex; min-width: 0; flex-direction: column; gap: 15px; }
+.canvas-annotation-sidebar-foot {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: auto;
+}
+.canvas-annotation-controls .canvas-annotation-sidebar-foot {
+  margin-top: 2px;
+}
+.canvas-annotation-controls section { display: grid; gap: 9px; }
+.canvas-annotation-controls h4,
+.canvas-annotation-controls label > span { margin: 0; color: #c6c6c6; font-size: 11px; font-weight: 500; }
+.canvas-annotation-controls label { display: grid; gap: 8px; }
+.canvas-annotation-controls input:not([type="color"]):not([type="range"]) { width: 100%; height: 36px; padding: 0 9px; border: 1px solid var(--line); outline: none; background: #101617; color: #e3e8e1; font-size: 11px; }
+.canvas-annotation-controls input[type="range"] { width: 100%; accent-color: var(--vermilion); }
+.canvas-annotation-controls label > b { color: #e3e8e1; font: 500 11px "IBM Plex Mono",monospace; }
+.canvas-annotation-colors { display: grid; grid-template-columns: repeat(5,30px); gap: 7px; }
+.canvas-annotation-colors button,
+.canvas-annotation-colors input[type="color"] { width: 30px; height: 30px; padding: 0; border: 2px solid transparent; border-radius: 50%; background-clip: padding-box; cursor: pointer; }
+.canvas-annotation-colors button.active { border-color: #f3efe4; box-shadow: 0 0 0 1px #101617; }
+.canvas-annotation-colors input[type="color"] { overflow: hidden; border-radius: 4px; background: transparent; }
+.canvas-annotation-hint { margin: 0; color: #9f9f9f; font-size: 11px; line-height: 1.65; }
+.canvas-tool-dialog [data-slot="dialog-title"] {
+  color: #e3e4dc;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.canvas-tool-dialog [data-slot="dialog-description"] {
+  color: #9f9f9f;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.canvas-tool-dialog .canvas-tool-clear,
+.canvas-tool-dialog .canvas-annotation-clear,
+.canvas-tool-dialog [data-slot="dialog-footer"] .outline-button,
+.canvas-tool-dialog [data-slot="dialog-footer"] .vermilion-button,
+.canvas-tool-dialog [data-slot="dialog-footer"] .primary-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  width: auto;
+  margin: 0;
+  padding: 0 14px;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 8px;
+  clip-path: none;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.canvas-tool-dialog .canvas-tool-clear svg,
+.canvas-tool-dialog .canvas-annotation-clear svg,
+.canvas-tool-dialog [data-slot="dialog-footer"] .outline-button svg,
+.canvas-tool-dialog [data-slot="dialog-footer"] .vermilion-button svg,
+.canvas-tool-dialog [data-slot="dialog-footer"] .primary-button svg {
+  display: block;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+}
+.canvas-tool-dialog .canvas-tool-clear,
+.canvas-tool-dialog .canvas-annotation-clear {
+  width: 100%;
+  border-color: rgba(239, 235, 222, 0.22);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e4e1d8;
+}
+.canvas-tool-dialog .canvas-tool-clear:hover:not(:disabled),
+.canvas-tool-dialog .canvas-annotation-clear:hover:not(:disabled) {
+  border-color: rgba(239, 235, 222, 0.4);
+  background: rgba(255, 255, 255, 0.1);
+  color: #f4f1ea;
+}
+.canvas-tool-dialog [data-slot="dialog-footer"] .outline-button {
+  border-color: rgba(239, 235, 222, 0.28);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e4e1d8;
+}
+.canvas-tool-dialog [data-slot="dialog-footer"] .outline-button:hover:not(:disabled) {
+  border-color: rgba(239, 235, 222, 0.48);
+  background: rgba(255, 255, 255, 0.1);
+  color: #f4f1ea;
+}
+.canvas-tool-dialog [data-slot="dialog-footer"] .vermilion-button,
+.canvas-tool-dialog [data-slot="dialog-footer"] .primary-button {
+  border-color: #eceae3;
+  background: #f2f1ed;
+  color: #17181a;
+}
+.canvas-tool-dialog [data-slot="dialog-footer"] .vermilion-button:hover:not(:disabled),
+.canvas-tool-dialog [data-slot="dialog-footer"] .primary-button:hover:not(:disabled) {
+  background: #ffffff;
+  color: #17181a;
+}
+.canvas-tool-dialog .canvas-tool-clear:disabled,
+.canvas-tool-dialog .canvas-annotation-clear:disabled,
+.canvas-tool-dialog [data-slot="dialog-footer"] .outline-button:disabled,
+.canvas-tool-dialog [data-slot="dialog-footer"] .vermilion-button:disabled,
+.canvas-tool-dialog [data-slot="dialog-footer"] .primary-button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.canvas-tool-dialog [data-slot="dialog-footer"],
+.canvas-annotation-footer {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 2px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.dialog-error { padding: 10px; border: 1px solid rgba(255,255,255,.34); background: rgba(255,255,255,.08); color: #e8e8e4; font-size: 11px; }
+@media (max-width: 760px) {
+  .canvas-annotation-layout { grid-template-columns: 1fr; min-height: 0; }
+  .canvas-annotation-dialog { width: calc(100vw - 1rem); max-height: 92vh; padding: 16px; }
+  .canvas-annotation-stage,
+  .canvas-annotation-stage svg { max-height: 46vh; }
+}

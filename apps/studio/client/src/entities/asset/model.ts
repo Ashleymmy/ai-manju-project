@@ -7,6 +7,35 @@ export type AssetCategory =
   | "reference"
   | "other";
 
+export const ASSET_CATEGORIES: readonly AssetCategory[] = [
+  "character",
+  "environment",
+  "costume",
+  "prop",
+  "ui",
+  "reference",
+  "other",
+] as const;
+
+export const ASSET_CATEGORY_LABELS: Record<AssetCategory, string> = {
+  character: "人物",
+  environment: "场景",
+  costume: "服饰",
+  prop: "道具",
+  ui: "UI",
+  reference: "参考",
+  other: "其他",
+};
+
+export const ASSET_CATEGORY_OPTIONS: Array<{ value: AssetCategory; label: string }> =
+  ASSET_CATEGORIES.map(value => ({ value, label: ASSET_CATEGORY_LABELS[value] }));
+
+export function normalizeAssetCategory(value?: string | null): AssetCategory {
+  return ASSET_CATEGORIES.includes(value as AssetCategory)
+    ? (value as AssetCategory)
+    : "other";
+}
+
 export type AssetSourceType =
   | "manual_upload"
   | "image_workbench"
@@ -43,6 +72,9 @@ export type Asset = {
   user_state?: AssetUserState;
   trashed_at?: string;
   trash_expires_at?: string;
+  trash_remaining_days?: number;
+  trash_remaining_seconds?: number;
+  trash_risk_warning?: boolean;
   created_at?: string;
   updated_at?: string;
 };

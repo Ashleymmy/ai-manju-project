@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,12 +23,41 @@ var ErrPayloadTooLarge = errors.New("payload too large")
 
 const (
 	// AssetTrashRetention is fixed so API replicas and UI countdowns agree.
-	AssetTrashRetention = 30 * 24 * time.Hour
+	AssetTrashRetention = model.AssetTrashRetention
 	// AssetTrashRiskWindow drives the 72-hour expiry warning.
 	AssetTrashRiskWindow = 72 * time.Hour
 	// AssetTrashMaintenanceInterval bounds cleanup delay without polling storage aggressively.
 	AssetTrashMaintenanceInterval = 10 * time.Minute
 )
+
+// AssetTrashExpiresAt returns the stored expiry, or trashedAt + 30 days when the
+// legacy row has no trash_expires_at.
+func AssetTrashExpiresAt(trashedAt, expiresAt *time.Time) *time.Time {
+	if expiresAt != nil {
+		return expiresAt
+	}
+	if trashedAt == nil {
+		return nil
+	}
+	fallback := trashedAt.Add(AssetTrashRetention)
+	return &fallback
+}
+
+// AssetTrashRemainingDays is whole days left until auto-purge, rounded up.
+func AssetTrashRemainingDays(expiresAt *time.Time, now time.Time) int {
+	if expiresAt == nil {
+		return 0
+	}
+	remaining := expiresAt.Sub(now)
+	if remaining <= 0 {
+		return 0
+	}
+	days := int(math.Ceil(remaining.Hours() / 24))
+	if days < 1 {
+		return 1
+	}
+	return days
+}
 
 type AssetService struct {
 	repo          repository.AssetRepository

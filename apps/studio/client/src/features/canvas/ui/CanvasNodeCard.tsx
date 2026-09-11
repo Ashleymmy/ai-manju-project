@@ -37,6 +37,7 @@ import {
   WandSparkles,
   ZoomIn,
 } from "lucide-react";
+import { ImageEditToolIcon } from "./ImageEditToolIcon";
 import {
   memo,
   type Dispatch,
@@ -45,11 +46,13 @@ import {
   type PointerEvent,
   type RefObject,
   type SetStateAction,
+  useState,
 } from "react";
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/CanvasResourceMentionTextarea";
 import PixelLoadingOverlay from "@/components/canvas/PixelLoadingOverlay";
+import type { AssetCategory } from "@/entities/asset";
 import { buildCanvasMentionReferences, type CanvasMentionReference } from "@/features/canvas/domain/mentions";
 import {
   editableNodeKind,
@@ -59,6 +62,7 @@ import {
   nodeInlineEditPlaceholder,
   nodeKindBadge,
 } from "@/features/canvas/domain/nodeUtils";
+import { CANVAS_PIN_COLORS, normalizeCanvasPinColor } from "@/features/canvas/domain/pin";
 import { imageSrcFromNode } from "@/features/canvas/domain/nodes";
 import { isGeneratedCanvasText } from "@/features/canvas/domain/text";
 import type { CanvasNodeData, CanvasNodeKind } from "@/features/canvas/domain/types";
@@ -87,7 +91,7 @@ export type CanvasNodeCardActions = {
   setReplaceImageNodeId: Dispatch<SetStateAction<string>>;
   setImagePreviewNodeId: Dispatch<SetStateAction<string>>;
   setEditingInlineNodeId: Dispatch<SetStateAction<string>>;
-  setPinnedToolbarNodeId: Dispatch<SetStateAction<string>>;
+  setNodePinColor: (nodeId: string, color: string) => void;
   setMaterialNodeId: Dispatch<SetStateAction<string>>;
   setImageAnnotationNodeId: Dispatch<SetStateAction<string>>;
   setImageMaskNodeId: Dispatch<SetStateAction<string>>;
@@ -104,7 +108,7 @@ export type CanvasNodeCardActions = {
   updateNodeTextContent: (id: string, content: string) => void;
   updateNodePrompt: (id: string, content: string) => void;
   mentionReferencesForNode: (nodeId: string) => ReturnType<typeof buildCanvasMentionReferences>;
-  queueMentionAssetSearch: (query: string) => void;
+  queueMentionAssetSearch: (query: string, category?: AssetCategory | "") => void;
   mentionThumbnailFor: (reference: CanvasMentionReference) => string;
   previewMentionReference: (reference: CanvasMentionReference) => void;
   locateMentionReference: (reference: CanvasMentionReference) => void;
@@ -126,6 +130,7 @@ export type CanvasNodeCardActions = {
   retryAudioNode: (node: CanvasNodeData) => Promise<unknown>;
   retryVideoNode: (node: CanvasNodeData) => Promise<unknown>;
   removeNode: (id: string) => void;
+  fitCanvasImageNodeFrame: (nodeId: string, naturalWidth: number, naturalHeight: number) => void;
 };
 
 export type CanvasNodeCardProps = {
@@ -143,7 +148,6 @@ export type CanvasNodeCardProps = {
   isInlineEditing: boolean;
   isRunning: boolean;
   progress: number;
-  isPinned: boolean;
   captureBusy: boolean;
   isCapturingFrame: boolean;
   showImageInfo: boolean;
@@ -194,7 +198,7 @@ export function CanvasImageToolGrid({
       <button title="在图片上绘制形状、箭头、画笔和文字" onClick={() => setImageAnnotationNodeId(node.id)} disabled={imageToolBusy}><PenLine size={14} /> 标注</button>
       <button title="AI 增强画质" disabled><Sparkles size={14} /> 增强 <span className="tool-soon">即将上线</span></button>
       <button title="调整图片像素尺寸" disabled><Grid2X2 size={14} /> 调整像素 <span className="tool-soon">即将上线</span></button>
-      <button title="涂抹区域并使用 AI 局部修改（抠图）" onClick={() => { setImageMaskNodeId(node.id); setImageToolError(""); }} disabled={imageToolBusy}><Scissors size={14} /> 抠图</button>
+      <button title="涂抹区域并使用 AI 局部修改" onClick={() => { setImageMaskNodeId(node.id); setImageToolError(""); }} disabled={imageToolBusy}><Scissors size={14} /> 蒙版修改</button>
       <div className="tool-split-row">
         <span className="tool-split-label"><Grid2X2 size={13} /> 快速切分</span>
         <div className="tool-split-options">
@@ -239,7 +243,7 @@ function nodeKindCenterIcon(kind: CanvasNodeKind) {
   return <ImageIcon {...props} />;
 }
 
-function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHovered, isConnectionTarget, isConnecting, connectActiveTarget, connectActiveSource, isTitleEditing, titleDraft, isInlineEditing, isRunning, progress, isPinned, captureBusy, isCapturingFrame, showImageInfo, imageToolBusy, storyboardBusy, actions }: CanvasNodeCardProps) {
+function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHovered, isConnectionTarget, isConnecting, connectActiveTarget, connectActiveSource, isTitleEditing, titleDraft, isInlineEditing, isRunning, progress, captureBusy, isCapturingFrame, showImageInfo, imageToolBusy, storyboardBusy, actions }: CanvasNodeCardProps) {
   const preview = imageSrcFromNode(node, previews);
   const previewKind = mediaKindFromNode(node);
   const nodeText = nodeEditorTextFromNode(node);
@@ -248,11 +252,13 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
   const batchExpanded = Boolean(node.metadata?.imageBatchExpanded);
   const isBatchChildNode = Boolean(node.metadata?.batchRootId);
   const isEmptyMediaNode = (node.kind === "image" || node.kind === "video" || node.kind === "audio") && !preview;
+  const pinColor = normalizeCanvasPinColor(node.metadata?.pinColor);
+  const [pinPickerOpen, setPinPickerOpen] = useState(false);
   const {
     chooseNode, openNodeContextMenu, toggleCanvasBatch, openDirectorNode, applyNodeSelection, beginInlineNodeEdit,
     handleNodeHoverStart, handleNodeHoverEnd, startDrag, moveDrag, endDrag, registerConnectionHandle, beginConnection,
     commitNodeTitle, setTitleDraft, setTitleEditingNodeId, setReplaceImageNodeId, setImagePreviewNodeId,
-    setEditingInlineNodeId, setPinnedToolbarNodeId, setMaterialNodeId, setImageAnnotationNodeId, setImageMaskNodeId,
+    setEditingInlineNodeId, setNodePinColor, setMaterialNodeId, setImageAnnotationNodeId, setImageMaskNodeId,
     setImageToolError, setStoryboardNodeId, replaceMediaNodeIdRef, replaceMediaInputRef, replaceImageInputRef,
     toggleCanvasNodeFavorite, detachBatchChildToCanvas, downloadNodeMedia, setBatchPrimaryNode, captureVideoFrameNode,
     updateNodeTextContent, updateNodePrompt, mentionReferencesForNode, queueMentionAssetSearch,
@@ -261,6 +267,7 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
     openImageToolDialog, flipCanvasImageNode, generatePanoramaCanvasImage, createImageReversePromptNodes,
     generateImageFromTextNode, archiveCanvasMediaNode, archiveCanvasTextNode,
     retryImageNode, retryTextNode, retryAudioNode, retryVideoNode, removeNode,
+    fitCanvasImageNodeFrame,
   } = actions;
   return (
     <article
@@ -268,8 +275,8 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
       data-node-id={node.id}
       style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
       onClick={(event) => {
-        if (isConnecting) return;
         const selected = chooseNode(node.id, event);
+        if (isConnecting) return;
         if (selected && isBatchRootNode) toggleCanvasBatch(node.id);
       }}
       onContextMenu={(event) => openNodeContextMenu(event, node.id)}
@@ -465,7 +472,22 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
           onPointerDown={(event) => event.stopPropagation()}
         />
       ) : preview ? (
-        <img src={preview} alt={node.title} draggable={false} />
+        <img
+          src={preview}
+          alt={node.title}
+          draggable={false}
+          onLoad={(event) => {
+            const image = event.currentTarget;
+            fitCanvasImageNodeFrame(node.id, image.naturalWidth, image.naturalHeight);
+          }}
+          ref={(image) => {
+            if (!image?.complete || !image.naturalWidth || !image.naturalHeight) return;
+            const nodeId = node.id;
+            const width = image.naturalWidth;
+            const height = image.naturalHeight;
+            queueMicrotask(() => fitCanvasImageNodeFrame(nodeId, width, height));
+          }}
+        />
       ) : editableNodeKind(node.kind) ? (
         isInlineEditing ? (
           generatedTextNode ? (
@@ -551,17 +573,57 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
       {isRunning && <div className="node-running"><i style={{ width: `${progress}%` }} /></div>}
       {isRunning ? <div className="node-loading-overlay is-pixel"><PixelLoadingOverlay /></div> : null}
       {isRunning ? <span className="node-progress-badge">{progress > 0 ? `${progress}%` : "…"}</span> : null}
-      {(isSelectedSingle || isPinned) && !isEmptyMediaNode && (
+      {pinColor ? <span className="node-pin-marker" style={{ backgroundColor: pinColor }} aria-hidden /> : null}
+      {isSelectedSingle && !isEmptyMediaNode && (
         <div className="node-toolbar-wrap" data-canvas-ui data-canvas-no-zoom>
-          <button
-            type="button"
-            className={`node-toolbar-pin ${isPinned ? "active" : ""}`}
-            title={isPinned ? "取消固定" : "固定工具条"}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => { event.stopPropagation(); setPinnedToolbarNodeId((current) => current === node.id ? "" : node.id); }}
-          >
-            <Pin size={10} fill={isPinned ? "currentColor" : "none"} /> Pin
-          </button>
+          <Popover open={pinPickerOpen} onOpenChange={setPinPickerOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={`node-toolbar-pin ${pinColor ? "active" : ""}`}
+                title={pinColor ? "更改或取消位置标记" : "标记节点位置"}
+                aria-label={pinColor ? "更改或取消位置标记" : "标记节点位置"}
+                style={pinColor ? { color: pinColor, borderColor: pinColor } : undefined}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <Pin size={10} fill={pinColor ? "currentColor" : "none"} /> Pin
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="node-pop-card node-pin-picker" align="center" side="top" sideOffset={8} onPointerDown={(event) => event.stopPropagation()}>
+              <p className="eyebrow">标记颜色</p>
+              <div className="node-pin-swatches">
+                {CANVAS_PIN_COLORS.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    className={`node-pin-swatch ${pinColor === color ? "selected" : ""}`}
+                    style={{ backgroundColor: color }}
+                    title={color}
+                    aria-label={`标记为 ${color}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setNodePinColor(node.id, color);
+                      setPinPickerOpen(false);
+                    }}
+                  />
+                ))}
+              </div>
+              {pinColor ? (
+                <button
+                  type="button"
+                  className="node-pin-clear"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setNodePinColor(node.id, "");
+                    setPinPickerOpen(false);
+                  }}
+                >
+                  取消标记
+                </button>
+              ) : null}
+            </PopoverContent>
+          </Popover>
           <div className="node-hover-toolbar">
             {isRunning ? (
               <button title="停止生成" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); stopGenerationByNodeId(node.id); }}><Square size={12} /></button>
@@ -579,7 +641,7 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
                 {node.kind === "image" && preview ? (
                   <Popover>
                     <PopoverTrigger asChild>
-                      <button title="图片工具（更多）" onPointerDown={(event) => event.stopPropagation()}><SlidersHorizontal size={13} /></button>
+                      <button title="图片工具（更多）" onPointerDown={(event) => event.stopPropagation()}><ImageEditToolIcon size={13} /></button>
                     </PopoverTrigger>
                     <PopoverContent className="node-pop-card node-pop-wide" align="center" side="top" sideOffset={10}>
                       <p className="eyebrow">图片工具</p>
@@ -629,7 +691,6 @@ export function canvasNodeCardPropsEqual(prev: CanvasNodeCardProps, next: Canvas
     && prev.isInlineEditing === next.isInlineEditing
     && prev.isRunning === next.isRunning
     && prev.progress === next.progress
-    && prev.isPinned === next.isPinned
     && prev.captureBusy === next.captureBusy
     && prev.isCapturingFrame === next.isCapturingFrame
     && prev.showImageInfo === next.showImageInfo

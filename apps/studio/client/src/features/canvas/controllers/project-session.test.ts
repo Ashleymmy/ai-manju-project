@@ -105,4 +105,24 @@ describe("CanvasProjectSessionController", () => {
       "navigate:/canvas/b?scope=personal",
     ]);
   });
+
+  it("reports a project missing in every scope via onProjectMissing instead of a stuck pending state", async () => {
+    const notFound = Object.assign(new Error("not found"), { status: 404 });
+    const onProjectMissing = vi.fn();
+    const onLoadError = vi.fn();
+    const harness = createHarness({
+      getProject: vi.fn(async () => { throw notFound; }),
+      isNotFound: error => (error as { status?: number }).status === 404,
+      onProjectMissing,
+      onLoadError,
+    });
+
+    await harness.controller.startLoad("gone", "personal").completed;
+
+    // 两个工作区都 404 → 走缺失兜底，而不是普通加载失败（避免页面卡在"确认工作区"）
+    expect(onProjectMissing).toHaveBeenCalledWith("personal");
+    expect(onLoadError).not.toHaveBeenCalled();
+    expect(harness.loaded).toEqual([]);
+    expect(harness.events).toContain("settled");
+  });
 });

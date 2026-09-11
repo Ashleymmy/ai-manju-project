@@ -7,10 +7,10 @@
 .image-composer::-webkit-scrollbar-track { background: rgba(255,255,255,.03); border-radius: 4px; }
 .image-composer::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 4px; transition: background .15s ease; }
 .image-composer::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.20); }
-.composer-tabs { display: flex; gap: 17px; border-bottom: 1px solid var(--line); }
-.composer-tabs button { position: relative; padding: 0 0 13px; border: 0; background: transparent; color: #a9a9a9; cursor: pointer; font-size: 11px; }
-.composer-tabs button.active { color: #f1ede5; }
-.composer-tabs button.active::after { content: ""; position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: var(--red); }
+.composer-heading { margin: 0; }
+.composer-heading .eyebrow { margin: 0 0 6px; }
+.composer-heading h3 { margin: 0; color: #f1ede5; font-size: 19px; font-weight: 600; letter-spacing: -.02em; }
+.image-composer .prompt-editor { margin-top: 16px; }
 .reference-strip { display: flex; gap: 9px; margin-top: 21px; }
 .composer-options { display: grid; grid-template-columns: 1.2fr 1fr .62fr; gap: 13px; margin-top: 22px; }
 .composer-options label { display: block; color: #b9b9b9; font: 10px "IBM Plex Mono", monospace; }
@@ -126,11 +126,19 @@
   flex-wrap: nowrap;
 }
 .history-sidebar-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   flex: 1;
   min-width: 0;
   font-size: 12px;
   white-space: nowrap;
   padding: 6px 8px;
+}
+.history-sidebar-actions button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 .history-sidebar-content {
   flex: 1;
@@ -155,16 +163,55 @@
   border: 1px solid rgba(239, 235, 222, 0.1);
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.35);
-  cursor: pointer;
   transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
+.history-card-preview {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+}
 .history-card:hover,
-.history-card:focus-visible {
+.history-card:focus-within,
+.history-card.selected {
   border-color: rgba(239, 235, 222, 0.32);
   transform: translateY(-2px);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
 }
-.history-card > img {
+.history-card.selected {
+  border-color: rgba(242, 241, 237, 0.7);
+  box-shadow: 0 0 0 1px rgba(242, 241, 237, 0.28), 0 12px 24px rgba(0, 0, 0, 0.3);
+}
+.history-card-check {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 5px;
+  background: rgba(12, 15, 16, 0.78);
+  cursor: pointer;
+}
+.history-card-check input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #f2f1ed;
+  cursor: pointer;
+}
+.history-card > img,
+.history-card-preview > img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -181,7 +228,7 @@
   transition: opacity 0.16s ease;
 }
 .history-card:hover .history-card-overlay,
-.history-card:focus-visible .history-card-overlay {
+.history-card:focus-within .history-card-overlay {
   opacity: 1;
 }
 .history-card-overlay b {
@@ -810,6 +857,8 @@
   display: inline-block;
   max-width: 100%;
   line-height: 0;
+  user-select: none;
+  touch-action: none;
 }
 .crop-dialog-frame img {
   display: block;
@@ -818,13 +867,16 @@
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
+  pointer-events: none;
 }
 .crop-dialog-box {
   position: absolute;
+  z-index: 2;
   border: 1.5px solid rgba(255, 255, 255, 0.92);
   box-shadow: 0 0 0 999px rgba(6, 9, 10, 0.55);
   cursor: move;
   touch-action: none;
+  user-select: none;
 }
 .crop-dialog-box::after {
   content: "";
@@ -856,6 +908,24 @@
   border-color: rgba(239, 235, 222, 0.34);
   color: #f2efe6;
 }
-.crop-fields {
-  grid-template-columns: repeat(4, 1fr);
+.crop-dialog-presets button.active {
+  border-color: rgba(239, 235, 222, 0.55);
+  background: rgba(255, 255, 255, 0.12);
+  color: #f2efe6;
+}
+.crop-dialog-handle {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  min-width: 12px;
+  min-height: 12px;
+  padding: 0;
+  border: 1px solid #0c1112;
+  border-radius: 50%;
+  appearance: none;
+  background: #f2f1ed;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.48);
+  touch-action: none;
 }

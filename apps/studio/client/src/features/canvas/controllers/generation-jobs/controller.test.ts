@@ -1,12 +1,22 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Asset } from "@/entities/asset";
 import type { CanvasEdgeData, CanvasNodeData } from "@/features/canvas/domain/types";
 import { CanvasGenerationJobsController } from "./controller";
+import { rememberPendingCanvasJob } from "./pendingJobStore";
 import type {
   CanvasGenerationBindings,
   CanvasGenerationServices,
 } from "./types";
+
+class MemoryStorage implements Storage {
+  private values = new Map<string, string>();
+  get length() { return this.values.size; }
+  clear() { this.values.clear(); }
+  getItem(key: string) { return this.values.get(key) ?? null; }
+  key(index: number) { return Array.from(this.values.keys())[index] ?? null; }
+  removeItem(key: string) { this.values.delete(key); }
+  setItem(key: string, value: string) { this.values.set(key, value); }
+}
 
 function imageNode(overrides: Partial<CanvasNodeData> = {}): CanvasNodeData {
   return {
@@ -36,6 +46,7 @@ function createServices(overrides: Partial<CanvasGenerationServices> = {}) {
     getAssetContentObjectUrl: vi.fn(),
     uploadAsset: vi.fn(),
     cancelJob: vi.fn(),
+    getJobs: vi.fn(async () => ({ items: [], total: 0 })),
     generateImages: vi.fn(),
     generatedImagesFromJob: vi.fn(),
     waitForImageJob: vi.fn(),
@@ -116,6 +127,7 @@ function createHarness(
   return {
     controller,
     get nodes() { return nodes; },
+    setEdges(next: CanvasEdgeData[]) { edges = next; },
     get runningIds() { return runningIds; },
     get progress() { return progress; },
     get promptOptimizing() { return promptOptimizing; },
@@ -127,6 +139,14 @@ function createHarness(
 }
 
 describe("CanvasGenerationJobsController", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", new MemoryStorage());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("空图片节点无需参考图即可在原节点完成生成", async () => {
     const generateImages = vi.fn(async (
       input: Parameters<CanvasGenerationServices["generateImages"]>[0],
@@ -176,6 +196,46 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.runningIds.size).toBe(0);
     expect(harness.progress).toEqual({});
     expect(harness.onError).not.toHaveBeenCalled();
+  });
+
+  it("已有图片的节点再次生成会覆盖原节点并保留历史版本", async () => {
+    const generateImages = vi.fn(async () => ({
+      images: [{
+        id: "asset-2",
+        assetId: "asset-2",
+        src: "",
+        name: "tree.png",
+        contentType: "image/png",
+      }],
+    }));
+    const services = createServices({ generateImages: generateImages as CanvasGenerationServices["generateImages"] });
+    const harness = createHarness([imageNode({
+      title: "圣诞节",
+      content: "圣诞树",
+      imageAssetId: "asset-1",
+      metadata: {
+        content: "圣诞树",
+        prompt: "圣诞树",
+        generationMode: "image",
+        status: "success",
+        assetId: "asset-1",
+        generatedAt: "2026-09-10T08:00:00.000Z",
+        count: 1,
+      },
+    })], services);
+
+    await harness.controller.generateImageFromNode("image-1");
+
+    expect(generateImages).toHaveBeenCalledTimes(1);
+    expect(harness.nodes).toHaveLength(1);
+    expect(harness.nodes[0]).toMatchObject({
+      id: "image-1",
+      imageAssetId: "asset-2",
+      metadata: { assetId: "asset-2", status: "success" },
+    });
+    expect(harness.nodes[0]?.metadata?.generationRevisions).toEqual([
+      expect.objectContaining({ assetId: "asset-1", prompt: "圣诞树" }),
+    ]);
   });
 
   it("删除关联节点会按 request identity 中止请求并取消已入队 Job", async () => {
@@ -279,5 +339,368 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.nodes[0]?.metadata?.composerContent).toBe("优化后的提示词");
     expect(harness.promptOptimizing).toBe(false);
     expect(harness.onSuccess).toHaveBeenCalledWith("提示词已优化");
+  });
+
+  it("批量生图时每张图使用不同提示词和种子", async () => {
+    let sequence = 0;
+    const generateImages = vi.fn(async (
+      _input: Parameters<CanvasGenerationServices["generateImages"]>[0],
+    ) => {
+      sequence += 1;
+      return {
+        images: [{
+          id: `asset-${sequence}`,
+          assetId: `asset-${sequence}`,
+          src: "",
+          name: `img-${sequence}.png`,
+          contentType: "image/png",
+        }],
+      };
+    });
+    const services = createServices({ generateImages: generateImages as CanvasGenerationServices["generateImages"] });
+    const harness = createHarness([
+      imageNode({
+        content: "四个不一样的苹果",
+        metadata: {
+          content: "四个不一样的苹果",
+          prompt: "四个不一样的苹果",
+          generationMode: "image",
+          status: "idle",
+          count: 4,
+        },
+      }),
+    ], services);
+
+    await harness.controller.generateImageFromNode("image-1");
+
+    expect(generateImages).toHaveBeenCalledTimes(4);
+    const payloads = generateImages.mock.calls.map(call => call[0]);
+    const prompts = payloads.map(item => item.prompt);
+    const seeds = payloads.map(item => item.seed);
+    expect(new Set(prompts).size).toBe(4);
+    expect(new Set(seeds).size).toBe(4);
+    expect(prompts.every(item => item.includes("四个不一样的苹果"))).toBe(true);
+    expect(prompts.some(item => item === "四个不一样的苹果")).toBe(false);
+    expect(harness.nodes).toHaveLength(4);
+    expect(harness.nodes.every(node => node.metadata?.prompt === "四个不一样的苹果")).toBe(true);
+    const storedAssetIds = harness.nodes.map(node => (
+      node.metadata?.isBatchRoot ? node.metadata.ownAssetId : node.imageAssetId
+    ));
+    expect(new Set(storedAssetIds).size).toBe(4);
+  });
+
+  it("生图任务按目标节点登记，刷新后可用本地账本接回", async () => {
+    const generateImages = vi.fn(async (
+      _input: Parameters<CanvasGenerationServices["generateImages"]>[0],
+      callbacks?: Parameters<CanvasGenerationServices["generateImages"]>[1],
+    ) => {
+      callbacks?.onAccepted?.({ id: "job-target", status: "queued" });
+      return {
+        images: [{
+          id: "asset-target",
+          assetId: "asset-target",
+          src: "",
+          name: "target.png",
+          contentType: "image/png",
+        }],
+      };
+    });
+    const services = createServices({ generateImages: generateImages as CanvasGenerationServices["generateImages"] });
+    const harness = createHarness([imageNode({
+      id: "target-1",
+      metadata: { generationMode: "image", status: "idle", prompt: "测试" },
+    })], services);
+
+    await harness.controller.runImageTarget({
+      targetNodeId: "target-1",
+      originNodeId: "source-1",
+      runningNodeId: "target-1",
+      projectKey: "personal:project-1",
+      scope: "personal",
+      prompt: "测试",
+      model: "image-model",
+      size: "auto",
+      quality: "auto",
+      referenceFiles: [],
+    });
+
+    expect(generateImages.mock.calls[0]?.[0]).toMatchObject({ sourceNodeId: "target-1" });
+    expect(harness.nodes[0]?.metadata?.status).toBe("success");
+  });
+
+  it("刷新后即使快照没有 jobId 也能从本地账本接回生图", async () => {
+    rememberPendingCanvasJob({
+      nodeId: "image-1",
+      jobId: "job-ledger",
+      kind: "image",
+      projectKey: "personal:project-1",
+      savedAt: Date.now(),
+    });
+    const waitForImageJob = vi.fn(async () => ({
+      id: "job-ledger",
+      type: "image.generate",
+      status: "succeeded",
+      state: "succeeded",
+      progress: 100,
+    }));
+    const generatedImagesFromJob = vi.fn(async () => [{
+      id: "asset-ledger",
+      assetId: "asset-ledger",
+      src: "",
+      name: "ledger.png",
+      contentType: "image/png",
+    }]);
+    const services = createServices({
+      waitForImageJob: waitForImageJob as CanvasGenerationServices["waitForImageJob"],
+      generatedImagesFromJob: generatedImagesFromJob as CanvasGenerationServices["generatedImagesFromJob"],
+    });
+    const harness = createHarness([imageNode({
+      title: "生成中…",
+      metadata: {
+        prompt: "恢复图片",
+        generationMode: "image",
+        model: "image-model",
+        status: "loading",
+      },
+    })], services);
+
+    harness.controller.recoverPendingJobs();
+
+    await vi.waitFor(() => expect(harness.nodes[0]?.metadata?.status).toBe("success"));
+    expect(waitForImageJob).toHaveBeenCalledTimes(1);
+    expect(harness.nodes[0]?.imageAssetId).toBe("asset-ledger");
+    expect(harness.nodes[0]?.metadata?.errorDetails).toBeUndefined();
+  });
+
+  it("刷新后快照没有 jobId 时按服务端任务的目标节点接回", async () => {
+    const waitForImageJob = vi.fn(async () => ({
+      id: "job-listed",
+      type: "image.generate",
+      status: "succeeded",
+      state: "succeeded",
+      progress: 100,
+    }));
+    const generatedImagesFromJob = vi.fn(async () => [{
+      id: "asset-listed",
+      assetId: "asset-listed",
+      src: "",
+      name: "listed.png",
+      contentType: "image/png",
+    }]);
+    const getJobs = vi.fn(async () => ({
+      items: [{
+        id: "job-listed",
+        type: "image.generate",
+        status: "running",
+        state: "running",
+        payload: {
+          asset_registration: {
+            source_project_id: "project-1",
+            source_node_id: "image-1",
+          },
+        },
+      }],
+      total: 1,
+    }));
+    const services = createServices({
+      getJobs: getJobs as CanvasGenerationServices["getJobs"],
+      waitForImageJob: waitForImageJob as CanvasGenerationServices["waitForImageJob"],
+      generatedImagesFromJob: generatedImagesFromJob as CanvasGenerationServices["generatedImagesFromJob"],
+    });
+    const harness = createHarness([imageNode({
+      title: "生成中…",
+      metadata: {
+        prompt: "恢复图片",
+        generationMode: "image",
+        model: "image-model",
+        status: "loading",
+      },
+    })], services);
+
+    harness.controller.recoverPendingJobs();
+
+    await vi.waitFor(() => expect(harness.nodes[0]?.metadata?.status).toBe("success"));
+    expect(getJobs).toHaveBeenCalledTimes(1);
+    expect(waitForImageJob).toHaveBeenCalledWith("job-listed", expect.anything());
+    expect(harness.nodes[0]?.imageAssetId).toBe("asset-listed");
+  });
+
+  it("刷新后找不到进行中的任务才把图片节点标失败", async () => {
+    const getJobs = vi.fn(async () => ({ items: [], total: 0 }));
+    const services = createServices({
+      getJobs: getJobs as CanvasGenerationServices["getJobs"],
+    });
+    const harness = createHarness([imageNode({
+      title: "生成中…",
+      metadata: {
+        prompt: "风景",
+        generationMode: "image",
+        status: "loading",
+      },
+    })], services);
+
+    harness.controller.recoverPendingJobs();
+
+    await vi.waitFor(() => expect(harness.nodes[0]?.metadata?.status).toBe("error"));
+    expect(harness.nodes[0]?.metadata?.errorDetails).toContain("未找到进行中的生成任务");
+    expect(getJobs).toHaveBeenCalledTimes(1);
+  });
+
+  it("当前页正在生图时不会被恢复扫描标成失败", async () => {
+    const getJobs = vi.fn(async () => ({ items: [], total: 0 }));
+    const generateImages = vi.fn((
+      _input: Parameters<CanvasGenerationServices["generateImages"]>[0],
+      callbacks?: Parameters<CanvasGenerationServices["generateImages"]>[1],
+    ) => {
+      return new Promise<never>((_resolve, reject) => {
+        callbacks?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("Aborted", "AbortError"));
+        }, { once: true });
+      });
+    });
+    const services = createServices({
+      getJobs: getJobs as CanvasGenerationServices["getJobs"],
+      generateImages: generateImages as CanvasGenerationServices["generateImages"],
+    });
+    const harness = createHarness([imageNode({
+      title: "生成中…",
+      metadata: { generationMode: "image", status: "loading", prompt: "风景" },
+    })], services);
+
+    const running = harness.controller.runImageTarget({
+      targetNodeId: "image-1",
+      originNodeId: "image-1",
+      runningNodeId: "image-1",
+      projectKey: "personal:project-1",
+      scope: "personal",
+      prompt: "风景",
+      model: "image-model",
+      size: "auto",
+      quality: "auto",
+      referenceFiles: [],
+    });
+    harness.controller.recoverPendingJobs();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(harness.nodes[0]?.metadata?.status).toBe("loading");
+    expect(getJobs).not.toHaveBeenCalled();
+    harness.controller.abortAllGenerationRequests();
+    await expect(running).resolves.toBe(false);
+  });
+
+  it("生图时连线前置图片不会自动作为参考图", async () => {
+    const generateImages = vi.fn(async () => ({
+      images: [{
+        id: "asset-stall-2",
+        assetId: "asset-stall-2",
+        src: "",
+        name: "stall.png",
+        contentType: "image/png",
+      }],
+    }));
+    const getAssetContentObjectUrl = vi.fn(async () => "blob:landscape");
+    const services = createServices({
+      generateImages: generateImages as CanvasGenerationServices["generateImages"],
+      getAssetContentObjectUrl: getAssetContentObjectUrl as CanvasGenerationServices["getAssetContentObjectUrl"],
+    });
+    const landscape = imageNode({
+      id: "landscape",
+      title: "风景",
+      imageAssetId: "asset-land",
+      metadata: {
+        prompt: "湖边树",
+        generationMode: "image",
+        status: "success",
+        assetId: "asset-land",
+        count: 1,
+      },
+    });
+    const stall = imageNode({
+      id: "stall",
+      title: "水果摊",
+      content: "水果摊",
+      imageAssetId: "asset-stall",
+      metadata: {
+        content: "水果摊",
+        prompt: "水果摊",
+        generationMode: "image",
+        status: "success",
+        assetId: "asset-stall",
+        count: 1,
+      },
+    });
+    const harness = createHarness([landscape, stall], services);
+    harness.setEdges([{ id: "e-land", from: "landscape", to: "stall" }]);
+
+    await harness.controller.generateImageFromNode("stall");
+
+    expect(generateImages).toHaveBeenCalledTimes(1);
+    expect(generateImages.mock.calls[0]?.[0]).toMatchObject({
+      prompt: "水果摊",
+      referenceFiles: [],
+      sourceNodeId: "stall",
+    });
+    expect(getAssetContentObjectUrl).not.toHaveBeenCalled();
+    expect(harness.nodes.find(node => node.id === "stall")).toMatchObject({
+      id: "stall",
+      imageAssetId: "asset-stall-2",
+    });
+    expect(harness.nodes).toHaveLength(2);
+  });
+
+  it("生图提示词 @ 前置节点时才会把它作为参考图", async () => {
+    const generateImages = vi.fn(async () => ({
+      images: [{
+        id: "asset-stall-2",
+        assetId: "asset-stall-2",
+        src: "",
+        name: "stall.png",
+        contentType: "image/png",
+      }],
+    }));
+    const getAssetContentObjectUrl = vi.fn(async () => "blob:landscape");
+    const fetchBlob = vi.fn(async () => new Blob(["img"], { type: "image/png" }));
+    const services = createServices({
+      generateImages: generateImages as CanvasGenerationServices["generateImages"],
+      getAssetContentObjectUrl: getAssetContentObjectUrl as CanvasGenerationServices["getAssetContentObjectUrl"],
+      fetchBlob: fetchBlob as CanvasGenerationServices["fetchBlob"],
+    });
+    const landscape = imageNode({
+      id: "landscape",
+      title: "风景",
+      imageAssetId: "asset-land",
+      metadata: {
+        prompt: "湖边树",
+        generationMode: "image",
+        status: "success",
+        assetId: "asset-land",
+        count: 1,
+      },
+    });
+    const stall = imageNode({
+      id: "stall",
+      title: "水果摊",
+      content: "根据 @[node:landscape] 生成水果摊",
+      imageAssetId: "asset-stall",
+      metadata: {
+        content: "根据 @[node:landscape] 生成水果摊",
+        prompt: "根据 @[node:landscape] 生成水果摊",
+        generationMode: "image",
+        status: "success",
+        assetId: "asset-stall",
+        count: 1,
+      },
+    });
+    const harness = createHarness([landscape, stall], services);
+    harness.setEdges([{ id: "e-land", from: "landscape", to: "stall" }]);
+
+    await harness.controller.generateImageFromNode("stall");
+
+    expect(getAssetContentObjectUrl).toHaveBeenCalledWith("asset-land", "personal", undefined, expect.any(AbortSignal));
+    expect(generateImages).toHaveBeenCalledTimes(1);
+    const payload = generateImages.mock.calls[0]?.[0];
+    expect(payload?.referenceFiles).toHaveLength(1);
+    expect(payload?.prompt).toContain("图片1");
   });
 });

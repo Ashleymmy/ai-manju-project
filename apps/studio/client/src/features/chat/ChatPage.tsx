@@ -26,11 +26,11 @@ import "./styles.css";
 
 const OPEN_MENU_ATTR = "data-chat-open-menu";
 
-/* 顶栏模式 Tab：剧本留在当前页，视频/图片直接跳进对应的真实工作台 */
+/* 顶栏模式 Tab：主页进工作台，视频/图片进对应工作台，剧本留在 /chat */
 const MODE_TABS = [
   { id: "video", label: "视频创作", icon: Video, href: "/video" },
   { id: "image", label: "图片创作", icon: ImageIcon, href: "/image" },
-  { id: "script", label: "剧本创作", icon: FileText, href: "" },
+  { id: "script", label: "剧本创作", icon: FileText, href: "/chat" },
 ] as const;
 
 /* 首页最近项目卡片的数量上限 */

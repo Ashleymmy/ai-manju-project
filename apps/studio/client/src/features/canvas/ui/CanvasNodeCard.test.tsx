@@ -36,7 +36,7 @@ function createActions(): CanvasNodeCardActions {
     setReplaceImageNodeId: setString,
     setImagePreviewNodeId: setString,
     setEditingInlineNodeId: setString,
-    setPinnedToolbarNodeId: setString,
+    setNodePinColor: () => undefined,
     setMaterialNodeId: setString,
     setImageAnnotationNodeId: setString,
     setImageMaskNodeId: setString,
@@ -75,6 +75,7 @@ function createActions(): CanvasNodeCardActions {
     retryAudioNode: resolveNothing,
     retryVideoNode: resolveNothing,
     removeNode: () => undefined,
+    fitCanvasImageNodeFrame: () => undefined,
   };
 }
 
@@ -109,7 +110,6 @@ function createProps(node: CanvasNodeData, actions = createActions()): CanvasNod
     isInlineEditing: false,
     isRunning: false,
     progress: 0,
-    isPinned: false,
     captureBusy: false,
     isCapturingFrame: false,
     showImageInfo: false,
@@ -134,6 +134,22 @@ describe("CanvasNodeCard render boundary", () => {
     await act(async () => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("still completes a pending connection when the node is in connecting mode", async () => {
+    const actions = createActions();
+    const chooseNode = vi.fn(() => false);
+    actions.chooseNode = chooseNode;
+    const node = createNode();
+
+    await act(async () => root.render(
+      <CanvasNodeCard {...createProps(node, actions)} isConnecting />,
+    ));
+    await act(async () => {
+      container.querySelector("article")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(chooseNode).toHaveBeenCalledWith("node-image", expect.anything());
   });
 
   it("keeps the original comparator semantics and ignores action object identity", () => {

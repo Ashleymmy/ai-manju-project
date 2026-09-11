@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowUp, Bot, Brain, ChartColumn, Check, ChevronDown, ChevronRight, History, Image as ImageIcon, Info, KeyRound, LayoutGrid, Link2, MessageCircle, MessagesSquare, Paperclip, PlugZap, Plus, Puzzle, ScanSearch, Settings, ShieldCheck, Sparkles, Trash2, X, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowUp, Bot, Brain, ChartColumn, Check, ChevronDown, ChevronRight, Copy, History, Image as ImageIcon, Info, KeyRound, LayoutGrid, Link2, MessageCircle, MessagesSquare, Paperclip, PlugZap, Plus, Puzzle, ScanSearch, Settings, ShieldCheck, Sparkles, Square, Trash2, User, X, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchAiModels,
@@ -11,11 +11,17 @@ import {
 } from "@/services/api/ai";
 import { publicApiError } from "@/shared/api/errors";
 import {
+  AGENT_INTERRUPTED_MESSAGE,
+  copyAgentMessageText,
   createLocalAgentSseClient,
+  extraAgentModels,
+  featuredAgentModels,
+  isAgentTurnCancelled,
   loadAgentConnectionSettings,
   loadAgentConversations,
   persistAgentConnectionSettings,
   persistAgentConversations,
+  pickAgentDefaultModel,
   postLocalAgentResult,
   postLocalAgentState,
   sendLocalAgentTurn,
@@ -115,6 +121,9 @@ export default function AgentPanel({
   const onUndoOpsRef = useRef(onUndoOps);
   const localToolHandlerRef = useRef<(request: CanvasAgentToolRequest) => void>(() => undefined);
   const resizingRef = useRef(false);
+  const turnAbortRef = useRef<AbortController | null>(null);
+  const turnIdRef = useRef(0);
+  const interruptedRef = useRef(false);
 
   const setPendingAgentTool = (value: PendingAgentTool | null) => {
     pendingToolRef.current = value;
@@ -127,11 +136,17 @@ export default function AgentPanel({
 
   // 切换项目时重载该项目的对话列表并开启新对话
   useEffect(() => {
+    interruptedRef.current = true;
+    turnIdRef.current += 1;
+    turnAbortRef.current?.abort();
+    turnAbortRef.current = null;
     setConversations(loadAgentConversations(projectId));
     setMessages([]);
     setConversationId(crypto.randomUUID());
     setThreadId(undefined);
     setOpenMenu(null);
+    setPendingAgentTool(null);
+    setWaiting(false);
   }, [projectId]);
 
   // 消息变化时自动保存当前对话（标题取首条用户消息）
@@ -164,7 +179,7 @@ export default function AgentPanel({
     fetchAiModels()
       .then((result) => {
         const models = result.agentTextModels;
-        const defaultModel = models.includes(result.defaultTextModel) ? result.defaultTextModel : models[0] || "";
+        const defaultModel = pickAgentDefaultModel(models, result.modelLabels, result.defaultTextModel);
         const catalog: TextModelCatalog = {
           models,
           defaultModel,
@@ -201,6 +216,7 @@ export default function AgentPanel({
         },
         onToolCall: request => localToolHandlerRef.current(request),
         onAgentEvent: event => {
+          if (interruptedRef.current) return;
           if (event.thread_id) setThreadId(event.thread_id);
           if (event.type === "turn.started") {
             setActivity("思考中");
@@ -221,10 +237,12 @@ export default function AgentPanel({
           }
         },
         onDone: () => {
+          if (interruptedRef.current) return;
           setActivity("完成");
           setWaiting(false);
         },
         onAgentError: message => {
+          if (interruptedRef.current) return;
           setMessages(prev => [
             ...prev,
             { id: `err-${Date.now()}`, role: "error", text: message },
@@ -252,6 +270,17 @@ export default function AgentPanel({
     return () => window.clearTimeout(timer);
   }, [clientId, connected, snapshot, token, url]);
 
+  const beginAgentTurn = () => {
+    turnAbortRef.current?.abort();
+    interruptedRef.current = false;
+    turnIdRef.current += 1;
+    const controller = new AbortController();
+    turnAbortRef.current = controller;
+    return { signal: controller.signal, turnId: turnIdRef.current };
+  };
+
+  const isActiveAgentTurn = (turnId: number) => turnId === turnIdRef.current && !interruptedRef.current;
+
   const sendPrompt = async () => {
     const text = prompt.trim();
     if (pendingTool) return;
@@ -260,6 +289,7 @@ export default function AgentPanel({
       return;
     }
     if (!connected || !text || waiting) return;
+    const { signal, turnId } = beginAgentTurn();
     setWaiting(true);
     setActivity("发送中");
     setMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: "user", text }]);
@@ -269,9 +299,14 @@ export default function AgentPanel({
         prompt: text,
         canvasId: projectId,
         threadId,
-      });
+      }, { signal });
+      if (!isActiveAgentTurn(turnId)) return;
       if (data.threadId) setThreadId(data.threadId);
     } catch (err) {
+      if (!isActiveAgentTurn(turnId) || isAgentTurnCancelled(err)) {
+        if (isActiveAgentTurn(turnId)) setWaiting(false);
+        return;
+      }
       setMessages((prev) => [
         ...prev,
         { id: `err-${Date.now()}`, role: "error", text: err instanceof Error ? err.message : "发送失败" },
@@ -289,6 +324,7 @@ export default function AgentPanel({
       setActivity("Agent 模型未配置");
       return;
     }
+    const { signal, turnId } = beginAgentTurn();
     setWaiting(true);
     setActivity("在线模型思考中");
     const userMessage: AgentMessage = { id: `u-${Date.now()}`, role: "user", text };
@@ -308,8 +344,12 @@ export default function AgentPanel({
     setMessages((prev) => [...prev, userMessage]);
     setPrompt("");
     try {
-      await runOnlineAgentStep(requestMessages, 1, assistantId, "required");
+      await runOnlineAgentStep(requestMessages, 1, assistantId, "required", signal, turnId);
     } catch (error) {
+      if (!isActiveAgentTurn(turnId) || isAgentTurnCancelled(error)) {
+        if (turnId === turnIdRef.current) setWaiting(false);
+        return;
+      }
       setMessages((prev) => [
         ...prev,
         { id: `err-${Date.now()}`, role: "error", text: publicApiError(error, "在线 Agent 请求失败") },
@@ -324,17 +364,21 @@ export default function AgentPanel({
     step: number,
     assistantId: string,
     toolChoice: "required" | "auto" = "auto",
+    signal: AbortSignal,
+    turnId: number,
   ): Promise<void> => {
+    if (!isActiveAgentTurn(turnId) || signal.aborted) return;
     const response = await requestAiText({
       model: effectiveModel,
       messages: requestMessages,
       tools: ONLINE_AGENT_TOOLS,
       tool_choice: toolChoice,
-    });
+    }, signal);
+    if (!isActiveAgentTurn(turnId) || signal.aborted) return;
     const calls = normalizeToolCalls(response.toolCalls);
     if (!calls.length) {
       upsertAssistantMessage(assistantId, response.content || "模型没有返回内容。");
-      setActivity(response.model ? `完成 · ${response.model}` : "完成");
+      setActivity(response.model ? `完成 · ${response.model.split("::").at(-1)}` : "完成");
       setWaiting(false);
       return;
     }
@@ -346,13 +390,15 @@ export default function AgentPanel({
       setWaiting(false);
       return;
     }
-    await continueOnlineToolLoop({ source: "online", calls, messages: requestMessages, step, assistantId });
+    await continueOnlineToolLoop({ source: "online", calls, messages: requestMessages, step, assistantId }, signal, turnId);
   };
 
-  const continueOnlineToolLoop = async (context: OnlineToolContext) => {
+  const continueOnlineToolLoop = async (context: OnlineToolContext, signal: AbortSignal, turnId: number) => {
+    if (!isActiveAgentTurn(turnId) || signal.aborted) return;
     setWaiting(true);
     setActivity("执行画布工具");
-    const results = await executeToolCalls(context.calls);
+    const results = await executeToolCalls(context.calls, signal);
+    if (!isActiveAgentTurn(turnId) || signal.aborted) return;
     const failed = results.some((item) => !item.result.ok);
     setMessages((prev) => [...prev, {
       id: `tool-${Date.now()}`,
@@ -382,13 +428,17 @@ export default function AgentPanel({
         content: JSON.stringify(item.result),
       })),
     ];
-    await runOnlineAgentStep(nextMessages, context.step + 1, context.assistantId);
+    await runOnlineAgentStep(nextMessages, context.step + 1, context.assistantId, "auto", signal, turnId);
   };
 
-  const executeToolCalls = async (calls: NormalizedToolCall[]) => {
+  const executeToolCalls = async (calls: NormalizedToolCall[], signal: AbortSignal) => {
     const results: Array<{ toolCallId: string; name: string; result: AgentToolResult }> = [];
     let stopped = false;
     for (const call of calls) {
+      if (signal.aborted || interruptedRef.current) {
+        results.push({ toolCallId: call.id, name: call.name, result: { ok: false, message: "指令已中断，后续工具未执行。" } });
+        continue;
+      }
       if (stopped) {
         results.push({ toolCallId: call.id, name: call.name, result: { ok: false, message: "前一个工具调用失败，后续工具未执行。" } });
         continue;
@@ -440,25 +490,39 @@ export default function AgentPanel({
 
   const runLocalToolCall = async (request: CanvasAgentToolRequest) => {
     const base = url.trim().replace(/\/$/, "");
+    if (interruptedRef.current) {
+      await postLocalAgentResult(base, token, clientId, { requestId: request.requestId, error: "用户中断了指令" }).catch(() => undefined);
+      return;
+    }
     setWaiting(true);
     setActivity(`执行${toolLabel(request.name)}`);
     try {
       const result = await executeAgentTool(request.name, request.input || {});
+      if (interruptedRef.current) {
+        await postLocalAgentResult(base, token, clientId, { requestId: request.requestId, error: "用户中断了指令" }).catch(() => undefined);
+        return;
+      }
       await postLocalAgentResult(base, token, clientId, { requestId: request.requestId, result });
       setMessages((prev) => [...prev, { id: `tool-${Date.now()}`, role: "tool", text: `${toolLabel(request.name)}：${result.message}` }]);
       if (!isCanvasAgentReadTool(request.name)) void postLocalAgentState(base, token, clientId, snapshotRef.current);
       setActivity(result.ok ? "工具完成" : "工具失败");
     } catch (error) {
+      if (interruptedRef.current) return;
       const message = error instanceof Error ? error.message : "画布工具执行失败";
       await postLocalAgentResult(base, token, clientId, { requestId: request.requestId, error: message }).catch(() => undefined);
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "error", text: message }]);
       setActivity("工具失败");
     } finally {
-      setWaiting(false);
+      if (!interruptedRef.current) setWaiting(false);
     }
   };
 
   const handleLocalToolCall = async (request: CanvasAgentToolRequest) => {
+    if (interruptedRef.current) {
+      const base = url.trim().replace(/\/$/, "");
+      await postLocalAgentResult(base, token, clientId, { requestId: request.requestId, error: "用户中断了指令" }).catch(() => undefined);
+      return;
+    }
     if (confirmToolsRef.current && !isCanvasAgentReadTool(request.name)) {
       if (pendingToolRef.current) {
         const base = url.trim().replace(/\/$/, "");
@@ -479,27 +543,65 @@ export default function AgentPanel({
     const pending = pendingToolRef.current;
     if (!pending) return;
     setPendingAgentTool(null);
+    const { signal, turnId } = beginAgentTurn();
     try {
       if (pending.source === "local") await runLocalToolCall(pending.request);
-      else await continueOnlineToolLoop(pending);
+      else await continueOnlineToolLoop(pending, signal, turnId);
     } catch (error) {
+      if (!isActiveAgentTurn(turnId) || isAgentTurnCancelled(error)) {
+        if (turnId === turnIdRef.current) setWaiting(false);
+        return;
+      }
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "error", text: error instanceof Error ? error.message : "工具执行失败" }]);
       setActivity("工具失败");
       setWaiting(false);
     }
   };
 
-  const rejectPendingTool = async () => {
+  const rejectPendingTool = async (reason = "用户取消了画布工具调用") => {
     const pending = pendingToolRef.current;
     if (!pending) return;
     setPendingAgentTool(null);
     if (pending.source === "local") {
       const base = url.trim().replace(/\/$/, "");
-      await postLocalAgentResult(base, token, clientId, { requestId: pending.request.requestId, error: "用户取消了画布工具调用" }).catch(() => undefined);
+      await postLocalAgentResult(base, token, clientId, { requestId: pending.request.requestId, error: reason }).catch(() => undefined);
     }
     setMessages((prev) => [...prev, { id: `tool-${Date.now()}`, role: "tool", text: `已拒绝执行${pendingToolSummary(pending)}` }]);
     setActivity("已取消");
     setWaiting(false);
+  };
+
+  const interruptAgentTurn = async () => {
+    const pending = pendingToolRef.current;
+    const hadWork = Boolean(waiting || pending || turnAbortRef.current);
+    if (!hadWork) return;
+    interruptedRef.current = true;
+    turnIdRef.current += 1;
+    turnAbortRef.current?.abort();
+    turnAbortRef.current = null;
+    if (pending?.source === "local") {
+      const base = url.trim().replace(/\/$/, "");
+      await postLocalAgentResult(base, token, clientId, {
+        requestId: pending.request.requestId,
+        error: "用户中断了指令",
+      }).catch(() => undefined);
+    }
+    setPendingAgentTool(null);
+    setWaiting(false);
+    setActivity("已中断");
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last?.text === AGENT_INTERRUPTED_MESSAGE) return prev;
+      return [...prev, { id: `sys-${Date.now()}`, role: "tool", text: AGENT_INTERRUPTED_MESSAGE }];
+    });
+    toast.info("已中断当前指令");
+  };
+
+  const copyMessage = async (text: string) => {
+    const result = await copyAgentMessageText(text);
+    if (result === "copied") toast.success("已复制");
+    else if (result === "empty") toast.info("这条消息没有可复制的内容");
+    else toast.error("复制失败");
   };
 
   const undoLastTool = async () => {
@@ -533,6 +635,10 @@ export default function AgentPanel({
   };
 
   const disconnect = () => {
+    interruptedRef.current = true;
+    turnIdRef.current += 1;
+    turnAbortRef.current?.abort();
+    turnAbortRef.current = null;
     setEnabled(false);
     setConnected(false);
     setActivity("已断开");
@@ -544,9 +650,15 @@ export default function AgentPanel({
 
   const currentTitle = conversations.find((c) => c.id === conversationId)?.title ?? "新建对话";
 
-  const modelDisplay = (model: string) => modelCatalog?.labels?.[model] || model;
+  // 展示时去掉 "provider_xxx::" 前缀，只保留纯模型名（无自定义标签时）
+  const modelDisplay = (model: string) => modelCatalog?.labels?.[model] || model.split("::").at(-1) || model;
   // Auto 模式下使用模型目录默认模型，手动选择后退出 Auto
   const effectiveModel = autoModel ? (modelCatalog?.defaultModel ?? "") : textModel;
+  const featuredModels = modelCatalog
+    ? featuredAgentModels(modelCatalog.models, modelCatalog.defaultModel)
+    : [];
+  const extraModels = modelCatalog ? extraAgentModels(modelCatalog.models, featuredModels) : [];
+  const busy = waiting || Boolean(pendingTool);
 
   const toggleMenu = (menu: AgentMenuKind) => {
     if (menu === "plus") setPlusView("root");
@@ -577,6 +689,10 @@ export default function AgentPanel({
   const outputNodes = snapshot.nodes.filter((node) => node.imageSrc || node.imageAssetId);
 
   const newConversation = () => {
+    interruptedRef.current = true;
+    turnIdRef.current += 1;
+    turnAbortRef.current?.abort();
+    turnAbortRef.current = null;
     setMessages([]);
     setThreadId(undefined);
     setPendingAgentTool(null);
@@ -587,6 +703,10 @@ export default function AgentPanel({
   };
 
   const switchConversation = (conv: AgentConversation) => {
+    interruptedRef.current = true;
+    turnIdRef.current += 1;
+    turnAbortRef.current?.abort();
+    turnAbortRef.current = null;
     setMessages(conv.messages);
     setConversationId(conv.id);
     setThreadId(undefined);
@@ -840,13 +960,21 @@ export default function AgentPanel({
           <div ref={listRef} className="agent-messages">
             {messages.map((m) => (
               <div key={m.id} className={`agent-msg agent-msg-${m.role}`}>
-                {m.role !== "user" && (
-                  <div className="agent-msg-avatar">
-                    <Bot size={16} />
-                  </div>
-                )}
+                <div className="agent-msg-avatar" aria-hidden="true">
+                  {m.role === "user" ? <User size={15} /> : <Bot size={15} />}
+                </div>
                 <div className="agent-msg-content">
                   <p>{m.text}</p>
+                  {m.role === "user" && m.text.trim() ? (
+                    <button
+                      type="button"
+                      className="agent-msg-copy"
+                      title="复制"
+                      onClick={() => void copyMessage(m.text)}
+                    >
+                      <Copy size={13} />
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -1020,7 +1148,8 @@ export default function AgentPanel({
                     onClick={() => toggleMenu("models")}
                   >
                     <Sparkles size={13} />
-                    <span>{autoModel ? "Auto" : textModel ? modelDisplay(textModel) : "选择模型"}</span>
+                    {/* 悬停显示完整模型名，兜底超长 id 被省略号截断的情况 */}
+                    <span title={autoModel ? "Auto" : textModel ? modelDisplay(textModel) : undefined}>{autoModel ? "Auto" : textModel ? modelDisplay(textModel) : "选择模型"}</span>
                     <ChevronDown size={11} />
                   </button>
                   {openMenu === "models" && modelCatalog && (
@@ -1038,7 +1167,7 @@ export default function AgentPanel({
                         </button>
                       </div>
                       <div className="agent-menu-label">精选推荐</div>
-                      {modelCatalog.models.slice(0, 3).map((model) => (
+                      {featuredModels.map((model) => (
                         <button
                           key={model}
                           type="button"
@@ -1047,10 +1176,10 @@ export default function AgentPanel({
                         >
                           <span><Sparkles size={12} /> {modelDisplay(model)}</span>
                           {!autoModel && model === textModel && <Check size={14} />}
-                          <small>{modelCatalog.providerNames?.[model] || model}</small>
+                          <small>{modelCatalog.providerNames?.[model] || modelDisplay(model)}</small>
                         </button>
                       ))}
-                      {modelCatalog.models.length > 3 && (
+                      {extraModels.length > 0 && (
                         <>
                           <button
                             type="button"
@@ -1060,7 +1189,7 @@ export default function AgentPanel({
                             <span>更多模型</span>
                             <ChevronDown size={13} className={moreModelsOpen ? "rotated" : ""} />
                           </button>
-                          {moreModelsOpen && modelCatalog.models.slice(3).map((model) => (
+                          {moreModelsOpen && extraModels.map((model) => (
                             <button
                               key={model}
                               type="button"
@@ -1069,7 +1198,7 @@ export default function AgentPanel({
                             >
                               <span><Sparkles size={12} /> {modelDisplay(model)}</span>
                               {!autoModel && model === textModel && <Check size={14} />}
-                              <small>{modelCatalog.providerNames?.[model] || model}</small>
+                              <small>{modelCatalog.providerNames?.[model] || modelDisplay(model)}</small>
                             </button>
                           ))}
                         </>
@@ -1084,14 +1213,26 @@ export default function AgentPanel({
                     </div>
                   )}
                 </div>
-                <button
-                  className="agent-send-btn"
-                  onClick={() => void sendPrompt()}
-                  disabled={(channel === "online" && !effectiveModel) || (channel === "local" && !connected) || !prompt.trim() || waiting || Boolean(pendingTool)}
-                  aria-label="发送"
-                >
-                  <ArrowUp size={16} />
-                </button>
+                {busy ? (
+                  <button
+                    type="button"
+                    className="agent-send-btn agent-stop-btn"
+                    onClick={() => void interruptAgentTurn()}
+                    aria-label="中断指令"
+                    title="中断指令"
+                  >
+                    <Square size={13} />
+                  </button>
+                ) : (
+                  <button
+                    className="agent-send-btn"
+                    onClick={() => void sendPrompt()}
+                    disabled={(channel === "online" && !effectiveModel) || (channel === "local" && !connected) || !prompt.trim()}
+                    aria-label="发送"
+                  >
+                    <ArrowUp size={16} />
+                  </button>
+                )}
               </div>
             </div>
           </div>

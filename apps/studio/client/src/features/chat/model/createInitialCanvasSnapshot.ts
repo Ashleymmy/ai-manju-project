@@ -1,3 +1,9 @@
+import {
+  CANVAS_IMAGE_DEFAULT_QUALITY,
+  CANVAS_IMAGE_DEFAULT_RESOLUTION,
+  CANVAS_IMAGE_DEFAULT_SIZE,
+} from "@/features/canvas";
+
 export type ChatCanvasNode = {
   id: string;
   kind: "text" | "image";
@@ -11,8 +17,9 @@ export type ChatCanvasNode = {
     content: string;
     generationMode?: "image";
     status: "idle";
-    size: "auto";
-    quality: "auto";
+    size: typeof CANVAS_IMAGE_DEFAULT_SIZE;
+    quality: typeof CANVAS_IMAGE_DEFAULT_QUALITY;
+    imageResolution: typeof CANVAS_IMAGE_DEFAULT_RESOLUTION;
     count: 1;
   };
 };
@@ -44,8 +51,9 @@ export function createInitialCanvasSnapshot(
         metadata: {
           content: prompt,
           status: "idle",
-          size: "auto",
-          quality: "auto",
+          size: CANVAS_IMAGE_DEFAULT_SIZE,
+          quality: CANVAS_IMAGE_DEFAULT_QUALITY,
+          imageResolution: CANVAS_IMAGE_DEFAULT_RESOLUTION,
           count: 1,
         },
       },
@@ -62,8 +70,9 @@ export function createInitialCanvasSnapshot(
           content: prompt,
           generationMode: "image",
           status: "idle",
-          size: "auto",
-          quality: "auto",
+          size: CANVAS_IMAGE_DEFAULT_SIZE,
+          quality: CANVAS_IMAGE_DEFAULT_QUALITY,
+          imageResolution: CANVAS_IMAGE_DEFAULT_RESOLUTION,
           count: 1,
         },
       },

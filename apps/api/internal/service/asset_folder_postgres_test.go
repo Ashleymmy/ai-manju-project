@@ -5,6 +5,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/repository"
@@ -99,5 +100,32 @@ func TestAssetFolderGormPostgresParity(t *testing.T) {
 	moved, err := folders.Delete(parent.ID, userID, WorkspaceScopePersonal)
 	if err != nil || moved != 150 {
 		t.Fatalf("gorm safe delete moved=%d err=%v", moved, err)
+	}
+
+	now := time.Date(2026, 9, 10, 5, 0, 0, 0, time.UTC)
+	first, err := folders.EnsureCanvasArchiveFolderAt(userID, WorkspaceScopePersonal, "proj_aaaaaaa1", "未命名画布", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := folders.EnsureCanvasArchiveFolderAt(userID, WorkspaceScopePersonal, "proj_bbbbbbb2", "未命名画布", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == second.ID || first.ParentID == second.ParentID {
+		t.Fatalf("gorm same-titled canvases shared archive folders: first=%+v second=%+v", first, second)
+	}
+	firstProject, err := folders.Get(first.ParentID, userID, WorkspaceScopePersonal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondProject, err := folders.Get(second.ParentID, userID, WorkspaceScopePersonal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstProject.SourceRefID != "proj_aaaaaaa1" || secondProject.SourceRefID != "proj_bbbbbbb2" {
+		t.Fatalf("gorm project source refs = %q / %q", firstProject.SourceRefID, secondProject.SourceRefID)
+	}
+	if secondProject.Name == "未命名画布" {
+		t.Fatalf("gorm second project folder was not disambiguated: %+v", secondProject)
 	}
 }

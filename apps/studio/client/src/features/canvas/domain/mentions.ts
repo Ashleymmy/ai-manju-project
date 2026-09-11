@@ -1,4 +1,10 @@
 import {
+  ASSET_CATEGORY_LABELS,
+  ASSET_CATEGORY_OPTIONS,
+  normalizeAssetCategory,
+  type AssetCategory,
+} from "@/entities/asset/model";
+import {
   buildCanvasGenerationInputs,
   promptFromCanvasTopology,
   type CanvasConnectionEdge,
@@ -38,9 +44,14 @@ export type CanvasMentionReference = {
   nodeId?: string;
   assetId?: string;
   assetScope?: "personal" | "team";
+  category?: AssetCategory;
   text?: string;
   content?: string;
 };
+
+export type CanvasMentionMenuItem =
+  | { kind: "reference"; id: string; reference: CanvasMentionReference }
+  | { kind: "category"; id: string; category: AssetCategory; label: string };
 
 export type CanvasMentionTextPart =
   | { type: "text"; value: string }
@@ -48,12 +59,34 @@ export type CanvasMentionTextPart =
 
 /** 编辑态给 mention 预留的不可见宽度，用来容纳缩略图和 chip 间距。 */
 export const CANVAS_MENTION_EDITOR_SPACER = "\u2003";
+/** 图片 chip 占位：两个全角空格。中文字体下宽度稳定约为 2em，overlay 用同一串隐藏字符撑开，避免光标错位。 */
+const CANVAS_MENTION_IMAGE_CHIP_SPACER = "\u3000\u3000";
+/** 两张图片引用之间的间隔：en 空格 ≈ 0.5em，约为全角空格的一半。 */
+export const CANVAS_MENTION_IMAGE_CHIP_GAP = "\u2002";
+const IMAGE_MENTION_GAP_ONLY = /^[\s\u00a0\u2002\u2003\u3000]*$/;
+
+export function canvasMentionShowsName(kind?: CanvasMentionKind, missing = false) {
+  return missing || kind !== "image";
+}
 
 export function canvasMentionEditorSpacer(kind?: CanvasMentionKind) {
-  // 图片 chip 还包含缩略图，textarea 需要额外预留这段不可见宽度来对齐光标。
+  // 图片 chip 只保留 4:3 缩略图，textarea 用这段不可见宽度对齐光标。
   return kind === "image"
-    ? `${CANVAS_MENTION_EDITOR_SPACER}${CANVAS_MENTION_EDITOR_SPACER}${CANVAS_MENTION_EDITOR_SPACER}`
+    ? CANVAS_MENTION_IMAGE_CHIP_SPACER
     : CANVAS_MENTION_EDITOR_SPACER;
+}
+
+export function canvasMentionEditorGap(kind?: CanvasMentionKind) {
+  return kind === "image" ? CANVAS_MENTION_IMAGE_CHIP_GAP : " ";
+}
+
+export function canvasMentionEditorDisplayText(
+  reference: Pick<CanvasMentionReference, "kind" | "label"> | undefined
+) {
+  if (!reference) return `引用已失效${canvasMentionEditorSpacer()}`;
+  if (!canvasMentionShowsName(reference.kind))
+    return canvasMentionEditorSpacer(reference.kind);
+  return `${reference.label}${canvasMentionEditorSpacer(reference.kind)}`;
 }
 
 export type CanvasMentionEditorSegment = {
@@ -78,12 +111,21 @@ export function buildCanvasMentionEditorModel(
   const segments: CanvasMentionEditorSegment[] = [];
   let displayValue = "";
   let cursor = 0;
+  let previousWasImage = false;
   for (const token of extractCanvasMentionTokens(value)) {
-    if (token.index > cursor) displayValue += value.slice(cursor, token.index);
+    const between = value.slice(cursor, token.index);
     const reference = byKey.get(token.key);
+    const nextIsImage = reference?.kind === "image";
+    if (previousWasImage && nextIsImage && IMAGE_MENTION_GAP_ONLY.test(between)) {
+      displayValue += CANVAS_MENTION_IMAGE_CHIP_GAP;
+    } else {
+      displayValue += between;
+    }
     const label = reference?.label || "引用已失效";
     const start = displayValue.length;
-    displayValue += `${label}${canvasMentionEditorSpacer(reference?.kind)}`;
+    displayValue += canvasMentionEditorDisplayText(
+      reference || { kind: "text", label }
+    );
     segments.push({
       start,
       end: displayValue.length,
@@ -92,6 +134,7 @@ export function buildCanvasMentionEditorModel(
       token: token.raw,
     });
     cursor = token.index + token.raw.length;
+    previousWasImage = reference?.kind === "image";
   }
   displayValue += value.slice(cursor);
   return { displayValue, segments };
@@ -218,6 +261,75 @@ export function filterCanvasMentionReferences(
     .sort((left, right) => groupOrder(left.group) - groupOrder(right.group));
 }
 
+export function filterCanvasMentionAssetCategories(query: string) {
+  const normalized = query.trim().toLowerCase();
+  return ASSET_CATEGORY_OPTIONS.filter(
+    item =>
+      !normalized ||
+      item.label.toLowerCase().includes(normalized) ||
+      item.value.toLowerCase().includes(normalized)
+  );
+}
+
+export function canvasMentionCategoryLabel(category: AssetCategory) {
+  return ASSET_CATEGORY_LABELS[category];
+}
+
+/** @ 菜单：无搜索且未进分类时先列出资产库分类，避免一上来铺开图片。 */
+export function buildCanvasMentionMenuItems(
+  references: readonly CanvasMentionReference[],
+  query: string,
+  selectedCategory: AssetCategory | null
+): CanvasMentionMenuItem[] {
+  const matched = filterCanvasMentionReferences(references, query);
+  const nodeItems: CanvasMentionMenuItem[] = matched
+    .filter(reference => reference.group === "canvas-node")
+    .map(reference => ({
+      kind: "reference",
+      id: reference.id,
+      reference,
+    }));
+  const libraryReferences = matched.filter(
+    reference => reference.group === "asset-library"
+  );
+
+  if (selectedCategory) {
+    return [
+      ...nodeItems,
+      ...libraryReferences
+        .filter(
+          reference =>
+            normalizeAssetCategory(reference.category) === selectedCategory
+        )
+        .map(reference => ({
+          kind: "reference" as const,
+          id: reference.id,
+          reference,
+        })),
+    ];
+  }
+
+  const categoryItems: CanvasMentionMenuItem[] =
+    filterCanvasMentionAssetCategories(query).map(item => ({
+      kind: "category",
+      id: `category:${item.value}`,
+      category: item.value,
+      label: item.label,
+    }));
+
+  if (!query.trim()) return [...nodeItems, ...categoryItems];
+
+  return [
+    ...nodeItems,
+    ...categoryItems,
+    ...libraryReferences.map(reference => ({
+      kind: "reference" as const,
+      id: reference.id,
+      reference,
+    })),
+  ];
+}
+
 export function splitCanvasMentionText(
   value: string,
   references: readonly CanvasMentionReference[]
@@ -285,6 +397,7 @@ export function buildCanvasMentionReferences(
     targetId: asset.id,
     assetId: asset.id,
     assetScope: asset.scope || assetScope,
+    category: normalizeAssetCategory(asset.category),
     kind: asset.type,
     label: asset.name || asset.id,
     title: asset.name || asset.id,
@@ -292,6 +405,7 @@ export function buildCanvasMentionReferences(
       asset.name,
       asset.type,
       asset.category,
+      ASSET_CATEGORY_LABELS[normalizeAssetCategory(asset.category)],
       asset.note,
       asset.source_type,
       ...(asset.tags || []),
@@ -304,20 +418,35 @@ export function buildCanvasMentionReferences(
   return [...nodeReferences, ...assetReferences];
 }
 
+export type BuildCanvasMentionGenerationContextOptions = {
+  /**
+   * 提示词没有 @ 时，是否把连线前置节点当作参考输入。
+   * 生图应关闭：连线只表示拓扑，参考前置节点必须 @。
+   */
+  includeConnectedInputs?: boolean;
+};
+
 export function buildCanvasMentionGenerationContext(
   nodeId: string,
   nodes: readonly CanvasConnectionNode[],
   edges: readonly Pick<CanvasConnectionEdge, "from" | "to">[],
   ownPrompt: string,
   assets: readonly CanvasMentionAsset[],
-  assetScope: "personal" | "team"
+  assetScope: "personal" | "team",
+  options?: BuildCanvasMentionGenerationContextOptions
 ) {
   const tokens = extractCanvasMentionTokens(ownPrompt);
-  const topologyInputs = buildCanvasGenerationInputs(nodeId, nodes, edges);
   if (!tokens.length) {
+    if (options?.includeConnectedInputs === false) {
+      return {
+        prompt: ownPrompt.trim(),
+        inputs: [] as CanvasGenerationInput[],
+        missingKeys: [] as string[],
+      };
+    }
     return {
       prompt: promptFromCanvasTopology(nodeId, nodes, edges, ownPrompt),
-      inputs: topologyInputs,
+      inputs: buildCanvasGenerationInputs(nodeId, nodes, edges),
       missingKeys: [] as string[],
     };
   }

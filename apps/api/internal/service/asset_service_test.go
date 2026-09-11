@@ -305,3 +305,70 @@ func TestAssetLibraryCombinesSemanticTagsAndUsageViews(t *testing.T) {
 		t.Fatalf("unused result = %+v err=%v", unused, err)
 	}
 }
+
+func TestAssetTrashRemainingDays(t *testing.T) {
+	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	expires := now.Add(AssetTrashRetention)
+	if days := AssetTrashRemainingDays(&expires, now); days != 30 {
+		t.Fatalf("just trashed days = %d", days)
+	}
+	soon := now.Add(90 * time.Minute)
+	if days := AssetTrashRemainingDays(&soon, now); days != 1 {
+		t.Fatalf("under a day = %d", days)
+	}
+	past := now.Add(-time.Minute)
+	if days := AssetTrashRemainingDays(&past, now); days != 0 {
+		t.Fatalf("expired days = %d", days)
+	}
+	trashed := now.Add(-2 * 24 * time.Hour)
+	fallback := AssetTrashExpiresAt(&trashed, nil)
+	if days := AssetTrashRemainingDays(fallback, now); days != 28 {
+		t.Fatalf("legacy fallback days = %d", days)
+	}
+}
+
+func TestAssetServicePurgeExpiredTrashRemovesDueItems(t *testing.T) {
+	repo := repository.NewMemoryAssetRepository()
+	svc := NewAssetService(repo, storage.NewLocalFSStorage(t.TempDir()))
+	ctx := context.Background()
+	fresh, err := svc.Upload(ctx, AssetUploadInput{
+		ID: "asset_fresh_trash", UserID: "user_a", Scope: WorkspaceScopePersonal, Type: "image", Name: "fresh.png",
+		Extension: ".png", SizeLimit: 1024, ContentType: "image/png", Reader: bytes.NewReader([]byte("fresh")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.BulkTrash([]string{fresh.ID}, "user_a", WorkspaceScopePersonal); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	expiredAt := now.Add(-time.Hour)
+	legacyAt := now.Add(-model.AssetTrashRetention - time.Hour)
+	workspaceID := WorkspaceIDForScope(WorkspaceScopePersonal, "user_a")
+	if _, err := repo.Create(model.Asset{
+		ID: "expired_dated", UserID: "user_a", WorkspaceID: workspaceID, Type: "image",
+		Name: "old.png", URL: "/old.png", TrashedAt: &expiredAt, TrashExpiresAt: &expiredAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Create(model.Asset{
+		ID: "expired_legacy", UserID: "user_a", WorkspaceID: workspaceID, Type: "image",
+		Name: "legacy.png", URL: "/legacy.png", TrashedAt: &legacyAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.PurgeExpiredTrash(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Deleted != 2 || result.Failed != 0 {
+		t.Fatalf("purge result = %+v", result)
+	}
+	trash, err := svc.ListTrash("user_a", WorkspaceScopePersonal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trash) != 1 || trash[0].ID != fresh.ID {
+		t.Fatalf("remaining trash = %+v", trash)
+	}
+}

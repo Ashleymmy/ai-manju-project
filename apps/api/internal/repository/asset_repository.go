@@ -422,11 +422,20 @@ func (r *MemoryAssetRepository) ListExpiredTrash(now time.Time, limit int) ([]mo
 	defer r.mu.RUnlock()
 	assets := make([]model.Asset, 0)
 	for _, asset := range r.assets {
-		if asset.TrashedAt != nil && asset.TrashExpiresAt != nil && !asset.TrashExpiresAt.After(now) {
+		if assetTrashExpired(asset, now) {
 			assets = append(assets, asset)
 		}
 	}
-	sort.Slice(assets, func(i, j int) bool { return assets[i].TrashExpiresAt.Before(*assets[j].TrashExpiresAt) })
+	sort.Slice(assets, func(i, j int) bool {
+		left, right := trashExpiryTime(assets[i]), trashExpiryTime(assets[j])
+		if left == nil {
+			return right != nil
+		}
+		if right == nil {
+			return false
+		}
+		return left.Before(*right)
+	})
 	if limit > 0 && len(assets) > limit {
 		assets = assets[:limit]
 	}
@@ -728,8 +737,12 @@ func (r *GormAssetRepository) ListExpiredTrash(now time.Time, limit int) ([]mode
 	if limit <= 0 {
 		limit = 100
 	}
+	legacyCutoff := now.Add(-model.AssetTrashRetention)
 	var assets []model.Asset
-	err := r.db.Where("trashed_at IS NOT NULL AND trash_expires_at IS NOT NULL AND trash_expires_at <= ?", now).Order("trash_expires_at ASC").Limit(limit).Find(&assets).Error
+	err := r.db.Where("trashed_at IS NOT NULL AND ((trash_expires_at IS NOT NULL AND trash_expires_at <= ?) OR (trash_expires_at IS NULL AND trashed_at <= ?))", now, legacyCutoff).
+		Order(clause.OrderBy{Expression: clause.Expr{SQL: "COALESCE(trash_expires_at, trashed_at + ? * INTERVAL '1 second') ASC", Vars: []interface{}{int64(model.AssetTrashRetention / time.Second)}}}).
+		Limit(limit).
+		Find(&assets).Error
 	return assets, err
 }
 

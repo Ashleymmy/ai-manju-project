@@ -53,6 +53,7 @@ describe("image API", () => {
       size: "16:9",
       quality: "high",
       count: 3,
+      seed: 42,
       scope: "team",
       sourceType: "canvas",
       sourceProjectId: "project-1",
@@ -70,6 +71,7 @@ describe("image API", () => {
       size: "16:9",
       quality: "high",
       n: 3,
+      seed: 42,
       response_format: "b64_json",
       output_format: "png",
       asset_context: {

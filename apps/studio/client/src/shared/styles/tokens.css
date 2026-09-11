@@ -44,6 +44,9 @@
   --rail: #101112;
   --ink: #101112;
   --line: rgba(239, 235, 222, .1);
+  /* 工作桌点阵：chrome 与页面共用，避免固定顶栏透明后正文透出叠字 */
+  --desk-dot-image: radial-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1.1px);
+  --desk-dot-size: 40px 40px;
   --red: #f2f1ed;
   --blue: #67a2ff;
   --sand: #d7bd7b;

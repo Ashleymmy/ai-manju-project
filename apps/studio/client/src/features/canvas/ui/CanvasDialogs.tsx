@@ -1,8 +1,9 @@
 import {
+  Check,
   Image as ImageIcon,
   Lock,
   LockOpen,
-  Scissors,
+  X,
 } from "lucide-react";
 import type { PointerEvent, RefObject, SetStateAction } from "react";
 import {
@@ -69,7 +70,7 @@ export function CanvasImageToolDialog({
   return (
     <Dialog open={Boolean(dialog)} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-[720px] canvas-image-tool-dialog"
+        className="sm:max-w-[920px] canvas-image-tool-dialog canvas-tool-dialog"
         showCloseButton={!busy}
         onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }}
         onPointerDownOutside={(event) => { if (busy) event.preventDefault(); }}
@@ -162,9 +163,9 @@ export function CanvasImageToolDialog({
           </div>
         </div>
         <DialogFooter>
-          <button className="outline-button small" type="button" onClick={onCancel} disabled={busy}>取消</button>
+          <button className="outline-button" type="button" onClick={onCancel} disabled={busy}><X size={15} /> 取消</button>
           <button className="vermilion-button" type="button" onClick={onRun} disabled={busy || !node || !preview}>
-            {busy ? "处理中…" : <><Scissors size={15} /> 执行{dialog ? canvasImageToolLabel(dialog.mode) : "处理"}</>}
+            <Check size={15} /> {busy ? "处理中…" : `执行${dialog ? canvasImageToolLabel(dialog.mode) : "处理"}`}
           </button>
         </DialogFooter>
       </DialogContent>

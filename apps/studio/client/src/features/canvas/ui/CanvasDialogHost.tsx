@@ -8,6 +8,7 @@ const CanvasAnnotationMaskDialogs = lazy(() => import("./CanvasPreviewDialogs").
 const CanvasImagePreviewDialog = lazy(() => import("./CanvasPreviewDialogs").then(module => ({ default: module.CanvasImagePreviewDialog })));
 const CanvasMentionPreviewDialog = lazy(() => import("./CanvasPreviewDialogs").then(module => ({ default: module.CanvasMentionPreviewDialog })));
 const CanvasStoryboardDialog = lazy(() => import("./CanvasPreviewDialogs").then(module => ({ default: module.CanvasStoryboardDialog })));
+const CanvasGenerationHistoryDialog = lazy(() => import("./CanvasGenerationHistoryDialog").then(module => ({ default: module.CanvasGenerationHistoryDialog })));
 
 export type CanvasDialogHostProps = {
   imageTool: ComponentProps<typeof CanvasImageToolDialog>;
@@ -16,6 +17,7 @@ export type CanvasDialogHostProps = {
   imagePreview: ComponentProps<typeof CanvasImagePreviewDialog>;
   mentionPreview: ComponentProps<typeof CanvasMentionPreviewDialog>;
   assetPicker: ComponentProps<typeof CanvasAssetPickerDialog>;
+  generationHistory: ComponentProps<typeof CanvasGenerationHistoryDialog>;
   connectSelection: ComponentProps<typeof CanvasConnectSelectionDialog>;
   destructive: ComponentProps<typeof CanvasDestructiveDialogs>;
 };
@@ -27,6 +29,7 @@ export function CanvasDialogHost({
   imagePreview,
   mentionPreview,
   assetPicker,
+  generationHistory,
   connectSelection,
   destructive,
 }: CanvasDialogHostProps) {
@@ -38,6 +41,7 @@ export function CanvasDialogHost({
       <CanvasImagePreviewDialog {...imagePreview} />
       <CanvasMentionPreviewDialog {...mentionPreview} />
       <CanvasAssetPickerDialog {...assetPicker} />
+      <CanvasGenerationHistoryDialog {...generationHistory} />
       <CanvasConnectSelectionDialog {...connectSelection} />
       <CanvasDestructiveDialogs {...destructive} />
     </Suspense>

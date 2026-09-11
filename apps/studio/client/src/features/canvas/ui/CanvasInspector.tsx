@@ -34,10 +34,13 @@ import { toast } from "sonner";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/CanvasResourceMentionTextarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { CanvasGroupData } from "@/features/canvas/domain/groups";
+import { ImageEditToolIcon } from "@/features/canvas/ui/ImageEditToolIcon";
 import {
   VIDEO_SUBMODES,
+  CANVAS_IMAGE_RESOLUTIONS,
   editableNodeKind,
   imageCountFromNode,
+  imageResolutionFromNode,
   promptTextFromNode,
   qualityFromNode,
   sizeFromNode,
@@ -124,11 +127,12 @@ const STYLE_PRESETS: Array<{ category: StyleCategoryValue; name: string; prompt:
 export type CanvasInspectorActions = {
   node: CanvasNodeCardActions;
   setInspectorOpen: (open: boolean) => void;
-  activateConnectionMode: (nodeId: string) => void;
+  activateConnectionMode: (nodeId: string, handleType?: "source" | "target") => void;
   updateCanvasGroup: (groupId: string, patch: Partial<Pick<CanvasGroupData, "title" | "color">>) => void;
   runCanvasGroupGeneration: (groupId: string) => Promise<unknown>;
   ungroupCanvasGroup: (groupId: string) => void;
   updateNode: (nodeId: string, patch: Partial<CanvasNodeData>) => void;
+  commitLinkedAssetTitle: (node: CanvasNodeData) => void;
   generateFromNode: (nodeId?: string) => Promise<unknown>;
   openAssetPicker: () => void;
   selectGenerationModel: (value: string) => void;
@@ -383,7 +387,7 @@ export function CanvasInspector({
                   <>
                     <Popover>
                       <PopoverTrigger asChild>
-                        <button type="button" title="图片工具"><WandSparkles size={15} /></button>
+                        <button type="button" title="图片工具"><ImageEditToolIcon size={15} /></button>
                       </PopoverTrigger>
                       <PopoverContent className="node-pop-card node-pop-wide" align="start" sideOffset={8}>
                         <p className="eyebrow">图片工具</p>
@@ -436,8 +440,8 @@ export function CanvasInspector({
                     {selectedGenerationMode === "image" ? <>
                       <div className="param-group"><span className="param-group-label">画质</span>
                         <div className="param-segments param-segments-wide">
-                          {["1K", "2K", "4K"].map((value) => (
-                            <button key={value} type="button" className={(selectedNode.metadata?.imageResolution || "2K") === value ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), imageResolution: value } })}>{value}</button>
+                          {CANVAS_IMAGE_RESOLUTIONS.map((value) => (
+                            <button key={value} type="button" className={imageResolutionFromNode(selectedNode) === value ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), imageResolution: value } })}>{value}</button>
                           ))}
                         </div>
                       </div>
@@ -462,7 +466,7 @@ export function CanvasInspector({
                       <div className="param-group"><span className="param-group-label">精细度</span>
                         <div className="param-segments">
                           {[["low", "低"], ["medium", "中"], ["high", "高"]].map(([value, label]) => (
-                            <button key={value} type="button" className={qualityFromNode(selectedNode) === value || (value === "medium" && qualityFromNode(selectedNode) === "auto") ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), quality: value } })}>{label}</button>
+                            <button key={value} type="button" className={qualityFromNode(selectedNode) === value ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), quality: value } })}>{label}</button>
                           ))}
                         </div>
                       </div>
@@ -605,7 +609,16 @@ export function CanvasInspector({
                     <p className="eyebrow">节点</p>
                     <div className="node-pop-field">
                       <span className="field-label">节点标题</span>
-                      <input value={selectedNode.title} onChange={(event) => updateNode(selectedNode.id, { title: event.target.value })} />
+                      <input
+                        value={selectedNode.title}
+                        onChange={(event) => updateNode(selectedNode.id, { title: event.target.value })}
+                        onBlur={() => actions.commitLinkedAssetTitle(selectedNode)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") return;
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        }}
+                      />
                     </div>
                     {selectedVideoSeedance ? (
                       <>

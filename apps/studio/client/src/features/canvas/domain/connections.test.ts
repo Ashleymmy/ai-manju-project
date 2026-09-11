@@ -12,6 +12,7 @@ import {
   createConnectedCanvasGraph,
   defaultCanvasConnectionHandle,
   findCanvasConnectionDropTarget,
+  incomingCanvasMediaSources,
   isActiveCanvasConnectionPointer,
   isHiddenCanvasBatchChild,
   isHiddenCanvasConnectionEndpoint,
@@ -33,6 +34,7 @@ describe("canvas connection rules", () => {
     expect(normalizeCanvasConnection("prompt", "config", nodes, "source")).toEqual({ from: "prompt", to: "config" });
     expect(normalizeCanvasConnection("config", "image", nodes, "target")).toEqual({ from: "image", to: "config" });
     expect(normalizeCanvasConnection("config", "image", nodes, "source")).toEqual({ from: "config", to: "image" });
+    expect(normalizeCanvasConnection("image", "prompt", nodes, "target")).toEqual({ from: "prompt", to: "image" });
   });
 
   it("uses the production default handle for config nodes", () => {
@@ -253,6 +255,34 @@ describe("canvas generation topology", () => {
       { id: "blank", kind: "image", title: "空白图片" },
     ];
     expect(buildCanvasGenerationInputs("target", silent, [{ from: "blank", to: "target" }])).toEqual([]);
+  });
+
+  it("lists incoming image media for the inspector reference strip", () => {
+    const listed = incomingCanvasMediaSources("placeholder", [
+      { id: "placeholder", kind: "image" },
+      { id: "ref-a", kind: "image", title: "A", imageSrc: "https://example.test/a.png" },
+      { id: "ref-b", kind: "image", title: "B", imageAssetId: "asset-b" },
+      { id: "empty", kind: "image", title: "空占位" },
+      { id: "note", kind: "text", title: "文本" },
+    ], [
+      { id: "e1", from: "ref-a", to: "placeholder" },
+      { id: "e2", from: "empty", to: "placeholder" },
+      { id: "e3", from: "note", to: "placeholder" },
+      { id: "e4", from: "ref-b", to: "placeholder" },
+      { id: "e5", from: "ref-a", to: "other" },
+    ]);
+
+    expect(listed.map((item) => item.node.id)).toEqual(["ref-a", "ref-b"]);
+  });
+
+  it("hides collapsed batch children from the incoming image strip", () => {
+    expect(incomingCanvasMediaSources("target", [
+      { id: "target", kind: "image" },
+      { id: "root", kind: "image", metadata: { imageBatchExpanded: false } },
+      { id: "hidden", kind: "image", imageSrc: "https://example.test/hidden.png", metadata: { batchRootId: "root" } },
+    ], [
+      { id: "e1", from: "hidden", to: "target" },
+    ])).toEqual([]);
   });
 
   it("keeps asset:// metadata.content as a media reference", () => {

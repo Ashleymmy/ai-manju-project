@@ -75,6 +75,8 @@ export function resetInterruptedCanvasGenerations(nodes: CanvasNodeData[]) {
     .map((node) => node.id));
   return nodes.map((node) => {
     if (node.metadata?.status !== "loading" || stringValue(node.metadata?.jobId)) return node;
+    // 图片/视频任务在 worker 侧继续跑，刷新后由 recoverPendingJobs 接回，这里不能直接标失败。
+    if (node.kind === "image" || node.kind === "video") return node;
     const batchChildren = Array.isArray(node.metadata?.batchChildIds)
       ? node.metadata.batchChildIds.filter((id): id is string => typeof id === "string")
       : [];

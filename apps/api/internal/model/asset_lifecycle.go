@@ -3,6 +3,10 @@ package model
 import "time"
 
 const (
+	// AssetTrashRetention is how long a trashed asset stays before auto-purge.
+	// Countdown UI and both repository implementations must use this same window.
+	AssetTrashRetention = 30 * 24 * time.Hour
+
 	AssetReferenceTypeCanvasProject = "canvas_project"
 	AssetReferenceTypeComicOutput   = "comic_output"
 	AssetReferenceTypeComicInput    = "comic_input"

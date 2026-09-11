@@ -31,7 +31,7 @@ UPLOAD_PAYLOAD_KEYS = {
     INPUT_STORAGE_KEY_FIELD,
     JOB_WORKSPACE_FIELD,
 }
-GPT_IMAGE_2_EDIT_UNSUPPORTED_FIELDS = {"output_format", "response_format", "n"}
+GPT_IMAGE_2_EDIT_UNSUPPORTED_FIELDS = {"output_format", "response_format", "n", "seed"}
 URL_PATTERN = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
 MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\((data:image/[^)]+|https?://[^)]+)\)", re.IGNORECASE)
 
@@ -317,18 +317,24 @@ def gemini_image_generation_body(payload: dict[str, Any], provider: dict[str, An
     parts: list[dict[str, Any]] = [{"text": str(payload.get("prompt") or "")}]
     for data_url, content_type in image_input_data_urls(payload, settings):
         parts.append({"inlineData": {"mimeType": content_type, "data": strip_data_url_prefix(data_url)}})
+    generation_config: dict[str, Any] = {"responseModalities": ["TEXT", "IMAGE"]}
+    seed = image_payload_seed(payload, protocol="gemini_generate_content", model=str(provider.get("model") or payload.get("model") or ""))
+    if seed is not None:
+        generation_config["seed"] = seed
     return {
         "contents": [{"role": "user", "parts": parts}],
-        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
+        "generationConfig": generation_config,
     }
 
 
 def openai_responses_image_body(payload: dict[str, Any], provider: dict[str, Any], settings: Settings) -> dict[str, Any]:
-    content: list[dict[str, Any]] = [{"type": "input_text", "text": str(payload.get("prompt") or "")}]
+    content: list[dict[str, Any]] = [{"type": "input_text", "text": image_prompt_with_variation(payload)}]
     content.extend({"type": "input_image", "image_url": data_url} for data_url, _ in image_input_data_urls(payload, settings))
     tool: dict[str, Any] = {"type": "image_generation"}
     for key in ("size", "quality", "output_format"):
         value = payload.get(key)
+        if key == "size":
+            value = normalize_provider_image_size(value, payload.get("quality"))
         if value not in (None, "", "auto"):
             tool[key] = value
     return {
@@ -341,7 +347,7 @@ def openai_responses_image_body(payload: dict[str, Any], provider: dict[str, Any
 
 
 def openai_chat_image_body(payload: dict[str, Any], provider: dict[str, Any], settings: Settings) -> dict[str, Any]:
-    content: list[dict[str, Any]] = [{"type": "text", "text": str(payload.get("prompt") or "")}]
+    content: list[dict[str, Any]] = [{"type": "text", "text": image_prompt_with_variation(payload)}]
     content.extend({"type": "image_url", "image_url": {"url": data_url}} for data_url, _ in image_input_data_urls(payload, settings))
     return {
         "model": provider.get("model") or payload.get("model"),
@@ -355,7 +361,10 @@ def dashscope_multimodal_image_body(payload: dict[str, Any], provider: dict[str,
     content.extend({"image": data_url} for data_url, _ in image_input_data_urls(payload, settings))
     parameters: dict[str, Any] = {"result_format": "message"}
     if payload.get("size") not in (None, "", "auto"):
-        parameters["size"] = payload.get("size")
+        parameters["size"] = normalize_provider_image_size(payload.get("size"), payload.get("quality")) or payload.get("size")
+    seed = image_payload_seed(payload, protocol="dashscope_multimodal", model=str(provider.get("model") or payload.get("model") or ""))
+    if seed is not None:
+        parameters["seed"] = seed
     return {
         "model": provider.get("model") or payload.get("model"),
         "input": {"messages": [{"role": "user", "content": content}]},
@@ -407,13 +416,103 @@ def image_input_data_urls(payload: dict[str, Any], settings: Settings) -> list[t
         images.append((f"data:{content_type};base64,{base64.b64encode(raw).decode('ascii')}", content_type))
     return images
 
+
+def image_variation_seed(payload: dict[str, Any]) -> int | None:
+    value = payload.get("seed")
+    if value in (None, ""):
+        return None
+    try:
+        seed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if seed < 0:
+        return None
+    return seed
+
+
+def image_prompt_with_variation(payload: dict[str, Any]) -> str:
+    prompt = str(payload.get("prompt") or "")
+    seed = image_variation_seed(payload)
+    if seed is None:
+        return prompt
+    marker = f"内部变体 {seed}"
+    if marker in prompt:
+        return prompt
+    return f"{prompt}\n\n【{marker}】请生成与其他变体明显不同的新画面；不要把这段说明画进画面。"
+
+
+def image_payload_seed(payload: dict[str, Any], protocol: str = "", model: str = "") -> int | None:
+    seed = image_variation_seed(payload)
+    if seed is None:
+        return None
+    protocol_name = str(protocol or "").strip().lower()
+    model_name = str(model or payload.get("model") or "").lower()
+    # gpt-image 走 Responses / 官方 Images 时不接受 seed，乱传会 400。
+    if protocol_name == "openai_responses" or "gpt-image" in model_name:
+        return None
+    return seed
+
+
+IMAGE_SIZE_STEP = 16
+IMAGE_DEFAULT_SHORT = 1024
+IMAGE_QUALITY_BASE = {
+    "low": 1024,
+    "medium": 2048,
+    "high": 2880,
+    "standard": 1024,
+    "hd": 2048,
+}
+
+
+def normalize_provider_image_size(size: Any, quality: Any = "") -> str | None:
+    """Turn 16:9-style ratios into WIDTHxHEIGHT. Pixel sizes pass through."""
+    value = str(size or "").strip().lower()
+    if value in ("", "auto"):
+        return None
+    if "x" in value and ":" not in value:
+        return value
+    parts = value.split(":")
+    if len(parts) != 2:
+        return value
+    try:
+        ratio_width = float(parts[0])
+        ratio_height = float(parts[1])
+    except (TypeError, ValueError):
+        return value
+    if ratio_width <= 0 or ratio_height <= 0:
+        return value
+    long_ratio = max(ratio_width, ratio_height) / min(ratio_width, ratio_height)
+    quality_key = str(quality or "").strip().lower()
+    if quality_key in ("1k",):
+        quality_key = "low"
+    elif quality_key in ("2k",):
+        quality_key = "medium"
+    elif quality_key in ("4k",):
+        quality_key = "high"
+    base_pixels = IMAGE_QUALITY_BASE.get(quality_key, 0)
+    if base_pixels > 0:
+        target_pixels = float(base_pixels * base_pixels)
+        long_side = int((target_pixels * long_ratio) ** 0.5 // IMAGE_SIZE_STEP) * IMAGE_SIZE_STEP
+        short_side = int(round(long_side / long_ratio / IMAGE_SIZE_STEP)) * IMAGE_SIZE_STEP
+    else:
+        short_side = IMAGE_DEFAULT_SHORT
+        long_side = int(round(short_side * long_ratio / IMAGE_SIZE_STEP)) * IMAGE_SIZE_STEP
+    width, height = (long_side, short_side) if ratio_width >= ratio_height else (short_side, long_side)
+    return f"{width}x{height}"
+
+
 def image_generation_body(payload: dict[str, Any], provider: dict[str, Any]) -> dict[str, Any]:
-    body = {
-        "model": provider.get("model") or payload.get("model"),
+    model = provider.get("model") or payload.get("model")
+    size = normalize_provider_image_size(payload.get("size"), payload.get("quality"))
+    body: dict[str, Any] = {
+        "model": model,
         "prompt": payload.get("prompt", ""),
-        "size": payload.get("size", "1024x1024"),
+        "size": size or "1024x1024",
         "n": int(payload.get("n") or 1),
     }
+    seed = image_payload_seed(payload, protocol="openai_images", model=str(model or ""))
+    if seed is not None:
+        body["seed"] = seed
     return {key: value for key, value in body.items() if value not in (None, "")}
 
 
@@ -427,6 +526,8 @@ def multipart_fields_for_image_edit(payload: dict[str, Any], provider: dict[str,
         if strict_gpt_image_2 and should_omit_gpt_image_2_edit_field(key):
             continue
         value = model if key == "model" else payload.get(key)
+        if key == "size":
+            value = normalize_provider_image_size(value, payload.get("quality")) or value
         if key == "n" and value in (None, "", 0, "0"):
             continue
         set_multipart_field(fields, key, value)

@@ -1,4 +1,9 @@
 export {
+  publishAssetNameChange,
+  subscribeAssetNameChanges,
+} from "./nameEvents";
+export type { AssetNameSyncMessage } from "./nameEvents";
+export {
   getAssetLibrary,
   getTrashedAssetLibrary,
   getAssets,
@@ -50,6 +55,12 @@ export {
   addSeedanceAssetTag,
   removeSeedanceAssetTag,
 } from "./seedance-api";
+export {
+  ASSET_CATEGORIES,
+  ASSET_CATEGORY_LABELS,
+  ASSET_CATEGORY_OPTIONS,
+  normalizeAssetCategory,
+} from "./model";
 export type {
   AssetCategory,
   AssetSourceType,

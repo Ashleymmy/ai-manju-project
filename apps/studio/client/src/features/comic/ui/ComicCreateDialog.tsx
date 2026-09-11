@@ -556,31 +556,28 @@ function ProjectFields({
 
 function TemplateGrid({ compact = false }: { compact?: boolean }) {
   const categories = ["人物", "场景", "道具", "UI"];
-  return (
-    <div className={compact ? "templates-grid" : "dialog-section"}>
-      <div className={compact ? undefined : "templates-grid"}>
-        {categories.map(category => (
-          <div className="template-item" key={category}>
-            <label className={compact ? "template-label" : "dialog-label"}>
-              {category}分类模板（可选）
-            </label>
-            {compact ? (
-              <div className="template-hint">
-                支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》
-              </div>
-            ) : (
-              <p className="template-hint">
-                支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》
-              </p>
-            )}
-            <textarea rows={4} />
-            <button className="template-upload-btn">
-              <Upload size={compact ? 16 : 12} /> 载入{category}模板 TXT
-              选择文件 未选择任何文件
-            </button>
-          </div>
-        ))}
-      </div>
+  const items = categories.map(category => (
+    <div className="template-item" key={category}>
+      <label className={compact ? "template-label" : "dialog-label"}>
+        {category}分类模板（可选）
+      </label>
+      <p className="template-hint">
+        支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》
+      </p>
+      <textarea rows={4} />
+      <button className="template-upload-btn">
+        <Upload size={compact ? 16 : 12} /> 载入{category}模板 TXT
+        选择文件 未选择任何文件
+      </button>
+    </div>
+  ));
+  /* 四个分类必须是 .templates-grid 的直接子节点，才能排成 2×2；
+     中间再套一层无 class 的 wrapper 时，网格只剩一列，右侧会空出来 */
+  return compact ? (
+    <div className="templates-grid">{items}</div>
+  ) : (
+    <div className="dialog-section">
+      <div className="templates-grid">{items}</div>
     </div>
   );
 }

@@ -224,7 +224,7 @@ func TestAssetTrashRestorePermanentDeleteAndWorkspaceAtomicity(t *testing.T) {
 		t.Fatalf("trash preflight = %d %s", preflight.Code, preflight.Body.String())
 	}
 	trashed := performJSON(router, http.MethodPost, "/api/assets/bulk-trash", fmt.Sprintf(`{"asset_ids":[%q]}`, assetID), ownerCookie)
-	if trashed.Code != http.StatusOK || !strings.Contains(trashed.Body.String(), `"trash_expires_at"`) {
+	if trashed.Code != http.StatusOK || !strings.Contains(trashed.Body.String(), `"trash_expires_at"`) || !strings.Contains(trashed.Body.String(), `"trash_remaining_days":30`) {
 		t.Fatalf("bulk trash = %d %s", trashed.Code, trashed.Body.String())
 	}
 	active = performJSON(router, http.MethodGet, "/api/assets", "", ownerCookie)

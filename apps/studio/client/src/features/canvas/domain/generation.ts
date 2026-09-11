@@ -107,6 +107,7 @@ export function completeGeneratedVideoTarget(
       jobProgress: undefined,
       mimeType: persistentResult.mimeType || asset.content_type || "video/mp4",
       bytes: persistentResult.bytes || asset.size,
+      generatedAt: stringValue(node.metadata?.generatedAt) || new Date().toISOString(),
     },
   } : node);
 }
@@ -146,6 +147,9 @@ export function resolveGeneratedNode(nodes: CanvasNodeData[], childId: string, g
         jobProgress: undefined,
         errorDetails: generated ? undefined : "任务已完成，但没有返回图片",
         mimeType: generated?.contentType,
+        generatedAt: generated
+          ? stringValue(node.metadata?.generatedAt) || new Date().toISOString()
+          : node.metadata?.generatedAt,
       },
     };
   });

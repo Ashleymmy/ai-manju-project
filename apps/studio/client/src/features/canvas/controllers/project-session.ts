@@ -35,6 +35,7 @@ export const CANVAS_PROJECT_SESSION_MESSAGES = {
   saveBlocksSwitch: "切换已取消：当前画布快照保存失败，已留在原项目",
   switchProjectFailure: "切换画布失败",
   switchScopeFailure: "切换工作区失败",
+  projectMissing: "画布不存在或已被删除，已返回画布列表",
 } as const;
 
 export type CanvasProjectSessionLoaded = {
@@ -66,6 +67,8 @@ export type CanvasProjectSessionBindings = {
   onSnapshotWarning(message: string): void;
   onLoaded(result: CanvasProjectSessionLoaded): void;
   onLoadError(message: string): void;
+  /** 项目在两个工作区都 404（陈旧链接/已删除）：交给页面兜底跳回列表，避免卡在"确认工作区"死态 */
+  onProjectMissing?(requestedScope: WorkspaceScope): void;
   onSettled(): void;
   onRedirect(scope: WorkspaceScope): void;
   onSwitchingChange(switching: boolean): void;
@@ -329,12 +332,16 @@ export class CanvasProjectSessionController {
       }
     } catch (error) {
       if (this.isCurrent(sequence, projectId, requestedScope)) {
-        this.bindings.onLoadError(
-          this.bindings.formatError(
-            error,
-            CANVAS_PROJECT_SESSION_MESSAGES.loadProjectFailure,
-          ),
-        );
+        if (this.bindings.isNotFound(error) && this.bindings.onProjectMissing) {
+          this.bindings.onProjectMissing(requestedScope);
+        } else {
+          this.bindings.onLoadError(
+            this.bindings.formatError(
+              error,
+              CANVAS_PROJECT_SESSION_MESSAGES.loadProjectFailure,
+            ),
+          );
+        }
       }
     } finally {
       if (this.isCurrent(sequence, projectId, requestedScope)) {
