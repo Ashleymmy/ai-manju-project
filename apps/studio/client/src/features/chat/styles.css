@@ -26,7 +26,8 @@
   height: 60px;
   padding: 0 22px;
   border-bottom: 1px solid var(--line);
-  background: var(--rail);
+  background-color: var(--rail);
+  isolation: isolate;
 }
 .chat-topbar-brand {
   display: flex;

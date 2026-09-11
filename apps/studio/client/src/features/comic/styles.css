@@ -360,3 +360,21 @@
   height: 0;
   display: none;
 }
+
+/* 新建项目弹窗：人物/场景/道具/UI 四个分类模板固定 2×2，铺满弹窗宽度 */
+.comic-create-dialog .templates-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  width: 100%;
+  margin-top: 16px;
+}
+.comic-create-dialog .template-item {
+  min-width: 0;
+}
+.comic-create-dialog .template-label {
+  margin: 0 0 4px;
+  color: #e8e6df;
+  font-size: 12px;
+  font-weight: 600;
+}

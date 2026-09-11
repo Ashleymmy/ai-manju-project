@@ -44,7 +44,8 @@ export function ParamsBar({
           onChange={(event) => patch({ model: event.target.value })}
         >
           {!models.length ? <option value="">未配置</option> : null}
-          {models.map((item) => <option key={item} value={item}>{labels[item] || item}</option>)}
+          {/* 去掉 "provider_xxx::" 前缀，下拉只显示纯模型名 */}
+          {models.map((item) => <option key={item} value={item}>{(labels[item] || item).split("::").at(-1) || item}</option>)}
         </select>
       </div>
       <div className="wb-param-group">

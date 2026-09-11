@@ -4,9 +4,12 @@ import {
   CircleDashed,
   Clapperboard,
   Compass,
+  FileText,
   Film,
   FolderKanban,
   Grid2X2,
+  Home,
+  Image as ImageIcon,
   Library,
   MoreHorizontal,
   PanelRight,
@@ -18,6 +21,7 @@ import {
   ShieldCheck,
   Tag,
   Terminal,
+  Video,
   WandSparkles,
 } from "lucide-react";
 import {
@@ -40,6 +44,7 @@ import {
 } from "@/features/dashboard";
 import { createAndOpenProject } from "@/features/projects";
 
+import { StudioCommandPalette } from "./StudioCommandPalette";
 import "../styles/shell.css";
 
 const logoUrl = "/logo.png";
@@ -50,11 +55,24 @@ type NavItem = { label: string; href: string; icon: Icon; shortcut?: string };
 
 const creationNav: NavItem[] = [
   { label: "工作台", href: "/dashboard", icon: Grid2X2, shortcut: "G D" },
+  { label: "剧本创作", href: "/chat", icon: FileText, shortcut: "G S" },
   { label: "全部项目", href: "/projects", icon: FolderKanban, shortcut: "G P" },
   { label: "画布工坊", href: "/canvas", icon: Compass, shortcut: "G C" },
   { label: "3D 导演台", href: "/director", icon: Box },
   { label: "漫剧资产助手", href: "/comic-assets", icon: Clapperboard },
 ];
+
+export const creationModeTabs = [
+  { id: "home", label: "主页", href: "/dashboard", icon: Home },
+  { id: "video", label: "视频创作", href: "/video", icon: Video },
+  { id: "image", label: "图片创作", href: "/image", icon: ImageIcon },
+  { id: "script", label: "剧本创作", href: "/chat", icon: FileText },
+] as const;
+
+export function creationModeTabActive(href: string, path: string) {
+  if (href === "/chat") return path === "/chat" || path === "/";
+  return path === href;
+}
 
 const libraryNav: NavItem[] = [
   { label: "关键帧生成", href: "/image", icon: WandSparkles },
@@ -85,6 +103,11 @@ export const studioPageTitles: Record<
     code: "DESK / 01",
     title: "今日片场",
     subtitle: "在同一张工作桌上收拢灵感、镜头和等待落地的任务。",
+  },
+  "/chat": {
+    code: "SCRIPT / DESK",
+    title: "剧本创作",
+    subtitle: "用一句话开始故事，再把项目落到画布上继续制作。",
   },
   "/projects": {
     code: "ARCHIVE / 12",
@@ -306,7 +329,7 @@ function LineNav({
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
     >
-      {groups.map((group, groupIndex) => {
+      {groups.map((group) => {
         const open = openGroups.includes(group.id);
         const parentRow = ++rowCounter;
         return (
@@ -322,9 +345,6 @@ function LineNav({
               aria-expanded={open}
             >
               <span className="ln-marker" aria-hidden="true" />
-              <span className="ln-index">
-                {String(groupIndex + 1).padStart(2, "0")}
-              </span>
               <span className="ln-label">{group.title}</span>
               <ChevronRight
                 size={13}
@@ -349,10 +369,7 @@ function LineNav({
                       aria-current={active ? "page" : undefined}
                     >
                       <span className="ln-marker" aria-hidden="true" />
-                      <span className="ln-index">
-                        {String(groupIndex + 1).padStart(2, "0")}.
-                        {String(itemIndex + 1).padStart(2, "0")}
-                      </span>
+                      <span className="ln-index">{String(itemIndex + 1).padStart(2, "0")}</span>
                       <span className="ln-label">{item.label}</span>
                       {item.shortcut ? <kbd>{item.shortcut}</kbd> : null}
                     </Link>
@@ -439,6 +456,7 @@ function SideFootCard({ data }: { data: WorkspaceData }) {
 
 function TopBar({ path, runningJobs }: { path: string; runningJobs?: number }) {
   const [, navigate] = useLocation();
+  const [commandOpen, setCommandOpen] = useState(false);
   return (
     <header className="topbar">
       <div className="top-brand-area">
@@ -449,15 +467,33 @@ function TopBar({ path, runningJobs }: { path: string; runningJobs?: number }) {
           <b>{studioPageTitles[path]?.title ?? "工作台"}</b>
         </div>
       </div>
+      <nav className="top-mode-tabs" aria-label="创作入口">
+        {creationModeTabs.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <Link
+              key={tab.id}
+              href={tab.href}
+              className={creationModeTabActive(tab.href, path) ? "is-active" : undefined}
+            >
+              <Icon size={14} />
+              {tab.label}
+            </Link>
+          );
+        })}
+      </nav>
       <div className="top-actions">
         <button
+          type="button"
           className="command-search"
-          onClick={() => toast.message("命令面板：搜索项目、资产、提示词…")}
+          aria-label="检索工作桌"
+          aria-expanded={commandOpen}
+          onClick={() => setCommandOpen(true)}
         >
           <Search size={17} />
           <span>检索工作桌</span>
-          <kbd>⌘ K</kbd>
         </button>
+        <StudioCommandPalette open={commandOpen} onOpenChange={setCommandOpen} />
         <span className="live-dot">
           <i />
           {runningJobs ?? "—"} 个任务执行中

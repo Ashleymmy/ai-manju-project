@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import "../styles/shell.css";
+
 export default function CanvasLayout({ children }: { children: ReactNode }) {
   return (
     <div className="studio-app canvas-focus canvas-focus-direct">

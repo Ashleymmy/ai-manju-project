@@ -157,8 +157,9 @@ a:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
 .prompt-filters hr { margin: 13px 0; border: 0; border-top: 1px solid var(--line); }
 .new-folder { margin-top: 12px; border: 1px dashed #5e5e5e !important; color: #bdc3bb !important; justify-content: center !important; gap: 6px; }
 .prompt-filters { padding: 18px 13px; border-right: 1px solid var(--line); background: #1a2022; }
-.tag-search { display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 9px; border: 1px solid var(--line); background: #262626; color: #c0c0c0; }
-.tag-search input { width: 100%; border: 0; outline: 0; background: transparent; color: #d8dad2; font-size: 11px; }
+.tag-search { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 7px; height: 34px; min-width: 0; padding: 0 9px; border: 1px solid var(--line); background: #262626; color: #c0c0c0; }
+.tag-search > svg { flex-shrink: 0; }
+.tag-search input { flex: 1 1 auto; min-width: 0; width: auto; border: 0; outline: 0; background: transparent; color: #d8dad2; font-size: 11px; }
 .tag-search input::placeholder { color: #9c9c9c; }
 .tag-select { display: flex; align-items: center; justify-content: space-between; height: 35px; margin-top: 7px; padding: 0 9px; border: 1px solid var(--line); background: #262626; color: #e0ded6; font: 11px "Noto Sans SC", sans-serif; }
 .aliases { margin-top: 24px; padding-top: 17px; border-top: 1px solid var(--line); }
@@ -209,6 +210,40 @@ a:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
 .create-button,
 .vermilion-button { border-radius: 0; clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 7px 100%, 0 calc(100% - 7px)); }
 .outline-button { border-radius: 0; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%); }
+/* Tailwind preflight 将 svg 设为 display:block，非 flex 按钮里图标会单独占一行。
+   带文字的操作按钮必须图标在左、文字在右，同一行对齐。 */
+button.create-button,
+button.vermilion-button,
+button.primary-button,
+button.outline-button,
+button.full-outline {
+  display: inline-flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 37px;
+  padding: 0 13px;
+  white-space: nowrap;
+}
+button.create-button,
+button.vermilion-button,
+button.primary-button {
+  padding: 0 15px;
+}
+button.outline-button.small {
+  min-height: 34px;
+  padding: 0 11px;
+  font-size: 11px;
+}
+button.create-button > svg,
+button.vermilion-button > svg,
+button.primary-button > svg,
+button.outline-button > svg,
+button.full-outline > svg {
+  flex-shrink: 0;
+}
 .page-content { background-image: linear-gradient(90deg, transparent 0, transparent 2.4%, rgba(236,231,215,.05) 2.4%, rgba(236,231,215,.05) calc(2.4% + 1px), transparent calc(2.4% + 1px)); }
 .project-card { position: relative; clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%); }
 .project-card::before { content: "SHEET / PROJECT"; position: absolute; z-index: 4; top: 0; right: 14px; padding: 4px 7px; background: var(--red); color: #17181a; font: 10px "IBM Plex Mono", monospace; letter-spacing: .07em; }
