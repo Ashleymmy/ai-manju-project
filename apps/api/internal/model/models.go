@@ -106,12 +106,12 @@ type UserPreference struct {
 
 // Project 项目模型
 type Project struct {
-	ID          string    `json:"id" gorm:"primaryKey"`
-	Title       string    `json:"title" gorm:"not null"`
-	OwnerID     string    `json:"owner_id" gorm:"not null;index"`
-	WorkspaceID string    `json:"workspace_id" gorm:"index"`
-	Scope       string    `json:"scope" gorm:"-"`
-	Data        JSONB     `json:"data" gorm:"-"`
+	ID          string `json:"id" gorm:"primaryKey"`
+	Title       string `json:"title" gorm:"not null"`
+	OwnerID     string `json:"owner_id" gorm:"not null;index"`
+	WorkspaceID string `json:"workspace_id" gorm:"index"`
+	Scope       string `json:"scope" gorm:"-"`
+	Data        JSONB  `json:"data" gorm:"-"`
 	// CoverAssetID 用户自定义的项目封面资产 ID；为空时前端回退到默认抽象封面。
 	// 独立于 Data（画布快照）持久化，避免被画布保存覆盖。
 	CoverAssetID string    `json:"cover_asset_id" gorm:"type:text;default:''"`
@@ -413,4 +413,14 @@ type Job struct {
 	UpdatedAt  time.Time  `json:"updated_at"`
 	StartedAt  *time.Time `json:"started_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	// External fields identify work owned by a private provider service. They
+	// stay separate from Payload/TaskKwargs so provider credentials never enter
+	// the Studio queue message.
+	ExternalProvider    string     `json:"external_provider,omitempty" gorm:"index"`
+	ExternalTaskID      string     `json:"external_task_id,omitempty" gorm:"index"`
+	ExternalStatus      string     `json:"external_status,omitempty"`
+	BridgeMetadata      JSONB      `json:"bridge_metadata,omitempty" gorm:"type:jsonb"`
+	BridgeState         string     `json:"bridge_state,omitempty" gorm:"index"`
+	BridgeNextAttemptAt *time.Time `json:"-" gorm:"index"`
+	BridgeAttempts      int        `json:"-"`
 }

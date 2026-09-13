@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly Studio database backup
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=backup.service
+
+[Install]
+WantedBy=timers.target

@@ -598,7 +598,7 @@ func NormalizeAssetSourceType(value string) (string, error) {
 	}
 	switch value {
 	case model.AssetSourceManualUpload, model.AssetSourceImageWorkbench, model.AssetSourceCanvas,
-		model.AssetSourceComicBatch, model.AssetSourceLegacy, model.AssetSourceUnknown:
+		model.AssetSourceComicBatch, model.AssetSourceSDVideo, model.AssetSourceLegacy, model.AssetSourceUnknown:
 		return value, nil
 	default:
 		return "", ErrAssetSourceType

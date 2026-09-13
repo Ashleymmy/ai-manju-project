@@ -81,6 +81,8 @@ export type VideoGenerationTaskState =
 
 type RequestOptions = {
   signal?: AbortSignal;
+  conversationId?: string;
+  messageId?: string;
   onProgress?: (job: Job) => void;
 };
 
@@ -360,6 +362,8 @@ async function createOpenAiVideoTask(
   }
   const body = new FormData();
   body.append("model", config.model);
+  if (options.conversationId) body.append("conversation_id", options.conversationId);
+  if (options.messageId) body.append("studio_message_id", options.messageId);
   body.append("prompt", prompt);
   body.append("seconds", normalizeOpenAiSeconds(config.seconds));
   body.append("size", normalizeVideoSizeValue(config.size));
@@ -393,6 +397,8 @@ async function createSeedanceTask(
       method: "POST",
       body: {
         model: config.model,
+        conversation_id: options.conversationId,
+        studio_message_id: options.messageId,
         content,
         ratio: normalizeSeedanceRatio(config.size),
         resolution: normalizeSeedanceResolution(config.resolution, config.model),

@@ -76,7 +76,8 @@ def build_database_url() -> str:
 
     port = first_non_empty(os.getenv("DB_PORT"), "5432")
     user = first_non_empty(os.getenv("DB_USER"), "postgres")
-    password = first_non_empty(os.getenv("DB_PASSWORD"), "")
+    password_file = os.getenv("DB_PASSWORD_FILE", "")
+    password = Path(password_file).read_text(encoding="utf-8").strip() if password_file else first_non_empty(os.getenv("DB_PASSWORD"), "")
     db_name = first_non_empty(os.getenv("DB_NAME"), "ai_manju")
     sslmode = first_non_empty(os.getenv("DB_SSLMODE"), "disable")
 

@@ -8,6 +8,7 @@ from typing import Any
 
 from .config import Settings
 from .db import JobStore, json_compatible
+from . import object_storage
 
 
 def register_result_assets(
@@ -42,6 +43,8 @@ def register_result_assets(
         target.parent.mkdir(parents=True, exist_ok=True)
         if source.resolve() != target.resolve() and not target.exists():
             shutil.copy2(source, target)
+        if object_storage.enabled():
+            object_storage.upload(key.as_posix(), target, content_type)
 
         source_metadata = registration.get("source_metadata") if isinstance(registration.get("source_metadata"), dict) else {}
         source_metadata = dict(source_metadata)
@@ -81,7 +84,7 @@ def register_result_assets(
                 "asset_id": asset_id,
                 "asset_url": asset["url"],
                 "storage_key": key.as_posix(),
-                "path": str(target),
+                "path": "" if object_storage.enabled() else str(target),
                 "size": asset["size"],
             }
         )

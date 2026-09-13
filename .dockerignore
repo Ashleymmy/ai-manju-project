@@ -1,4 +1,9 @@
 .git
+.tmp
+**/.venv
+**/__pycache__
+**/.env
+**/.env.*
 .github
 .agents
 .ccg
@@ -76,3 +81,13 @@ apps/director-desk/docs
 **/*.test.*
 apps/api/**/*_test.go
 apps/worker/tests
+
+# 必须位于应用目录重新包含规则之后，禁止本机环境/依赖覆盖容器内可复现构建。
+**/.env
+**/.env.*
+**/.venv
+**/node_modules
+**/__pycache__
+**/dist
+**/coverage
+playwright.phase2.config.ts

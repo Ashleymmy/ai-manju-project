@@ -7,6 +7,7 @@ from typing import Any, BinaryIO
 
 from .config import Settings
 from .errors import SafeTaskError
+from . import object_storage
 
 
 STAGED_INPUT_KEYS_FIELD = "staged_input_keys"
@@ -25,7 +26,9 @@ def open_staged_input(item: dict[str, Any], payload: dict[str, Any], settings: S
 def validate_staged_input(item: dict[str, Any], payload: dict[str, Any], settings: Settings) -> Path:
     workspace_id = str(payload.get(JOB_WORKSPACE_FIELD) or "").strip()
     storage_key = str(item.get("storage_key") or "").strip()
-    path = resolve_staged_input_path(storage_key, workspace_id, settings, require_exists=True)
+    path = resolve_staged_input_path(storage_key, workspace_id, settings, require_exists=not object_storage.enabled())
+    if object_storage.enabled():
+        object_storage.download(storage_key, path, positive_int(item.get("size")) or object_storage.MAX_TRANSFER_BYTES)
 
     expected_size = positive_int(item.get("size"))
     if expected_size is None:
@@ -80,6 +83,8 @@ def cleanup_staged_inputs(payload: dict[str, Any], workspace_id: str, settings: 
     for key in staged_input_keys(payload):
         try:
             path = resolve_staged_input_path(key, workspace_id, settings, require_exists=False)
+            if object_storage.enabled():
+                object_storage.delete(key)
             if path.exists():
                 if not path.is_file():
                     raise SafeTaskError("staged input is not a file", code="invalid_staged_input", retryable=False)

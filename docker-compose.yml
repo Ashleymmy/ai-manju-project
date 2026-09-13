@@ -27,6 +27,159 @@ services:
       timeout: 3s
       retries: 20
 
+  # SD-video is deliberately isolated from the Studio database and Redis.
+  # The gateway remains disabled by default until a service key pair and
+  # provider configuration are supplied.
+  sd-video-postgres:
+    profiles: [sd-video]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${SDVIDEO_POSTGRES_USER:-sdvideo}
+      POSTGRES_PASSWORD: ${SDVIDEO_POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${SDVIDEO_POSTGRES_DB:-sdvideo_cloud}
+    volumes:
+      - ai-manju-sdvideo-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  sd-video-redis:
+    profiles: [sd-video]
+    image: redis:7-alpine
+    volumes:
+      - ai-manju-sdvideo-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  sd-video-api:
+    profiles: [sd-video]
+    build:
+      context: apps/sd-video
+      dockerfile: Dockerfile
+    depends_on:
+      sd-video-postgres:
+        condition: service_healthy
+      sd-video-redis:
+        condition: service_healthy
+    environment: &sdvideo-env
+      APP_ENV: ${SDVIDEO_APP_ENV:-development}
+      SDVIDEO_OSS_ENDPOINT: ${SDVIDEO_OSS_ENDPOINT:-}
+      SDVIDEO_OSS_PUBLIC_ENDPOINT: ${SDVIDEO_OSS_PUBLIC_ENDPOINT:-}
+      SDVIDEO_OSS_ACCESS_KEY_ID: ${SDVIDEO_OSS_ACCESS_KEY_ID:-}
+      SDVIDEO_OSS_ACCESS_KEY_SECRET: ${SDVIDEO_OSS_ACCESS_KEY_SECRET:-}
+      SDVIDEO_OSS_RESULT_BUCKET: ${SDVIDEO_OSS_RESULT_BUCKET:-}
+      SDVIDEO_OSS_INPUT_BUCKET: ${SDVIDEO_OSS_INPUT_BUCKET:-}
+      SDVIDEO_OSS_THUMBNAIL_BUCKET: ${SDVIDEO_OSS_THUMBNAIL_BUCKET:-}
+      SDVIDEO_OSS_VOLCANO_BUCKET: ${SDVIDEO_OSS_VOLCANO_BUCKET:-}
+      SDVIDEO_SUPABASE_URL: ${SDVIDEO_SUPABASE_URL:-}
+      SDVIDEO_SUPABASE_PUBLIC_URL: ${SDVIDEO_SUPABASE_PUBLIC_URL:-}
+      SDVIDEO_SUPABASE_STORAGE_TOKEN: ${SDVIDEO_SUPABASE_STORAGE_TOKEN:-}
+      SDVIDEO_SUPABASE_STORAGE_TOKEN_FILE: ${SDVIDEO_SUPABASE_STORAGE_TOKEN_FILE:-}
+      SDVIDEO_SUPABASE_API_KEY: ${SDVIDEO_SUPABASE_API_KEY:-}
+      SDVIDEO_SUPABASE_API_KEY_FILE: ${SDVIDEO_SUPABASE_API_KEY_FILE:-}
+      SDVIDEO_SUPABASE_CA_FILE: ${SDVIDEO_SUPABASE_CA_FILE:-}
+      SDVIDEO_SUPABASE_INPUT_BUCKET: ${SDVIDEO_SUPABASE_INPUT_BUCKET:-}
+      SDVIDEO_SUPABASE_RESULT_BUCKET: ${SDVIDEO_SUPABASE_RESULT_BUCKET:-}
+      SDVIDEO_SUPABASE_THUMBNAIL_BUCKET: ${SDVIDEO_SUPABASE_THUMBNAIL_BUCKET:-}
+      SDVIDEO_SUPABASE_VOLCANO_BUCKET: ${SDVIDEO_SUPABASE_VOLCANO_BUCKET:-}
+      AMK_API_KEY: ${SDVIDEO_AMK_API_KEY:-}
+      SD_VIDEO_EXECUTION_MODE: ${SD_VIDEO_EXECUTION_MODE:-mock}
+      SD_VIDEO_MODE: ${SD_VIDEO_MODE:-disabled}
+      LOCAL_DEMO_MODE: ${SDVIDEO_LOCAL_DEMO_MODE:-false}
+      SERVICE_JWT_PUBLIC_KEY: ${SD_VIDEO_JWT_PUBLIC_KEY:-}
+      SERVICE_JWT_ISSUER: ${SD_VIDEO_JWT_ISSUER:-ai-manju-studio}
+      SERVICE_JWT_AUDIENCE: ${SD_VIDEO_JWT_AUDIENCE:-sd-video}
+      SDVIDEO_DATABASE_URL: postgresql://${SDVIDEO_POSTGRES_USER:-sdvideo}:${SDVIDEO_POSTGRES_PASSWORD:-change-me}@sd-video-postgres:5432/${SDVIDEO_POSTGRES_DB:-sdvideo_cloud}
+      SDVIDEO_REDIS_URL: redis://sd-video-redis:6379/0
+      STORAGE_BACKEND: ${SDVIDEO_STORAGE_BACKEND:-local}
+      SDVIDEO_DATA_DIR: /app/data
+      SDVIDEO_S3_ENDPOINT_URL: ${SDVIDEO_S3_ENDPOINT_URL:-}
+      SDVIDEO_S3_REGION: ${SDVIDEO_S3_REGION:-us-east-1}
+      SDVIDEO_S3_BUCKET: ${SDVIDEO_S3_BUCKET:-sdvideo-results}
+      SDVIDEO_S3_INPUT_BUCKET: ${SDVIDEO_S3_INPUT_BUCKET:-sdvideo-inputs}
+      SDVIDEO_S3_RESULT_BUCKET: ${SDVIDEO_S3_RESULT_BUCKET:-sdvideo-results}
+      SDVIDEO_S3_THUMBNAIL_BUCKET: ${SDVIDEO_S3_THUMBNAIL_BUCKET:-sdvideo-thumbnails}
+      SDVIDEO_S3_VOLCANO_BUCKET: ${SDVIDEO_S3_VOLCANO_BUCKET:-sdvideo-volcano-assets}
+      SDVIDEO_S3_ACCESS_KEY_ID: ${SDVIDEO_S3_ACCESS_KEY_ID:-}
+      SDVIDEO_S3_SECRET_ACCESS_KEY: ${SDVIDEO_S3_SECRET_ACCESS_KEY:-}
+      ARK_API_KEY: ${SDVIDEO_ARK_API_KEY:-}
+      SEEDANCE20_URL: ${SDVIDEO_SEEDANCE20_URL:-}
+      SEEDANCE20_KEY: ${SDVIDEO_SEEDANCE20_KEY:-}
+      SEEDANCE20_PROVIDER: ${SDVIDEO_SEEDANCE20_PROVIDER:-legacy_proxy}
+      TOKENSPACE_BASE_URL: ${SDVIDEO_TOKENSPACE_BASE_URL:-}
+      TOKENSPACE_API_KEY: ${SDVIDEO_TOKENSPACE_API_KEY:-}
+      VIDU_BASE_URL: ${SDVIDEO_VIDU_BASE_URL:-https://api.vidu.com}
+      VIDU_API_KEY: ${SDVIDEO_VIDU_API_KEY:-}
+      YIKE_API_KEY: ${SDVIDEO_YIKE_API_KEY:-}
+      YIKE_API_HOST: ${SDVIDEO_YIKE_API_HOST:-}
+      YIKE_WORKSPACE_ID: ${SDVIDEO_YIKE_WORKSPACE_ID:-}
+    volumes:
+      - ai-manju-sdvideo-data:/app/data
+    expose:
+      - "8201"
+    command: ["sh", "-c", "python scripts/migrate.py && exec uvicorn api.main:app --host 0.0.0.0 --port 8201"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8201/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  sd-video-worker:
+    profiles: [sd-video]
+    build:
+      context: apps/sd-video
+      dockerfile: Dockerfile
+    depends_on:
+      sd-video-api:
+        condition: service_healthy
+      sd-video-redis:
+        condition: service_healthy
+    environment:
+      <<: *sdvideo-env
+      APP_ENV: ${SDVIDEO_APP_ENV:-development}
+      SD_VIDEO_EXECUTION_MODE: ${SD_VIDEO_EXECUTION_MODE:-mock}
+      SD_VIDEO_MODE: ${SD_VIDEO_MODE:-disabled}
+      SDVIDEO_DATABASE_URL: postgresql://${SDVIDEO_POSTGRES_USER:-sdvideo}:${SDVIDEO_POSTGRES_PASSWORD:-change-me}@sd-video-postgres:5432/${SDVIDEO_POSTGRES_DB:-sdvideo_cloud}
+      SDVIDEO_REDIS_URL: redis://sd-video-redis:6379/0
+      STORAGE_BACKEND: ${SDVIDEO_STORAGE_BACKEND:-local}
+      SDVIDEO_DATA_DIR: /app/data
+      SDVIDEO_WORKER_HEALTH_PORT: 8202
+      SDVIDEO_S3_ENDPOINT_URL: ${SDVIDEO_S3_ENDPOINT_URL:-}
+      SDVIDEO_S3_REGION: ${SDVIDEO_S3_REGION:-us-east-1}
+      SDVIDEO_S3_BUCKET: ${SDVIDEO_S3_BUCKET:-sdvideo-results}
+      SDVIDEO_S3_INPUT_BUCKET: ${SDVIDEO_S3_INPUT_BUCKET:-sdvideo-inputs}
+      SDVIDEO_S3_RESULT_BUCKET: ${SDVIDEO_S3_RESULT_BUCKET:-sdvideo-results}
+      SDVIDEO_S3_THUMBNAIL_BUCKET: ${SDVIDEO_S3_THUMBNAIL_BUCKET:-sdvideo-thumbnails}
+      SDVIDEO_S3_VOLCANO_BUCKET: ${SDVIDEO_S3_VOLCANO_BUCKET:-sdvideo-volcano-assets}
+      SDVIDEO_S3_ACCESS_KEY_ID: ${SDVIDEO_S3_ACCESS_KEY_ID:-}
+      SDVIDEO_S3_SECRET_ACCESS_KEY: ${SDVIDEO_S3_SECRET_ACCESS_KEY:-}
+      ARK_API_KEY: ${SDVIDEO_ARK_API_KEY:-}
+      SEEDANCE20_URL: ${SDVIDEO_SEEDANCE20_URL:-}
+      SEEDANCE20_KEY: ${SDVIDEO_SEEDANCE20_KEY:-}
+      SEEDANCE20_PROVIDER: ${SDVIDEO_SEEDANCE20_PROVIDER:-legacy_proxy}
+      TOKENSPACE_BASE_URL: ${SDVIDEO_TOKENSPACE_BASE_URL:-}
+      TOKENSPACE_API_KEY: ${SDVIDEO_TOKENSPACE_API_KEY:-}
+      VIDU_BASE_URL: ${SDVIDEO_VIDU_BASE_URL:-https://api.vidu.com}
+      VIDU_API_KEY: ${SDVIDEO_VIDU_API_KEY:-}
+      YIKE_API_KEY: ${SDVIDEO_YIKE_API_KEY:-}
+      YIKE_API_HOST: ${SDVIDEO_YIKE_API_HOST:-}
+      YIKE_WORKSPACE_ID: ${SDVIDEO_YIKE_WORKSPACE_ID:-}
+    volumes:
+      - ai-manju-sdvideo-data:/app/data
+    expose:
+      - "8202"
+    command: ["python", "-m", "worker.runner"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8202/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
   api:
     build:
       context: .
@@ -36,7 +189,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    environment:
+    environment: &studio-api-env
       HOST: 0.0.0.0
       PORT: 3101
       APP_ENV: ${APP_ENV:-production}
@@ -59,6 +212,21 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
       ADMIN_DISPLAY_NAME: ${ADMIN_DISPLAY_NAME:?set ADMIN_DISPLAY_NAME in .env}
       ASSET_STORAGE_DIR: /app/data/assets
+      ASSET_STORAGE_BACKEND: ${ASSET_STORAGE_BACKEND:-local}
+      STUDIO_SUPABASE_URL: ${STUDIO_SUPABASE_URL:-}
+      STUDIO_SUPABASE_PUBLIC_URL: ${STUDIO_SUPABASE_PUBLIC_URL:-}
+      STUDIO_SUPABASE_BUCKET: ${STUDIO_SUPABASE_BUCKET:-}
+      STUDIO_SUPABASE_STORAGE_TOKEN: ${STUDIO_SUPABASE_STORAGE_TOKEN:-}
+      STUDIO_SUPABASE_STORAGE_TOKEN_FILE: ${STUDIO_SUPABASE_STORAGE_TOKEN_FILE:-}
+      STUDIO_SUPABASE_API_KEY: ${STUDIO_SUPABASE_API_KEY:-}
+      STUDIO_SUPABASE_API_KEY_FILE: ${STUDIO_SUPABASE_API_KEY_FILE:-}
+      STUDIO_SUPABASE_CA_FILE: ${STUDIO_SUPABASE_CA_FILE:-}
+      STUDIO_OSS_ENDPOINT: ${STUDIO_OSS_ENDPOINT:-}
+      STUDIO_OSS_BUCKET: ${STUDIO_OSS_BUCKET:-}
+      STUDIO_OSS_ACCESS_KEY_ID: ${STUDIO_OSS_ACCESS_KEY_ID:-}
+      STUDIO_OSS_ACCESS_KEY_SECRET: ${STUDIO_OSS_ACCESS_KEY_SECRET:-}
+      ASSET_CDN_BASE_URL: ${ASSET_CDN_BASE_URL:-}
+      ASSET_CDN_AUTH_KEY: ${ASSET_CDN_AUTH_KEY:-}
       PUBLIC_ASSET_BASE_URL: ${PUBLIC_ASSET_BASE_URL:-}
       # 视频素材通常明显大于图片；保持可配置，默认允许 512 MiB。
       MAX_ASSET_UPLOAD_BYTES: ${MAX_ASSET_UPLOAD_BYTES:-536870912}
@@ -70,6 +238,16 @@ services:
       WEBDAV_ALLOWED_HOSTS: ${WEBDAV_ALLOWED_HOSTS:-}
       WEBDAV_PROXY_TIMEOUT_SECONDS: ${WEBDAV_PROXY_TIMEOUT_SECONDS:-120}
       WEBDAV_MAX_REQUEST_BYTES: ${WEBDAV_MAX_REQUEST_BYTES:-104857600}
+      SD_VIDEO_BASE_URL: ${SD_VIDEO_BASE_URL:-http://sd-video-api:8201}
+      SD_VIDEO_MODE: ${SD_VIDEO_MODE:-disabled}
+      SD_VIDEO_JWT_PRIVATE_KEY: ${SD_VIDEO_JWT_PRIVATE_KEY:-}
+      SD_VIDEO_JWT_KID: ${SD_VIDEO_JWT_KID:-studio-sdvideo-1}
+      SD_VIDEO_JWT_ISSUER: ${SD_VIDEO_JWT_ISSUER:-ai-manju-studio}
+      SD_VIDEO_JWT_AUDIENCE: ${SD_VIDEO_JWT_AUDIENCE:-sd-video}
+      SD_VIDEO_REQUEST_TIMEOUT_MILLISECONDS: ${SD_VIDEO_REQUEST_TIMEOUT_MILLISECONDS:-120000}
+      SD_VIDEO_BRIDGE_ENABLED: ${SD_VIDEO_BRIDGE_ENABLED:-true}
+      SD_VIDEO_BRIDGE_INTERVAL_SECONDS: ${SD_VIDEO_BRIDGE_INTERVAL_SECONDS:-5}
+      SD_VIDEO_BRIDGE_BATCH_SIZE: ${SD_VIDEO_BRIDGE_BATCH_SIZE:-20}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -97,6 +275,18 @@ services:
       redis:
         condition: service_healthy
     environment:
+      ASSET_STORAGE_BACKEND: ${ASSET_STORAGE_BACKEND:-local}
+      STUDIO_SUPABASE_URL: ${STUDIO_SUPABASE_URL:-}
+      STUDIO_SUPABASE_BUCKET: ${STUDIO_SUPABASE_BUCKET:-}
+      STUDIO_SUPABASE_STORAGE_TOKEN: ${STUDIO_SUPABASE_STORAGE_TOKEN:-}
+      STUDIO_SUPABASE_STORAGE_TOKEN_FILE: ${STUDIO_SUPABASE_STORAGE_TOKEN_FILE:-}
+      STUDIO_SUPABASE_API_KEY: ${STUDIO_SUPABASE_API_KEY:-}
+      STUDIO_SUPABASE_API_KEY_FILE: ${STUDIO_SUPABASE_API_KEY_FILE:-}
+      STUDIO_SUPABASE_CA_FILE: ${STUDIO_SUPABASE_CA_FILE:-}
+      STUDIO_OSS_ENDPOINT: ${STUDIO_OSS_ENDPOINT:-}
+      STUDIO_OSS_BUCKET: ${STUDIO_OSS_BUCKET:-}
+      STUDIO_OSS_ACCESS_KEY_ID: ${STUDIO_OSS_ACCESS_KEY_ID:-}
+      STUDIO_OSS_ACCESS_KEY_SECRET: ${STUDIO_OSS_ACCESS_KEY_SECRET:-}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: ${DB_USER:?set DB_USER in .env}
@@ -110,7 +300,7 @@ services:
       ASSET_STORAGE_DIR: /app/data/assets
       WORKER_HEALTH_HOST: 0.0.0.0
       WORKER_HEALTH_PORT: 8101
-      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-8}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       WORKER_PROVIDER_RATE_LIMIT: ${WORKER_PROVIDER_RATE_LIMIT:-}
     expose:
       - "8101"
@@ -123,8 +313,9 @@ services:
       sh -c "mkdir -p /app/data/assets/jobs &&
       chmod 1777 /app/data/assets /app/data/assets/jobs &&
       chmod -R a+rwX /app/data/assets/jobs &&
-      su aiworker -s /bin/sh -c 'uvicorn worker.app:app --host $${WORKER_HEALTH_HOST:-0.0.0.0} --port $${WORKER_HEALTH_PORT:-8101} &
-      exec celery -A worker.tasks worker --loglevel=info --concurrency=$${WORKER_CONCURRENCY:-8}'"
+      exec su aiworker -s /bin/sh -c 'exec python -m worker.runtime'"
+    init: true
+    stop_grace_period: 45s
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${WORKER_HEALTH_PORT:-8101}/health >/dev/null"]
       interval: 10s
@@ -139,6 +330,7 @@ services:
       api:
         condition: service_healthy
     environment:
+      <<: *studio-api-env
       APP_ENV: ${APP_ENV:-production}
       STORAGE_DRIVER: postgres
       REQUIRE_PERSISTENT_STORAGE: ${REQUIRE_PERSISTENT_STORAGE:-true}
@@ -160,21 +352,48 @@ services:
     command: ["/app/ai-manju-asset-export-worker"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "grep -q ai-manju-asset-export-worker /proc/1/cmdline"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3104/health/ready >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 20
+
+  sd-video-bridge:
+    profiles: [sd-video]
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment: *studio-api-env
+    command: [/app/ai-manju-sd-video-bridge]
+    volumes: [ai-manju-assets:/app/data/assets]
+    depends_on:
+      api: {condition: service_healthy}
+    restart: unless-stopped
+
+  sd-video-asset-worker:
+    profiles: [sd-video]
+    build:
+      context: apps/sd-video
+      dockerfile: Dockerfile
+    environment: *sdvideo-env
+    command: [python, -m, worker.asset_worker]
+    volumes: [ai-manju-sdvideo-data:/app/data]
+    depends_on:
+      sd-video-api: {condition: service_healthy}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8203/health/ready',timeout=8)"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
 
   web:
     build:
       context: .
       dockerfile: apps/studio/Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://127.0.0.1:3100}
+        VITE_API_URL: ${VITE_API_URL:-/}
     depends_on:
       api:
-        condition: service_healthy
-      asset-export-worker:
         condition: service_healthy
     ports:
       - "${WEB_HOST_PORT:-3100}:3100"
@@ -187,3 +406,6 @@ services:
 volumes:
   ai-manju-postgres-data:
   ai-manju-assets:
+  ai-manju-sdvideo-postgres-data:
+  ai-manju-sdvideo-redis-data:
+  ai-manju-sdvideo-data:

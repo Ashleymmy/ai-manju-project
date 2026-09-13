@@ -66,7 +66,7 @@ type ConversationEnvelope = {
   items: VideoWorkbenchConversation[];
 };
 
-const conversationStore = localforage.createInstance({
+export const conversationStore = localforage.createInstance({
   name: "ai-manhua-studio",
   storeName: "video_workbench_conversations_v1",
 });
@@ -182,7 +182,7 @@ export function conversationTitleFromMessage(text: string) {
   return trimmed ? trimmed.slice(0, 24) : "新对话";
 }
 
-function normalizeConversations(value: unknown): VideoWorkbenchConversation[] {
+export function normalizeConversations(value: unknown): VideoWorkbenchConversation[] {
   if (!Array.isArray(value)) return [];
   return value
     .map(normalizeConversation)

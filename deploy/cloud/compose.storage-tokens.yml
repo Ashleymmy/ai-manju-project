@@ -1,0 +1,23 @@
+# NAS 模式专用覆盖：接收账户只写这些目录，不能写含数据库/JWT 私钥的 Secret 目录。
+x-studio-token: &studio-token
+  group_add: ["${STUDIO_STORAGE_TOKEN_GID:?provide dedicated Studio token read group}"]
+  volumes:
+    - ${STUDIO_STORAGE_TOKEN_DIR:?provide Studio token-only directory}:/run/storage-credentials:ro
+  environment:
+    STUDIO_SUPABASE_STORAGE_TOKEN_FILE: /run/storage-credentials/storage-token
+
+x-sdvideo-token: &sdvideo-token
+  group_add: ["${SDVIDEO_STORAGE_TOKEN_GID:?provide dedicated SD-video token read group}"]
+  volumes:
+    - ${SDVIDEO_STORAGE_TOKEN_DIR:?provide SD-video token-only directory}:/run/storage-credentials:ro
+  environment:
+    SDVIDEO_SUPABASE_STORAGE_TOKEN_FILE: /run/storage-credentials/storage-token
+
+services:
+  api: {<<: *studio-token}
+  worker: {<<: *studio-token}
+  asset-export-worker: {<<: *studio-token}
+  sd-video-bridge: {<<: *studio-token}
+  sd-video-api: {<<: *sdvideo-token}
+  sd-video-worker: {<<: *sdvideo-token}
+  sd-video-asset-worker: {<<: *sdvideo-token}

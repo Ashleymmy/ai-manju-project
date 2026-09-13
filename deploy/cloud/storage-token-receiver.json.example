@@ -1,0 +1,17 @@
+{
+  "public_jwks_file": "/etc/studio-storage-receiver/public-jwks.json",
+  "targets": {
+    "studio": {
+      "subject": "REPLACE_WITH_SAME_STUDIO_MACHINE_UUID",
+      "buckets": ["studio-test-assets"],
+      "directory": "/srv/studio-storage-tokens/studio",
+      "group_id": 21001
+    },
+    "sdvideo": {
+      "subject": "REPLACE_WITH_SAME_SDVIDEO_MACHINE_UUID",
+      "buckets": ["studio-sdvideo-test-inputs", "studio-sdvideo-test-results", "studio-sdvideo-test-thumbnails", "studio-sdvideo-test-volcano"],
+      "directory": "/srv/studio-storage-tokens/sdvideo",
+      "group_id": 21002
+    }
+  }
+}

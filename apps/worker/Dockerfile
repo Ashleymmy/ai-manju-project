@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -10,8 +10,9 @@ RUN sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/source
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY apps/worker/requirements.txt /app/apps/worker/requirements.txt
-RUN pip install --no-cache-dir --index-url https://mirrors.aliyun.com/pypi/simple/ -r /app/apps/worker/requirements.txt
+RUN python -c "import sys; assert sys.version_info[:2] == (3, 12)"
+COPY apps/worker/requirements.lock /app/apps/worker/requirements.lock
+RUN pip install --no-cache-dir --require-hashes -r /app/apps/worker/requirements.lock
 
 COPY apps/worker /app/apps/worker
 RUN groupadd --system aiworker \
@@ -23,4 +24,4 @@ WORKDIR /app/apps/worker
 
 EXPOSE 8101
 USER aiworker
-CMD ["celery", "-A", "worker.tasks", "worker", "--loglevel=info"]
+CMD ["python", "-m", "worker.runtime"]

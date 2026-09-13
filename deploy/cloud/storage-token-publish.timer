@@ -1,0 +1,11 @@
+[Unit]
+Description=Renew five-minute Storage tokens every minute
+
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=60s
+AccuracySec=1s
+Unit=storage-token-publish.service
+
+[Install]
+WantedBy=timers.target

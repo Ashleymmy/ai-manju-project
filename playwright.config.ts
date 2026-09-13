@@ -4,6 +4,7 @@ const providerPort = Number(process.env.E2E_PROVIDER_PORT || 45991);
 
 export default defineConfig({
   testDir: "./apps/studio/e2e",
+  testIgnore: "**/sdvideo-phase2.spec.ts",
   timeout: 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,

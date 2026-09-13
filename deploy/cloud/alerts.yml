@@ -1,0 +1,53 @@
+groups:
+  - name: sdvideo-internal
+    rules:
+      - alert: SDVideoDependencyUnavailable
+        expr: sdvideo_dependency_up == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "SD-video dependency is unavailable"}
+      - alert: SDVideoWorkerMissing
+        expr: sdvideo_worker_heartbeats == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "SD-video Worker heartbeat missing"}
+      - alert: SDVideoSubmissionUncertain
+        expr: sdvideo_submission_uncertain > 0
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "Reconcile Provider submission before allowing paid retry"}
+      - alert: SDVideoAssetFailures
+        expr: sdvideo_asset_failures > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Material registration or deletion needs attention"}
+      - alert: SDVideoScrapeUnavailable
+        expr: up{job=~"sdvideo|studio-sdvideo-bridge"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "Video monitoring target is unreachable"}
+      - alert: SDVideoQueueDelayed
+        expr: sdvideo_oldest_queued_seconds > 900
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Video queue has tasks waiting over 15 minutes"}
+      - alert: StudioVideoBridgeUnhealthy
+        expr: studio_sdvideo_bridge_probe_up == 0 or studio_sdvideo_bridge_progress_age_seconds > 300
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "Video Bridge cannot scan durable jobs or has stopped progressing"}
+      - alert: StudioVideoSyncRetrying
+        expr: studio_sdvideo_bridge_retrying > 0
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "Video job or asset synchronization is retrying"}
+      - alert: SDVideoDiskPressure
+        expr: sdvideo_disk_free_bytes / sdvideo_disk_size_bytes < 0.15 or sdvideo_disk_probe_up == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "Video temporary/data filesystem is low on space or unavailable"}
+      - alert: SDVideoThumbnailFailures
+        expr: sdvideo_thumbnail_failures > 0
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "Media preview generation needs attention; original results remain available"}

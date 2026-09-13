@@ -1,0 +1,16 @@
+# 仅审核模板，不自动安装。先登记专用账户、全新 SSH 公钥、固定来源与主机指纹。
+# 此账户拥有两套 token-only 目录，但不得读取/修改应用其他 Secret、配置或程序。
+# authorized_keys 由 root 管理，放到 /etc/ssh/authorized_keys/storage-token-receiver：
+# from="REPLACE_WITH_VERIFIED_SOURCE_CIDR",restrict ssh-ed25519 REPLACE_WITH_NEW_DELIVERY_PUBLIC_KEY
+Match User storage-token-receiver
+    AuthenticationMethods publickey
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    AuthorizedKeysFile /etc/ssh/authorized_keys/%u
+    ForceCommand /opt/studio-storage-tools/venv/bin/python /opt/studio-storage-tools/storage-token-sync.py receive --config /etc/studio-storage-receiver/receiver.json
+    DisableForwarding yes
+    PermitTTY no
+    PermitTunnel no
+    PermitUserRC no
+    MaxSessions 1
+Match all
