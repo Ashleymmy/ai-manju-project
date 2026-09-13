@@ -2,9 +2,14 @@ import {
   Check,
   ChevronRight,
   Eye,
+  EyeOff,
+  Loader2,
+  LockKeyhole,
+  UserRound,
+  UserRoundPlus,
   Sparkles,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { useLocation, useSearch } from "wouter";
 
@@ -16,9 +21,16 @@ import {
   register,
 } from "@/entities/auth";
 import { usePublicHealthQuery } from "./model/queries";
+import { AUTH_ACCOUNT_MIN_LENGTH, AUTH_ACCOUNT_MAX_LENGTH, AUTH_PASSWORD_MIN_LENGTH, authErrorMessage, validateAuthFields, type AuthFieldErrors } from "./model/form";
 import "./styles.css";
 
 export function AuthView() {
+  const [location] = useLocation();
+  // 切换页面时清空密码与错误，防止登录表单状态带入注册页面。
+  return <AuthPage key={location.split("?")[0]} />;
+}
+
+function AuthPage() {
   const [location, navigate] = useLocation();
   const search = useSearch();
   const [locationPath] = location.split("?");
@@ -26,62 +38,65 @@ export function AuthView() {
   const nextQuery = nextPath ? `?next=${encodeURIComponent(nextPath)}` : "";
   const isRegister = locationPath === "/register";
   const isV2 = locationPath === "/v2-login";
-  const [remember, setRemember] = useState(true);
-  const [username, setUsername] = useState(() => getStoredAuthAccount());
+  const [remember, setRemember] = useState(!isRegister);
+  const [username, setUsername] = useState(() => isRegister ? "" : getStoredAuthAccount());
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [formLoading, setFormLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({});
+  const [submitError, setSubmitError] = useState("");
+  const submitInProgress = useRef(false);
+  const formRef = useRef<HTMLFormElement>(null);
   const healthQuery = usePublicHealthQuery();
-  const signupEnabled = healthQuery.data?.public_signup ?? true;
+  const signupEnabled = healthQuery.data?.public_signup === true && !healthQuery.isError;
+  const signupNotice = healthQuery.isPending ? "正在确认注册服务…"
+    : healthQuery.isError ? "暂时无法连接注册服务，请重试。"
+      : !signupEnabled ? "当前暂未开放注册，请联系管理员开通账号。" : "";
   const { user, loading, refreshUser } = useAuth();
 
   useEffect(() => {
-    if (loading || !user) return;
+    if (loading || !user || submitInProgress.current) return;
     navigate(nextPath || defaultAuthPathForRole(user.role), { replace: true });
   }, [loading, navigate, nextPath, user]);
 
-  useEffect(() => {
-    if (isRegister && !signupEnabled) {
-      toast.info("当前未开放公开注册，请联系管理员开通账号");
-      navigate(`/login${nextQuery}`, { replace: true });
-    }
-  }, [isRegister, navigate, nextQuery, signupEnabled]);
+  function clearFieldError(field: keyof AuthFieldErrors) {
+    setFieldErrors(current => ({ ...current, [field]: undefined }));
+    setSubmitError("");
+  }
 
-  async function handleSubmit() {
-    if (formLoading) return;
-    if (!username.trim()) {
-      toast.error("请输入用户名");
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (submitInProgress.current || (isRegister && !signupEnabled)) return;
+    const errors = validateAuthFields({ account: username, password, confirmPassword }, isRegister);
+    setFieldErrors(errors);
+    setSubmitError("");
+    const firstInvalid = Object.keys(errors)[0];
+    if (firstInvalid) {
+      formRef.current?.querySelector<HTMLInputElement>(`[name="${firstInvalid}"]`)?.focus();
       return;
     }
-    if (!password) {
-      toast.error("请输入密码");
-      return;
-    }
+    submitInProgress.current = true;
     setFormLoading(true);
     try {
-      if (isRegister) {
-        if (password !== confirmPassword) {
-          toast.error("两次输入的密码不一致");
-          return;
-        }
-        await register({ username: username.trim(), password, displayName: displayName.trim() || undefined });
-        toast.success("注册成功，请登录");
-        navigate(`/login${nextQuery}`);
-      } else {
-        const result = await login(username.trim(), password, remember);
-        await refreshUser();
-        navigate(nextPath || defaultAuthPathForRole(result.user.role), { replace: true });
-      }
+      const result = isRegister
+        ? await register({ username, password, displayName, remember })
+        : await login(username.trim(), password, remember);
+      await refreshUser();
+      if (isRegister) toast.success("注册成功，欢迎来到 AI 漫工坊");
+      navigate(nextPath || defaultAuthPathForRole(result.user.role), { replace: true });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "操作失败，请重试");
+      setSubmitError(authErrorMessage(err));
     } finally {
       setFormLoading(false);
+      submitInProgress.current = false;
     }
   }
 
   return (
-    <main className={`auth-page ${isV2 ? "v2" : ""}`}>
+    <main className={`auth-page${isRegister ? " is-register" : ""}${isV2 ? " v2" : ""}`}>
       <section className="auth-story">
         <div className="auth-brand">
           <i>
@@ -97,7 +112,7 @@ export function AuthView() {
           <h1>{isV2 ? <>连接你的<br />无限创作画布。</> : <>让每一张关键帧<br />都有下一镜。</>}</h1>
           <p>{isV2 ? "在共享工作面里同步画布、构图和导出任务。" : "在同一张工作桌上组织剧本、资产、镜头和等待落地的生成任务。"}</p>
         </div>
-        <div className="auth-scene">
+        <div className="auth-scene" aria-hidden="true">
           <span className="auth-card first" />
           <span className="auth-card second" />
           <i />
@@ -105,78 +120,73 @@ export function AuthView() {
         <footer>系统公告：渲染队列目前运行稳定 · 14:20</footer>
       </section>
       <section className="auth-form-wrap">
-        <div className="auth-form">
+        <form className="auth-form" ref={formRef} onSubmit={handleSubmit} noValidate aria-busy={formLoading}>
           <p className="eyebrow">{isRegister ? "CREATE ACCOUNT" : isV2 ? "GLACIER SESSION" : "WELCOME BACK"}</p>
-          <h2>{isRegister ? "建立你的工作桌" : isV2 ? "进入共享画布" : "回到分镜室"}</h2>
+          <h2>{isRegister ? "创建你的账号" : isV2 ? "进入共享画布" : "回到分镜室"}</h2>
           <p className="auth-subline">
             {isRegister
-              ? "创建账户后即可开始组织个人创作空间。"
+              ? "完成注册，即可进入你的个人创作工作台。"
               : isV2
                 ? "确认身份后继续上一段协作会话。"
                 : "输入账户信息，继续上一次的创作现场。"}
           </p>
-          {isRegister && (
-            <label>
-              显示名称
-              <input placeholder="例如：林叙" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-            </label>
-          )}
-          <label>
-            用户名
-            <input placeholder="输入用户名" value={username} onChange={(e) => setUsername(e.target.value)} />
-          </label>
-          <label>
-            密码
-            <div className="password-field">
-              <input
-                type="password"
-                placeholder="输入密码"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <Eye size={16} />
-            </div>
-          </label>
-          {isRegister && (
-            <label>
-              确认密码
-              <div className="password-field">
-                <input
-                  type="password"
-                  placeholder="再次输入密码"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                />
-                <Eye size={16} />
+          {isRegister && signupNotice && <div className="auth-notice" role={healthQuery.isError ? "alert" : "status"}>
+            <p>{signupNotice}</p>
+            {!healthQuery.isPending && <button type="button" disabled={healthQuery.isFetching} onClick={() => void healthQuery.refetch()}>重新检查</button>}
+          </div>}
+          <fieldset className="auth-fields" disabled={formLoading}>
+            {isRegister && <div className="auth-field">
+              <label htmlFor="auth-display-name">用户名 <span className="auth-optional">选填</span></label>
+              <div className="auth-input-wrap"><UserRound size={16} aria-hidden="true" /><input id="auth-display-name" name="displayName" autoComplete="nickname" placeholder="在工作台中显示的名字" value={displayName} onChange={event => setDisplayName(event.target.value)} /></div>
+            </div>}
+            <div className="auth-field">
+              <label htmlFor="auth-account">账号</label>
+              <div className="auth-input-wrap"><UserRound size={16} aria-hidden="true" />
+                <input id="auth-account" name="account" required autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={isRegister ? AUTH_ACCOUNT_MAX_LENGTH : undefined}
+                  placeholder={isRegister ? "例如：artist01" : "输入账号"} value={username}
+                  aria-invalid={Boolean(fieldErrors.account)} aria-describedby={fieldErrors.account ? "auth-account-error" : isRegister ? "auth-account-hint" : undefined}
+                  onChange={event => { setUsername(event.target.value); clearFieldError("account"); }} />
               </div>
-            </label>
-          )}
-          {!isRegister && (
+              {fieldErrors.account ? <p id="auth-account-error" className="auth-field-error">{fieldErrors.account}</p> : isRegister && <p id="auth-account-hint" className="auth-field-hint">{AUTH_ACCOUNT_MIN_LENGTH}–{AUTH_ACCOUNT_MAX_LENGTH} 位，支持英文、数字及 _ . -</p>}
+            </div>
+            <div className="auth-field">
+              <label htmlFor="auth-password">密码</label>
+              <div className="auth-input-wrap"><LockKeyhole size={16} aria-hidden="true" />
+                <input id="auth-password" name="password" required type={showPassword ? "text" : "password"} autoComplete={isRegister ? "new-password" : "current-password"}
+                  placeholder={isRegister ? `设置密码，至少 ${AUTH_PASSWORD_MIN_LENGTH} 位` : "输入密码"} value={password}
+                  aria-invalid={Boolean(fieldErrors.password)} aria-describedby={fieldErrors.password ? "auth-password-error" : undefined}
+                  onChange={event => { setPassword(event.target.value); clearFieldError("password"); }} />
+                <button className="auth-password-toggle" type="button" aria-label={showPassword ? "隐藏密码" : "显示密码"} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+              </div>
+              {fieldErrors.password && <p id="auth-password-error" className="auth-field-error">{fieldErrors.password}</p>}
+            </div>
+            {isRegister && <div className="auth-field">
+              <label htmlFor="auth-confirm-password">确认密码</label>
+              <div className="auth-input-wrap"><LockKeyhole size={16} aria-hidden="true" />
+                <input id="auth-confirm-password" name="confirmPassword" required type={showConfirmPassword ? "text" : "password"} autoComplete="new-password" placeholder="再次输入密码" value={confirmPassword}
+                  aria-invalid={Boolean(fieldErrors.confirmPassword)} aria-describedby={fieldErrors.confirmPassword ? "auth-confirm-error" : undefined}
+                  onChange={event => { setConfirmPassword(event.target.value); clearFieldError("confirmPassword"); }} />
+                <button className="auth-password-toggle" type="button" aria-label={showConfirmPassword ? "隐藏确认密码" : "显示确认密码"} aria-pressed={showConfirmPassword} onClick={() => setShowConfirmPassword(!showConfirmPassword)}>{showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+              </div>
+              {fieldErrors.confirmPassword && <p id="auth-confirm-error" className="auth-field-error">{fieldErrors.confirmPassword}</p>}
+            </div>}
+          </fieldset>
             <div className="remember-line">
-              <button
-                type="button"
-                className={`remember-toggle${remember ? " is-on" : ""}`}
-                aria-pressed={remember}
-                onClick={() => setRemember(!remember)}
-              >
-                <span className={remember ? "check-box checked" : "check-box"}>
+              <label className="remember-toggle">
+                <input type="checkbox" checked={remember} disabled={formLoading} onChange={event => setRemember(event.target.checked)} />
+                <span className="check-box" aria-hidden="true">
                   {remember && <Check size={13} strokeWidth={3} />}
                 </span>
-                <span>记住本次登录</span>
-              </button>
-              <button type="button" onClick={() => toast.info("密码重置将在正式系统中发送邮件")}>忘记密码？</button>
+                <span>记住登录和账号</span>
+              </label>
+              {!isRegister && <button className="auth-forgot" type="button" onClick={() => toast.info("请联系管理员重置密码")}>忘记密码？</button>}
             </div>
-          )}
-          <button type="button" className="auth-submit" disabled={formLoading} onClick={handleSubmit}>
-            {isRegister ? "创建账户" : isV2 ? "连接工作面" : "进入工作台"} <ChevronRight size={17} />
+          {submitError && <p className="auth-submit-error" role="alert">{submitError}</p>}
+          <button type="submit" className="auth-submit" disabled={formLoading || (isRegister && !signupEnabled)}>
+            {formLoading ? <><Loader2 size={17} className="spin" aria-hidden="true" />{isRegister ? "正在创建账号…" : "正在登录…"}</> : <>{isRegister && <UserRoundPlus size={17} aria-hidden="true" />}{isRegister ? "注册并进入工作台" : isV2 ? "连接工作面" : "进入工作台"}<ChevronRight size={17} aria-hidden="true" /></>}
           </button>
-          <div className="auth-switch">
-            {isRegister ? "已有账户？" : signupEnabled ? "首次使用？" : "注册由管理员开通。"}
-            {(isRegister || signupEnabled) && <button onClick={() => navigate(isRegister ? `/login${nextQuery}` : `/register${nextQuery}`)}>
-              {isRegister ? "去登录" : "创建账户"}
-            </button>}
-          </div>
-        </div>
+          {isRegister ? <div className="auth-switch">已有账号？<a href={`/login${nextQuery}`}>返回登录</a></div> : <a className="auth-register-link" href={`/register${nextQuery}`}><UserRoundPlus size={16} aria-hidden="true" />注册账号</a>}
+        </form>
       </section>
     </main>
   );
@@ -184,7 +194,7 @@ export function AuthView() {
 
 function safeAuthNext(value: string | null) {
   if (!value) return "";
-  if (!value.startsWith("/") || value.startsWith("//")) return "";
+  if (!value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return "";
   if (value.startsWith("/login") || value.startsWith("/register") || value.startsWith("/v2-login")) return "";
   return value;
 }
