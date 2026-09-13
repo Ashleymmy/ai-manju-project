@@ -99,8 +99,8 @@ export function listTagAssets(
   );
 }
 
-export function getAssetFolders(scope: WorkspaceScope = "personal") {
-  return request<AssetFolder[]>("/api/asset-folders", { query: { scope } });
+export function getAssetFolders(scope: WorkspaceScope = "personal", signal?: AbortSignal) {
+  return request<AssetFolder[]>("/api/asset-folders", { query: { scope }, signal });
 }
 
 export function createAssetFolder(

@@ -13,11 +13,13 @@ const (
 	AssetFolderSystemKeyImageWorkbenchMonth = "image_workbench_month"
 	AssetFolderSystemKeyCanvas              = "canvas"
 	AssetFolderSystemKeyCanvasProject       = "canvas_project"
-	AssetFolderSystemKeyCanvasUnassigned    = "canvas_unassigned"
-	AssetFolderSystemKeyCanvasProjectDate   = "canvas_project_date"
-	AssetFolderSystemKeyComic               = "comic"
-	AssetFolderSystemKeyComicProject        = "comic_project"
-	AssetFolderSystemKeyComicCategory       = "comic_category"
+	// Canvas categories have stable identities beneath their linked project folder.
+	AssetFolderSystemKeyCanvasCategory    = "canvas_category"
+	AssetFolderSystemKeyCanvasUnassigned  = "canvas_unassigned"
+	AssetFolderSystemKeyCanvasProjectDate = "canvas_project_date"
+	AssetFolderSystemKeyComic             = "comic"
+	AssetFolderSystemKeyComicProject      = "comic_project"
+	AssetFolderSystemKeyComicCategory     = "comic_category"
 
 	AssetCategoryCharacter   = "character"
 	AssetCategoryEnvironment = "environment"

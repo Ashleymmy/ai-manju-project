@@ -7,6 +7,7 @@ import (
 	"errors"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,12 +17,37 @@ import (
 
 var ErrTitleRequired = errors.New("title is required")
 
+// DefaultCanvasTitle is the creation placeholder; the server appends a free
+// positive number within the canvas's workspace before persisting it.
+const DefaultCanvasTitle = "未命名画布"
+
 type ProjectService struct {
 	repo       repository.ProjectRepository
 	references repository.AssetReferenceRepository
+	folders    *AssetFolderService
 	assetUsage interface {
 		RecordReference(workspaceID string, userID string, referenceType string, referenceID string, assetIDs []string) error
 	}
+}
+
+func (s *ProjectService) SetAssetFolderService(folders *AssetFolderService) {
+	s.folders = folders
+}
+
+func (s *ProjectService) withWorkspaceTransaction(workspaceID string, fn func(repository.ProjectRepository, *AssetFolderService) error) error {
+	var folders repository.AssetFolderRepository
+	if s.folders != nil {
+		folders = s.folders.folders
+	}
+	return s.repo.WithWorkspaceTransaction(workspaceID, folders, func(projects repository.ProjectRepository, folderRepo repository.AssetFolderRepository) error {
+		var folderService *AssetFolderService
+		if s.folders != nil {
+			copy := *s.folders
+			copy.folders = folderRepo
+			folderService = &copy
+		}
+		return fn(projects, folderService)
+	})
 }
 
 func (s *ProjectService) SetAssetReferenceRepository(references repository.AssetReferenceRepository) {
@@ -55,7 +81,24 @@ func (s *ProjectService) List(userID string, scope string) ([]model.Project, err
 }
 
 func (s *ProjectService) Get(id string, userID string, scope string) (model.Project, error) {
-	return s.repo.GetByWorkspace(id, WorkspaceIDForScope(scope, userID))
+	workspaceID := WorkspaceIDForScope(scope, userID)
+	if s.folders == nil {
+		return s.repo.GetByWorkspace(id, workspaceID)
+	}
+	var project model.Project
+	err := s.withWorkspaceTransaction(workspaceID, func(repo repository.ProjectRepository, folders *AssetFolderService) error {
+		var err error
+		project, err = repo.GetByWorkspace(id, workspaceID)
+		if err != nil {
+			return err
+		}
+		// Older canvases predate linked folders. Opening one provisions the same
+		// stable tree as creation, without renaming the canvas or changing its data.
+		folderProject := project
+		folderProject.WorkspaceID = workspaceID
+		return folders.ensureCanvasProjectFolders(folderProject)
+	})
+	return project, err
 }
 
 func (s *ProjectService) Create(userID string, scope string, input CreateProjectInput) (model.Project, error) {
@@ -64,28 +107,47 @@ func (s *ProjectService) Create(userID string, scope string, input CreateProject
 		return model.Project{}, ErrTitleRequired
 	}
 
-	project, err := s.repo.Create(model.Project{
-		ID:          "proj_" + randomHex(8),
-		Title:       title,
-		OwnerID:     userID,
-		WorkspaceID: WorkspaceIDForScope(scope, userID),
-		Data:        NormalizeJSON(input.Data),
+	workspaceID := WorkspaceIDForScope(scope, userID)
+	var project model.Project
+	err := s.withWorkspaceTransaction(workspaceID, func(repo repository.ProjectRepository, folders *AssetFolderService) error {
+		if title == DefaultCanvasTitle {
+			var err error
+			title, err = nextDefaultCanvasTitle(repo, folders, workspaceID)
+			if err != nil {
+				return err
+			}
+		}
+		var err error
+		project, err = repo.Create(model.Project{
+			ID:          "proj_" + randomHex(8),
+			Title:       title,
+			OwnerID:     userID,
+			WorkspaceID: workspaceID,
+			Data:        NormalizeJSON(input.Data),
+		})
+		if err != nil {
+			return err
+		}
+
+		// 创建请求携带画布数据时立即写入版本化快照，确保 Memory 与 GORM
+		// 在后续 GET project/snapshot 时都能恢复同一份初始画布。
+		if input.Data != nil {
+			snapshot, snapshotErr := repo.UpsertSnapshotByWorkspace(model.CanvasSnapshot{
+				ProjectID: project.ID,
+				Data:      project.Data,
+			}, project.WorkspaceID)
+			if snapshotErr != nil {
+				return snapshotErr
+			}
+			project.Data = snapshot.Data
+		}
+		if folders != nil {
+			return folders.ensureCanvasProjectFolders(project)
+		}
+		return nil
 	})
 	if err != nil {
-		return project, err
-	}
-
-	// 创建请求携带画布数据时立即写入版本化快照，确保 Memory 与 GORM
-	// 在后续 GET project/snapshot 时都能恢复同一份初始画布。
-	if input.Data != nil {
-		snapshot, snapshotErr := s.repo.UpsertSnapshotByWorkspace(model.CanvasSnapshot{
-			ProjectID: project.ID,
-			Data:      project.Data,
-		}, project.WorkspaceID)
-		if snapshotErr != nil {
-			return project, snapshotErr
-		}
-		project.Data = snapshot.Data
+		return model.Project{}, err
 	}
 
 	if err := s.replaceCanvasAssetReferences(project.WorkspaceID, userID, project.ID, project.Data); err != nil {
@@ -96,30 +158,72 @@ func (s *ProjectService) Create(userID string, scope string, input CreateProject
 
 func (s *ProjectService) Update(id string, userID string, scope string, input UpdateProjectInput) (model.Project, error) {
 	workspaceID := WorkspaceIDForScope(scope, userID)
-	current, err := s.repo.GetByWorkspace(id, workspaceID)
+	var updated model.Project
+	err := s.withWorkspaceTransaction(workspaceID, func(repo repository.ProjectRepository, folders *AssetFolderService) error {
+		current, err := repo.GetByWorkspace(id, workspaceID)
+		if err != nil {
+			return err
+		}
+
+		if input.Title != nil {
+			title := strings.TrimSpace(*input.Title)
+			if title == "" {
+				return ErrTitleRequired
+			}
+			current.Title = title
+		}
+		if input.Data != nil {
+			current.Data = NormalizeJSON(input.Data)
+		}
+		if input.CoverAssetID != nil {
+			current.CoverAssetID = strings.TrimSpace(*input.CoverAssetID)
+		}
+
+		updated, err = repo.UpdateByWorkspace(current, workspaceID)
+		if err != nil {
+			return err
+		}
+		if folders != nil && input.Title != nil {
+			return folders.ensureCanvasProjectFolders(updated)
+		}
+		return nil
+	})
 	if err != nil {
 		return model.Project{}, err
 	}
-
-	if input.Title != nil {
-		title := strings.TrimSpace(*input.Title)
-		if title == "" {
-			return model.Project{}, ErrTitleRequired
-		}
-		current.Title = title
-	}
-	if input.Data != nil {
-		current.Data = NormalizeJSON(input.Data)
-	}
-	if input.CoverAssetID != nil {
-		current.CoverAssetID = strings.TrimSpace(*input.CoverAssetID)
-	}
-
-	updated, err := s.repo.UpdateByWorkspace(current, workspaceID)
 	if err == nil && input.Data != nil {
 		err = s.replaceCanvasAssetReferences(workspaceID, userID, updated.ID, updated.Data)
 	}
 	return updated, err
+}
+
+func nextDefaultCanvasTitle(repo repository.ProjectRepository, folders *AssetFolderService, workspaceID string) (string, error) {
+	projects, err := repo.ListByWorkspace(workspaceID)
+	if err != nil {
+		return "", err
+	}
+	used := make(map[string]bool, len(projects))
+	for _, project := range projects {
+		used[project.Title] = true
+	}
+	if folders != nil {
+		items, err := folders.folders.ListByWorkspace(workspaceID)
+		if err != nil {
+			return "", err
+		}
+		for _, folder := range items {
+			// Deleted canvases may still have archived assets. Reserve those names too.
+			if folder.SystemKey == model.AssetFolderSystemKeyCanvasProject {
+				used[folder.Name] = true
+			}
+		}
+	}
+	for number := 1; ; number++ {
+		title := DefaultCanvasTitle + strconv.Itoa(number)
+		if !used[title] {
+			return title, nil
+		}
+	}
 }
 
 func (s *ProjectService) Delete(id string, userID string, scope string) error {

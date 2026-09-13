@@ -12,6 +12,9 @@ import (
 var ErrNotFound = errors.New("project not found")
 
 type ProjectRepository interface {
+	// WithWorkspaceTransaction serializes canvas mutations and commits projects,
+	// snapshots and linked asset folders together. The callback uses only its repositories.
+	WithWorkspaceTransaction(workspaceID string, folders AssetFolderRepository, fn func(ProjectRepository, AssetFolderRepository) error) error
 	List() ([]model.Project, error)
 	ListByOwner(ownerID string) ([]model.Project, error)
 	ListByWorkspace(workspaceID string) ([]model.Project, error)
