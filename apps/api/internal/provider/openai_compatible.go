@@ -1332,6 +1332,7 @@ func (c *OpenAICompatibleClient) ProxyBlob(ctx context.Context, method string, p
 		return nil, "", err
 	}
 
+	u = c.applyAuthQueryParam(u)
 	var reader io.Reader
 	if body != nil {
 		payload, err := json.Marshal(body)
@@ -1349,6 +1350,7 @@ func (c *OpenAICompatibleClient) ProxyBlob(ctx context.Context, method string, p
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	c.applyExtraHeaders(req)
 	if c.apiKey != "" {
 		c.applyAuthHeaders(req)
 	}
@@ -1365,6 +1367,14 @@ func (c *OpenAICompatibleClient) ProxyBlob(ctx context.Context, method string, p
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return nil, "", &ProviderHTTPError{Method: method, URL: u, StatusCode: res.StatusCode, Body: string(responseBody)}
+	}
+	// Some speech suppliers report errors in a successful JSON envelope.
+	if json.Valid(responseBody) {
+		var value any
+		_ = json.Unmarshal(responseBody, &value)
+		if message := providerPayloadErrorMessage(value); message != "" {
+			return nil, "", errors.New(message)
+		}
 	}
 	return responseBody, res.Header.Get("Content-Type"), nil
 }

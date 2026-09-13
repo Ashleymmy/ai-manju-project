@@ -92,6 +92,10 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 		return EnqueueJobResult{Job: existing, Created: false}, nil
 	}
 
+	maxAttempts := s.maxAttempts
+	if candidates, ok := input.TaskKwargs["provider_candidates"].([]map[string]any); ok && len(candidates) > 0 {
+		maxAttempts = model.GenerationAttemptsPerProvider * len(candidates)
+	}
 	job := model.Job{
 		ID:             "job_" + randomHex(12),
 		IdempotencyKey: idempotencyKey,
@@ -102,7 +106,7 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 		Payload:        payload,
 		Result:         model.JSONB("{}"),
 		Error:          model.JSONB("{}"),
-		MaxAttempts:    s.maxAttempts,
+		MaxAttempts:    maxAttempts,
 		Progress:       0,
 	}
 	created, err := s.repo.Create(job)

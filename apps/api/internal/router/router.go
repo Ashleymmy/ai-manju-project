@@ -134,6 +134,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	seedanceAssetService := service.NewSeedanceAssetService(repos.modelProviderRepo, repos.seedanceAssetRepo, secretBox, assetStore, cfg.PublicAssetBaseURL)
 	aiHandler := handler.NewAIHandler(modelProviderHandler, jobService, repos.monitoringRepo)
 	aiHandler.SetJobInputService(jobInputService)
+	aiHandler.SetGenerationAssetService(assetService)
 	aiHandler.SetAssetFolderService(assetFolderService)
 	aiHandler.SetSeedanceMaterialService(materialService)
 	aiHandler.SetSeedanceAssetService(seedanceAssetService)

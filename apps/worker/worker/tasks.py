@@ -8,9 +8,10 @@ from celery import Celery, Task
 
 from .assets import register_result_assets
 from .config import load_settings
-from .db import JOB_STATUS_CANCELED, JOB_STATUS_SUCCEEDED, JobStore, json_compatible
+from .db import JOB_STATUS_CANCELED, JOB_STATUS_FAILED, JOB_STATUS_SUCCEEDED, JobStore, json_compatible
 from .errors import SafeTaskError, error_payload, job_canceled_error
-from .provider import edit_image, generate_image
+from .generation_failover import PROVIDER_CANDIDATES_FIELD, generation_attempt, is_provider_failure, unavailable_error
+from .provider import edit_image, generate_image, provider_has_remote
 from .provider_gate import ProviderGate, provider_gate_from_payload
 from .staged_inputs import JOB_WORKSPACE_FIELD, cleanup_staged_inputs
 from .video import generate_video, transcode_video
@@ -107,8 +108,11 @@ def extract_request(args: tuple[Any, ...], kwargs: dict[str, Any]) -> tuple[str,
         raw_payload = {}
     if not isinstance(raw_payload, dict):
         raise SafeTaskError("payload must be a JSON object", code="invalid_payload", retryable=False)
-    if isinstance(kwargs.get("provider"), dict) and "provider" not in raw_payload:
+    raw_payload = {key: value for key, value in raw_payload.items() if key not in ("provider_candidates", PROVIDER_CANDIDATES_FIELD)}
+    if isinstance(kwargs.get("provider"), dict):
         raw_payload = {**raw_payload, "provider": kwargs["provider"]}
+    if isinstance(kwargs.get("provider_candidates"), list):
+        raw_payload[PROVIDER_CANDIDATES_FIELD] = kwargs["provider_candidates"]
     return job_id, raw_payload
 
 
@@ -127,11 +131,12 @@ def execute_job(
         job = store.get_job(job_id)
         if job is None:
             raise SafeTaskError("job not found", code="job_not_found", retryable=False)
-        if job["status"] == JOB_STATUS_SUCCEEDED:
+        payload, generation_max_attempts = generation_attempt(payload, int(job.get("attempts") or 0))
+        if job["status"] in (JOB_STATUS_SUCCEEDED, JOB_STATUS_FAILED):
             remove_provider_waiter(payload, job, job_id)
             cleanup_job_inputs(payload, job, job_id)
-            log_job("job_skipped", job_id, status=JOB_STATUS_SUCCEEDED)
-            return {"job_id": job_id, "status": JOB_STATUS_SUCCEEDED, "skipped": True}
+            log_job("job_skipped", job_id, status=job["status"])
+            return {"job_id": job_id, "status": job["status"], "skipped": True}
         if job["status"] == JOB_STATUS_CANCELED:
             remove_provider_waiter(payload, job, job_id)
             cleanup_job_inputs(payload, job, job_id)
@@ -190,6 +195,7 @@ def execute_job(
                 gate.release(job_id)
                 gate = None
             raise
+        generation_completed = False
         try:
             execution_payload = {**payload, JOB_WORKSPACE_FIELD: str(job.get("workspace_id") or "")}
 
@@ -200,7 +206,11 @@ def execute_job(
                     if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
                         raise job_canceled_error()
 
+            update_progress(5)
+            if generation_max_attempts and not provider_has_remote(payload.get("provider")):
+                raise SafeTaskError("generation provider is not configured", code="provider_not_configured", retryable=False)
             result = executor(job_id, execution_payload, settings, update_progress)
+            generation_completed = True
             current = store.get_job(job_id)
             if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
                 cleanup_job_inputs(payload, job, job_id)
@@ -220,7 +230,7 @@ def execute_job(
             return {"job_id": job_id, "status": JOB_STATUS_SUCCEEDED, "result": result}
         except Exception as exc:
             current = store.get_job(job_id)
-            if isinstance(exc, SafeTaskError) and exc.code == "job_canceled" and isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
+            if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
                 cleanup_job_inputs(payload, job, job_id)
                 log_job("job_canceled", job_id)
                 return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
@@ -230,8 +240,12 @@ def execute_job(
                     gate.set_cooldown(exc.retry_after_seconds or retry_countdown(int(job.get("attempts") or 0)))
                 except Exception as cooldown_exc:
                     log_job("provider_gate_cooldown_failed", job_id, error=str(cooldown_exc)[:240])
-            if should_retry(job, exc):
-                payload_error["next_retry"] = int(job.get("attempts") or 0) + 1
+            attempts = int(job.get("attempts") or 0)
+            generation_retry = bool(generation_max_attempts and not generation_completed and is_provider_failure(exc))
+            retry = (generation_retry and attempts < generation_max_attempts - 1) if generation_max_attempts else (not generation_completed and should_retry(job, exc))
+            if retry:
+                # Intermediate upstream errors and supplier identities are private.
+                payload_error = {} if generation_max_attempts else {**payload_error, "next_retry": attempts + 1}
                 stored = store.record_retry(job_id, payload_error)
                 if stored is None:
                     current = store.get_job(job_id)
@@ -239,12 +253,15 @@ def execute_job(
                         cleanup_job_inputs(payload, job, job_id)
                         log_job("job_canceled", job_id)
                         return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
-                log_job("job_retry", job_id, error=payload_error.get("message"), retry=payload_error["next_retry"])
+                log_job("job_retry", job_id, retry=attempts + 1)
                 raise task.retry(
-                    exc=exc,
+                    exc=SafeTaskError("generation pending", code="generation_pending") if generation_max_attempts else exc,
                     countdown=retry_after_seconds(exc, int(job.get("attempts") or 0)),
                     max_retries=100000,
                 )
+            if generation_max_attempts:
+                exc = unavailable_error() if generation_retry else SafeTaskError("任务处理失败，请稍后重试", code="generation_processing_failed", retryable=False)
+                payload_error = error_payload(exc)
             stored = store.set_error(job_id, payload_error)
             if stored is None:
                 current = store.get_job(job_id)
@@ -254,7 +271,7 @@ def execute_job(
                     return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
             cleanup_job_inputs(payload, job, job_id)
             log_job("job_failed", job_id, error=payload_error.get("message"), code=payload_error.get("code"))
-            raise
+            raise exc
         finally:
             if gate is not None:
                 try:

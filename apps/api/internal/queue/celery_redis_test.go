@@ -48,3 +48,18 @@ func TestCeleryMessagePayloadUsesV2Envelope(t *testing.T) {
 		t.Fatalf("kwargs = %+v", kwargs)
 	}
 }
+
+func TestGenerationDeliveryGetsExtendedTimeLimits(t *testing.T) {
+	payload, err := celeryMessagePayload(TaskMessage{JobID: "job_time", Kwargs: map[string]any{"generation_soft_timeout_seconds": 1200}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	limits := envelope["headers"].(map[string]any)["timelimit"].([]any)
+	if limits[0] != float64(1260) || limits[1] != float64(1200) {
+		t.Fatalf("limits=%v", limits)
+	}
+}

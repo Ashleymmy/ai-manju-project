@@ -49,14 +49,15 @@ const (
 )
 
 type AIHandler struct {
-	providerHandler *ModelProviderHandler
-	monitoringRepo  repository.MonitoringRepository
-	ai              *service.AIService
-	jobs            *service.JobService
-	jobInputs       *service.JobInputService
-	materials       *service.SeedanceMaterialService
-	seedanceAssets  *service.SeedanceAssetService
-	assetFolders    *service.AssetFolderService
+	providerHandler  *ModelProviderHandler
+	monitoringRepo   repository.MonitoringRepository
+	ai               *service.AIService
+	jobs             *service.JobService
+	jobInputs        *service.JobInputService
+	materials        *service.SeedanceMaterialService
+	seedanceAssets   *service.SeedanceAssetService
+	assetFolders     *service.AssetFolderService
+	generationAssets *service.AssetService
 }
 
 func NewAIHandler(providerHandler *ModelProviderHandler, jobService *service.JobService, monitoringRepo ...repository.MonitoringRepository) *AIHandler {
@@ -143,16 +144,16 @@ func (h *AIHandler) Text(c *gin.Context) {
 		inputCount = 1
 	}
 
-	client, config, modelID, ok := h.providerHandler.LoadClientForModel(c, model.ModelCapabilityText, req.Model)
+	candidates, ok := h.providerHandler.LoadGenerationCandidates(c, model.ModelCapabilityText, req.Model)
 	if !ok {
 		return
 	}
 
-	req.Model = modelID
-	text, err := client.GenerateTextRequest(c.Request.Context(), req)
+	modelID := candidates[0].Model
+	text, config, err := generateTextWithCandidates(c.Request.Context(), candidates, req)
 	if err != nil {
 		h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: config, Operation: "text", Model: modelID, InputCount: inputCount, OutputCount: 0, Err: err})
-		writeProviderError(c, config.BaseURL, err)
+		response.Error(c, http.StatusBadGateway, errGenerationUnavailable.Error())
 		return
 	}
 	outputCount := len(text.ToolCalls)
@@ -198,10 +199,11 @@ func (h *AIHandler) ImageGenerations(c *gin.Context) {
 	delete(imageRequest.Extra, "asset_context")
 	delete(imageRequest.Extra, "asset_registration")
 
-	config, apiKey, modelID, ok := h.providerHandler.LoadConfigForModel(c, model.ModelCapabilityImage, imageRequest.Model)
+	candidates, ok := h.providerHandler.LoadGenerationCandidates(c, model.ModelCapabilityImage, imageRequest.Model)
 	if !ok {
 		return
 	}
+	config, modelID := candidates[0].Config, candidates[0].Model
 	if modelID == "" {
 		writeProviderError(c, config.BaseURL, provider.ErrImageModelNotConfigured)
 		return
@@ -214,7 +216,7 @@ func (h *AIHandler) ImageGenerations(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	jobResult, err := h.enqueueAIJob(c, model.JobTypeImageGenerate, payload, imageProviderJobKwargs(config, apiKey, modelID, "generate", h.providerHandler.gateSecret))
+	jobResult, err := h.enqueueAIJob(c, model.JobTypeImageGenerate, payload, h.generationJobKwargs(candidates, "generate"))
 	job := jobResult.Job
 	if err != nil {
 		h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: config, Operation: "image_generation", Model: modelID, InputCount: 1, OutputCount: requestedImageCount(imageRequest.N), Err: err})
@@ -254,10 +256,11 @@ func (h *AIHandler) ImageEdits(c *gin.Context) {
 	delete(editRequest.Extra, "asset_context")
 	delete(editRequest.Extra, "asset_registration")
 
-	config, apiKey, modelID, ok := h.providerHandler.LoadConfigForModel(c, model.ModelCapabilityImage, editRequest.Model)
+	candidates, ok := h.providerHandler.LoadGenerationCandidates(c, model.ModelCapabilityImage, editRequest.Model)
 	if !ok {
 		return
 	}
+	config, modelID := candidates[0].Config, candidates[0].Model
 	if modelID == "" {
 		writeProviderError(c, config.BaseURL, provider.ErrImageModelNotConfigured)
 		return
@@ -284,7 +287,7 @@ func (h *AIHandler) ImageEdits(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	jobResult, err := h.enqueueAIJob(c, model.JobTypeImageEdit, payload, imageProviderJobKwargs(config, apiKey, modelID, "edit", h.providerHandler.gateSecret), fingerprintPayload)
+	jobResult, err := h.enqueueAIJob(c, model.JobTypeImageEdit, payload, h.generationJobKwargs(candidates, "edit"), fingerprintPayload)
 	job := jobResult.Job
 	if err != nil || !jobResult.Created {
 		h.cleanupStagedInputs(c, workspaceID, stagedInputs)
@@ -375,17 +378,19 @@ func (h *AIHandler) VideoTaskCreate(c *gin.Context) {
 		return
 	}
 	requestedModel := stringFromAny(payloadMap["model"])
-	config, apiKey, modelID, ok := h.providerHandler.LoadConfigForModel(c, model.ModelCapabilityVideo, requestedModel)
+	candidates, ok := h.providerHandler.LoadGenerationCandidates(c, model.ModelCapabilityVideo, requestedModel)
 	if !ok {
 		h.cleanupStagedInputs(c, workspaceID, stagedInputs)
 		return
 	}
+	config, modelID := candidates[0].Config, candidates[0].Model
 	if modelID == "" {
 		h.cleanupStagedInputs(c, workspaceID, stagedInputs)
 		writeProviderError(c, config.BaseURL, errors.New("video model is not configured"))
 		return
 	}
 	payloadMap["model"] = modelID
+	removeGenerationPrivateFields(payloadMap)
 	payload, err := marshalJSONB(payloadMap)
 	if err != nil {
 		h.cleanupStagedInputs(c, workspaceID, stagedInputs)
@@ -401,7 +406,7 @@ func (h *AIHandler) VideoTaskCreate(c *gin.Context) {
 			return
 		}
 	}
-	jobResult, err := h.enqueueAIJob(c, model.JobTypeVideoGenerate, payload, providerJobKwargs(config, apiKey, modelID, "/videos", h.providerHandler.gateSecret), fingerprintPayload)
+	jobResult, err := h.enqueueAIJob(c, model.JobTypeVideoGenerate, payload, h.generationJobKwargs(candidates, "video"), fingerprintPayload)
 	job := jobResult.Job
 	if err != nil || !jobResult.Created {
 		h.cleanupStagedInputs(c, workspaceID, stagedInputs)
@@ -450,10 +455,16 @@ func aiJobResponse(job model.Job) gin.H {
 }
 
 func (h *AIHandler) VideoTaskGet(c *gin.Context) {
+	if h.serveGenerationVideoJob(c, false) {
+		return
+	}
 	h.proxyProviderJSON(c, http.MethodGet, "/videos/"+url.PathEscape(c.Param("id")), nil, false, model.ModelCapabilityVideo, c.Query("model"))
 }
 
 func (h *AIHandler) VideoTaskContent(c *gin.Context) {
+	if h.serveGenerationVideoJob(c, true) {
+		return
+	}
 	client, config, _, ok := h.providerHandler.LoadClientForModel(c, model.ModelCapabilityVideo, c.Query("model"))
 	if !ok {
 		return
@@ -479,33 +490,7 @@ func (h *AIHandler) SeedanceTaskCreate(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	requestedModel := stringFromAny(body["model"])
-	if requestedModel == "" {
-		requestedModel = c.Query("model")
-	}
-	config, configOK := h.providerConfigForVideoModel(c, requestedModel)
-	if !configOK {
-		return
-	}
-	if config.ProviderType == model.ModelProviderTypeAliyunYike {
-		client, loadedConfig, modelID, loaded := h.providerHandler.LoadClientForModel(c, model.ModelCapabilityVideo, requestedModel)
-		if !loaded {
-			return
-		}
-		payload, err := yikeVideoRequest(body, modelID)
-		if err != nil {
-			response.Error(c, http.StatusBadRequest, err.Error())
-			return
-		}
-		raw, err := client.ProxyJSON(c.Request.Context(), http.MethodPost, providerProxyPath(loadedConfig, "/contents/generations/tasks"), payload, true)
-		if err != nil {
-			writeProviderError(c, loadedConfig.BaseURL, err)
-			return
-		}
-		response.OK(c, yikeTaskResponse(raw, modelID))
-		return
-	}
-	h.proxyProviderJSON(c, http.MethodPost, "/contents/generations/tasks", body, true, model.ModelCapabilityVideo, requestedModel)
+	h.enqueueNativeVideo(c, body)
 }
 
 func (h *AIHandler) ensureSeedanceAssetsActive(ctx context.Context, payload map[string]any) error {
@@ -529,6 +514,9 @@ func (h *AIHandler) ensureSeedanceAssetsActive(ctx context.Context, payload map[
 }
 
 func (h *AIHandler) SeedanceTaskGet(c *gin.Context) {
+	if h.serveGenerationVideoJob(c, false) {
+		return
+	}
 	requestedModel := c.Query("model")
 	config, configOK := h.providerConfigForVideoModel(c, requestedModel)
 	if !configOK {
@@ -778,6 +766,9 @@ func integerValue(value any, fallback int) int {
 }
 
 func (h *AIHandler) SeedanceTaskContent(c *gin.Context) {
+	if h.serveGenerationVideoJob(c, true) {
+		return
+	}
 	requestedModel := c.Query("model")
 	client, config, _, ok := h.providerHandler.LoadClientForModel(c, model.ModelCapabilityVideo, requestedModel)
 	if !ok {
@@ -802,27 +793,36 @@ func (h *AIHandler) SeedanceTaskContent(c *gin.Context) {
 }
 
 func (h *AIHandler) AudioSpeech(c *gin.Context) {
-	client, config, modelID, ok := h.providerHandler.LoadClientForModel(c, model.ModelCapabilityAudio, "")
-	if !ok {
-		return
-	}
 	var body map[string]any
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if modelID != "" {
-		body["model"] = modelID
-	}
-	content, contentType, err := client.ProxyBlob(c.Request.Context(), http.MethodPost, providerProxyPath(config, "/audio/speech"), body, true)
-	if err != nil {
-		writeProviderError(c, config.BaseURL, err)
+	candidates, ok := h.providerHandler.LoadGenerationCandidates(c, model.ModelCapabilityAudio, stringFromAny(body["model"]))
+	if !ok {
 		return
 	}
-	if strings.TrimSpace(contentType) == "" {
-		contentType = "application/octet-stream"
+	removeGenerationPrivateFields(body)
+	for _, candidate := range candidates {
+		config := candidate.Config
+		config.TimeoutMS = max(config.TimeoutMS, int(model.GenerationMediaRequestTimeout.Milliseconds()))
+		body["model"] = candidate.Model
+		for attempt := 0; attempt < model.GenerationAttemptsPerProvider; attempt++ {
+			if c.Request.Context().Err() != nil {
+				return
+			}
+			client, err := provider.NewOpenAICompatibleClient(config, candidate.APIKey)
+			if err != nil {
+				continue
+			}
+			content, contentType, err := client.ProxyBlob(c.Request.Context(), http.MethodPost, providerProxyPath(config, "/audio/speech"), body, true)
+			if err == nil && len(content) > 0 {
+				c.Data(http.StatusOK, firstNonEmpty(contentType, "application/octet-stream"), content)
+				return
+			}
+		}
 	}
-	c.Data(http.StatusOK, contentType, content)
+	response.Error(c, http.StatusBadGateway, errGenerationUnavailable.Error())
 }
 
 func (h *AIHandler) proxyProviderJSON(c *gin.Context, method string, path string, body any, longRequest bool, capability string, requestedModel string) {
@@ -847,6 +847,7 @@ func imageGenerationJobPayload(req provider.ImageGenerationRequest, modelID stri
 	for key, value := range req.Extra {
 		payload[key] = value
 	}
+	removeGenerationPrivateFields(payload)
 	setStringPayload(payload, "model", modelID)
 	setStringPayload(payload, "prompt", req.Prompt)
 	setStringPayload(payload, "size", req.Size)
@@ -881,6 +882,7 @@ func imageEditJobPayload(req provider.ImageEditRequest, modelID string, files []
 	}
 	payload["files"] = files
 	payload["references"] = files
+	removeGenerationPrivateFields(payload)
 	return payload
 }
 
