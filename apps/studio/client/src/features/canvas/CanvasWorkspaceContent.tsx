@@ -1,3 +1,4 @@
+import { resolveModel } from "@/shared/lib/modelSelection";
 import {
   Archive,
   Check,
@@ -52,10 +53,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  CanvasPopover as Popover,
+  CanvasPopoverContent as PopoverContent,
+  CanvasPopoverTrigger as PopoverTrigger,
+} from "./ui/CanvasPopover";
 import { ApiError, publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 import {
@@ -87,6 +88,7 @@ import {
   type SeedanceAsset,
 } from "@/entities/asset";
 import { cancelJob, getJobs } from "@/entities/job";
+import { canvasGenerationModelOptions, canvasModelName } from "./domain/generationModels";
 import type { PromptPreset } from "@/entities/prompt";
 import { fetchAiModels } from "@/services/api/ai";
 import { audioFormatOptions, audioVoiceOptions } from "@/services/api/audio";
@@ -150,7 +152,7 @@ import {
   extractServerCanvasSnapshotData,
   type CanvasSnapshotBase,
 } from "@/features/canvas/domain/snapshotRoundTrip";
-import { consumeCanvasBootstrap, peekCanvasBootstrap } from "@/lib/canvas-bootstrap";
+import { consumeCanvasBootstrapPayload, peekCanvasBootstrap } from "@/lib/canvas-bootstrap";
 import {
   deleteCanvasNodesAndEdges,
   normalizeCanvasSelectionRect,
@@ -485,7 +487,6 @@ export default function CanvasWorkspaceViewContent() {
   const backgroundMode = useCanvasStore((state) => state.viewport.backgroundMode);
   const setBackgroundMode = canvasCommands.viewport.setBackgroundMode;
   const showImageInfo = useCanvasStore((state) => state.viewport.showImageInfo);
-  const setShowImageInfo = canvasCommands.viewport.setShowImageInfo;
   const loading = useCanvasStore((state) => state.session.loading);
   const setLoading = canvasCommands.session.setLoading;
   const saving = useCanvasStore((state) => state.session.saving);
@@ -522,6 +523,7 @@ export default function CanvasWorkspaceViewContent() {
   // 聊天台引导流程：覆盖层从首屏接管（步骤2），用户输入原文在加载完成后交接给 Agent 面板（步骤5）
   const [bootstrapActive, setBootstrapActive] = useState(() => Boolean(projectId && peekCanvasBootstrap(projectId)));
   const [initialPrompt, setInitialPrompt] = useState("");
+  const [initialModel, setInitialModel] = useState("");
   const bootstrapPromptRef = useRef("");
   const [agentUndoSnapshot, setAgentUndoSnapshot] = useState<CanvasAgentSnapshot | null>(null);
   const inspectorOpen = useCanvasStore((state) => state.ui.inspectorOpen);
@@ -740,6 +742,7 @@ export default function CanvasWorkspaceViewContent() {
     previews,
     picker: assetPicker,
     mentionPreview: mentionMediaPreview,
+    mentionLibrary,
   } = assetsMentionsSnapshot;
   const {
     cancelAssetPicker,
@@ -1264,7 +1267,7 @@ export default function CanvasWorkspaceViewContent() {
         if (modelsResult.status === "fulfilled") {
           const catalog = modelsResult.value;
           setModelCatalog(catalog);
-          setImageModel((current) => current || (preferredModel && catalog.models.includes(preferredModel) ? preferredModel : catalog.defaultModel));
+          setImageModel((current) => resolveModel(catalog.models, current || preferredModel) || catalog.defaultModel);
         } else {
           toast.error(publicApiError(modelsResult.reason, "读取图像模型失败"));
           if (preferredModel) setImageModel((current) => current || preferredModel);
@@ -1275,15 +1278,9 @@ export default function CanvasWorkspaceViewContent() {
           setVideoModels(catalog.videoModels);
           setAudioModels(catalog.audioModels);
           setTextModelLabels(catalog.modelLabels);
-          setTextModel((current) => current || (preferredTextModel && catalog.textModels.includes(preferredTextModel)
-            ? preferredTextModel
-            : catalog.defaultTextModel));
-          setVideoModel((current) => current || (preferredVideoModel && catalog.videoModels.includes(preferredVideoModel)
-            ? preferredVideoModel
-            : catalog.defaultVideoModel));
-          setAudioModel((current) => current || (preferredAudioModel && catalog.audioModels.includes(preferredAudioModel)
-            ? preferredAudioModel
-            : catalog.defaultAudioModel));
+          setTextModel((current) => resolveModel(catalog.textModels, current || preferredTextModel) || catalog.defaultTextModel);
+          setVideoModel((current) => resolveModel(catalog.videoModels, current || preferredVideoModel) || catalog.defaultVideoModel);
+          setAudioModel((current) => resolveModel(catalog.audioModels, current || preferredAudioModel) || catalog.defaultAudioModel);
         } else {
           toast.error(publicApiError(aiModelsResult.reason, "读取 AI 模型失败"));
           if (preferredTextModel) setTextModel((current) => current || preferredTextModel);
@@ -1298,8 +1295,11 @@ export default function CanvasWorkspaceViewContent() {
   useEffect(() => {
     // 切换项目时先清掉上一个项目残留的交接内容，避免串项目误发
     setInitialPrompt("");
+    setInitialModel("");
     if (!projectId) return;
-    const prompt = consumeCanvasBootstrap(projectId);
+    const bootstrap = consumeCanvasBootstrapPayload(projectId);
+    const prompt = bootstrap?.prompt || "";
+    setInitialModel(bootstrap?.model || "");
     bootstrapPromptRef.current = prompt;
     if (!prompt) setBootstrapActive(false);
   }, [projectId]);
@@ -3956,6 +3956,7 @@ export default function CanvasWorkspaceViewContent() {
                 }
               }}
             />
+            <span className="text-xs text-muted-foreground">保留默认名称将自动编号，同时创建含角色、场景、道具的同名资产文件夹。</span>
           </label>
           {createDialogError ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{createDialogError}</p> : null}
         </div>
@@ -4088,6 +4089,7 @@ export default function CanvasWorkspaceViewContent() {
     updateNodeTextContent,
     updateNodePrompt,
     mentionReferencesForNode,
+    mentionLibrary,
     queueMentionAssetSearch,
     mentionThumbnailFor,
     previewMentionReference,
@@ -4157,7 +4159,7 @@ export default function CanvasWorkspaceViewContent() {
                 onBlur={() => void commitTitleEdit()}
               />
             ) : (
-            <Popover open={canvasSwitcherOpen} onOpenChange={setCanvasSwitcherOpen}>
+            <Popover active={!projectActionDisabled} open={canvasSwitcherOpen} onOpenChange={setCanvasSwitcherOpen}>
               <PopoverTrigger asChild>
                 <button className="canvas-switcher-trigger" disabled={projectActionDisabled} title="单击切换画布 · 双击重命名" onDoubleClick={(event) => { event.preventDefault(); beginTitleEdit(); }}>
                   <span className="canvas-switcher-title">{projectTitle || "无限画布"}</span>
@@ -4296,14 +4298,12 @@ export default function CanvasWorkspaceViewContent() {
             snapshotWriteReady,
             zoom,
             minimapOpen,
-            showImageInfo,
             backgroundMode,
             onPersist: () => void persistSnapshot(),
             onZoomOut: () => zoomCanvasAroundCenter(viewportRef.current.zoom - 10),
             onZoomIn: () => zoomCanvasAroundCenter(viewportRef.current.zoom + 10),
             onToggleMinimap: () => setMinimapOpen((open) => !open),
             onFit: fitCanvasToContent,
-            onToggleImageInfo: () => setShowImageInfo((value) => !value),
             onSetBackground: setBackgroundMode,
             onOpenGenerationHistory: () => setGenerationHistoryOpen(true),
             generationHistoryOpen,
@@ -4325,6 +4325,7 @@ export default function CanvasWorkspaceViewContent() {
           renderedNodes={renderedNodes}
           nodeCardProps={(node) => ({
             node,
+            mentionLibrary: editingInlineNodeId === node.id ? mentionLibrary : undefined,
             previews,
             isSelected: selectedNodeIds.has(node.id),
             isSelectedSingle: selectedId === node.id,
@@ -4340,7 +4341,6 @@ export default function CanvasWorkspaceViewContent() {
             progress: jobProgressByNode[node.id] || 0,
             captureBusy: Boolean(captureFrameNodeId),
             isCapturingFrame: captureFrameNodeId === node.id,
-            showImageInfo,
             imageToolBusy,
             storyboardBusy,
             actions: nodeCardActions,
@@ -4413,14 +4413,14 @@ export default function CanvasWorkspaceViewContent() {
           storyboardBusy={storyboardBusy}
           selectedGenerationMode={selectedGenerationMode}
           selectedGenerationModel={selectedGenerationModel}
-          selectedGenerationModelLabel={(textModelLabels[selectedGenerationModel] || selectedGenerationModel || "选择模型").split("::").at(-1) || "选择模型"}
+          selectedGenerationModelLabel={canvasModelName(selectedGenerationModel) || "选择模型"}
           generationModelOptions={selectedGenerationMode === "text"
-            ? textModels.map((item) => ({ value: item, label: shortModelName(textModelLabels[item] || item) }))
+            ? canvasGenerationModelOptions(textModels, selectedGenerationModel)
             : selectedGenerationMode === "image"
-              ? (modelCatalog?.models || []).map((item) => ({ value: item, label: imageModelLabel(item, modelCatalog || undefined) }))
+              ? canvasGenerationModelOptions(modelCatalog?.models || [], selectedGenerationModel)
               : selectedGenerationMode === "video"
-                ? videoModels.map((item) => ({ value: item, label: shortModelName(textModelLabels[item] || item) }))
-                : audioModels.map((item) => ({ value: item, label: shortModelName(textModelLabels[item] || item) }))}
+                ? canvasGenerationModelOptions(videoModels, selectedGenerationModel)
+                : canvasGenerationModelOptions(audioModels, selectedGenerationModel)}
           selectedVideoConfig={selectedVideoConfig || null}
           selectedVideoSeedance={selectedVideoSeedance}
           selectedVideoDurations={selectedVideoConfig
@@ -4483,6 +4483,7 @@ export default function CanvasWorkspaceViewContent() {
             onExecuteWorkspaceTool: executeAgentWorkspaceTool,
             onUndoOps: undoAgentOperations,
             initialPrompt,
+            initialModel,
           }}
           skillLibrary={{ open: skillLibraryOpen, onOpenChange: setSkillLibraryOpen }}
           presetManager={{ open: presetManagerOpen, onOpenChange: setPresetManagerOpen }}
@@ -4590,7 +4591,7 @@ export default function CanvasWorkspaceViewContent() {
           formatModel: (model, kind) => {
             if (!model) return "—";
             if (kind === "image") return imageModelLabel(model, modelCatalog || undefined);
-            return shortModelName(textModelLabels[model] || model);
+            return shortModelName(model);
           },
           onOpenChange: setGenerationHistoryOpen,
           onApply: applyGenerationHistoryItem,

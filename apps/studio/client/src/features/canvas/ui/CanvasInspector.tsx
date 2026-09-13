@@ -32,7 +32,7 @@ import {
 import type { CSSProperties, PointerEvent, RefObject } from "react";
 import { toast } from "sonner";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/CanvasResourceMentionTextarea";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { CanvasPopover as Popover, CanvasPopoverContent as PopoverContent, CanvasPopoverTrigger as PopoverTrigger } from "./CanvasPopover";
 import type { CanvasGroupData } from "@/features/canvas/domain/groups";
 import { ImageEditToolIcon } from "@/features/canvas/ui/ImageEditToolIcon";
 import {
@@ -57,6 +57,7 @@ import {
   CanvasImageToolGrid,
   type CanvasNodeCardActions,
 } from "./CanvasNodeCard";
+import { CanvasModelPicker } from "./CanvasModelPicker";
 
 type PromptPresetView = {
   id: string;
@@ -222,6 +223,7 @@ export function CanvasInspector({
       setImagePreviewNodeId,
       updateNodePrompt,
       mentionReferencesForNode,
+      mentionLibrary,
       queueMentionAssetSearch,
       mentionThumbnailFor,
       previewMentionReference,
@@ -358,6 +360,7 @@ export function CanvasInspector({
                   className="prompt-copy node-card-prompt"
                   value={promptTextFromNode(selectedNode)}
                   references={mentionReferencesForNode(selectedNode.id)}
+                  mentionLibrary={mentionLibrary}
                   placeholder={selectedNode.kind === "video" ? videoSubModePlaceholder(videoSubModeFromNode(selectedNode)) : "输入 @ 可引用已连接节点或资产…，Enter 提交生成"}
                   onMentionQueryChange={queueMentionAssetSearch}
                   onSubmit={() => void generateFromNode(selectedNode.id)}
@@ -385,7 +388,7 @@ export function CanvasInspector({
                 ) : null}
                 {selectedNode.kind === "image" && imageSrcFromNode(selectedNode, previews) ? (
                   <>
-                    <Popover>
+                    <Popover key={`${selectedNode.id}:image-tools`} active={inspectorOpen && !projectActionDisabled}>
                       <PopoverTrigger asChild>
                         <button type="button" title="图片工具"><ImageEditToolIcon size={15} /></button>
                       </PopoverTrigger>
@@ -400,7 +403,7 @@ export function CanvasInspector({
                 </div>
                 {selectedNode.kind === "video" ? (
                   <>
-                    <Popover>
+                    <Popover key={`${selectedNode.id}:video-mode`} active={inspectorOpen && !projectActionDisabled}>
                       <PopoverTrigger asChild>
                         <button type="button" className="node-chip">{VIDEO_SUBMODES.find((sub) => sub.value === videoSubModeFromNode(selectedNode))?.label || "文生视频"} <ChevronDown size={12} /></button>
                       </PopoverTrigger>
@@ -418,20 +421,10 @@ export function CanvasInspector({
                     </Popover>
                   </>
                 ) : null}
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button type="button" className="node-chip node-chip-model" title={selectedGenerationModel}>{selectedGenerationModelLabel} <ChevronDown size={12} /></button>
-                  </PopoverTrigger>
-                  <PopoverContent className="node-pop-card" align="start" sideOffset={8}>
-                    <p className="eyebrow">模型</p>
-                    <div className="node-pop-scroll">
-                      {generationModelOptions.map((option) => (
-                        <button key={option.value} className={selectedGenerationModel === option.value ? "node-pop-item active" : "node-pop-item"} onClick={() => selectGenerationModel(option.value)}>{option.label}</button>
-                      ))}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-                <Popover>
+                <CanvasModelPicker key={`${selectedNode.id}:model`} active={inspectorOpen && !projectActionDisabled}
+                  value={selectedGenerationModel} label={selectedGenerationModelLabel}
+                  options={generationModelOptions} onSelect={selectGenerationModel} />
+                <Popover key={`${selectedNode.id}:parameters`} active={inspectorOpen && !projectActionDisabled}>
                   <PopoverTrigger asChild>
                     <button type="button" className="node-chip" title="详细参数"><SlidersHorizontal size={13} /> 参数</button>
                   </PopoverTrigger>
@@ -517,7 +510,7 @@ export function CanvasInspector({
                 </Popover>
                 <div className="node-card-primary">
                   {/* 数量/积分 chip 挪到生成按钮旁 */}
-                  <Popover>
+                  <Popover key={`${selectedNode.id}:count`} active={inspectorOpen && !projectActionDisabled}>
                     <PopoverTrigger asChild>
                       <button type="button" className="node-chip node-credit-chip" title="生成数量与积分消耗（1:1）"><Zap size={12} /> ×{imageCountFromNode(selectedNode)}</button>
                     </PopoverTrigger>
@@ -558,7 +551,7 @@ export function CanvasInspector({
                 <button title="清空输入框内容" disabled={!promptTextFromNode(selectedNode).trim()} onClick={() => updateNodePrompt(selectedNode.id, "")}><Eraser size={14} /></button>
                 {selectedNode.kind !== "director" ? <button title="提示词库" onClick={() => setPromptLibraryNodeId(selectedNode.id)}><BookOpen size={14} /></button> : null}
                 {selectedNode.kind === "image" ? (
-                  <Popover>
+                  <Popover key={`${selectedNode.id}:style`} active={inspectorOpen && !projectActionDisabled}>
                     <PopoverTrigger asChild>
                       <button title="风格"><Palette size={14} /></button>
                     </PopoverTrigger>
@@ -586,7 +579,7 @@ export function CanvasInspector({
                 {selectedNode.kind === "video" ? <button title="分镜栏编辑" onClick={() => setStoryboardEditorNodeId(selectedNode.id)}><GalleryHorizontalEnd size={14} /></button> : null}
                 {selectedNode.kind === "image" ? <button title="我的提示词预设" onClick={() => setPresetManagerOpen(true)}><BookMarked size={14} /></button> : null}
                 {selectedNode.kind !== "director" ? (
-                  <Popover onOpenChange={(open) => { if (open) onSkillsOpen(); }}>
+                  <Popover key={`${selectedNode.id}:skills`} active={inspectorOpen && !projectActionDisabled} onOpenChange={(open) => { if (open) onSkillsOpen(); }}>
                     <PopoverTrigger asChild>
                       <button title="优化提示词" disabled={promptOptimizing}>{promptOptimizing ? <Loader2 className="spin" size={14} /> : <WandSparkles size={14} />}</button>
                     </PopoverTrigger>
@@ -601,7 +594,7 @@ export function CanvasInspector({
                   </Popover>
                 ) : null}
                 <button title="skill 库" onClick={() => setSkillLibraryOpen(true)}><Bot size={14} /></button>
-                <Popover>
+                <Popover key={`${selectedNode.id}:more`} active={inspectorOpen && !projectActionDisabled}>
                   <PopoverTrigger asChild>
                     <button title="更多操作"><MoreHorizontal size={14} /></button>
                   </PopoverTrigger>

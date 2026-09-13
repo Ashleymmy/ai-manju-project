@@ -6,7 +6,7 @@ import {
   Image as ImageIcon,
   X,
 } from "lucide-react";
-import type { ComponentProps } from "react";
+import { useCallback, useRef, useState, type ComponentProps } from "react";
 import { CanvasImageAnnotationDialog } from "@/components/canvas/CanvasImageAnnotationDialog";
 import { CanvasImageMaskDialog } from "@/components/canvas/CanvasImageMaskDialog";
 import {
@@ -116,6 +116,35 @@ export function CanvasImagePreviewDialog({
   onDownload,
   onClose,
 }: CanvasImagePreviewDialogProps) {
+  const previewImageRef = useRef<HTMLImageElement | null>(null);
+  const [loadedResolution, setLoadedResolution] = useState<{
+    nodeId: string | undefined;
+    source: string;
+    width: number;
+    height: number;
+  } | null>(null);
+  const nodeId = node?.id;
+  const readImageResolution = useCallback((image: HTMLImageElement) => {
+    if (image !== previewImageRef.current) return;
+    // 读取实际图片的像素尺寸，不使用画布节点大小或可能已过期的生成参数。
+    const { naturalWidth: width, naturalHeight: height } = image;
+    const next = image.complete && width > 0 && height > 0
+      ? { nodeId, source, width, height }
+      : null;
+    setLoadedResolution(current => (
+      current?.nodeId === next?.nodeId && current?.source === next?.source
+      && current?.width === next?.width && current?.height === next?.height
+        ? current : next
+    ));
+  }, [nodeId, source]);
+  const bindPreviewImage = useCallback((image: HTMLImageElement | null) => {
+    previewImageRef.current = image;
+    // 缓存命中的图片也要读取，不能只依赖后续的 load 事件。
+    if (image) readImageResolution(image);
+  }, [readImageResolution]);
+  const resolution = loadedResolution?.nodeId === nodeId && loadedResolution?.source === source
+    ? loadedResolution : null;
+
   return (
     <Dialog open={Boolean(node && source)} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="sm:max-w-[1120px] canvas-image-preview-dialog">
@@ -127,7 +156,16 @@ export function CanvasImagePreviewDialog({
           <div className="preview-detail-layout">
             <div className="preview-detail-main">
               <div className="canvas-image-preview-stage">
-                {source ? <img src={source} alt={node.title || "画布图片"} /> : null}
+                {source ? <img
+                  key={`${node.id}:${source}`}
+                  ref={bindPreviewImage}
+                  src={source}
+                  alt={node.title || "画布图片"}
+                  onLoad={event => readImageResolution(event.currentTarget)}
+                  onError={event => {
+                    if (event.currentTarget === previewImageRef.current) setLoadedResolution(null);
+                  }}
+                /> : null}
                 {siblings.length > 1 ? (
                   <div className="preview-detail-pager">
                     <button type="button" title="上一张" onClick={() => {
@@ -162,6 +200,7 @@ export function CanvasImagePreviewDialog({
                 <div><span>模型</span><b>{modelLabel}</b></div>
                 <div><span>质量</span><b>{stringValue(node.metadata?.quality) || "auto"}</b></div>
                 <div><span>宽高比</span><b>{stringValue(node.metadata?.size) || "auto"}</b></div>
+                <div><span>分辨率</span><b>{resolution ? `${resolution.width} × ${resolution.height} px` : "—"}</b></div>
                 <div><span>文件大小</span><b>{numberValue(node.metadata?.bytes) ? formatBytes(numberValue(node.metadata?.bytes) as number) : "—"}</b></div>
                 <div><span>日期</span><b>{createdAt ? new Date(createdAt).toLocaleString("zh-CN") : "—"}</b></div>
                 <div><span>创建者</span><b>{creatorLabel}</b></div>

@@ -4,7 +4,6 @@ import {
   Camera,
   CloudUpload,
   Download,
-  Eye,
   Film,
   FolderOpen,
   GitMerge,
@@ -136,14 +135,12 @@ export type CanvasBottomToolbarProps = {
   snapshotWriteReady: boolean;
   zoom: number;
   minimapOpen: boolean;
-  showImageInfo: boolean;
   backgroundMode: CanvasBackgroundMode;
   onPersist: () => void;
   onZoomOut: () => void;
   onZoomIn: () => void;
   onToggleMinimap: () => void;
   onFit: () => void;
-  onToggleImageInfo: () => void;
   onSetBackground: (mode: CanvasBackgroundMode) => void;
   onOpenGenerationHistory: () => void;
   generationHistoryOpen?: boolean;
@@ -156,14 +153,12 @@ export function CanvasBottomToolbar({
   snapshotWriteReady,
   zoom,
   minimapOpen,
-  showImageInfo,
   backgroundMode,
   onPersist,
   onZoomOut,
   onZoomIn,
   onToggleMinimap,
   onFit,
-  onToggleImageInfo,
   onSetBackground,
   onOpenGenerationHistory,
   generationHistoryOpen = false,
@@ -180,7 +175,6 @@ export function CanvasBottomToolbar({
       <button onClick={onFit} disabled={disabled} title="适配"><Maximize2 size={15} /></button>
       <button className={generationHistoryOpen ? "active" : ""} title="生成历史" onClick={onOpenGenerationHistory} disabled={disabled}><History size={15} /></button>
       <span />
-      <button title="显示或隐藏图片信息" className={showImageInfo ? "active" : ""} onClick={onToggleImageInfo} disabled={disabled}><Eye size={15} /></button>
       <button title="点阵背景" className={backgroundMode === "dots" ? "active" : ""} onClick={() => onSetBackground("dots")} disabled={disabled}><Grid3x3 size={15} /></button>
       <button title="网格背景" className={backgroundMode === "lines" ? "active" : ""} onClick={() => onSetBackground("lines")} disabled={disabled}><Grid2X2 size={15} /></button>
       <button title="空白背景" className={backgroundMode === "blank" ? "active" : ""} onClick={() => onSetBackground("blank")} disabled={disabled}><Square size={14} /></button>

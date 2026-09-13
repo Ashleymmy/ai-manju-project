@@ -1,4 +1,5 @@
-import type { Asset, AssetCategory } from "@/entities/asset";
+import type { Asset } from "@/entities/asset";
+import type { CanvasMentionLibraryState, CanvasMentionLibraryTarget } from "@/features/canvas/domain/mentionLibrary";
 import type { CanvasMentionReference } from "@/features/canvas/domain/mentions";
 import type { CanvasEdgeData, CanvasNodeData } from "@/features/canvas/domain/types";
 import type { CanvasTextAsset } from "@/features/canvas/repositories/textAssetsRepository";
@@ -55,6 +56,7 @@ export type CanvasAssetsMentionsSnapshot = {
   previews: Record<string, string>;
   picker: CanvasAssetPickerState;
   mentionPreview: CanvasMentionMediaPreview | null;
+  mentionLibrary: CanvasMentionLibraryState;
 };
 
 export type CanvasAssetsMentionsBindings = {
@@ -97,7 +99,7 @@ export type CanvasPreviewSyncInput = {
 
 export type CanvasMentionCommands = {
   mentionReferencesForNode(nodeId: string): CanvasMentionReference[];
-  queueMentionAssetSearch(query: string, category?: AssetCategory | ""): void;
+  queueMentionAssetSearch(query: string, target?: CanvasMentionLibraryTarget, loadMore?: boolean): void;
   mentionThumbnailFor(reference: CanvasMentionReference): string;
   previewMentionReference(reference: CanvasMentionReference): void;
   locateMentionReference(reference: CanvasMentionReference): void;

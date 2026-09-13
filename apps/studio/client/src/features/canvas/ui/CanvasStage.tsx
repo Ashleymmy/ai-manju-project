@@ -19,6 +19,8 @@ import type {
   RefObject,
 } from "react";
 import { toast } from "sonner";
+import { useRef } from "react";
+import { useOutsidePress } from "@/shared/lib/useOutsidePress";
 import MetaBallOrb from "@/components/MetaBallOrb";
 import {
   buildCanvasConnectionLayerBounds,
@@ -256,6 +258,11 @@ export function CanvasStage({
     createNodeFromConnectionDraft,
     cancelPendingConnectionCreate,
   } = actions;
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const connectionMenuRef = useRef<HTMLDivElement>(null);
+  useOutsidePress(Boolean(contextMenu), event => event.composedPath().includes(contextMenuRef.current!), () => setContextMenu(null));
+  // This menu opens on pointerup; the same gesture's trailing click must not dismiss it.
+  useOutsidePress(Boolean(pendingConnectionCreate), event => event.composedPath().includes(connectionMenuRef.current!), cancelPendingConnectionCreate, false);
   return (
         <section
           ref={stageRef}
@@ -437,7 +444,7 @@ export function CanvasStage({
             </div>
           ) : null}
           {contextMenu && !projectActionDisabled ? (
-            <div className={`canvas-context-menu${contextMenuFlipX ? " flip-x" : ""}`} data-canvas-ui data-canvas-no-zoom style={contextMenuStyle} onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>
+            <div ref={contextMenuRef} className={`canvas-context-menu${contextMenuFlipX ? " flip-x" : ""}`} data-canvas-ui data-canvas-no-zoom style={contextMenuStyle} onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>
               {contextMenu.nodeId || contextMenu.edgeId ? (
                 <div className="inspector-head">
                   <div><p className="eyebrow">MENU</p><h3>{contextMenu.edgeId ? "连线操作" : "节点操作"}</h3></div>
@@ -514,7 +521,7 @@ export function CanvasStage({
             </div>
           ) : null}
           {pendingConnectionCreate && !projectActionDisabled ? (
-            <div className="canvas-context-menu canvas-connection-create-menu" data-canvas-ui data-canvas-no-zoom style={pendingConnectionMenuStyle} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>
+            <div ref={connectionMenuRef} className="canvas-context-menu canvas-connection-create-menu" data-canvas-ui data-canvas-no-zoom style={pendingConnectionMenuStyle} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>
               <div className="inspector-head">
                 <div><p className="eyebrow">CONNECT</p><h3>新建节点并连接</h3></div>
               </div>

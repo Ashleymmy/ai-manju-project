@@ -41,6 +41,8 @@ export type CanvasMentionReference = {
   title: string;
   searchText: string;
   active: boolean;
+  /** Distance along incoming edges; absent for downstream or unrelated nodes. */
+  upstreamDistance?: number;
   nodeId?: string;
   assetId?: string;
   assetScope?: "personal" | "team";
@@ -364,6 +366,7 @@ export function buildCanvasMentionReferences(
   assetScope: "personal" | "team"
 ) {
   const connectedIds = connectedComponentIds(contextNodeId, nodes, edges);
+  const upstream = upstreamCanvasNodeDistances(contextNodeId, nodes, edges);
   const nodeReferences = nodes.flatMap((node): CanvasMentionReference[] => {
     if (node.id === contextNodeId) return [];
     const input = inputFromNode(node);
@@ -383,6 +386,7 @@ export function buildCanvasMentionReferences(
         title,
         searchText: `${title} ${input.type} ${input.text || ""}`.toLowerCase(),
         active: connectedIds.has(node.id),
+        upstreamDistance: upstream.get(node.id),
         assetScope: input.assetScope,
         text: input.text,
         content: input.content,
@@ -558,6 +562,31 @@ function inputFromNode(
       ? metadata.assetScope
       : undefined;
   return content || assetId ? { type, content, assetId, assetScope } : null;
+}
+
+function upstreamCanvasNodeDistances(
+  nodeId: string,
+  nodes: readonly CanvasConnectionNode[],
+  edges: readonly Pick<CanvasConnectionEdge, "from" | "to">[],
+) {
+  const known = new Set(nodes.map(node => node.id));
+  const incoming = new Map<string, string[]>();
+  edges.forEach(edge => {
+    if (!known.has(edge.from) || !known.has(edge.to)) return;
+    incoming.set(edge.to, [...(incoming.get(edge.to) || []), edge.from]);
+  });
+  const distances = new Map<string, number>([[nodeId, 0]]);
+  const queue = [nodeId];
+  for (let index = 0; index < queue.length; index++) {
+    const current = queue[index];
+    for (const parent of incoming.get(current) || []) {
+      if (distances.has(parent)) continue;
+      distances.set(parent, distances.get(current)! + 1);
+      queue.push(parent);
+    }
+  }
+  distances.delete(nodeId);
+  return distances;
 }
 
 function connectedComponentIds(
