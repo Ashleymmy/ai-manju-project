@@ -124,6 +124,7 @@ export async function requestAudioGeneration(
     : undefined;
   const onAbort = () => controller.abort();
   options.signal?.addEventListener("abort", onAbort, { once: true });
+  if (options.signal?.aborted) controller.abort();
   const requestId =
     globalThis.crypto?.randomUUID?.() ||
     `req_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;

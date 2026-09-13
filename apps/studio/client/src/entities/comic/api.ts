@@ -185,7 +185,7 @@ export function createComicAnalysisSession(
     method: "POST",
     query: { scope },
     body,
-    timeoutMs: 180_000,
+    timeoutMs: 0, // The server bounds each same-model supplier attempt.
   });
 }
 
@@ -205,7 +205,7 @@ export function createComicAnalysisRevision(
       method: "POST",
       query: { scope },
       body: { ...input, source: "ai" },
-      timeoutMs: 180_000,
+      timeoutMs: 0, // The server bounds each same-model supplier attempt.
     }
   );
 }
@@ -278,7 +278,7 @@ export function optimizeComicPrompt(
       method: "POST",
       query: { scope },
       body: input,
-      timeoutMs: 120_000,
+      timeoutMs: 0, // Allow the full server retry sequence.
     }
   );
 }

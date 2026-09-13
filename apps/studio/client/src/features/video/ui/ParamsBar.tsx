@@ -1,3 +1,4 @@
+import { modelOptions } from "@/shared/lib/modelSelection";
 import { useMemo } from "react";
 
 import {
@@ -13,7 +14,6 @@ import {
 
 export function ParamsBar({
   models,
-  labels,
   config,
   onChange,
   disabled,
@@ -45,7 +45,7 @@ export function ParamsBar({
         >
           {!models.length ? <option value="">未配置</option> : null}
           {/* 去掉 "provider_xxx::" 前缀，下拉只显示纯模型名 */}
-          {models.map((item) => <option key={item} value={item}>{(labels[item] || item).split("::").at(-1) || item}</option>)}
+          {modelOptions(models, normalized.model).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
         </select>
       </div>
       <div className="wb-param-group">

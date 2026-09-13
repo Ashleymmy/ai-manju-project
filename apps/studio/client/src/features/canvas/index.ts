@@ -28,3 +28,4 @@ export type { CanvasCommands } from "./model/commands";
 export { createCanvasStore } from "./model/store";
 export type { CanvasStoreApi, CanvasStoreState } from "./model/store";
 export { CanvasProvider } from "./ui/CanvasProvider";
+export { agentModelName, agentModelOptions, pickAgentDefaultModel, resolveAgentModel } from "./agent";

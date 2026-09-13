@@ -16,9 +16,12 @@ import {
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 
 import { useAuth } from "@/contexts/AuthContext";
+import { fetchModelCatalog, modelQueryKeys } from "@/entities/model";
 import { getProjects, type CanvasProject } from "@/entities/project";
+import { agentModelName, agentModelOptions, pickAgentDefaultModel, resolveAgentModel } from "@/features/canvas";
 import { ProjectCard, projectToCard, useProjectCoverUrls } from "@/features/projects";
 
 import { createChatProjectFlow } from "./createChatProjectFlow";
@@ -39,7 +42,7 @@ const RECENT_PROJECT_LIMIT = 3;
 export default function ChatPage() {
   const { user, logout } = useAuth();
   const [, navigate] = useLocation();
-  const [selectedModel, setSelectedModel] = useState("GPT-4");
+  const [requestedModel, setSelectedModel] = useState("");
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -48,6 +51,28 @@ export default function ChatPage() {
   // 步骤 2 的加载覆盖层开关：发送后一直覆盖到画布页接力
   const [isLoading, setIsLoading] = useState(false);
   const recentCoverUrls = useProjectCoverUrls(recentProjects, "personal");
+  const modelsQuery = useQuery({
+    queryKey: modelQueryKeys.catalog(),
+    queryFn: fetchModelCatalog,
+    enabled: Boolean(user),
+    refetchOnWindowFocus: true,
+  });
+  const catalog = user && !modelsQuery.isError ? modelsQuery.data : undefined;
+  // 创作想法会交给画布助手，只展示接口返回的支持工具调用的文本模型。
+  const availableModels = catalog?.agentTextModels || [];
+  const selectedModel = resolveAgentModel(availableModels, requestedModel)
+    || pickAgentDefaultModel(availableModels, catalog?.modelLabels, catalog?.defaultTextModel);
+  const modelOptions = agentModelOptions(availableModels, selectedModel);
+  const modelStatus = !user ? "登录后查看模型"
+    : modelsQuery.isFetching ? "正在获取模型…"
+      : modelsQuery.isError ? "模型获取失败，请重试"
+        : !selectedModel ? "暂无可用的创作模型，请联系管理员配置"
+          : "";
+  const selectedModelLabel = selectedModel ? agentModelName(selectedModel) : modelStatus;
+  const sendButtonTitle = isLoading ? "正在创建项目…"
+    : !input.trim() ? "输入创作想法后发送"
+      : user && (!selectedModel || modelsQuery.isFetching) ? modelStatus
+        : "发送并创建项目（Enter）";
 
   // 最近项目：登录用户读真实个人工作区，未登录静默置空（只保留新建入口）
   useEffect(() => {
@@ -82,15 +107,6 @@ export default function ChatPage() {
     };
   }, [showUserMenu, showModelDropdown]);
 
-  const availableModels = [
-    "GPT-4",
-    "GPT-3.5 Turbo",
-    "Claude 3 Opus",
-    "Claude 3 Sonnet",
-    "Gemini Pro",
-    "Gemini 3.7 Flash"
-  ];
-
   const handleLoginClick = () => {
     navigate("/login?next=%2Fchat");
   };
@@ -106,14 +122,20 @@ export default function ChatPage() {
       return;
     }
 
+    if (!selectedModel || modelsQuery.isFetching) {
+      toast.error(modelStatus);
+      return;
+    }
+
     setInput("");
     // 步骤 2 开始：加载动画覆盖后续全部过渡（步骤 1 在覆盖层下静默进行）
     setIsLoading(true);
 
     try {
-      await createChatProjectFlow({ navigate })(text);
+      await createChatProjectFlow({ navigate, model: selectedModel })(text);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "创建项目失败，请重试");
+      setInput(text);
       setIsLoading(false);
     }
   };
@@ -247,26 +269,43 @@ export default function ChatPage() {
             <span className="chat-composer-hint">{input.length ? `${input.length} 字符` : ""}</span>
             <div className="chat-composer-actions">
               <div className="chat-model" {...{ [OPEN_MENU_ATTR]: "model" }}>
-                <button className="chat-tool-btn" onClick={() => setShowModelDropdown(!showModelDropdown)}>
+                <button
+                  className="chat-tool-btn chat-model-trigger"
+                  aria-label="选择创作模型"
+                  aria-expanded={showModelDropdown}
+                  title={selectedModelLabel}
+                  disabled={isLoading}
+                  onClick={() => {
+                    setShowModelDropdown(!showModelDropdown);
+                    if (!showModelDropdown && user && !modelsQuery.isFetching) void modelsQuery.refetch();
+                  }}
+                >
                   <Sparkles size={12} />
-                  {selectedModel}
+                  <span>{selectedModelLabel}</span>
                   <ChevronDown size={12} className={showModelDropdown ? "rotated" : ""} />
                 </button>
                 {showModelDropdown && (
                   <div className="chat-menu chat-model-menu">
-                    {availableModels.map((model) => (
+                    {modelStatus && <p className="chat-model-status" role="status">{modelStatus}</p>}
+                    {modelOptions.map(({ value: model, label }) => (
                       <button
                         key={model}
                         className={selectedModel === model ? "active" : ""}
+                        aria-pressed={selectedModel === model}
+                        disabled={modelsQuery.isFetching}
+                        title={label}
                         onClick={() => {
                           setSelectedModel(model);
                           setShowModelDropdown(false);
                         }}
                       >
                         <Sparkles size={12} />
-                        {model}
+                        <span>{label}</span>
                       </button>
                     ))}
+                    {user && !modelsQuery.isFetching && (modelsQuery.isError || !availableModels.length) && (
+                      <button onClick={() => void modelsQuery.refetch()}>重新获取模型</button>
+                    )}
                   </div>
                 )}
               </div>
@@ -280,12 +319,17 @@ export default function ChatPage() {
               </button>
 
               <button
-                className="vermilion-button chat-send"
-                title="发送并创建项目"
+                className="chat-send"
+                type="button"
+                title={sendButtonTitle}
+                aria-label={isLoading ? "正在创建项目" : "发送并创建项目"}
+                aria-busy={isLoading}
                 onClick={handleSend}
-                disabled={!input.trim() || isLoading}
+                disabled={!input.trim() || isLoading || Boolean(user && (!selectedModel || modelsQuery.isFetching))}
               >
-                <ArrowUp size={15} />
+                {isLoading
+                  ? <Loader2 size={18} className="spin" aria-hidden="true" />
+                  : <ArrowUp size={18} strokeWidth={2.25} aria-hidden="true" />}
               </button>
             </div>
           </div>

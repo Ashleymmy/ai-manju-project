@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createChatProjectFlow } from "./createChatProjectFlow";
 import { createInitialCanvasSnapshot } from "./model/createInitialCanvasSnapshot";
+import { consumeCanvasBootstrapPayload } from "@/entities/project";
 
 describe("Chat project flow", () => {
   it("builds the initial Canvas snapshot without changing its wire shape", () => {
@@ -117,5 +118,32 @@ describe("Chat project flow", () => {
     await expect(flow("失败场景")).rejects.toBe(failure);
     expect(setCanvasBootstrap).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("hands off the selected provider model with the prompt exactly once", async () => {
+    const storage = new Map<string, string>();
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+    });
+    try {
+      const flow = createChatProjectFlow({
+        navigate: vi.fn(),
+        createProject: vi.fn().mockResolvedValue({ id: "project-selected-model" }),
+        createId: () => "node-id",
+        model: "provider-b::text-model",
+      });
+      await flow("雨夜追逐");
+
+      expect(consumeCanvasBootstrapPayload("other-project")).toBeNull();
+      expect(consumeCanvasBootstrapPayload("project-selected-model")).toMatchObject({
+        prompt: "雨夜追逐",
+        model: "provider-b::text-model",
+      });
+      expect(consumeCanvasBootstrapPayload("project-selected-model")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

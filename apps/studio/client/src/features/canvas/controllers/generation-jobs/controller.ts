@@ -188,7 +188,7 @@ export class CanvasGenerationJobsController {
       canceledTargetIds.add(request.targetNodeId);
       this.forgetCanvasJob(request.targetNodeId, request.jobId);
       request.controller.abort();
-      if (request.jobId && request.provider !== "seedance") {
+      if (request.jobId && (request.provider !== "seedance" || request.jobId.startsWith("job_"))) {
         void this.generation(() => this.services.cancelJob(request.jobId!, request.scope)).catch(() => undefined);
       }
     });
@@ -498,7 +498,7 @@ export class CanvasGenerationJobsController {
       this.requests.delete(request.targetNodeId);
       this.forgetCanvasJob(request.targetNodeId, request.jobId);
       request.controller.abort();
-      if (request.jobId && request.provider !== "seedance") {
+      if (request.jobId && (request.provider !== "seedance" || request.jobId.startsWith("job_"))) {
         void this.generation(() => this.services.cancelJob(request.jobId!, request.scope)).catch(() => undefined);
       }
     });

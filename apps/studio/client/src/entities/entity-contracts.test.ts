@@ -77,7 +77,7 @@ describe("entity query contracts", () => {
     );
   });
 
-  it("normalizes model descriptors without losing provider metadata labels", () => {
+  it("normalizes selectors and displays only real model names", () => {
     expect(
       normalizeModelList([
         " provider::model-a ",
@@ -90,7 +90,7 @@ describe("entity query contracts", () => {
         labels: { "provider::model-a": "模型 A" },
         providerNames: { "provider::model-a": "供应商" },
       })
-    ).toBe("模型 A · 供应商");
+    ).toBe("model-a");
     expect(modelQueryKeys.capability("video")).toEqual([
       "models",
       "endpoint",

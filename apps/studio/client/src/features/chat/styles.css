@@ -283,6 +283,34 @@
   right: 0;
   z-index: 60;
   transform-origin: bottom center;
+  width: min(340px, calc(100vw - 48px));
+  max-height: min(320px, 45dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.chat-model-menu button span {
+  overflow-wrap: anywhere;
+}
+.chat-model-menu svg, .chat-model-trigger svg {
+  flex-shrink: 0;
+}
+.chat-model-status {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.chat-model-trigger {
+  max-width: min(320px, calc(100vw - 154px));
+}
+.chat-model-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-model button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 .chat-tool-btn {
   display: inline-flex;
@@ -320,15 +348,51 @@
   color: #ffb3a6;
 }
 .chat-send {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
+  /* 图标按钮独立控制尺寸，避免文字主按钮的内边距和切角裁掉箭头。 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
   padding: 0;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
+  transition: background .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.chat-send svg {
+  display: block;
+  flex: none;
+}
+.chat-send:hover:not(:disabled) {
+  background: var(--foreground);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.24);
+}
+.chat-send:active:not(:disabled) {
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.chat-send:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
 }
 .chat-send:disabled {
-  opacity: 0.45;
+  border-color: rgba(239, 235, 222, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #9da7a3;
+  box-shadow: none;
   cursor: not-allowed;
+}
+.chat-send[aria-busy="true"] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  cursor: progress;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-send .spin { animation: none; }
 }
 
 /* ---- 最近项目 ---- */

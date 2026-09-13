@@ -1,3 +1,4 @@
+import { modelOptions, resolveModel } from "@/shared/lib/modelSelection";
 import {
   Bell,
   ChevronRight,
@@ -26,7 +27,7 @@ import {
   type CanvasShortcutAction,
   type CanvasShortcutBindings,
 } from "@/lib/canvas-hotkeys";
-import { modelLabel, type ModelCatalog } from "@/entities/model";
+import type { ModelCatalog } from "@/entities/model";
 import type { PromptPreset } from "@/entities/prompt";
 import { publicApiError } from "@/shared/api/errors";
 
@@ -233,22 +234,22 @@ export function SettingsView() {
     }
     setAiCatalog(catalog);
     const generation = preferences.generation || {};
-    setImageModel(generation.imageModel || catalog.defaultImageModel);
+    setImageModel(resolveModel(catalog.imageModels, generation.imageModel || "") || catalog.defaultImageModel);
     setImageSize(generation.size || "1:1");
     setImageQuality(generation.quality || "auto");
     setImageCount(Math.max(1, Number(generation.count || 1)));
     setCanvasImageCount(Math.max(1, Number(generation.canvasImageCount || 3)));
-    setVideoModel(generation.videoModel || catalog.defaultVideoModel);
+    setVideoModel(resolveModel(catalog.videoModels, generation.videoModel || "") || catalog.defaultVideoModel);
     setVideoSeconds(generation.videoSeconds || "6");
     setVideoQuality(generation.vquality || "720");
     setVideoGenerateAudio(generation.videoGenerateAudio !== "false");
     setVideoWatermark(generation.videoWatermark === "true");
-    setAudioModel(generation.audioModel || catalog.defaultAudioModel);
+    setAudioModel(resolveModel(catalog.audioModels, generation.audioModel || "") || catalog.defaultAudioModel);
     setAudioVoice(generation.audioVoice || "alloy");
     setAudioFormat(generation.audioFormat || "mp3");
     setAudioSpeed(generation.audioSpeed || "1");
     setAudioInstructions(generation.audioInstructions || "");
-    setTextModel(generation.textModel || catalog.defaultTextModel);
+    setTextModel(resolveModel(catalog.textModels, generation.textModel || "") || catalog.defaultTextModel);
     setSystemPrompt(generation.systemPrompt || "");
     setBackgroundMode(preferences.canvas?.backgroundMode || "lines");
     setCtrlZoom(preferences.canvas?.wheelZoomRequiresCtrl !== false);
@@ -366,8 +367,6 @@ export function SettingsView() {
     toast.info("已恢复默认值，点击保存后生效");
   };
 
-  const modelCatalogAdapter = aiCatalog ? { labels: aiCatalog.modelLabels, providerNames: aiCatalog.modelProviderNames } : undefined;
-
   return (
     <div className="feature-page settings-page">
       <SurfaceTitle
@@ -414,8 +413,8 @@ export function SettingsView() {
                 <label>
                   默认图像模型
                   <select value={imageModel} onChange={(event) => setImageModel(event.target.value)}>
-                    {(aiCatalog?.imageModels || []).map((item) => (
-                      <option key={item} value={item}>{modelLabel(item, modelCatalogAdapter)}</option>
+                    {modelOptions(aiCatalog?.imageModels || [], imageModel).map(({ value, label }) => (
+                      <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
                 </label>
@@ -460,8 +459,8 @@ export function SettingsView() {
                   默认视频模型
                   <select value={videoModel} onChange={(event) => setVideoModel(event.target.value)}>
                     <option value="">未设置</option>
-                    {(aiCatalog?.videoModels || []).map((item) => (
-                      <option key={item} value={item}>{modelLabel(item, modelCatalogAdapter)}</option>
+                    {modelOptions(aiCatalog?.videoModels || [], videoModel).map(({ value, label }) => (
+                      <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
                 </label>
@@ -494,8 +493,8 @@ export function SettingsView() {
                   默认音频模型
                   <select value={audioModel} onChange={(event) => setAudioModel(event.target.value)}>
                     <option value="">未设置</option>
-                    {(aiCatalog?.audioModels || []).map((item) => (
-                      <option key={item} value={item}>{modelLabel(item, modelCatalogAdapter)}</option>
+                    {modelOptions(aiCatalog?.audioModels || [], audioModel).map(({ value, label }) => (
+                      <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
                 </label>
@@ -528,8 +527,8 @@ export function SettingsView() {
                   默认文本模型
                   <select value={textModel} onChange={(event) => setTextModel(event.target.value)}>
                     <option value="">未设置</option>
-                    {(aiCatalog?.textModels || []).map((item) => (
-                      <option key={item} value={item}>{modelLabel(item, modelCatalogAdapter)}</option>
+                    {modelOptions(aiCatalog?.textModels || [], textModel).map(({ value, label }) => (
+                      <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
                 </label>
@@ -541,8 +540,8 @@ export function SettingsView() {
               <section className="quality-note">
                 <ShieldCheck size={20} />
                 <div>
-                  <b>Provider 路由由完整模型选择器决定</b>
-                  <span>保存后会保留 providerId::modelId，不会丢失模型提供商。</span>
+                  <b>默认模型随时可调整</b>
+                  <span>保存后，新建创作将优先使用你选择的模型。</span>
                 </div>
               </section>
             </>

@@ -1,3 +1,4 @@
+import { modelName } from "@/shared/lib/modelSelection";
 import { request } from "@/shared/api/http";
 
 import type {
@@ -12,7 +13,7 @@ export async function fetchModelCatalog(): Promise<ModelCatalog> {
   const data = await request<AiModelsResponse>("/api/ai/models");
   const models = normalizeModelList(data.models);
   const textModels = normalizeModelList(
-    data.text_models?.length ? data.text_models : data.models
+    data.text_models ?? data.models
   );
   const agentTextModels =
     data.agent_text_models === undefined
@@ -95,11 +96,9 @@ export function normalizeModelList(value?: ModelDescriptor[]) {
 
 export function modelLabel(
   model: string,
-  catalog?: Pick<CapabilityModelCatalog, "labels" | "providerNames">
+  _catalog?: Pick<CapabilityModelCatalog, "labels" | "providerNames">
 ) {
-  const modelName = catalog?.labels[model] || model.split("::").at(-1) || model;
-  const provider = catalog?.providerNames[model];
-  return provider ? `${modelName} · ${provider}` : modelName;
+  return modelName(model);
 }
 
 function normalizeModelValue(value?: ModelDescriptor) {

@@ -17,6 +17,7 @@ export {
 } from "./cache";
 export {
   consumeCanvasBootstrap,
+  consumeCanvasBootstrapPayload,
   peekCanvasBootstrap,
   setCanvasBootstrap,
 } from "./bootstrap";

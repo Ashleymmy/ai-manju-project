@@ -332,9 +332,18 @@ export async function pollVideoGenerationTask(
   options: RequestOptions = {},
 ): Promise<VideoGenerationTaskState> {
   if (!(task.model || config.model).trim()) throw new Error("请先配置视频模型");
-  return task.provider === "seedance"
-    ? pollSeedanceTask(task, options)
-    : pollOpenAiVideoTask(task, options);
+  try {
+    return await (task.provider === "seedance" && !task.id.startsWith("job_")
+      ? pollSeedanceTask(task, options)
+      : pollOpenAiVideoTask(task, options));
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
+    // A failed status request says nothing about the durable generation result.
+    if (error instanceof ApiError && (error.status === 0 || error.status >= 500)) {
+      return { status: "pending" };
+    }
+    throw error;
+  }
 }
 
 async function createOpenAiVideoTask(
@@ -614,7 +623,7 @@ async function pollOpenAiVideoTask(
   options: RequestOptions,
 ): Promise<VideoGenerationTaskState> {
   if (options.signal?.aborted) throw abortError();
-  const job = await getJob(task.id);
+  const job = await getJob(task.id, options.signal);
   if (options.signal?.aborted) throw abortError();
   options.onProgress?.(job);
   if (job.status === "succeeded") {

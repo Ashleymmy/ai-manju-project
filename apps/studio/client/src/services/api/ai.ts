@@ -74,6 +74,8 @@ export async function requestAiText(body: AiTextRequest, signal?: AbortSignal) {
   try {
     const data = await request<AiTextResponse>("/api/ai/text", {
       method: "POST",
+      // The server bounds each supplier attempt; keep the complete sequence alive.
+      timeoutMs: 0,
       signal,
       body: {
         ...body,

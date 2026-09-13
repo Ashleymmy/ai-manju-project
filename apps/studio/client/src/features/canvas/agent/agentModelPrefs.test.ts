@@ -5,6 +5,7 @@ import {
   featuredAgentModels,
   isGpt56LunaModel,
   pickAgentDefaultModel,
+  resolveAgentModel,
 } from "./agentModelPrefs";
 
 describe("Agent model preferences", () => {
@@ -29,5 +30,11 @@ describe("Agent model preferences", () => {
     const featured = featuredAgentModels(models, "gpt-5.6-luna");
     expect(featured).toEqual(["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]);
     expect(extraAgentModels(models, featured)).toEqual(["gpt-6-astra", "gpt-5.5"]);
+  });
+
+  it("keeps a saved model when another supplier offers it without matching different models", () => {
+    expect(resolveAgentModel(["available::gpt-5.6-luna"], "removed::gpt-5.6-luna")).toBe("removed::gpt-5.6-luna");
+    expect(resolveAgentModel(["available::gpt-5.6-luna"], "gpt-5.6-luna")).toBe("gpt-5.6-luna");
+    expect(resolveAgentModel(["available::gpt-5.6-luna"], "removed::gpt-5.5")).toBe("");
   });
 });
