@@ -258,6 +258,8 @@ class NasMediaProxyTests(unittest.TestCase):
                 path = signed_path("inputs/personal/u1/reference.png", bucket=bucket)
                 status, headers, body = self.request(path)
                 self.assertEqual((status, body), (200, BODY))
+                personal_path = signed_path("inputs/default:u1/reference.png", bucket=bucket)
+                self.assertEqual(self.request(personal_path)[0], 200)
                 self.assertEqual(headers["cache-control"], "private, no-store")
                 status, headers, body = self.request(path, "HEAD")
                 self.assertEqual((status, body, headers["content-length"]), (200, b"", str(len(BODY))))
