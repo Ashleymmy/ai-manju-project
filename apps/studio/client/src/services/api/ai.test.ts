@@ -70,6 +70,19 @@ describe("text AI API", () => {
     });
   });
 
+  it("does not offer image models when the server explicitly returns no text models", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(apiResponse({
+      models: ["provider::image-only"],
+      text_models: [],
+      image_models: ["provider::image-only"],
+    }));
+
+    const result = await fetchAiModels();
+    expect(result.textModels).toEqual([]);
+    expect(result.agentTextModels).toEqual([]);
+    expect(result.defaultTextModel).toBe("");
+  });
+
   it("preserves multimodal image content in the text request", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(apiResponse({ content: "图像描述" }));
 
@@ -133,5 +146,23 @@ describe("text AI API", () => {
 
     await expect(result).rejects.toThrow("请求超时或已取消");
     expect((vi.mocked(fetch).mock.calls[0][1] as RequestInit).signal?.aborted).toBe(true);
+  });
+
+  it("does not cut off supplier attempts at the normal request timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      let finish!: (response: Response) => void;
+      vi.mocked(fetch).mockImplementationOnce((_url, options) => new Promise((resolve, reject) => {
+        finish = resolve;
+        options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      }));
+      const result = requestAiText({ prompt: "等待生成" });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect((vi.mocked(fetch).mock.calls[0][1] as RequestInit).signal?.aborted).toBe(false);
+      finish(apiResponse({ text: "完成" }));
+      expect((await result).content).toBe("完成");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

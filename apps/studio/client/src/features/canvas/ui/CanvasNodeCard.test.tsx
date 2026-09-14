@@ -112,7 +112,6 @@ function createProps(node: CanvasNodeData, actions = createActions()): CanvasNod
     progress: 0,
     captureBusy: false,
     isCapturingFrame: false,
-    showImageInfo: false,
     imageToolBusy: false,
     storyboardBusy: false,
     actions,
@@ -157,6 +156,7 @@ describe("CanvasNodeCard render boundary", () => {
     const previous = createProps(node);
     expect(canvasNodeCardPropsEqual(previous, { ...previous, actions: createActions() })).toBe(true);
     expect(canvasNodeCardPropsEqual(previous, { ...previous, node: { ...node } })).toBe(false);
+    expect(canvasNodeCardPropsEqual(previous, { ...previous, mentionLibrary: { projectId: "project-1", scope: "personal", folders: [], target: "root", query: "", assetIds: [], loading: true, error: "", page: 0, hasMore: false } })).toBe(false);
   });
 
   it("preserves the media element and source when only node position changes", async () => {

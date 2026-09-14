@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ai-manju/api/internal/model"
 )
 
 const redisCommandTimeout = 5 * time.Second
@@ -54,7 +56,7 @@ func celeryMessagePayload(message TaskMessage) ([]byte, error) {
 		"payload": payload,
 	}
 	for key, value := range message.Kwargs {
-		if key == "job_id" || key == "payload" {
+		if key == "job_id" || key == "payload" || key == "generation_soft_timeout_seconds" {
 			continue
 		}
 		kwargs[key] = value
@@ -99,6 +101,10 @@ func celeryMessagePayload(message TaskMessage) ([]byte, error) {
 			},
 			"body_encoding": "base64",
 		},
+	}
+	if soft, ok := message.Kwargs["generation_soft_timeout_seconds"].(int); ok && soft > 0 {
+		// Limits apply to each delivery, so later suppliers retain a full budget.
+		envelope["headers"].(map[string]any)["timelimit"] = []int{soft + int(model.GenerationHardTimeoutGrace.Seconds()), soft}
 	}
 	return json.Marshal(envelope)
 }

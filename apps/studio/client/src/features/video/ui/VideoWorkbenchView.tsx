@@ -1,3 +1,4 @@
+import { resolveModel } from "@/shared/lib/modelSelection";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -17,7 +18,6 @@ import type { WorkspaceScope } from "@/shared/config";
 import {
   createVideoGenerationTask,
   fetchVideoModelCatalog,
-  isWanVideoModel,
   normalizeVideoGenerationConfig,
   pollVideoGenerationTask,
   validateVideoGenerationReferences,
@@ -139,7 +139,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
         setModels(catalog.videoModels);
         setLabels(catalog.modelLabels || {});
         const selected = catalog.defaultVideoModel || catalog.videoModels[0] || "";
-        if (selected) setConfig((current) => normalizeVideoGenerationConfig({ ...current, model: current.model || selected }));
+        if (selected) setConfig((current) => normalizeVideoGenerationConfig({ ...current, model: resolveModel(catalog.videoModels, current.model) || selected }));
       } catch (error) {
         if (mountedRef.current) toast.error(publicApiError(error, "读取视频模型失败"));
       }
@@ -476,9 +476,9 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
       patchMessage(conversationId, message.id, { taskId: task.id, taskProvider: task.provider, taskStatus: "running" });
       setRuntime(message.id, { status: "running" });
 
-      const maxAttempts = isWanVideoModel(task.model) ? 360 : 120;
       const intervalMs = task.provider === "seedance" ? 5_000 : 2_500;
-      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      // The durable server task owns the complete retry/timeout budget.
+      while (!controller.signal.aborted) {
         if (controller.signal.aborted) return;
         const state = await pollVideoGenerationTask(payload.config, task, {
           signal: controller.signal,
@@ -499,12 +499,8 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
           setRuntime(message.id, { progress: state.progress });
           patchMessage(conversationId, message.id, { taskProgress: state.progress });
         }
-        if (attempt === maxAttempts - 1) break;
         await workbenchWait(intervalMs, controller.signal);
       }
-      const timeout = "视频生成超时，请稍后重试";
-      patchMessage(conversationId, message.id, { taskStatus: "failed", taskError: timeout });
-      setRuntime(message.id, { status: "failed", error: timeout });
     } catch (error) {
       if (controller.signal.aborted) return;
       const errorText = publicApiError(error, "视频生成失败");
@@ -863,6 +859,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
                 title="刷新模型目录"
                 onClick={() => void fetchVideoModelCatalog().then((catalog) => {
                   setModels(catalog.videoModels);
+                  setConfig(current => normalizeVideoGenerationConfig({ ...current, model: resolveModel(catalog.videoModels, current.model) || catalog.defaultVideoModel }));
                   setLabels(catalog.modelLabels || {});
                 }).catch((error) => toast.error(publicApiError(error, "读取视频模型失败")))}
               ><RefreshCcw size={13} /></button>

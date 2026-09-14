@@ -17,6 +17,7 @@
 export type CanvasBootstrapPayload = {
   projectId: string;
   prompt: string;
+  model?: string;
   createdAt: number;
 };
 
@@ -39,6 +40,7 @@ function readPayload(): CanvasBootstrapPayload | null {
     return {
       projectId: parsed.projectId,
       prompt: parsed.prompt,
+      ...(typeof parsed.model === "string" && parsed.model.trim() ? { model: parsed.model.trim() } : {}),
       createdAt: parsed.createdAt,
     };
   } catch {
@@ -47,11 +49,12 @@ function readPayload(): CanvasBootstrapPayload | null {
 }
 
 /** 步骤 2 起点：聊天台在跳转前写入引导信息 */
-export function setCanvasBootstrap(projectId: string, prompt: string) {
+export function setCanvasBootstrap(projectId: string, prompt: string, model?: string) {
   try {
     const payload: CanvasBootstrapPayload = {
       projectId,
       prompt,
+      ...(model?.trim() ? { model: model.trim() } : {}),
       createdAt: Date.now(),
     };
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -68,12 +71,17 @@ export function peekCanvasBootstrap(projectId: string): boolean {
 
 /** 画布页消费引导信息（一次性）：返回用户输入原文，无匹配时返回空串 */
 export function consumeCanvasBootstrap(projectId: string): string {
+  return consumeCanvasBootstrapPayload(projectId)?.prompt || "";
+}
+
+/** 同时交接原文与真实模型标识，避免画布助手改用自己的默认模型。 */
+export function consumeCanvasBootstrapPayload(projectId: string): CanvasBootstrapPayload | null {
   const payload = readPayload();
-  if (!payload || payload.projectId !== projectId) return "";
+  if (!payload || payload.projectId !== projectId) return null;
   try {
     sessionStorage.removeItem(STORAGE_KEY);
   } catch {
     // 忽略清理失败
   }
-  return payload.prompt;
+  return payload;
 }

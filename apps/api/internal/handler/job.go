@@ -306,6 +306,14 @@ func normalizeJobType(value string) string {
 }
 
 func jobResponse(job model.Job) gin.H {
+	if !isTerminalJobStatus(job.Status) && (job.QueuePhase == "provider_retry_backoff" || job.QueuePhase == "waiting_provider_slot") {
+		// Supplier scheduling is private; users continue to see a pending generation.
+		job.Error = model.JSONB("{}")
+		job.QueuePhase = ""
+		if job.StartedAt != nil {
+			job.Status = model.JobStatusRunning
+		}
+	}
 	return gin.H{
 		"id":                job.ID,
 		"job_id":            job.ID,

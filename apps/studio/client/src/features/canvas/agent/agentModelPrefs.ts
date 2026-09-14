@@ -1,3 +1,10 @@
+import { resolveModel } from "@/shared/lib/modelSelection";
+import { canvasGenerationModelOptions, canvasModelName } from "../domain/generationModels";
+
+// Both canvas model pickers share model identity and grouping rules.
+export const agentModelName = canvasModelName;
+export const agentModelOptions = canvasGenerationModelOptions;
+
 /** Agent 输入框模型选择器优先默认选中的文本模型（目录中存在时）。 */
 export const AGENT_DEFAULT_TEXT_MODEL_HINT = "gpt-5.6-luna";
 
@@ -34,4 +41,9 @@ export function featuredAgentModels(models: string[], preferred: string): string
 export function extraAgentModels(models: string[], featured: string[]): string[] {
   const featuredSet = new Set(featured);
   return models.filter((model) => !featuredSet.has(model));
+}
+
+/** Preserve a saved model choice while the server resolves its available suppliers. */
+export function resolveAgentModel(models: string[], requested: string): string {
+  return resolveModel(models, requested);
 }

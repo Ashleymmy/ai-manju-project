@@ -41,9 +41,9 @@ export async function getJobs(
   return normalizeJobList(raw);
 }
 
-export async function getJob(id: string) {
+export async function getJob(id: string, signal?: AbortSignal) {
   return normalizeJob(
-    await request<ApiJob>(`/api/jobs/${encodeURIComponent(id)}`)
+    await request<ApiJob>(`/api/jobs/${encodeURIComponent(id)}`, { signal })
   );
 }
 

@@ -1,5 +1,6 @@
 import { publicApiError } from "@/shared/api/errors";
-import type { Asset, AssetCategory, AssetFolder } from "@/entities/asset";
+import type { Asset, AssetFolder } from "@/entities/asset";
+import { CANVAS_MENTION_PAGE_SIZE, CANVAS_MENTION_SEARCH_DELAY_MS, emptyCanvasMentionLibrary, mentionLibraryFolderId, type CanvasMentionLibraryTarget } from "@/features/canvas/domain/mentionLibrary";
 import { flattenFolderTree, folderPathLabel } from "@/features/assets";
 import {
   buildCanvasMentionReferences,
@@ -83,6 +84,7 @@ export class CanvasAssetsMentionsController {
         thumbnails: {},
       },
       mentionPreview: null,
+      mentionLibrary: emptyCanvasMentionLibrary("", initialScope),
     };
   }
 
@@ -109,33 +111,70 @@ export class CanvasAssetsMentionsController {
   readonly loadMentionCatalog = async (
     keyword = "",
     targetScope = this.bindings.getMentionScope(),
-    category?: AssetCategory | "",
+    target: CanvasMentionLibraryTarget = "root",
+    page = 1,
   ) => {
+    if (this.searchTimer) this.services.cancelSchedule(this.searchTimer);
+    this.searchTimer = null;
     this.catalogAbort?.abort();
     const controller = new AbortController();
     this.catalogAbort = controller;
+    const projectId = this.bindings.getProjectId();
+    const previous = this.snapshot.mentionLibrary;
+    const sameContext = previous.projectId === projectId && previous.scope === targetScope;
+    const append = page > 1 && sameContext && previous.target === target && previous.query === keyword.trim();
+    const current = () => !this.disposed && !controller.signal.aborted && this.catalogAbort === controller
+      && this.bindings.getProjectId() === projectId && this.bindings.getMentionScope() === targetScope;
+    this.patch({ mentionLibrary: {
+      ...emptyCanvasMentionLibrary(projectId, targetScope), folders: sameContext ? previous.folders : [],
+      target, query: keyword.trim(), loading: true, assetIds: append ? previous.assetIds : [],
+      page: append ? previous.page : 0,
+    } });
     try {
+      const folders = await this.assets(() => this.services.getAssetFolders(targetScope, controller.signal));
+      if (!current()) return;
+      this.patch({ mentionLibrary: { ...this.snapshot.mentionLibrary, folders } });
+      const folderId = mentionLibraryFolderId(target);
+      if (folderId !== undefined && !folders.some(folder => folder.id === folderId)) {
+        throw new Error("此文件夹已不存在，请返回上一级重新选择");
+      }
       const result = await this.assets(() => this.services.getAssetLibrary(targetScope, {
         keyword: keyword.trim() || undefined,
-        category: category || undefined,
-        page: 1,
-        pageSize: 100,
+        folderId,
+        includeDescendants: folderId && keyword.trim() ? true : undefined,
+        smartView: target === "favorites" ? "favorite" : undefined,
+        page,
+        pageSize: CANVAS_MENTION_PAGE_SIZE,
         sort: "created_at_desc",
       }, controller.signal));
-      if (!controller.signal.aborted) this.mergeAssets(result.items || [], targetScope);
+      if (!current()) return;
+      this.mergeAssets(result.items || [], targetScope);
+      const assetIds = [...new Set([...(append ? previous.assetIds : []), ...(result.items || []).map(asset => asset.id)])];
+      this.patch({ mentionLibrary: { ...this.snapshot.mentionLibrary, assetIds, page, hasMore: page * (result.page_size || CANVAS_MENTION_PAGE_SIZE) < result.total } });
     } catch (error) {
-      if (!controller.signal.aborted) this.services.warn("读取画布引用资产失败", error);
+      if (current()) {
+        this.patch({ mentionLibrary: { ...this.snapshot.mentionLibrary, error: publicApiError(error, "读取引用素材失败，请重试") } });
+      }
     } finally {
+      if (current()) this.patch({ mentionLibrary: { ...this.snapshot.mentionLibrary, loading: false } });
       if (this.catalogAbort === controller) this.catalogAbort = null;
     }
   };
 
-  readonly queueMentionAssetSearch = (query: string, category?: AssetCategory | "") => {
+  readonly queueMentionAssetSearch = (query: string, target: CanvasMentionLibraryTarget = "root", loadMore = false) => {
     if (this.searchTimer) this.services.cancelSchedule(this.searchTimer);
+    this.searchTimer = null;
+    this.catalogAbort?.abort();
+    const previous = this.snapshot.mentionLibrary;
+    if (loadMore || target !== previous.target || !query.trim()) {
+      void this.loadMentionCatalog(query, this.bindings.getMentionScope(), target, loadMore ? previous.page + 1 : 1);
+      return;
+    }
+    this.patch({ mentionLibrary: { ...previous, target, query: query.trim(), assetIds: [], loading: true, error: "", hasMore: false } });
     this.searchTimer = this.services.schedule(() => {
       this.searchTimer = null;
-      void this.loadMentionCatalog(query, this.bindings.getMentionScope(), category);
-    }, 240);
+      void this.loadMentionCatalog(query, this.bindings.getMentionScope(), target);
+    }, CANVAS_MENTION_SEARCH_DELAY_MS);
   };
 
   readonly openAssetPicker = () => {

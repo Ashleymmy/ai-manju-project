@@ -27,3 +27,8 @@ export const COMIC_CLASS_LABELS: Record<ComicAssetClass, string> = {
 
 export const COMIC_BATCH_POLL_INTERVAL_MS = 3_000;
 export const COMIC_REFERENCE_LIMIT = 6;
+
+/** Prefer Luna only when its actual model ID is returned by the text catalog. */
+export const COMIC_DEFAULT_ANALYSIS_MODEL = "gpt-5.6-luna";
+/** Keep the first-round instructions comfortably within the analysis input budget. */
+export const COMIC_ANALYSIS_INSTRUCTION_MAX_LENGTH = 4_000;

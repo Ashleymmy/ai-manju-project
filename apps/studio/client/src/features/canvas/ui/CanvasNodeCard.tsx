@@ -47,12 +47,13 @@ import {
   type RefObject,
   type SetStateAction,
   useState,
+  useEffect,
 } from "react";
 import { toast } from "sonner";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { CanvasPopover as Popover, CanvasPopoverContent as PopoverContent, CanvasPopoverTrigger as PopoverTrigger } from "./CanvasPopover";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/CanvasResourceMentionTextarea";
 import PixelLoadingOverlay from "@/components/canvas/PixelLoadingOverlay";
-import type { AssetCategory } from "@/entities/asset";
+import type { CanvasMentionLibraryState, CanvasMentionLibraryTarget } from "@/features/canvas/domain/mentionLibrary";
 import { buildCanvasMentionReferences, type CanvasMentionReference } from "@/features/canvas/domain/mentions";
 import {
   editableNodeKind,
@@ -66,7 +67,6 @@ import { CANVAS_PIN_COLORS, normalizeCanvasPinColor } from "@/features/canvas/do
 import { imageSrcFromNode } from "@/features/canvas/domain/nodes";
 import { isGeneratedCanvasText } from "@/features/canvas/domain/text";
 import type { CanvasNodeData, CanvasNodeKind } from "@/features/canvas/domain/types";
-import { numberValue } from "@/features/canvas/domain/value";
 
 export type CanvasImageToolMode = "crop" | "focus" | "split" | "upscale" | "compress" | "outpaint" | "angle";
 export type ConnectionHandleType = "source" | "target";
@@ -108,7 +108,8 @@ export type CanvasNodeCardActions = {
   updateNodeTextContent: (id: string, content: string) => void;
   updateNodePrompt: (id: string, content: string) => void;
   mentionReferencesForNode: (nodeId: string) => ReturnType<typeof buildCanvasMentionReferences>;
-  queueMentionAssetSearch: (query: string, category?: AssetCategory | "") => void;
+  mentionLibrary?: CanvasMentionLibraryState;
+  queueMentionAssetSearch: (query: string, target?: CanvasMentionLibraryTarget, loadMore?: boolean) => void;
   mentionThumbnailFor: (reference: CanvasMentionReference) => string;
   previewMentionReference: (reference: CanvasMentionReference) => void;
   locateMentionReference: (reference: CanvasMentionReference) => void;
@@ -134,6 +135,7 @@ export type CanvasNodeCardActions = {
 };
 
 export type CanvasNodeCardProps = {
+  mentionLibrary?: CanvasMentionLibraryState;
   node: CanvasNodeData;
   previews: Record<string, string>;
   isSelected: boolean;
@@ -150,7 +152,6 @@ export type CanvasNodeCardProps = {
   progress: number;
   captureBusy: boolean;
   isCapturingFrame: boolean;
-  showImageInfo: boolean;
   imageToolBusy: boolean;
   storyboardBusy: boolean;
   actions: CanvasNodeCardActions;
@@ -227,13 +228,6 @@ export function CanvasImageToolGrid({
   );
 }
 
-function formatBytes(value: number) {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
-  return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
-}
-
 function nodeKindCenterIcon(kind: CanvasNodeKind) {
   const props = { size: 30, strokeWidth: 1.2 };
   if (kind === "video") return <Film {...props} />;
@@ -243,7 +237,7 @@ function nodeKindCenterIcon(kind: CanvasNodeKind) {
   return <ImageIcon {...props} />;
 }
 
-function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHovered, isConnectionTarget, isConnecting, connectActiveTarget, connectActiveSource, isTitleEditing, titleDraft, isInlineEditing, isRunning, progress, captureBusy, isCapturingFrame, showImageInfo, imageToolBusy, storyboardBusy, actions }: CanvasNodeCardProps) {
+function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHovered, isConnectionTarget, isConnecting, connectActiveTarget, connectActiveSource, isTitleEditing, titleDraft, isInlineEditing, isRunning, progress, captureBusy, isCapturingFrame, imageToolBusy, storyboardBusy, actions, mentionLibrary }: CanvasNodeCardProps) {
   const preview = imageSrcFromNode(node, previews);
   const previewKind = mediaKindFromNode(node);
   const nodeText = nodeEditorTextFromNode(node);
@@ -254,6 +248,7 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
   const isEmptyMediaNode = (node.kind === "image" || node.kind === "video" || node.kind === "audio") && !preview;
   const pinColor = normalizeCanvasPinColor(node.metadata?.pinColor);
   const [pinPickerOpen, setPinPickerOpen] = useState(false);
+  useEffect(() => { if (!isSelectedSingle) setPinPickerOpen(false); }, [isSelectedSingle]);
   const {
     chooseNode, openNodeContextMenu, toggleCanvasBatch, openDirectorNode, applyNodeSelection, beginInlineNodeEdit,
     handleNodeHoverStart, handleNodeHoverEnd, startDrag, moveDrag, endDrag, registerConnectionHandle, beginConnection,
@@ -513,6 +508,7 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
               data-node-inline-editor-id={node.id}
               value={nodeText}
               references={mentionReferencesForNode(node.id)}
+              mentionLibrary={mentionLibrary}
               placeholder="输入 @ 可引用已连接节点或资产…"
               onPointerDown={(event) => event.stopPropagation()}
               thumbnailForReference={mentionThumbnailFor}
@@ -543,12 +539,6 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
       ) : (
         <div className="prompt-body">{node.kind === "image" ? <ImageIcon size={22} /> : <Sparkles size={18} />}<p>{node.content || "空节点"}</p></div>
       )}
-      {showImageInfo && node.kind === "image" && preview ? (
-        <div className="canvas-node-image-info">
-          {Math.round(numberValue(node.metadata?.naturalWidth) || node.width)} × {Math.round(numberValue(node.metadata?.naturalHeight) || node.height)}
-          {numberValue(node.metadata?.bytes) ? ` · ${formatBytes(numberValue(node.metadata?.bytes) || 0)}` : ""}
-        </div>
-      ) : null}
       {node.metadata?.status === "error" && node.metadata.errorDetails ? (
         <div className="node-error-box">
           <p title={node.metadata.errorDetails}>{node.metadata.errorDetails}</p>
@@ -678,6 +668,7 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
 export function canvasNodeCardPropsEqual(prev: CanvasNodeCardProps, next: CanvasNodeCardProps) {
   return (
     prev.node === next.node
+    && prev.mentionLibrary === next.mentionLibrary
     && prev.previews === next.previews
     && prev.isSelected === next.isSelected
     && prev.isSelectedSingle === next.isSelectedSingle
@@ -693,7 +684,6 @@ export function canvasNodeCardPropsEqual(prev: CanvasNodeCardProps, next: Canvas
     && prev.progress === next.progress
     && prev.captureBusy === next.captureBusy
     && prev.isCapturingFrame === next.isCapturingFrame
-    && prev.showImageInfo === next.showImageInfo
     && prev.imageToolBusy === next.imageToolBusy
     && prev.storyboardBusy === next.storyboardBusy
   );

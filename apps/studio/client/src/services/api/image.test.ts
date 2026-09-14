@@ -151,6 +151,18 @@ describe("image API", () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps waiting through a polling failure and a supplier retry", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(apiResponse({ job_id: "job-retry", status: "queued" }))
+      .mockResolvedValueOnce(apiResponse({}, 503))
+      .mockResolvedValueOnce(apiResponse({ id: "job-retry", status: "running", error: {}, progress: 35 }))
+      .mockResolvedValueOnce(apiResponse({ id: "job-retry", status: "succeeded", result: { assets: [{ asset_id: "asset-retry" }] } }));
+    const result = generateImages({ prompt: "等待测试" });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect((await result).images[0].assetId).toBe("asset-retry");
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
   it("deduplicates repeated asset IDs", async () => {
     const job = {
       id: "job-assets",

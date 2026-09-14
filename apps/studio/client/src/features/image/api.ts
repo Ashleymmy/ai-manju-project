@@ -127,7 +127,18 @@ export async function generateImages(input: ImageGenerationInput, callbacks: Gen
 export async function waitForImageJob(jobId: string, callbacks: Omit<GenerationCallbacks, "onAccepted"> = {}) {
   for (;;) {
     if (callbacks.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    const job = await getJob(jobId);
+    let job: Job;
+    try {
+      job = await getJob(jobId, callbacks.signal);
+    } catch (error) {
+      if (callbacks.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      // A polling timeout does not mean the server-owned generation failed.
+      if (error instanceof ApiError && (error.status === 0 || error.status >= 500)) {
+        await wait(imagePollIntervalMs, callbacks.signal);
+        continue;
+      }
+      throw error;
+    }
     callbacks.onProgress?.(job);
     if (isTerminalJob(job)) return job;
     await wait(imagePollIntervalMs, callbacks.signal);

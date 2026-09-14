@@ -1,5 +1,6 @@
 export {
   consumeCanvasBootstrap,
+  consumeCanvasBootstrapPayload,
   peekCanvasBootstrap,
   setCanvasBootstrap,
 } from "@/entities/project";

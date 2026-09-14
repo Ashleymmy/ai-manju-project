@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useOutsidePress } from "@/shared/lib/useOutsidePress";
 import { ArrowLeft, ArrowUp, Bot, Brain, ChartColumn, Check, ChevronDown, ChevronRight, Copy, History, Image as ImageIcon, Info, KeyRound, LayoutGrid, Link2, MessageCircle, MessagesSquare, Paperclip, PlugZap, Plus, Puzzle, ScanSearch, Settings, ShieldCheck, Sparkles, Square, Trash2, User, X, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -12,6 +13,8 @@ import {
 import { publicApiError } from "@/shared/api/errors";
 import {
   AGENT_INTERRUPTED_MESSAGE,
+  agentModelName,
+  agentModelOptions,
   copyAgentMessageText,
   createLocalAgentSseClient,
   extraAgentModels,
@@ -22,6 +25,7 @@ import {
   persistAgentConnectionSettings,
   persistAgentConversations,
   pickAgentDefaultModel,
+  resolveAgentModel,
   postLocalAgentResult,
   postLocalAgentState,
   sendLocalAgentTurn,
@@ -75,6 +79,7 @@ export default function AgentPanel({
   onExecuteWorkspaceTool,
   onUndoOps,
   initialPrompt,
+  initialModel,
 }: {
   projectId: string;
   open: boolean;
@@ -86,6 +91,8 @@ export default function AgentPanel({
   onUndoOps: () => Promise<CanvasAgentSnapshot | null>;
   /** 聊天台引导流程交接的用户输入原文（步骤5：同步为一条用户消息并发送，仅一次） */
   initialPrompt?: string;
+  /** 聊天台选中的模型标识，首轮保留该模型，由后台选择可用供应商。 */
+  initialModel?: string;
 }) {
   const [tab, setTab] = useState<"connect" | "chat">("chat");
   const [channel, setChannel] = useState<"online" | "local">("online");
@@ -124,6 +131,7 @@ export default function AgentPanel({
   const turnAbortRef = useRef<AbortController | null>(null);
   const turnIdRef = useRef(0);
   const interruptedRef = useRef(false);
+  const initialPromptSentRef = useRef(false);
 
   const setPendingAgentTool = (value: PendingAgentTool | null) => {
     pendingToolRef.current = value;
@@ -147,6 +155,7 @@ export default function AgentPanel({
     setOpenMenu(null);
     setPendingAgentTool(null);
     setWaiting(false);
+    initialPromptSentRef.current = false;
   }, [projectId]);
 
   // 消息变化时自动保存当前对话（标题取首条用户消息）
@@ -159,15 +168,9 @@ export default function AgentPanel({
     });
   }, [messages, conversationId, projectId]);
 
-  // 点击面板菜单外部时关闭弹层
-  useEffect(() => {
-    if (!openMenu) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!(event.target as HTMLElement | null)?.closest?.("[data-agent-menu]")) setOpenMenu(null);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [openMenu]);
+  useOutsidePress(open && Boolean(openMenu), event => event.composedPath().some(target =>
+    target instanceof Element && target.hasAttribute("data-agent-menu")
+  ), () => setOpenMenu(null));
 
   useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
   useEffect(() => { confirmToolsRef.current = confirmTools; }, [confirmTools]);
@@ -187,7 +190,7 @@ export default function AgentPanel({
           providerNames: result.modelProviderNames,
         };
         setModelCatalog(catalog);
-        setTextModel((current) => models.includes(current) ? current : defaultModel);
+        setTextModel((current) => resolveAgentModel(models, current) || defaultModel);
         setModelLoadError(models.length ? "" : "没有支持 Agent 工具调用的文本模型");
         setActivity(models.length ? "在线 Agent 可用" : "Agent 模型未配置");
       })
@@ -200,6 +203,13 @@ export default function AgentPanel({
         toast.error(message);
       });
   }, []);
+
+  useEffect(() => {
+    if (initialModel && modelCatalog && resolveAgentModel(modelCatalog.models, initialModel) && !initialPromptSentRef.current) {
+      setTextModel(initialModel);
+      setAutoModel(false);
+    }
+  }, [initialModel, modelCatalog]);
 
   useEffect(() => {
     if (!enabled || !url.trim() || !token.trim()) return;
@@ -650,14 +660,20 @@ export default function AgentPanel({
 
   const currentTitle = conversations.find((c) => c.id === conversationId)?.title ?? "新建对话";
 
-  // 展示时去掉 "provider_xxx::" 前缀，只保留纯模型名（无自定义标签时）
-  const modelDisplay = (model: string) => modelCatalog?.labels?.[model] || model.split("::").at(-1) || model;
+  const modelDisplay = agentModelName;
   // Auto 模式下使用模型目录默认模型，手动选择后退出 Auto
-  const effectiveModel = autoModel ? (modelCatalog?.defaultModel ?? "") : textModel;
-  const featuredModels = modelCatalog
-    ? featuredAgentModels(modelCatalog.models, modelCatalog.defaultModel)
-    : [];
-  const extraModels = modelCatalog ? extraAgentModels(modelCatalog.models, featuredModels) : [];
+  const awaitingInitialModel = Boolean(initialPrompt && initialModel && !initialPromptSentRef.current);
+  const resolvedInitialModel = modelCatalog && initialModel ? resolveAgentModel(modelCatalog.models, initialModel) : "";
+  const initialModelError = awaitingInitialModel && modelCatalog && !resolvedInitialModel
+    ? "所选模型已不可用，请重新选择创作模型后发送"
+    : "";
+  const effectiveModel = awaitingInitialModel
+    ? resolvedInitialModel
+    : autoModel ? (modelCatalog?.defaultModel ?? "") : textModel;
+  const menuModels = agentModelOptions(modelCatalog?.models || [], effectiveModel).map(option => option.value);
+  const menuDefault = menuModels.find(model => agentModelName(model) === agentModelName(modelCatalog?.defaultModel || "")) || "";
+  const featuredModels = featuredAgentModels(menuModels, menuDefault);
+  const extraModels = extraAgentModels(menuModels, featuredModels);
   const busy = waiting || Boolean(pendingTool);
 
   const toggleMenu = (menu: AgentMenuKind) => {
@@ -761,25 +777,24 @@ export default function AgentPanel({
 
   // 步骤5：面板就绪后，把聊天台交接的用户输入同步为一条用户消息并自动发送（仅一次）。
   // 纯响应式条件（无定时器）：面板展开 + 有待同步输入 + 未发送过 + 空闲 + 当前会话无消息。
-  const initialPromptSentRef = useRef(false);
   useEffect(() => {
     if (!open || !initialPrompt || initialPromptSentRef.current || waiting || messages.length > 0) return;
     if (channel !== "online") return;
     if (!effectiveModel) {
       // 模型目录加载失败：仍将用户输入同步进对话（步骤5），并展示真实错误
-      if (modelLoadError) {
+      if (modelLoadError || initialModelError) {
         initialPromptSentRef.current = true;
         setMessages((prev) => [
           ...prev,
           { id: `u-${Date.now()}`, role: "user", text: initialPrompt },
-          { id: `err-${Date.now()}`, role: "error", text: modelLoadError },
+          { id: `err-${Date.now()}`, role: "error", text: initialModelError || modelLoadError },
         ]);
       }
       return; // 模型目录仍在加载：effectiveModel 就绪后本 effect 会再次触发
     }
     initialPromptSentRef.current = true;
     void sendOnlinePrompt(initialPrompt);
-  }, [open, initialPrompt, waiting, messages.length, channel, effectiveModel, modelLoadError, sendOnlinePrompt]);
+  }, [open, initialPrompt, waiting, messages.length, channel, effectiveModel, modelLoadError, initialModelError, sendOnlinePrompt]);
 
   if (!rendered) return null;
 
@@ -1176,7 +1191,6 @@ export default function AgentPanel({
                         >
                           <span><Sparkles size={12} /> {modelDisplay(model)}</span>
                           {!autoModel && model === textModel && <Check size={14} />}
-                          <small>{modelCatalog.providerNames?.[model] || modelDisplay(model)}</small>
                         </button>
                       ))}
                       {extraModels.length > 0 && (
@@ -1198,7 +1212,6 @@ export default function AgentPanel({
                             >
                               <span><Sparkles size={12} /> {modelDisplay(model)}</span>
                               {!autoModel && model === textModel && <Check size={14} />}
-                              <small>{modelCatalog.providerNames?.[model] || modelDisplay(model)}</small>
                             </button>
                           ))}
                         </>

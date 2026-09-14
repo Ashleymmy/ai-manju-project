@@ -5,11 +5,13 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote, urlparse
 
 import requests
 
 from .config import Settings
 from .errors import SafeTaskError, safe_message
+from .generation_failover import MEDIA_REQUEST_TIMEOUT_SECONDS
 from .provider import (
     close_multipart_files,
     ensure_job_dir,
@@ -30,11 +32,18 @@ VIDEO_POLL_PROGRESS_MAX = 85
 VIDEO_DOWNLOAD_PROGRESS = 90
 VIDEO_COMPLETE_PROGRESS = 95
 VIDEO_POLL_INTERVAL_SECONDS = 2.5
-VIDEO_REQUEST_TIMEOUT_SECONDS = 60.0
+VIDEO_REQUEST_TIMEOUT_SECONDS = float(MEDIA_REQUEST_TIMEOUT_SECONDS)
 VIDEO_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+# Cancellation is best effort and must not hold a worker slot for minutes.
+VIDEO_CANCEL_TIMEOUT_SECONDS = 10
+# Preserve the previous native endpoint download and response traversal limits.
+NATIVE_VIDEO_MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
+NATIVE_VIDEO_RESPONSE_MAX_DEPTH = 16
 VIDEO_SUCCESS_STATUSES = {"completed", "succeeded", "success", "done"}
 VIDEO_FAILURE_STATUSES = {"failed", "cancelled", "canceled", "expired", "rejected"}
 VIDEO_REQUEST_FIELDS = ("model", "prompt", "seconds", "size", "resolution_name", "preset")
+# Native request allowlist excludes job bookkeeping and supplier credentials.
+NATIVE_VIDEO_REQUEST_FIELDS = ("model", "prompt", "content", "ratio", "resolution", "duration", "generate_audio", "watermark", "seed", "camera_fixed", "return_last_frame", "service_tier", "execution_expires_after", "draft")
 
 
 def generate_video(job_id: str, payload: dict[str, Any], settings: Settings, progress: ProgressFn) -> dict[str, Any]:
@@ -47,13 +56,27 @@ def generate_video(job_id: str, payload: dict[str, Any], settings: Settings, pro
     create_endpoint = str(provider.get("endpoint") or "v1/videos").strip()
     create_url = provider_request_url(base_url, create_endpoint, provider)
     headers = provider_auth_headers(provider)
-    headers.setdefault("Idempotency-Key", job_id)
+    # A terminal upstream failure needs a fresh task; redelivery of one attempt
+    # retains its key so a worker restart does not create a duplicate.
+    attempt = provider.get("generation_attempt")
+    headers.setdefault("Idempotency-Key", job_id if attempt is None else f"{job_id}-{attempt}")
+    create_headers = dict(headers)
+    if provider.get("provider_type") == "aliyun_yike":
+        create_headers["X-DashScope-Async"] = "enable"
     timeout = video_request_timeout(provider, settings)
-    parts = video_request_parts(payload, provider, settings)
+    native = provider.get("video_protocol") == "seedance"
+    if provider.get("video_request_error"):
+        raise SafeTaskError("video reference mode unsupported", code="provider_bad_request", retryable=False)
+    parts = [] if native else video_request_parts(payload, provider, settings)
 
     progress(VIDEO_CREATE_PROGRESS)
     try:
-        response = requests.post(create_url, headers=headers, files=parts, timeout=timeout)
+        if native:
+            body = provider.get("video_request_body") or {key: payload[key] for key in NATIVE_VIDEO_REQUEST_FIELDS if key in payload}
+            body = {**body, "model": provider.get("model")}
+            response = requests.post(create_url, headers=create_headers, json=body, timeout=timeout)
+        else:
+            response = requests.post(create_url, headers=create_headers, files=parts, timeout=timeout)
     except requests.RequestException as exc:
         raise SafeTaskError("video provider request failed", code="provider_request_failed", retryable=True) from exc
     finally:
@@ -68,7 +91,7 @@ def generate_video(job_id: str, payload: dict[str, Any], settings: Settings, pro
         task = wait_for_video_task(task_id, task, provider, base_url, headers, timeout, settings, progress)
         output = download_video_result(job_id, task_id, task, provider, base_url, headers, timeout, settings, progress)
     except SafeTaskError as exc:
-        if exc.code == "job_canceled":
+        if exc.code in {"job_canceled", "provider_timeout"}:
             cancel_provider_video_task(task_id, provider, base_url, headers, timeout)
         raise
 
@@ -93,7 +116,7 @@ def wait_for_video_task(
     progress: ProgressFn,
 ) -> dict[str, Any]:
     task = initial
-    deadline = time.monotonic() + max(1, settings.job_default_timeout_seconds)
+    deadline = time.monotonic() + timeout
     while True:
         status = video_status(task)
         if status in VIDEO_SUCCESS_STATUSES:
@@ -106,12 +129,19 @@ def wait_for_video_task(
         if remaining <= 0:
             raise SafeTaskError("video provider task timed out", code="provider_timeout", retryable=False)
         time.sleep(min(VIDEO_POLL_INTERVAL_SECONDS, remaining))
-        endpoint = video_endpoint(provider, "video_get", "videos/{id}", task_id)
+        progress(video_progress(task))
+        fallback = "contents/generations/tasks/{id}" if provider.get("video_protocol") == "seedance" else "videos/{id}"
+        endpoint = video_endpoint(provider, "video_get", fallback, task_id)
         url = provider_request_url(base_url, endpoint, provider)
         try:
             response = requests.get(url, headers=headers, timeout=min(timeout, max(1.0, remaining)))
-        except requests.RequestException as exc:
-            raise SafeTaskError("video provider status request failed", code="provider_request_failed", retryable=False) from exc
+        except requests.RequestException:
+            # Keep polling the accepted task within its budget instead of creating
+            # duplicate videos after a temporary transport error.
+            continue
+        if response.status_code == 429 or response.status_code >= 500:
+            response.close()
+            continue
         ensure_video_response(response, "video provider status", retryable=False)
         task = video_response_json(response, "video provider returned invalid status response")
 
@@ -129,14 +159,25 @@ def download_video_result(
 ) -> dict[str, Any]:
     endpoint = video_endpoint(provider, "video_content", "videos/{id}/content", task_id)
     url = provider_request_url(base_url, endpoint, provider)
+    download_headers = headers
+    if provider.get("video_protocol") == "seedance":
+        url = native_video_url(task)
+        parsed = urlparse(url)
+        if not url or parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username is not None:
+            raise SafeTaskError("video provider returned no video URL", code="provider_invalid_response", retryable=False)
+        # Signed storage links are independent of supplier API authentication.
+        download_headers = {}
     progress(VIDEO_DOWNLOAD_PROGRESS)
     try:
-        response = requests.get(url, headers=headers, stream=True, timeout=max(timeout, 1.0))
+        response = requests.get(url, headers=download_headers, stream=True, timeout=max(timeout, 1.0))
     except requests.RequestException as exc:
         raise SafeTaskError("video provider content request failed", code="provider_request_failed", retryable=False) from exc
     ensure_video_response(response, "video provider content", retryable=False)
 
     content_type = str(response.headers.get("Content-Type") or video_content_type(task) or "video/mp4").split(";", 1)[0].strip().lower()
+    if provider.get("video_protocol") == "seedance" and not content_type.startswith("video/") and content_type != "application/octet-stream":
+        response.close()
+        raise SafeTaskError("video provider returned invalid content", code="provider_invalid_response", retryable=False)
     output_dir = ensure_job_dir(settings.asset_storage_dir, job_id)
     output_path = output_dir / f"provider_0.{video_extension(content_type)}"
     try:
@@ -145,10 +186,15 @@ def download_video_result(
             if callable(chunks):
                 for chunk in chunks(chunk_size=VIDEO_DOWNLOAD_CHUNK_BYTES):
                     if chunk:
+                        if provider.get("video_protocol") == "seedance" and stream.tell() + len(chunk) > NATIVE_VIDEO_MAX_DOWNLOAD_BYTES:
+                            raise SafeTaskError("video provider output too large", code="provider_output_too_large", retryable=False)
                         stream.write(chunk)
                         progress(VIDEO_DOWNLOAD_PROGRESS)
             else:
                 stream.write(bytes(getattr(response, "content", b"")))
+    except requests.RequestException as exc:
+        output_path.unlink(missing_ok=True)
+        raise SafeTaskError("video content download failed", code="provider_request_failed", retryable=True) from exc
     except Exception:
         output_path.unlink(missing_ok=True)
         raise
@@ -232,6 +278,8 @@ def video_status(task: dict[str, Any]) -> str:
             value = container.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip().lower()
+    if any(container.get("error") or container.get("error_message") or container.get("code") not in (None, "", 0, "0", "Success") for container in video_task_containers(task)):
+        return "failed"
     return "queued"
 
 
@@ -273,7 +321,10 @@ def video_task_error(task: dict[str, Any], status: str) -> str:
 def video_endpoint(provider: dict[str, Any], key: str, fallback: str, task_id: str) -> str:
     overrides = provider.get("endpoint_overrides")
     template = str(overrides.get(key) or fallback) if isinstance(overrides, dict) else fallback
-    return template.replace("{id}", task_id).replace("{task_id}", task_id).lstrip("/")
+    escaped_id = quote(task_id, safe="")
+    if "{id}" not in template and "{task_id}" not in template:
+        return template.rstrip("/") + "/" + escaped_id
+    return template.replace("{id}", escaped_id).replace("{task_id}", escaped_id).lstrip("/")
 
 
 def video_request_timeout(provider: dict[str, Any], settings: Settings) -> float:
@@ -283,7 +334,30 @@ def video_request_timeout(provider: dict[str, Any], settings: Settings) -> float
         configured = 0
     if configured <= 0:
         configured = VIDEO_REQUEST_TIMEOUT_SECONDS
-    return max(1.0, min(configured, VIDEO_REQUEST_TIMEOUT_SECONDS, float(settings.job_default_timeout_seconds)))
+    return max(configured, VIDEO_REQUEST_TIMEOUT_SECONDS)
+
+
+def native_video_url(task: Any, depth: int = 0) -> str:
+    if depth >= NATIVE_VIDEO_RESPONSE_MAX_DEPTH:
+        return ""
+    if isinstance(task, list):
+        for item in task:
+            value = native_video_url(item, depth + 1)
+            if value:
+                return value
+    if isinstance(task, dict):
+        content = native_video_url(task.get("content"), depth + 1)
+        if content:
+            return content
+        for key in ("video_url", "videoUrl", "output_url", "outputUrl", "download_url", "downloadUrl", "url"):
+            value = task.get(key)
+            if isinstance(value, str) and urlparse(value.strip()).scheme in {"http", "https"}:
+                return value.strip()
+        for key in ("data", "result", "results", "output", "outputs", "items"):
+            value = native_video_url(task.get(key), depth + 1)
+            if value:
+                return value
+    return ""
 
 
 def video_content_type(task: dict[str, Any]) -> str:
@@ -304,10 +378,15 @@ def video_extension(content_type: str) -> str:
 
 
 def cancel_provider_video_task(task_id: str, provider: dict[str, Any], base_url: str, headers: dict[str, str], timeout: float) -> None:
+    timeout = min(timeout, VIDEO_CANCEL_TIMEOUT_SECONDS)
     endpoint = video_endpoint(provider, "video_cancel", "videos/{id}/cancel", task_id)
     url = provider_request_url(base_url, endpoint, provider)
     try:
-        requests.post(url, headers=headers, timeout=timeout)
+        if provider.get("video_protocol") == "seedance" and not (provider.get("endpoint_overrides") or {}).get("video_cancel"):
+            endpoint = video_endpoint(provider, "video_get", "contents/generations/tasks/{id}", task_id)
+            requests.delete(provider_request_url(base_url, endpoint, provider), headers=headers, timeout=timeout)
+        else:
+            requests.post(url, headers=headers, timeout=timeout)
     except requests.RequestException:
         return
 

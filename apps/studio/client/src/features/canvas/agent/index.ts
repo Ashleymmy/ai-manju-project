@@ -1,10 +1,13 @@
 export {
   AGENT_DEFAULT_TEXT_MODEL_HINT,
   AGENT_FEATURED_MODEL_COUNT,
+  agentModelName,
+  agentModelOptions,
   extraAgentModels,
   featuredAgentModels,
   isGpt56LunaModel,
   pickAgentDefaultModel,
+  resolveAgentModel,
 } from "./agentModelPrefs";
 export {
   AGENT_INTERRUPTED_MESSAGE,

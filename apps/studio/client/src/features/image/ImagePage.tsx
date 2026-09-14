@@ -1,3 +1,4 @@
+import { modelOptions, resolveModel } from "@/shared/lib/modelSelection";
 import {
   ArrowDown,
   ArrowDownToLine,
@@ -55,7 +56,6 @@ import { CropDialog, HistoryPreviewDialog, OutpaintDialog, UpscaleDialog } from 
 
 import {
   generateImages,
-  imageModelLabel,
   type GeneratedImage,
   type ImageModelCatalog,
 } from "./api";
@@ -201,7 +201,7 @@ export function ImageWorkbenchView() {
       return;
     }
     setCatalog(catalogQuery.data);
-    setModel(catalogQuery.data.defaultModel);
+    setModel(current => resolveModel(catalogQuery.data.models, current || preferencesQuery.data?.generation?.imageModel || "") || catalogQuery.data.defaultModel);
   }, [catalogQuery.data, catalogQuery.error, catalogQuery.isPending]);
 
   useEffect(() => {
@@ -774,7 +774,7 @@ export function ImageWorkbenchView() {
               setWidth(snapped.width);
               setHeight(snapped.height);
             }
-          }}>{catalog?.models.map((item) => <option key={item} value={item}>{imageModelLabel(item, catalog)}</option>)}</select></label>
+          }}>{modelOptions(catalog?.models || [], model).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
         </div>
         <div className="composer-options">
           <label>质量<div className="ratio-buttons">{(["auto", "high", "medium", "low"] as const).map((q) => <button key={q} className={quality === q ? "active" : ""} onClick={() => {

@@ -16,10 +16,11 @@ export type ChatProjectCreatePayload = {
 
 export type ChatProjectFlowDependencies = {
   navigate: (path: string) => void;
+  model?: string;
   createProject?: (
     payload: ChatProjectCreatePayload
   ) => Promise<{ id: string }>;
-  setCanvasBootstrap?: (projectId: string, prompt: string) => void;
+  setCanvasBootstrap?: (projectId: string, prompt: string, model?: string) => void;
   createId?: () => string;
 };
 
@@ -27,6 +28,7 @@ export type ChatProjectFlow = (prompt: string) => Promise<void>;
 
 export function createChatProjectFlow({
   navigate,
+  model,
   createProject = createCanvasProject,
   setCanvasBootstrap = writeCanvasBootstrap,
   createId = () => crypto.randomUUID(),
@@ -39,7 +41,8 @@ export function createChatProjectFlow({
       data: createInitialCanvasSnapshot(prompt, createId),
     });
 
-    setCanvasBootstrap(project.id, prompt);
+    if (model) setCanvasBootstrap(project.id, prompt, model);
+    else setCanvasBootstrap(project.id, prompt);
     navigate(`/canvas/${encodeURIComponent(project.id)}?scope=personal`);
   };
 }

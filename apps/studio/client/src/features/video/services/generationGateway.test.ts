@@ -148,6 +148,33 @@ describe("video API", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("polls native videos through their durable job and ignores transient status failures", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(apiResponse({ id: "job_native", job_id: "job_native" }))
+      .mockResolvedValueOnce(apiResponse(null, 503))
+      .mockResolvedValueOnce(apiResponse({ id: "job_native", type: "video.generate", status: "running", progress: 35 }))
+      .mockResolvedValueOnce(apiResponse({ id: "job_native", type: "video.generate", status: "failed", error: { message: "当前模型暂时不可用，请稍后重试" } }));
+    const selected = { ...config, model: "removed::wan3.0-video" };
+    const task = await createVideoGenerationTask(selected, "test");
+    expect(task.model).toBe(selected.model);
+    await expect(pollVideoGenerationTask(selected, task)).resolves.toEqual({ status: "pending" });
+    await expect(pollVideoGenerationTask(selected, task)).resolves.toEqual({ status: "pending", progress: 35 });
+    await expect(pollVideoGenerationTask(selected, task)).resolves.toEqual({ status: "failed", error: "当前模型暂时不可用，请稍后重试" });
+    for (const [url] of vi.mocked(fetch).mock.calls.slice(1)) {
+      expect(new URL(String(url)).pathname).toBe("/api/jobs/job_native");
+    }
+  });
+
+  it("does not hide authorization failures or restart an aborted native job", async () => {
+    const task = { id: "job_native", provider: "seedance" as const, model: "wan3.0-video" };
+    vi.mocked(fetch).mockResolvedValueOnce(apiResponse(null, 403));
+    await expect(pollVideoGenerationTask(config, task)).rejects.toMatchObject({ status: 403 });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(pollVideoGenerationTask(config, task, { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("reports running progress and terminal provider errors", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(apiResponse({ id: "video-job", type: "video.generate", status: "running", progress: 42 }))

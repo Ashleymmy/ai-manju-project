@@ -42,6 +42,8 @@ export function useAssetOverviewQuery(
 ) {
   return useQuery({
     queryKey: assetFeatureQueryKeys.overview(scope, revision),
+    // Refresh linked canvas folder names when returning from another browser tab.
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const [folders, tags] = await Promise.allSettled([
         getAssetFolders(scope),

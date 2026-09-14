@@ -340,14 +340,49 @@ describe("CanvasAssetsMentionsController", () => {
     expect(scheduled.has(2)).toBe(true);
   });
 
-  it("按分类加载 mention 资产目录", async () => {
+  it("按真实文件夹加载 mention 资产目录，收藏使用当前用户的 smart_view", async () => {
     const getAssetLibrary = vi.fn(async () => ({ items: [], total: 0, page: 1, page_size: 100 }));
-    const harness = createHarness([], createServices({ getAssetLibrary }));
-    await harness.controller.loadMentionCatalog("", "personal", "character");
+    const getAssetFolders = vi.fn(async () => [{ id: "roles", parent_id: "mine", name: "角色", kind: "system" as const, asset_count: 0, descendant_asset_count: 0, sort_order: 0 }]);
+    const harness = createHarness([], createServices({ getAssetLibrary, getAssetFolders }));
+    await harness.controller.loadMentionCatalog("", "personal", "folder:roles");
     expect(getAssetLibrary).toHaveBeenCalledWith(
       "personal",
-      expect.objectContaining({ category: "character", pageSize: 100 }),
+      expect.objectContaining({ folderId: "roles", includeDescendants: undefined, pageSize: 100 }),
       expect.anything(),
     );
+    await harness.controller.loadMentionCatalog("", "personal", "favorites");
+    expect(getAssetLibrary).toHaveBeenLastCalledWith("personal", expect.objectContaining({ smartView: "favorite", folderId: undefined }), expect.anything());
+    await harness.controller.loadMentionCatalog("街道", "personal", "folder:roles");
+    expect(getAssetLibrary).toHaveBeenLastCalledWith("personal", expect.objectContaining({ folderId: "roles", keyword: "街道", includeDescendants: true }), expect.anything());
+  });
+
+  it("无效目录不请求资产列表，也不显示旧目录的资产", async () => {
+    const getAssetLibrary = vi.fn(async () => ({ items: [imageAsset], total: 1, page: 1, page_size: 60 }));
+    const harness = createHarness([], createServices({ getAssetLibrary }));
+    await harness.controller.loadMentionCatalog();
+    await harness.controller.loadMentionCatalog("", "personal", "folder:deleted");
+    expect(getAssetLibrary).toHaveBeenCalledTimes(1);
+    expect(harness.controller.getSnapshot().mentionLibrary).toMatchObject({ assetIds: [], loading: false, hasMore: false });
+    expect(harness.controller.getSnapshot().mentionLibrary.error).toContain("文件夹");
+    expect(harness.controller.getAssets()).toHaveLength(1);
+  });
+
+  it("延迟到达的旧查询不会覆盖收藏，分页追加且不截断收藏列表", async () => {
+    let resolveOld!: (value: { items: Asset[]; total: number; page: number; page_size: number }) => void;
+    const getAssetLibrary = vi.fn()
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }))
+      .mockResolvedValueOnce({ items: [imageAsset], total: 2, page: 1, page_size: 1 })
+      .mockResolvedValueOnce({ items: [{ ...imageAsset, id: "asset-2" }], total: 2, page: 2, page_size: 1 });
+    const harness = createHarness([], createServices({ getAssetLibrary }));
+    const old = harness.controller.loadMentionCatalog("旧查询");
+    await vi.waitFor(() => expect(getAssetLibrary).toHaveBeenCalledTimes(1));
+    await harness.controller.loadMentionCatalog("", "personal", "favorites");
+    expect(harness.controller.getSnapshot().mentionLibrary).toMatchObject({ target: "favorites", assetIds: ["asset-1"], hasMore: true });
+    resolveOld({ items: [{ ...imageAsset, id: "old" }], total: 1, page: 1, page_size: 60 });
+    await old;
+    expect(harness.controller.getSnapshot().mentionLibrary.assetIds).toEqual(["asset-1"]);
+    await harness.controller.loadMentionCatalog("", "personal", "favorites", 2);
+    expect(harness.controller.getSnapshot().mentionLibrary).toMatchObject({ assetIds: ["asset-1", "asset-2"], hasMore: false, page: 2 });
+    expect(harness.controller.getAssets().some(asset => asset.id === "old")).toBe(false);
   });
 });

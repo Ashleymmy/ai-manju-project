@@ -85,6 +85,8 @@ export type AssetFolder = {
   name: string;
   kind: "system" | "user";
   system_key?: string;
+  source_ref_id?: string;
+  source_ref_type?: string;
   asset_count: number;
   descendant_asset_count: number;
   sort_order: number;

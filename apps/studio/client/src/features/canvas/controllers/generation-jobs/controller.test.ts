@@ -286,6 +286,30 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.runningIds.size).toBe(0);
   });
 
+  it("取消原生视频会取消后台 Job，停止供应商重试", async () => {
+    let signal: AbortSignal | undefined;
+    const services = createServices({
+      cancelJob: vi.fn(async () => ({ id: "job_native", type: "video.generate", status: "canceled", state: "canceled" })),
+      createVideoGenerationTask: vi.fn(async () => ({ id: "job_native", provider: "seedance" as const, model: "wan3.0-video" })),
+      pollVideoGenerationTask: vi.fn((_config, _task, options) => {
+        signal = options?.signal;
+        return new Promise((_resolve, reject) => signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError"))));
+      }),
+    });
+    const harness = createHarness([imageNode()], services);
+    const running = harness.controller.runVideoTarget({
+      targetNodeId: "image-1", originNodeId: "image-1", runningNodeId: "image-1",
+      projectKey: "personal:project-1", scope: "personal", prompt: "test",
+      config: { model: "wan3.0-video", size: "16:9", resolution: "720p", seconds: "5", generateAudio: true, watermark: false },
+      references: { images: [], videos: [], audios: [] },
+    });
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    harness.controller.stopGenerationByNodeId("image-1");
+    await expect(running).resolves.toBe(false);
+    expect(signal?.aborted).toBe(true);
+    await vi.waitFor(() => expect(services.cancelJob).toHaveBeenCalledWith("job_native", "personal"));
+  });
+
   it("只恢复一次刷新前已入队的图片 Job", async () => {
     const waitForImageJob = vi.fn(async () => ({
       id: "job-recover",

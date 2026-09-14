@@ -85,35 +85,19 @@ func NewModelProviderHandler(repo repository.ModelProviderRepository, secretBox 
 // HTTP response, allowing server-side schedulers to reuse the same encrypted
 // provider configuration as interactive image generation.
 func (h *ModelProviderHandler) ResolveBackgroundImageJob(requestedModel string, jobTypes ...string) (BackgroundImageJobResolution, error) {
-	selection, err := h.resolveProviderSelection(model.ModelCapabilityImage, requestedModel)
+	candidates, err := h.generationCandidates(model.ModelCapabilityImage, requestedModel)
 	if err != nil {
 		return BackgroundImageJobResolution{}, err
 	}
-	if !selection.Config.Enabled {
-		return BackgroundImageJobResolution{}, provider.ErrProviderDisabled
-	}
-	if !supportsCapability(selection.Config, model.ModelCapabilityImage) {
-		return BackgroundImageJobResolution{}, errors.New("model provider does not support image generation")
-	}
-	selection.Model = strings.TrimSpace(selection.Model)
-	if selection.Model == "" {
-		return BackgroundImageJobResolution{}, errors.New("image model is not configured")
-	}
-	if err := provider.ValidateProviderConfig(selection.Config); err != nil {
-		return BackgroundImageJobResolution{}, err
-	}
-	apiKey, err := h.secretBox.Decrypt(selection.Config.APIKeyEncrypted)
-	if err != nil {
-		return BackgroundImageJobResolution{}, errors.New("model provider api key cannot be decrypted")
-	}
-	apiPath := "/images/generations"
+	operation := "generate"
 	if len(jobTypes) > 0 && jobTypes[0] == model.JobTypeImageEdit {
-		apiPath = "/images/edits"
+		operation = "edit"
 	}
+	selection := candidates[0]
 	return BackgroundImageJobResolution{
 		Selector:   encodeProviderModel(selection.Config.ID, selection.Model),
 		Model:      selection.Model,
-		TaskKwargs: providerJobKwargs(selection.Config, apiKey, selection.Model, apiPath, h.gateSecret),
+		TaskKwargs: h.generationJobKwargs(candidates, operation),
 	}, nil
 }
 
@@ -983,6 +967,19 @@ func (h *ModelProviderHandler) resolveProviderSelection(capability string, reque
 	}
 	if len(configs) == 0 {
 		return modelSelection{}, repository.ErrModelProviderNotFound
+	}
+	// Bare model names route to suppliers that actually advertise the requested
+	// model, while retaining the default supplier's priority among matches.
+	if modelID != "" {
+		var matching []model.ModelProviderConfig
+		for _, config := range configs {
+			if config.Enabled && supportsCapability(config, capability) && containsString(modelsByCapabilityFromConfig(config)[capability], modelID) {
+				matching = append(matching, config)
+			}
+		}
+		if len(matching) > 0 {
+			configs = matching
+		}
 	}
 	for _, config := range configs {
 		if !config.Enabled || !supportsCapability(config, capability) {

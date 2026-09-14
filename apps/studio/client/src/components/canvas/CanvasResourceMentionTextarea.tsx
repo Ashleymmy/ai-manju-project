@@ -7,6 +7,7 @@ import {
   Folder,
   Image as ImageIcon,
   Music2,
+  Star,
   Video,
 } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -20,12 +21,11 @@ import {
 } from "react";
 
 import { getAssetContentObjectUrl } from "@/entities/asset";
-import type { AssetCategory } from "@/entities/asset/model";
+import { useOutsidePress } from "@/shared/lib/useOutsidePress";
+import { buildCanvasMentionLibraryMenu, emptyCanvasMentionLibrary, mentionLibraryTargetLabel, type CanvasMentionLibraryItem, type CanvasMentionLibraryState, type CanvasMentionLibraryTarget } from "@/features/canvas/domain/mentionLibrary";
 import {
   applyCanvasMentionEditorEdit,
   buildCanvasMentionEditorModel,
-  buildCanvasMentionMenuItems,
-  canvasMentionCategoryLabel,
   canvasMentionEditorDisplayText,
   canvasMentionEditorGap,
   canvasMentionShowsName,
@@ -34,7 +34,6 @@ import {
   serializeCanvasMentionEditorValue,
   splitCanvasMentionEditorDisplay,
   type CanvasMentionEditorSegment,
-  type CanvasMentionMenuItem,
   type CanvasMentionReference,
 } from "@/features/canvas/domain/mentions";
 
@@ -42,7 +41,8 @@ type Props = Omit<ComponentProps<"textarea">, "onChange" | "value"> & {
   value: string;
   references: CanvasMentionReference[];
   onChange: (value: string) => void;
-  onMentionQueryChange?: (query: string, category?: AssetCategory) => void;
+  onMentionQueryChange?: (query: string, target?: CanvasMentionLibraryTarget, loadMore?: boolean) => void;
+  mentionLibrary?: CanvasMentionLibraryState;
   onSubmit?: () => void;
   containerClassName?: string;
   /** 返回引用对应的缩略图 URL（画布节点读预览缓存；返回空时资产库图片会按需拉取） */
@@ -55,6 +55,11 @@ type Props = Omit<ComponentProps<"textarea">, "onChange" | "value"> & {
 
 /** 资产库图片缩略图的会话级缓存：assetScope:assetId -> objectURL（菜单反复开合不重复拉取） */
 const mentionAssetThumbCache = new Map<string, string>();
+
+/** Keep the popup anchored to the editor and inside the viewport at every depth. */
+const MENTION_MENU_WIDTH = 340;
+const MENTION_MENU_MAX_HEIGHT = 460;
+const MENTION_MENU_GAP = 8;
 
 function isReadableThumbSource(value: string) {
   return /^(data:|blob:|https?:\/\/|\/)/i.test(value.trim());
@@ -69,6 +74,7 @@ export const CanvasResourceMentionTextarea = forwardRef<
     references,
     onChange,
     onMentionQueryChange,
+    mentionLibrary = emptyCanvasMentionLibrary(),
     containerClassName,
     className,
     onKeyDown,
@@ -80,34 +86,36 @@ export const CanvasResourceMentionTextarea = forwardRef<
   },
   forwardedRef
 ) {
+  const editorModel = useMemo(
+    () => buildCanvasMentionEditorModel(value, references),
+    [references, value]
+  );
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
-  const editorValueRef = useRef("");
-  const editorSegmentsRef = useRef<CanvasMentionEditorSegment[]>([]);
+  // 空字符串是有效的节点内容，不能在渲染时把它当作“未初始化”。
+  // 后续外部值由同步 effect 同时更新 ref 与显示状态，避免选回原节点时只更新 ref。
+  const editorValueRef = useRef(editorModel.displayValue);
+  const editorSegmentsRef = useRef<CanvasMentionEditorSegment[]>(editorModel.segments);
   const emittedValueRef = useRef<string | null>(null);
   const [mention, setMention] = useState<{
     start: number;
     query: string;
   } | null>(null);
-  const [mentionCategory, setMentionCategory] = useState<AssetCategory | null>(
-    null
-  );
-  const mentionCategoryRef = useRef<AssetCategory | null>(null);
+  const [mentionPath, setMentionPath] = useState<CanvasMentionLibraryTarget[]>(["root"]);
+  const mentionTarget = mentionPath[mentionPath.length - 1];
+  const mentionTargetRef = useRef<CanvasMentionLibraryTarget>("root");
   const [activeIndex, setActiveIndex] = useState(0);
   const menuItems = useMemo(
     () =>
       mention
-        ? buildCanvasMentionMenuItems(
+        ? buildCanvasMentionLibraryMenu(
             references,
             mention.query,
-            mentionCategory
+            mentionTarget,
+            mentionLibrary,
           )
         : [],
-    [mention, mentionCategory, references]
-  );
-  const editorModel = useMemo(
-    () => buildCanvasMentionEditorModel(value, references),
-    [references, value]
+    [mention, mentionTarget, mentionLibrary, references]
   );
   const [editorValue, setEditorValue] = useState(
     () => editorModel.displayValue
@@ -115,10 +123,6 @@ export const CanvasResourceMentionTextarea = forwardRef<
   const [editorSegments, setEditorSegments] = useState<
     CanvasMentionEditorSegment[]
   >(() => editorModel.segments);
-  if (!editorValueRef.current && editorModel.displayValue) {
-    editorValueRef.current = editorModel.displayValue;
-    editorSegmentsRef.current = editorModel.segments;
-  }
   const referenceByKey = useMemo(
     () => new Map(references.map(reference => [reference.key, reference])),
     [references]
@@ -184,33 +188,35 @@ export const CanvasResourceMentionTextarea = forwardRef<
     setEditorSegments(editorModel.segments);
   }, [editorModel.displayValue, editorModel.segments, value]);
 
-  useEffect(() => {
-    editorValueRef.current = editorValue;
-  }, [editorValue]);
-
   const closeMention = () => {
-    mentionCategoryRef.current = null;
-    setMentionCategory(null);
+    mentionTargetRef.current = "root";
+    setMentionPath(["root"]);
     setMention(null);
     setActiveIndex(0);
   };
 
-  const emitMentionCatalog = (query: string, category: AssetCategory | null) => {
-    onMentionQueryChange?.(query, category || undefined);
+  useEffect(() => {
+    closeMention();
+  }, [mentionLibrary.projectId, mentionLibrary.scope]);
+
+  const emitMentionCatalog = (query: string, target: CanvasMentionLibraryTarget) => {
+    onMentionQueryChange?.(query, target);
   };
 
-  const selectMentionCategory = (category: AssetCategory) => {
-    mentionCategoryRef.current = category;
-    setMentionCategory(category);
+  const selectMentionFolder = (target: CanvasMentionLibraryTarget) => {
+    mentionTargetRef.current = target;
+    setMentionPath(path => [...path, target]);
     setActiveIndex(0);
-    emitMentionCatalog(mention?.query || "", category);
+    emitMentionCatalog(mention?.query || "", target);
   };
 
-  const clearMentionCategory = () => {
-    mentionCategoryRef.current = null;
-    setMentionCategory(null);
+  const backMentionFolder = () => {
+    const path = mentionPath.length > 1 ? mentionPath.slice(0, -1) : ["root" as const];
+    const target = path[path.length - 1];
+    mentionTargetRef.current = target;
+    setMentionPath(path);
     setActiveIndex(0);
-    emitMentionCatalog(mention?.query || "", null);
+    emitMentionCatalog(mention?.query || "", target);
   };
 
   const syncMention = (nextValue: string, cursor: number) => {
@@ -229,7 +235,7 @@ export const CanvasResourceMentionTextarea = forwardRef<
     }
     setMention(match);
     setActiveIndex(0);
-    emitMentionCatalog(match.query, mentionCategoryRef.current);
+    emitMentionCatalog(match.query, mentionTargetRef.current);
   };
 
   const clampSelectionToMentionBoundary = () => {
@@ -294,9 +300,9 @@ export const CanvasResourceMentionTextarea = forwardRef<
     });
   };
 
-  const activateMenuItem = (item: CanvasMentionMenuItem) => {
-    if (item.kind === "category") {
-      selectMentionCategory(item.category);
+  const activateMenuItem = (item: CanvasMentionLibraryItem) => {
+    if (item.kind === "folder") {
+      selectMentionFolder(item.target);
       return;
     }
     insertReference(item.reference);
@@ -510,8 +516,8 @@ export const CanvasResourceMentionTextarea = forwardRef<
           }
           if (mention && event.key === "Escape") {
             event.preventDefault();
-            if (mentionCategory) {
-              clearMentionCategory();
+            if (mentionTarget !== "root") {
+              backMentionFolder();
               return;
             }
             closeMention();
@@ -533,12 +539,16 @@ export const CanvasResourceMentionTextarea = forwardRef<
       {mention && textareaRef.current
         ? createPortal(
             <MentionMenu
+              onDismiss={closeMention}
               textarea={textareaRef.current}
               items={menuItems}
               activeIndex={activeIndex}
-              selectedCategory={mentionCategory}
+              target={mentionTarget}
+              library={mentionLibrary}
               onSelectItem={activateMenuItem}
-              onBack={mentionCategory ? clearMentionCategory : undefined}
+              onBack={mentionTarget !== "root" ? backMentionFolder : undefined}
+              onRetry={() => onMentionQueryChange?.(mention.query, mentionTarget)}
+              onLoadMore={() => onMentionQueryChange?.(mention.query, mentionTarget, true)}
               thumbnailForReference={thumbnailForReference}
               onPreviewReference={
                 onPreviewReference
@@ -646,54 +656,70 @@ function MentionItemThumb({
 }
 
 function MentionMenu({
+  onDismiss,
   textarea,
   items,
   activeIndex,
-  selectedCategory,
+  target,
+  library,
   onSelectItem,
   onBack,
+  onRetry,
+  onLoadMore,
   thumbnailForReference,
   onPreviewReference,
   onLocateReference,
 }: {
+  onDismiss: () => void;
   textarea: HTMLTextAreaElement;
-  items: CanvasMentionMenuItem[];
+  items: CanvasMentionLibraryItem[];
   activeIndex: number;
-  selectedCategory: AssetCategory | null;
-  onSelectItem: (item: CanvasMentionMenuItem) => void;
+  target: CanvasMentionLibraryTarget;
+  library: CanvasMentionLibraryState;
+  onSelectItem: (item: CanvasMentionLibraryItem) => void;
   onBack?: () => void;
+  onRetry: () => void;
+  onLoadMore: () => void;
   thumbnailForReference?: (reference: CanvasMentionReference) => string;
   onPreviewReference?: (reference: CanvasMentionReference) => void;
   onLocateReference?: (reference: CanvasMentionReference) => void;
 }) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useOutsidePress(true, event => {
+    const path = event.composedPath();
+    return path.includes(textarea) || path.includes(menuRef.current!);
+  }, onDismiss);
+  useEffect(() => {
+    menuRef.current?.querySelector(".canvas-mention-item.active")?.scrollIntoView?.({ block: "nearest" });
+  }, [activeIndex]);
   const rect = textarea.getBoundingClientRect();
-  const width = 340;
-  const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
-  const top =
-    rect.bottom + 476 > window.innerHeight
-      ? Math.max(8, rect.top - 470)
-      : rect.bottom + 6;
+  const width = Math.min(MENTION_MENU_WIDTH, window.innerWidth - MENTION_MENU_GAP * 2);
+  const left = Math.max(MENTION_MENU_GAP, Math.min(rect.left, window.innerWidth - width - MENTION_MENU_GAP));
+  const above = rect.top - MENTION_MENU_GAP * 2;
+  const below = window.innerHeight - rect.bottom - MENTION_MENU_GAP * 2;
+  const placeAbove = below < Math.min(MENTION_MENU_MAX_HEIGHT, above);
+  const top = placeAbove ? rect.top - MENTION_MENU_GAP : rect.bottom + MENTION_MENU_GAP;
   const nodeItems = items.filter(
-    (item): item is Extract<CanvasMentionMenuItem, { kind: "reference" }> =>
+    (item): item is Extract<CanvasMentionLibraryItem, { kind: "reference" }> =>
       item.kind === "reference" && item.reference.group === "canvas-node"
   );
   const libraryItems = items.filter(
     item =>
-      item.kind === "category" ||
+      item.kind === "folder" ||
       (item.kind === "reference" && item.reference.group === "asset-library")
   );
-  const emptyLibraryHint = selectedCategory
-    ? "该分类暂无资产"
-    : "无匹配素材";
+  const emptyLibraryHint = target === "favorites" ? "暂无收藏的资产" : "此文件夹暂无匹配的素材";
   return (
     <div
       className="canvas-mention-menu"
-      style={{ left, top, width }}
+      ref={menuRef}
+      aria-label="引用素材"
+      style={{ left, top, width, maxHeight: Math.min(MENTION_MENU_MAX_HEIGHT, Math.max(0, placeAbove ? above : below)), transform: placeAbove ? "translateY(-100%)" : undefined }}
       onPointerDown={event => event.stopPropagation()}
     >
       {nodeItems.length ? (
         <section>
-          <b>已连接素材</b>
+          <b>前置连线节点</b>
           {nodeItems.map(item => (
             <MentionReferenceRow
               key={item.id}
@@ -710,7 +736,7 @@ function MentionMenu({
       ) : null}
       <section>
         <b>资产库</b>
-        {selectedCategory && onBack ? (
+        {onBack ? (
           <button
             type="button"
             className="canvas-mention-back"
@@ -720,11 +746,11 @@ function MentionMenu({
             }}
           >
             <ChevronLeft size={14} />
-            返回 · {canvasMentionCategoryLabel(selectedCategory)}
+            返回 · {mentionLibraryTargetLabel(target, library.folders)}
           </button>
         ) : null}
         {libraryItems.map(item =>
-          item.kind === "category" ? (
+          item.kind === "folder" ? (
             <div
               role="button"
               tabIndex={-1}
@@ -736,10 +762,11 @@ function MentionMenu({
               }}
             >
               <span className="canvas-mention-thumb canvas-mention-thumb-icon">
-                <Folder size={15} />
+                {item.target === "favorites" ? <Star size={15} /> : <Folder size={15} />}
               </span>
               <span>
                 <strong>{item.label}</strong>
+                {item.currentProject ? <small>当前画布</small> : null}
               </span>
               <span className="canvas-mention-item-actions">
                 <ChevronRight size={13} />
@@ -758,7 +785,15 @@ function MentionMenu({
             />
           )
         )}
-        {!libraryItems.length ? <small>{emptyLibraryHint}</small> : null}
+        {library.loading ? <small role="status">正在读取素材…</small> : null}
+        {library.error ? <div className="canvas-mention-feedback" role="alert">
+          <small>{library.error}</small>
+          <button type="button" className="canvas-mention-back" onPointerDown={event => { event.preventDefault(); onRetry(); }}>重试</button>
+        </div> : null}
+        {!library.loading && !library.error && !libraryItems.length ? <small>{emptyLibraryHint}</small> : null}
+        {!library.loading && !library.error && library.hasMore && (target !== "root" || library.query) ? (
+          <button type="button" className="canvas-mention-back" onPointerDown={event => { event.preventDefault(); onLoadMore(); }}>加载更多</button>
+        ) : null}
       </section>
     </div>
   );
@@ -773,10 +808,10 @@ function MentionReferenceRow({
   onPreviewReference,
   onLocateReference,
 }: {
-  item: Extract<CanvasMentionMenuItem, { kind: "reference" }>;
+  item: Extract<CanvasMentionLibraryItem, { kind: "reference" }>;
   index: number;
   activeIndex: number;
-  onSelectItem: (item: CanvasMentionMenuItem) => void;
+  onSelectItem: (item: CanvasMentionLibraryItem) => void;
   thumbnailForReference?: (reference: CanvasMentionReference) => string;
   onPreviewReference?: (reference: CanvasMentionReference) => void;
   onLocateReference?: (reference: CanvasMentionReference) => void;

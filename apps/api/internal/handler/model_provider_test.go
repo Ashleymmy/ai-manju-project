@@ -1807,7 +1807,8 @@ func TestSeedanceProxyUsesVideoEndpointOverrides(t *testing.T) {
 	}))
 	defer server.Close()
 
-	router, providerRepo := newProviderTestRouter(t, "secret")
+	producer := &queue.MemoryProducer{}
+	router, providerRepo := newProviderTestRouterWithJobDependencies(t, "secret", producer, t.TempDir())
 	if _, err := providerRepo.UpsertDefaultModelProvider(model.ModelProviderConfig{
 		ID:                 model.ModelProviderIDDefault,
 		Mode:               model.ModelProviderModeOpenAICompatible,
@@ -1829,10 +1830,10 @@ func TestSeedanceProxyUsesVideoEndpointOverrides(t *testing.T) {
 
 	memberCookie := loginCookie(t, router, "member", "secret")
 	create := performJSON(router, http.MethodPost, "/api/ai/contents/generations/tasks", `{"model":"doubao-seedance-test","prompt":"move"}`, memberCookie)
-	if create.Code != http.StatusOK || !strings.Contains(create.Body.String(), `"task-1"`) {
+	if create.Code != http.StatusOK || !strings.Contains(create.Body.String(), `"job_`) {
 		t.Fatalf("seedance create = %d %s", create.Code, create.Body.String())
 	}
-	if createPath != "/api/v3/contents/generations/tasks" {
+	if createPath != "" || len(producer.Messages) != 1 || producer.Messages[0].Kwargs["provider"].(map[string]any)["endpoint"] != "api/v3/contents/generations/tasks" {
 		t.Fatalf("create path = %q", createPath)
 	}
 
