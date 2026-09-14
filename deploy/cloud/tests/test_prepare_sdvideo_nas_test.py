@@ -55,7 +55,7 @@ class PrepareTests(unittest.TestCase):
             for key in ('ARK_API_KEY', 'SEEDANCE20_KEY', 'VIDU_API_KEY', 'YIKE_API_KEY', 'AMK_API_KEY'):
                 self.assertEqual(env[key], '')
                 self.assertEqual(env[key + '_FILE'], '')
-            self.assertEqual(env['SDVIDEO_SUPABASE_PUBLIC_URL'], 'https://sd.ggwp.cn:18000')
+            self.assertEqual(env['SDVIDEO_SUPABASE_PUBLIC_URL'], 'https://studio.clouddo.cc')
 
     def test_rotating_token_directory_and_group_isolation(self):
         for name, role, group in [(n, 'sdvideo', '21002') for n in tool.SD_SERVICES] + [

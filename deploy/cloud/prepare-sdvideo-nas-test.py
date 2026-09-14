@@ -11,6 +11,7 @@ import subprocess
 PROJECT = Path('/root/item/cavans/ai-manju-project')
 VAULT = Path('/srv/studio-secrets/sdvideo-nas-test')
 OUTPUT = Path('/root/item/compose.sdvideo-nas-test.json')
+PUBLIC_MEDIA_URL = os.getenv('SDVIDEO_PUBLIC_MEDIA_URL', 'https://studio.clouddo.cc').strip().rstrip('/')
 BASE_FILES = [PROJECT / name for name in (
     'docker-compose.yml', 'docker-compose.override.yml',
     'compose.nas-ipv6.yml', 'compose.nas-tokens.yml',
@@ -73,8 +74,8 @@ def make_overlay(image):
         'SDVIDEO_REDIS_URL': 'redis://sd-video-redis:6379/0',
         'STORAGE_BACKEND': 'supabase', 'SDVIDEO_DATA_DIR': '/app/data',
         'SDVIDEO_SUPABASE_URL': 'https://sd.ggwp.cn:18000',
-        # 公网媒体代理目前只放行 Studio 桶；不冒充四个视频桶已能通过 IPv4 访问。
-        'SDVIDEO_SUPABASE_PUBLIC_URL': 'https://sd.ggwp.cn:18000',
+        # 内部读写仍直达 NAS；Provider 使用 ECS 公网媒体反代，不能读取 NAS 内部入口。
+        'SDVIDEO_SUPABASE_PUBLIC_URL': PUBLIC_MEDIA_URL,
         'SDVIDEO_SUPABASE_STORAGE_TOKEN': '',
         'SDVIDEO_SUPABASE_STORAGE_TOKEN_FILE': '/run/storage-credentials/storage-token',
         'SDVIDEO_SUPABASE_API_KEY': '', 'SDVIDEO_SUPABASE_API_KEY_FILE': '',
