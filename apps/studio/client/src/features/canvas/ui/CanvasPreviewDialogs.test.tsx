@@ -91,4 +91,26 @@ describe("canvas image preview resolution", () => {
     await act(async () => image().dispatchEvent(new Event("error")));
     expect(resolution()).toBe("—");
   });
+
+  it("only shows apply action for a batch child and detaches it before closing", async () => {
+    const child = { ...node, id: "image-child", metadata: { ...node.metadata, batchRootId: "image-root" } };
+    const onDetachBatchChild = vi.fn();
+    const onClose = vi.fn();
+    await act(async () => root.render(<CanvasImagePreviewDialog
+      node={child} source="/image-child.png" siblings={[child]} selectedNodeId={child.id}
+      previews={{}} modelLabel="测试模型" creatorLabel="测试用户"
+      onSelectNode={vi.fn()} onSetBatchPrimary={vi.fn()} onDetachBatchChild={onDetachBatchChild}
+      onDownload={vi.fn()} onClose={onClose}
+    />));
+    const apply = Array.from(document.querySelectorAll("button")).find(button => button.textContent?.includes("应用到画布"));
+    expect(apply).toBeTruthy();
+    await act(async () => { apply!.click(); });
+    expect(onDetachBatchChild).toHaveBeenCalledWith(child);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show a misleading apply action for an image already on canvas", async () => {
+    await render();
+    expect(Array.from(document.querySelectorAll("button")).some(button => button.textContent?.includes("应用到画布"))).toBe(false);
+  });
 });

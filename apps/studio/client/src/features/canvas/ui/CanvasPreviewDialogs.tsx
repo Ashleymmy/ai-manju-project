@@ -209,10 +209,17 @@ export function CanvasImagePreviewDialog({
                 {node.metadata?.batchRootId ? (
                   <button className="outline-button small" type="button" onClick={() => onSetBatchPrimary(node)}>设为主图</button>
                 ) : null}
-                <button className="outline-button small" type="button" onClick={() => {
-                  if (node.metadata?.batchRootId) onDetachBatchChild(node);
-                  onClose();
-                }}>应用到画布</button>
+                {node.metadata?.batchRootId ? (
+                  <button
+                    className="outline-button small"
+                    type="button"
+                    title="将这张批次图片拆出为独立节点"
+                    onClick={() => {
+                      onDetachBatchChild(node);
+                      onClose();
+                    }}
+                  >应用到画布</button>
+                ) : null}
                 <button className="vermilion-button" type="button" onClick={() => onDownload(node)}><Download size={15} /> 下载</button>
               </div>
             </aside>
