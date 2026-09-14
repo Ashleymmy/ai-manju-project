@@ -26,6 +26,10 @@ export type VideoWorkbenchAttachment = {
   storageKey?: string;
   /** 资产库引用 */
   assetId?: string;
+  /** 火山真人素材的 asset:// 引用（无本地文件/资产库记录） */
+  assetRef?: string;
+  /** 可直接渲染的 http(s) 预览地址（火山素材 source_url；本地 blob 不持久化） */
+  previewUrl?: string;
   scope?: WorkspaceScope;
 };
 
@@ -108,13 +112,13 @@ export function workbenchResultMediaKey(messageId: string) {
   return `wbresult:${messageId}`;
 }
 
-/** 附件入库：本地文件复制到工作台媒体仓，资产引用只记 assetId。 */
+/** 附件入库：本地文件复制到工作台媒体仓，资产/火山引用只记引用号。 */
 export async function persistWorkbenchAttachment(
   messageId: string,
   attachment: VideoWorkbenchAttachment,
   file?: File,
 ): Promise<VideoWorkbenchAttachment> {
-  if (attachment.assetId) return { ...attachment, storageKey: undefined };
+  if (attachment.assetId || attachment.assetRef) return { ...attachment, storageKey: undefined };
   if (!file) throw new Error(`${attachment.name} 缺少本地文件`);
   const key = workbenchAttachmentMediaKey(messageId, attachment.id);
   await storeWorkbenchMedia(key, file);
@@ -256,6 +260,8 @@ function normalizeAttachment(value: unknown): VideoWorkbenchAttachment | null {
     durationMs: finiteNumber(value.durationMs),
     storageKey: stringValue(value.storageKey) || undefined,
     assetId: stringValue(value.assetId) || undefined,
+    assetRef: stringValue(value.assetRef) || undefined,
+    previewUrl: stringValue(value.previewUrl) || undefined,
     scope: value.scope === "team" ? "team" : value.scope === "personal" ? "personal" : undefined,
   };
 }

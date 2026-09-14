@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 
 import {
-  isLongSeedanceVideoModel,
   isSeedanceFastVideoModel,
   isSeedanceVideoModel,
   normalizeVideoGenerationConfig,
@@ -25,12 +24,11 @@ export function ParamsBar({
   disabled: boolean;
 }) {
   const normalized = useMemo(() => normalizeVideoGenerationConfig(config), [config]);
-  const seedance = isSeedanceVideoModel(normalized.model);
+  /* 未配置模型时也按 Seedance 展示（比例/30s 时长档位）；配上 OpenAI 兼容模型后自动切回尺寸/20s */
+  const seedance = !normalized.model || isSeedanceVideoModel(normalized.model);
   const fastSeedance = isSeedanceFastVideoModel(normalized.model);
   const ratios = seedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes;
-  const durations = seedance
-    ? isLongSeedanceVideoModel(normalized.model) ? videoModelSettings.seedanceLongDurations : videoModelSettings.seedanceDurations
-    : videoModelSettings.openAiDurations;
+  const durations = seedance ? videoModelSettings.seedanceDurations : videoModelSettings.openAiDurations;
 
   const patch = (partial: Partial<VideoGenerationConfig>) => onChange(normalizeVideoGenerationConfig({ ...normalized, ...partial }));
 

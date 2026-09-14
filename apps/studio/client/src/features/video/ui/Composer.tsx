@@ -186,7 +186,6 @@ export function Composer({
             ref={textareaRef}
             value={prompt}
             disabled={disabled}
-            placeholder="描述你想生成的视频… 输入 @ 引用素材，支持拖拽/粘贴图片视频音频"
             onChange={(event) => {
               onPromptChange(event.target.value);
               syncMention(event.target.value, event.target.selectionStart);

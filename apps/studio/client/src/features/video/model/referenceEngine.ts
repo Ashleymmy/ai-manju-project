@@ -13,6 +13,7 @@ import type {
   StoredVideoReference,
   StoredVideoReferenceSnapshot,
 } from "../repositories/historyRepository";
+import { seedanceAssetRef, type SeedanceAsset } from "@/entities/asset";
 import type { WorkspaceScope } from "@/shared/config";
 
 /* 参考素材摄取管线：从旧版 VideoWorkspaceView 原样抽出的纯逻辑（类型/元数据读取/限额校验）。
@@ -34,6 +35,8 @@ export type WorkbenchReferenceBase = {
   token?: string;
   storageKey?: string;
   assetId?: string;
+  /** 火山真人素材的 asset:// 引用（无本地文件，直通 Seedance content） */
+  url?: string;
   scope?: WorkspaceScope;
 };
 export type WorkbenchImageReference = WorkbenchReferenceBase & Omit<VideoGenerationImageReference, "role"> & { kind: "image" };
@@ -71,6 +74,7 @@ export function generationReferencesFrom(snapshot: WorkbenchReferenceSnapshot): 
       id: item.id,
       kind: "image",
       file: item.file,
+      url: item.url,
       name: item.name,
       mime: item.mime,
       bytes: item.bytes,
@@ -83,6 +87,7 @@ export function generationReferencesFrom(snapshot: WorkbenchReferenceSnapshot): 
       id: item.id,
       kind: "video",
       file: item.file,
+      url: item.url,
       name: item.name,
       mime: item.mime,
       bytes: item.bytes,
@@ -94,6 +99,7 @@ export function generationReferencesFrom(snapshot: WorkbenchReferenceSnapshot): 
       id: item.id,
       kind: "audio",
       file: item.file,
+      url: item.url,
       name: item.name,
       mime: item.mime,
       bytes: item.bytes,
@@ -226,6 +232,26 @@ export async function createAudioWorkbenchReference(
     revokePreviewUrl(previewUrl);
     throw error;
   }
+}
+
+/** 火山真人素材 → 工作台参考：无本地文件，以 asset:// 引用直通 Seedance；预览直接用 source_url。 */
+export function createVolcanoWorkbenchReference(asset: SeedanceAsset): WorkbenchReference {
+  const name = asset.name || asset.volcano_asset_id;
+  const previewUrl = /^https?:\/\//i.test(asset.source_url || "") ? String(asset.source_url) : "";
+  const base = {
+    id: workbenchRuntimeId(asset.asset_type === "Video" ? "video_ref" : "image_ref"),
+    source: "asset" as const,
+    role: "reference" as const,
+    url: seedanceAssetRef(asset),
+    name,
+    mime: asset.content_type || (asset.asset_type === "Video" ? "video/mp4" : "image/*"),
+    bytes: asset.size || 0,
+    previewUrl,
+  };
+  if (asset.asset_type === "Video") {
+    return { ...base, kind: "video", width: 0, height: 0, durationMs: 0 } as WorkbenchVideoReference;
+  }
+  return { ...base, kind: "image", width: 0, height: 0 } as WorkbenchImageReference;
 }
 
 /** 参考素材快照 → 存储记录（草稿媒体 key 由 video-history 的 media store 托管）。 */

@@ -1273,6 +1273,79 @@
 .wb-picker-name { font-size: 11px; }
 .wb-picker-meta { color: #a1a1a1; font-size: 10px; }
 
+/* 标签筛选 chips（资产库语义标签 / 火山素材标签共用） */
+.wb-picker-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 88px;
+  overflow-y: auto;
+  padding: 0 0 8px;
+}
+
+.wb-picker-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #b6b6b6;
+  font-size: 10px;
+  cursor: pointer;
+  transition: border-color 0.13s ease;
+}
+
+.wb-picker-tag:hover { border-color: rgba(255, 255, 255, 0.6); }
+.wb-picker-tag.active { border-color: rgba(255, 255, 255, 0.95); background: rgba(255, 255, 255, 0.12); color: #f2f1ed; }
+.wb-picker-tag:disabled { opacity: 0.5; cursor: default; }
+.wb-picker-tag i { color: #818181; font-size: 9px; font-style: normal; }
+
+/* 状态角标（火山素材：可用/处理中/失败） */
+.wb-picker-status {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(10, 12, 13, 0.75);
+  color: #c3c3c3;
+  font-size: 10px;
+  font-style: normal;
+}
+
+.wb-picker-status.bad { color: #fca5a5; }
+
+/* 卡片内联标签 */
+.wb-picker-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.wb-picker-card-tags i {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(188, 188, 188, 0.1);
+  color: #b6b6b6;
+  font-size: 9px;
+  font-style: normal;
+}
+
+/* 分页条 */
+.wb-picker-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding-top: 8px;
+  color: #a1a1a1;
+  font-size: 11px;
+}
+
+.wb-picker-pager .outline-button { display: inline-flex; align-items: center; gap: 3px; }
+
 /* ---- 婢堆冩禈/鐟欏棝顣跺鐟扮湴 ---- */
 .wb-lightbox {
   position: fixed;

@@ -1,0 +1,21 @@
+# 和现有四份 Compose 一起使用；不切换后端存储，也不修改其它服务。
+# 将 studio.nas-media.nginx.conf 上传到 /root/item/ 目录，先检查 nginx -t。
+services:
+  web:
+    volumes:
+      - type: bind
+        source: /root/item/studio.nas-media.nginx.conf
+        target: /etc/nginx/conf.d/default.conf
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      default:
+        gw_priority: 0
+      nas_egress:
+        gw_priority: -1
+
+networks:
+  nas_egress:
+    external: true
+    name: studio-nas-egress

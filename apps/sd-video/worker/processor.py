@@ -8,8 +8,10 @@ and records a compact event trail in the standalone database.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import asyncio
+from copy import copy
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -22,6 +24,7 @@ from app.yike_api import yike_api
 from app.providers.seedance import LEGACY_PROXY, seedance_provider_registry
 from app.model_store import model_store
 from app.mock_media import MOCK_VIDEO
+from worker.errors import exception_details, submission_rejected, terminal_details
 
 
 logger = logging.getLogger("sdvideo.worker")
@@ -75,9 +78,9 @@ async def _references(record: Any) -> list[dict[str, Any]]:
     return result
 
 
-async def _create_upstream(record: Any, provider: str, model_id: str) -> dict[str, Any]:
+async def _create_upstream(record: Any, provider: str, model_id: str, *, references: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     request = record.request or {}
-    refs = await _references(record)
+    refs = await _references(record) if references is None else references
     if provider == "mediakit":
         from app.mediakit_api import mediakit_api
         execute = mediakit_api.erase_subtitle_pro if request.get("tool_mode") == "pro" else mediakit_api.erase_subtitle_standard
@@ -190,6 +193,8 @@ async def _finish_mock(record: Any) -> None:
 
 async def process_task(record: Any) -> None:
     # 开关只控制新任务；已受理任务在关闭入口后仍须恢复、取消和同步。
+    # 内存仓库返回可变对象；冻结认领时的字段，避免新持有者覆盖旧 Worker 的租约凭据。
+    record = copy(record)
     lease_owner = getattr(record, "lease_owner", None)
     async def heartbeat() -> None:
         while True:
@@ -215,6 +220,7 @@ async def process_task(record: Any) -> None:
 
 async def _execute(record: Any) -> None:
     provider_id = getattr(record, "provider_task_id", None)
+    phase = "prepare"
     try:
         if record.cancel_requested and (not provider_id or _execution_mode() == "mock"):
             await _save(record, status="canceled", lease_owner=None, lease_expires_at=None)
@@ -228,9 +234,12 @@ async def _execute(record: Any) -> None:
                 await _save(record, status="failed", error={"code": "submission_uncertain", "message": "provider submission requires reconciliation; automatic resubmission prevented"}, lease_owner=None, lease_expires_at=None)
                 return
             # 先持久化提交意图；崩溃窗口内不重复调用可能已扣费的 Provider。
-            await _references(record)
+            phase = "references"
+            references = await _references(record)
+            phase = "submission_intent"
             await _save(record, submission_started_at=datetime.now(timezone.utc))
-            created = await _create_upstream(record, provider, model_id)
+            phase = "submit"
+            created = await _create_upstream(record, provider, model_id, references=references)
             provider_id = str(created.get("id") or created.get("task_id") or "")
             if not provider_id:
                 raise RuntimeError("provider response did not include a task id")
@@ -242,30 +251,36 @@ async def _execute(record: Any) -> None:
             if latest is None:
                 return
             if latest.cancel_requested or latest.status == "cancel_requested":
+                phase = "cancel"
                 await _cancel_upstream(latest, provider, provider_id, model_id)
                 await _save(record, status="canceled", progress=latest.progress, lease_owner=None, lease_expires_at=None)
                 return
+            phase = "poll"
             state = await _query_upstream(latest, provider, provider_id, model_id)
             status = str(state.get("status") or "running").lower()
             if status in {"cancelled", "canceled"}:
                 await _save(record, status="canceled", lease_owner=None, lease_expires_at=None)
                 return
             if status in {"failed", "error", "expired", "timeout"}:
-                message = str(state.get("error_message") or (state.get("error") or {}).get("message") or "provider task failed")
-                await _save(record, status="failed", error={"code": str(state.get("error_code") or "provider_error"), "message": "provider reported a failed task"}, lease_owner=None, lease_expires_at=None)
+                failure = terminal_details(state)
+                logger.warning("provider task failed task=%s error=%s", record.id, json.dumps(failure, ensure_ascii=False))
+                await _save(record, status="failed", error=failure, lease_owner=None, lease_expires_at=None)
                 return
             if status == "succeeded":
                 content = state.get("content") or {}
                 video_url = str(content.get("video_url") or content.get("url") or "")
                 if not video_url:
                     raise RuntimeError("provider succeeded without a video URL")
+                phase = "download"
                 body = await _download(latest, provider, video_url)
                 key = f"results/{latest.workspace_id}/{latest.owner_subject}/{latest.id}-a{latest.attempt}.mp4"
+                phase = "store_result"
                 await local_storage.put(key, body, "video/mp4")
                 await _save(
                     record,
                     status="succeeded",
                     progress=100,
+                    error=None,
                     result={"asset_ref": f"sdv-asset:{record.id}", "storage_key": key, "content_type": "video/mp4", "file_name": f"{record.id}.mp4", "sha256": hashlib.sha256(body).hexdigest(), "size_bytes": len(body)},
                     result_storage_key=key,
                     lease_owner=None,
@@ -275,7 +290,7 @@ async def _execute(record: Any) -> None:
                     await catalog_store.upsert_generated_media(latest, key, len(body))
                 return
             progress = int(state.get("progress") or min(95, 10 + poll_count * 5))
-            await _save(record, status="running", progress=max(5, min(99, progress)))
+            await _save(record, status="running", progress=max(5, min(99, progress)), error=None)
             poll_count += 1
             if poll_count >= max(1, int(settings.MODEL_RETURN_WAIT_TIMEOUT_SECONDS / max(1, settings.TASK_POLL_INTERVAL_SECONDS))):
                 raise TimeoutError("provider task polling timed out")
@@ -283,11 +298,16 @@ async def _execute(record: Any) -> None:
     except LeaseLost:
         raise
     except Exception as exc:
-        logger.warning("task execution interrupted task=%s error=%s", record.id, type(exc).__name__)
         if provider_id:
             # 远端任务仍存在：保留 ID，释放租约，下一轮仅查询/下载，不重新生成。
-            await _save(record, lease_owner=None, lease_expires_at=None, next_poll_at=datetime.now(timezone.utc) + timedelta(seconds=30))
+            failure = exception_details(exc, code="task_processing_interrupted", phase=phase)
+            logger.warning("task execution interrupted task=%s error=%s", record.id, json.dumps(failure, ensure_ascii=False))
+            await _save(record, error=failure, lease_owner=None, lease_expires_at=None, next_poll_at=datetime.now(timezone.utc) + timedelta(seconds=30))
         else:
             latest = await task_store.get_by_id(record.id)
             code = "submission_uncertain" if getattr(latest, "submission_started_at", None) else "invalid_configuration"
-            await _save(record, status="failed", error={"code": code, "message": "task could not be submitted; inspect request_id in service logs"}, lease_owner=None, lease_expires_at=None)
+            if phase == "submit" and submission_rejected(exc):
+                code = "provider_rejected"
+            failure = exception_details(exc, code=code, phase=phase)
+            logger.warning("task execution interrupted task=%s error=%s", record.id, json.dumps(failure, ensure_ascii=False))
+            await _save(record, status="failed", error=failure, lease_owner=None, lease_expires_at=None)

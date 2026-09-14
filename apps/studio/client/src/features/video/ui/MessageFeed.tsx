@@ -223,6 +223,8 @@ export function useWorkbenchThumbCache() {
   }, []);
 
   const resolveThumb = (attachment: VideoWorkbenchAttachment) => {
+    // 火山真人素材：直接渲染持久化的 http 预览地址，无需进缓存
+    if (attachment.assetRef) return attachment.previewUrl || "";
     const key = attachment.assetId ? `asset:${attachment.assetId}` : attachment.storageKey ? `local:${attachment.storageKey}` : "";
     if (!key) return "";
     const hit = cache[key];

@@ -123,7 +123,7 @@ export function createCloudConversationRepository(ownerId: string, scope: Worksp
     isLegacy: (id: string) => legacyIds.has(id),
     async persistAttachment(_messageId: string, attachment: VideoWorkbenchAttachment, file?: File): Promise<VideoWorkbenchAttachment> {
       if (controller.signal.aborted) throw new DOMException("Disposed", "AbortError");
-      if (attachment.assetId) return { ...attachment, storageKey: undefined };
+      if (attachment.assetId || attachment.assetRef) return { ...attachment, storageKey: undefined };
       if (!file) throw new Error(`${attachment.name} 缺少本地文件`);
       const asset = await uploadAsset(file, { source_type: "upload", name: attachment.name }, scope, controller.signal);
       return { ...attachment, assetId: asset.id, scope, storageKey: undefined };

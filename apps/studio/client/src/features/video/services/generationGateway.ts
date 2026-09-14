@@ -152,7 +152,8 @@ export const videoReferenceLimits = {
 export const videoModelSettings = {
   seedanceResolutions,
   seedanceRatios,
-  seedanceDurations: [-1, 4, 5, 6, 8, 10, 12, 15],
+  /* Seedance 系模型时长档位统一放开到 30s（2.x 均支持长时长） */
+  seedanceDurations: [-1, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30],
   seedanceLongDurations: [-1, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30],
   openAiSizes: ["1280x720", "720x1280", "1024x1024", "1792x1024", "1024x1792", "auto"],
   openAiResolutions: ["480p", "720p", "1080p"],
@@ -186,7 +187,9 @@ export function isLongSeedanceVideoModel(model: string) {
 }
 
 export function normalizeVideoGenerationConfig(config: VideoGenerationConfig): VideoGenerationConfig {
-  const seedance = isSeedanceVideoModel(config.model);
+  /* 未配置模型时按 Seedance 归一化（该工作台以 Seedance 为主，时长档位才能展示到 30s）；
+     提交前有空模型拦截，不会把 Seedance 参数发给 OpenAI 兼容接口 */
+  const seedance = !config.model.trim() || isSeedanceVideoModel(config.model);
   return {
     model: config.model.trim(),
     size: seedance ? normalizeSeedanceRatio(config.size) : normalizeVideoSizeValue(config.size),
@@ -194,7 +197,7 @@ export function normalizeVideoGenerationConfig(config: VideoGenerationConfig): V
       ? normalizeSeedanceResolution(config.resolution, config.model)
       : normalizeVideoResolutionName(config.resolution),
     seconds: seedance
-      ? String(normalizeSeedanceDuration(config.seconds, config.model))
+      ? String(normalizeSeedanceDuration(config.seconds))
       : normalizeOpenAiSeconds(config.seconds),
     generateAudio: Boolean(config.generateAudio),
     watermark: Boolean(config.watermark),
@@ -245,10 +248,10 @@ export function normalizeSeedanceRatio(value: string) {
   )[0];
 }
 
-export function normalizeSeedanceDuration(value: string, model = "") {
+export function normalizeSeedanceDuration(value: string) {
   if (String(value).trim() === "-1") return -1;
   const seconds = Math.floor(Number(value) || 5);
-  return Math.max(4, Math.min(isLongSeedanceVideoModel(model) ? 30 : 15, seconds));
+  return Math.max(4, Math.min(30, seconds));
 }
 
 export async function createVideoGenerationTask(
@@ -393,7 +396,7 @@ async function createSeedanceTask(
         content,
         ratio: normalizeSeedanceRatio(config.size),
         resolution: normalizeSeedanceResolution(config.resolution, config.model),
-        duration: normalizeSeedanceDuration(config.seconds, config.model),
+        duration: normalizeSeedanceDuration(config.seconds),
         generate_audio: config.generateAudio,
         watermark: config.watermark,
       },

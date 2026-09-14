@@ -3,10 +3,12 @@ import { Loader2, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import {
+  ensureSeedanceAssetsActive,
   getAssetContentObjectUrl,
   getAssetLibrary,
   uploadAsset,
   type Asset,
+  type SeedanceAsset,
 } from "@/entities/asset";
 import { cancelJob } from "@/entities/job";
 import { publicApiError } from "@/shared/api/errors";
@@ -46,6 +48,7 @@ import {
   createAudioWorkbenchReference,
   createImageWorkbenchReference,
   createVideoWorkbenchReference,
+  createVolcanoWorkbenchReference,
   emptyWorkbenchReferences,
   generationReferencesFrom,
   isAudioWorkbenchFile,
@@ -738,9 +741,26 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
     setLightbox({ url, kind });
   }, []);
 
-  const handlePickerConfirm = useCallback(async (assets: Asset[]) => {
+  const handlePickerConfirm = useCallback(async (assets: Asset[], volcanoAssets: SeedanceAsset[] = []) => {
     setPickerBusy(true);
     try {
+      // 火山真人素材：先确保 Active，再以 asset:// 引用加入（无本地文件）
+      if (volcanoAssets.length) {
+        try {
+          await ensureSeedanceAssetsActive(volcanoAssets.map((asset) => asset.volcano_asset_id));
+        } catch (activateError) {
+          toast.error(publicApiError(activateError, "真人素材激活失败，生成时可能不可用"));
+        }
+        for (const asset of volcanoAssets) {
+          const reference = createVolcanoWorkbenchReference(asset);
+          const plan = planWorkbenchReferenceBatch(splitWorkbenchReferences(references), [reference], effectiveConfig.model);
+          if (plan.accepted.length) {
+            setReferences((current) => assignReferenceTokens([...current, plan.accepted[0]]));
+          } else {
+            toast.warning(`${reference.name}：${plan.rejected[0]?.reason || "不符合当前模型要求"}`);
+          }
+        }
+      }
       for (const asset of assets) {
         const kind = asset.type === "image" || asset.type === "video" || asset.type === "audio" ? asset.type : null;
         if (!kind) continue;
@@ -767,7 +787,8 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
         }
       }
       setPickerOpen(false);
-      toast.success(`已引用 ${assets.length} 个资产`);
+      const total = assets.length + volcanoAssets.length;
+      if (total) toast.success(`已引用 ${total} 个素材`);
     } catch (error) {
       toast.error(publicApiError(error, "引用资产失败"));
     } finally {
@@ -922,7 +943,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
         scope={pickerScope}
         onScopeChange={setPickerScope}
         onClose={() => setPickerOpen(false)}
-        onConfirm={(assets) => void handlePickerConfirm(assets)}
+        onConfirm={(assets, volcanoAssets) => void handlePickerConfirm(assets, volcanoAssets)}
         busy={pickerBusy}
       />
       <MediaLightbox url={lightbox?.url || ""} kind={lightbox?.kind || "image"} onClose={() => setLightbox(null)} />
@@ -944,6 +965,9 @@ function attachmentFromReference(reference: WorkbenchReference): VideoWorkbenchA
     height: "height" in reference ? reference.height : undefined,
     durationMs: "durationMs" in reference ? reference.durationMs : undefined,
     assetId: reference.assetId,
+    assetRef: reference.url,
+    // 只有 http(s) 预览（火山素材 source_url）可持久化；本地 blob: 刷新后即失效
+    previewUrl: /^https?:\/\//i.test(reference.previewUrl || "") ? reference.previewUrl : undefined,
     scope: reference.scope,
   };
 }
@@ -964,6 +988,28 @@ async function referenceFromAttachment(
   attachment: VideoWorkbenchAttachment,
   trackUrl: (url: string) => string,
 ): Promise<WorkbenchReference> {
+  // 火山真人素材：无本地文件，直接恢复 asset:// 引用与 http 预览
+  if (attachment.assetRef) {
+    const volcanoBase = {
+      id: attachment.id,
+      role: attachment.role,
+      token: attachment.token,
+      name: attachment.name,
+      mime: attachment.mime,
+      bytes: attachment.bytes || 0,
+      url: attachment.assetRef,
+      previewUrl: attachment.previewUrl || "",
+      source: "asset" as const,
+      scope: attachment.scope,
+    };
+    if (attachment.kind === "image") {
+      return { ...volcanoBase, kind: "image", width: attachment.width || 0, height: attachment.height || 0 } as WorkbenchReference;
+    }
+    if (attachment.kind === "video") {
+      return { ...volcanoBase, kind: "video", width: attachment.width || 0, height: attachment.height || 0, durationMs: attachment.durationMs || 0 } as WorkbenchReference;
+    }
+    return { ...volcanoBase, kind: "audio", durationMs: attachment.durationMs || 0 } as WorkbenchReference;
+  }
   let blob: Blob;
   let previewUrl: string;
   if (attachment.assetId) {
