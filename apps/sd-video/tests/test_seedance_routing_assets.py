@@ -54,6 +54,42 @@ def test_provider_asset_reference_is_not_double_prefixed(monkeypatch):
     asyncio.run(check())
 
 
+def test_storage_reference_refreshes_signed_url_instead_of_reusing_snapshot(monkeypatch):
+    async def check():
+        storage = AsyncMock()
+        storage.url.return_value = "https://cdn.example.com/fresh?token=rotated"
+        monkeypatch.setattr(processor, "local_storage", storage)
+        record = SimpleNamespace(
+            id="task-refresh",
+            owner_subject="owner",
+            workspace_id="team",
+            request={
+                "references": [{
+                    "kind": "image",
+                    "storage_token": "inputs/team/owner/ref.png",
+                    "url": "https://old.example.com/expired?token=stale",
+                }],
+            },
+        )
+        references = await processor._references(record)
+        assert references[0]["url"] == "https://cdn.example.com/fresh?token=rotated"
+        storage.url.assert_awaited_once_with("inputs/team/owner/ref.png", settings.RESULT_SIGNED_URL_TTL_SECONDS)
+    asyncio.run(check())
+
+
+def test_reference_snapshot_must_be_https_when_no_storage_token():
+    async def check():
+        record = SimpleNamespace(
+            id="task-invalid-url",
+            owner_subject="owner",
+            workspace_id="team",
+            request={"references": [{"kind": "image", "url": "http://127.0.0.1/ref.png"}]},
+        )
+        with pytest.raises(ValueError, match="public HTTPS"):
+            await processor._references(record)
+    asyncio.run(check())
+
+
 def test_seedance25_metadata_keeps_duration_contract():
     model = settings.MODELS["seedance-2.5"]
     assert model["id"] == settings.SEEDANCE25_MODEL_ID

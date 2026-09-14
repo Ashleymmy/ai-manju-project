@@ -15,6 +15,7 @@ from copy import copy
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.config import settings
 from app.standalone_api import _execution_mode, _rollout_mode, catalog_store, local_storage, task_store
@@ -56,16 +57,21 @@ async def _references(record: Any) -> list[dict[str, Any]]:
         raw = item if isinstance(item, dict) else {}
         kind = str(raw.get("kind") or raw.get("type") or "image").lower()
         ref_type = kind if kind.startswith("reference_") else f"reference_{kind}"
-        url = str(raw.get("url") or "").strip()
-        if not url:
-            storage_token = str(raw.get("storage_token") or "").strip()
-            if storage_token and hasattr(local_storage, "url"):
+        storage_token = str(raw.get("storage_token") or "").strip()
+        # A persisted URL is only a snapshot.  Re-sign the canonical storage
+        # key for every Provider submission so retries never reuse an expired
+        # URL or one issued for a previous public endpoint.
+        url = ""
+        if storage_token:
+            if hasattr(local_storage, "url"):
                 try:
                     url = str(await local_storage.url(storage_token, settings.RESULT_SIGNED_URL_TTL_SECONDS) or "").strip()
                 except Exception as exc:
                     logger.info("input URL signing unavailable task=%s error=%s", record.id, type(exc).__name__)
-            if storage_token and not url:
+            if not url:
                 raise ValueError("storage cannot provide a signed reference URL")
+        else:
+            url = str(raw.get("url") or "").strip()
         if not url and raw.get("asset_ref"):
             from app.core.auth import ServicePrincipal
             from app.standalone_api import volcano_store
@@ -73,6 +79,10 @@ async def _references(record: Any) -> list[dict[str, Any]]:
             if await volcano_store.active_reference(principal, str(raw["asset_ref"]).removeprefix("asset://"), record.request.get("provider_namespace")) is None:
                 raise ValueError("provider reference is no longer Active or belongs to another namespace")
             url = "asset://" + str(raw.get("asset_ref")).strip().removeprefix("asset://")
+        if url and not url.startswith("asset://"):
+            parsed = urlsplit(url)
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+                raise ValueError("reference URL must be a public HTTPS URL")
         if url:
             result.append({"type": ref_type, "url": url, "asset_ref": raw.get("asset_ref"), "role": raw.get("role")})
     return result
