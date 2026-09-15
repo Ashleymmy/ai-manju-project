@@ -36,12 +36,40 @@ func generateTextWithCandidates(ctx context.Context, candidates []modelSelection
 				continue
 			}
 			result, err := client.GenerateTextRequest(ctx, req)
+			// A number of OpenAI-compatible gateways accept tools but reject the
+			// Responses/Chat `required` choice. Recover transparently by allowing
+			// the model to choose a tool; this keeps the conversation alive while
+			// preserving the normal three-attempt supplier failover contract.
+			if err != nil && len(req.Tools) > 0 && isUnsupportedToolChoiceError(err) {
+				fallback := req
+				fallback.ToolChoice = "auto"
+				if recovered, fallbackErr := client.GenerateTextRequest(ctx, fallback); fallbackErr == nil {
+					return recovered, last, nil
+				}
+			}
 			if err == nil {
 				return result, last, nil
 			}
 		}
 	}
 	return provider.TextResponse{}, last, errGenerationUnavailable
+}
+
+func isUnsupportedToolChoiceError(err error) bool {
+	var providerErr *provider.ProviderHTTPError
+	if !errors.As(err, &providerErr) || providerErr.StatusCode < http.StatusBadRequest || providerErr.StatusCode >= http.StatusInternalServerError {
+		return false
+	}
+	body := strings.ToLower(providerErr.Body)
+	if !strings.Contains(body, "tool") {
+		return false
+	}
+	for _, keyword := range []string{"tool_choice", "tool choice", "function calling", "function_call", "unsupported", "not support", "invalid"} {
+		if strings.Contains(body, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 // LoadGenerationCandidates keeps the existing selection/auth semantics. Additional

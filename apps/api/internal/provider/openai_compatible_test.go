@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/ai-manju/api/internal/model"
 )
@@ -430,6 +431,34 @@ func TestGenerateTextHonorsCanceledContext(t *testing.T) {
 	_, err := client.GenerateText(ctx, "ping", "")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}
+
+func TestGenerateTextDoesNotUseFixedSixtySecondHeaderTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(110 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"output_text":"slow but valid"}`))
+	}))
+	defer server.Close()
+
+	config := model.ModelProviderConfig{
+		Mode: model.ModelProviderModeOpenAICompatible, BaseURL: server.URL,
+		AuthType: model.ModelProviderAuthTypeNone, TextModel: "gpt-test",
+		TimeoutMS: 500,
+		Enabled: true,
+	}
+	client, err := NewOpenAICompatibleClient(config, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := client.httpClient.Transport.(*http.Transport)
+	if !ok || transport.ResponseHeaderTimeout != 500*time.Millisecond {
+		t.Fatalf("response header timeout = %v, want configured request budget", transport.ResponseHeaderTimeout)
+	}
+	result, err := client.GenerateText(context.Background(), "ping", "")
+	if err != nil || result.Text != "slow but valid" {
+		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }
 

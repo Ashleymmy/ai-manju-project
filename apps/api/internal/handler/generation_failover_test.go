@@ -187,3 +187,32 @@ func TestAgentTextFailoverPreservesToolsAndSkipsIncompatibleSuppliers(t *testing
 		t.Fatal("text generation timeout was shortened")
 	}
 }
+
+func TestAgentTextFallsBackWhenSupplierRejectsRequiredToolChoice(t *testing.T) {
+	var choices []any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		choices = append(choices, body["tool_choice"])
+		w.Header().Set("Content-Type", "application/json")
+		if len(choices) == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"tool_choice required is unsupported"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"model":"shared-agent","output_text":"已完成"}`))
+	}))
+	defer server.Close()
+	config := generationTestConfig("supplier", "")
+	config.BaseURL, config.TextModel = server.URL+"/v1", "shared-agent"
+	result, _, err := generateTextWithCandidates(context.Background(), []modelSelection{{Config: config, Model: "shared-agent"}}, provider.TextGenerationRequest{
+		Prompt: "inspect", ToolChoice: "required",
+		Tools: []map[string]any{{"type": "function", "function": map[string]any{"name": "canvas_get_state", "parameters": map[string]any{"type": "object"}}}},
+	})
+	if err != nil || result.Text != "已完成" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if len(choices) != 2 || choices[0] != "required" || choices[1] != "auto" {
+		t.Fatalf("tool choices=%v", choices)
+	}
+}

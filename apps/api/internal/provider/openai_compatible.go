@@ -195,17 +195,21 @@ func NewOpenAICompatibleClient(config model.ModelProviderConfig, apiKey string) 
 	if err := ValidateProviderConfig(config); err != nil {
 		return nil, err
 	}
+	timeout := time.Duration(config.TimeoutMS) * time.Millisecond
+	// Some compatible gateways take longer than a minute to start producing a
+	// response (especially tool calls and busy generation queues). Keep the
+	// header budget aligned with the configured request budget instead of
+	// imposing a fixed 60 second cutoff.
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 60 * time.Second,
+		ResponseHeaderTimeout: timeout,
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   16,
 		IdleConnTimeout:       90 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
-	timeout := time.Duration(config.TimeoutMS) * time.Millisecond
 	longTimeout := ImageRequestTimeout(config.TimeoutMS)
 
 	return &OpenAICompatibleClient{
