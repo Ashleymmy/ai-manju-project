@@ -134,11 +134,12 @@ describe("sendLocalAgentTurn", () => {
     await sendLocalAgentTurn(
       "http://127.0.0.1:17371",
       "token",
-      { prompt: "hello", canvasId: "canvas-1" },
+      { prompt: "hello", canvasId: "canvas-1", clientId: "client-1" },
       { services: { fetch: fetchMock as typeof fetch }, signal: controller.signal },
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ signal: controller.signal });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({ clientId: "client-1" });
   });
 });

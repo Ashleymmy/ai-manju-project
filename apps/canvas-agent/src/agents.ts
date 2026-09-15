@@ -11,12 +11,11 @@ import type { AgentAttachment, AgentEmit } from "./types.js";
 type Json = Record<string, unknown>;
 type AgentEvent = Json & { type: string; usage?: unknown };
 type PendingRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void };
-type CodexRunOptions = { threadId?: string; cwd?: string };
+type CodexRunOptions = { threadId?: string; cwd?: string; clientId?: string };
 type AgentHistoryMessage = { id: string; role: "user" | "assistant" | "tool" | "error"; title?: string; text: string; detail?: unknown; streamId?: string };
 
-let codexQueue: Promise<unknown> = Promise.resolve();
+const codexQueues = new Map<string, Promise<unknown>>();
 let codexApp: CodexAppClient | null = null;
-let codexThreadId = "";
 const canvasAgentMcp = canvasAgentMcpCommand();
 const require = createRequire(import.meta.url);
 
@@ -26,8 +25,11 @@ export function withAgentPrompt(prompt: string) {
 
 export async function runCodexTurn(prompt: string, emit: AgentEmit, attachments: AgentAttachment[] = [], options: CodexRunOptions = {}) {
     if (!prompt.trim()) return;
-    codexQueue = codexQueue.catch(() => undefined).then(() => runCodexTurnNow(prompt, emit, attachments, options));
-    await codexQueue;
+    const queueKey = options.threadId || options.clientId || "default";
+    const queue = (codexQueues.get(queueKey) || Promise.resolve()).catch(() => undefined).then(() => runCodexTurnNow(prompt, emit, attachments, options));
+    codexQueues.set(queueKey, queue);
+    await queue;
+    if (codexQueues.get(queueKey) === queue) codexQueues.delete(queueKey);
 }
 
 async function runCodexTurnNow(prompt: string, emit: AgentEmit, attachments: AgentAttachment[], options: CodexRunOptions) {
@@ -35,8 +37,8 @@ async function runCodexTurnNow(prompt: string, emit: AgentEmit, attachments: Age
     try {
         files = await writeAttachmentFiles(attachments);
         codexApp ||= await CodexAppClient.start(emit);
-        const threadId = await ensureCodexThread(codexApp, options);
-        await codexApp.startTurn(threadId, prompt, files);
+        const threadId = await ensureCodexThread(codexApp, options, emit);
+        await codexApp.startTurn(threadId, prompt, files, emit);
     } catch (error) {
         emit("agent_error", { message: errorMessage(error) });
     } finally {
@@ -44,19 +46,17 @@ async function runCodexTurnNow(prompt: string, emit: AgentEmit, attachments: Age
     }
 }
 
-export async function startCodexThread(emit: AgentEmit, cwd?: string) {
+export async function startCodexThread(emit: AgentEmit, cwd?: string, clientId?: string) {
     codexApp ||= await CodexAppClient.start(emit);
-    const thread = await codexApp.startThread(cwd);
-    codexThreadId = String(field(thread, "id") || "");
+    const thread = await codexApp.startThread(cwd, clientId, emit);
     return thread;
 }
 
-export async function resumeCodexThread(emit: AgentEmit, threadId: string, cwd?: string) {
+export async function resumeCodexThread(emit: AgentEmit, threadId: string, cwd?: string, clientId?: string) {
     codexApp ||= await CodexAppClient.start(emit);
     await loadCodexThread(emit, threadId, cwd, false);
-    const thread = await codexApp.resumeThread(threadId, cwd);
+    const thread = await codexApp.resumeThread(threadId, cwd, clientId, emit);
     assertThreadWorkspace(thread, cwd);
-    codexThreadId = String(field(thread, "id") || threadId);
     return { thread, messages: threadMessages(thread) };
 }
 
@@ -96,31 +96,32 @@ export function runClaudeTurn(prompt: string, emit: AgentEmit) {
     pipeJsonLines(child, emit, "claude");
 }
 
-async function ensureCodexThread(app: CodexAppClient, options: CodexRunOptions) {
+async function ensureCodexThread(app: CodexAppClient, options: CodexRunOptions, emit: AgentEmit) {
     if (options.threadId) {
         const result = await app.readThread(options.threadId, false);
         assertThreadWorkspace(field(result, "thread") || {}, options.cwd);
-        const thread = await app.resumeThread(options.threadId, options.cwd);
+        const thread = await app.resumeThread(options.threadId, options.cwd, options.clientId, emit);
         assertThreadWorkspace(thread, options.cwd);
-        codexThreadId = String(field(thread, "id") || options.threadId);
-        return codexThreadId;
+        return String(field(thread, "id") || options.threadId);
     }
-    if (!codexThreadId) {
-        const thread = await app.startThread(options.cwd);
-        codexThreadId = String(field(thread, "id") || "");
-    }
-    return codexThreadId;
+    const thread = await app.startThread(options.cwd, options.clientId, emit);
+    const threadId = String(field(thread, "id") || "");
+    if (!threadId) throw new Error("Codex app-server 没有返回 thread id");
+    return threadId;
 }
 
 class CodexAppClient {
     private nextId = 1;
     private buffer = "";
     private textByItem = new Map<string, string>();
-    private deltaCount = 0;
+    private deltaCounts = new Map<string, number>();
     private lastUsage: unknown = null;
     private pending = new Map<number, PendingRequest>();
     private activeTurns = new Map<string, PendingRequest>();
     private completedTurns = new Map<string, Error | null>();
+
+    private threadEmitters = new Map<string, AgentEmit>();
+    private turnEmitters = new Map<string, AgentEmit>();
 
     private constructor(private child: ChildProcess, private emit: AgentEmit) {}
 
@@ -133,7 +134,6 @@ class CodexAppClient {
         child.on("exit", (code) => {
             client.failAll(`Codex app-server exited: ${code ?? 0}`);
             codexApp = null;
-            codexThreadId = "";
             emit("agent_log", { text: `Codex app-server exited: ${code ?? 0}` });
         });
         await client.request("initialize", { clientInfo: { name: "canvas-agent", title: "Infinite Canvas Agent", version: VERSION }, capabilities: { experimentalApi: true, requestAttestation: false } });
@@ -141,19 +141,21 @@ class CodexAppClient {
         return client;
     }
 
-    async startThread(cwd?: string) {
-        const result = await this.request("thread/start", { approvalPolicy: "never", sandbox: "workspace-write", config: codexConfig(), ...(cwd ? { cwd } : {}), threadSource: "user" });
+    async startThread(cwd?: string, clientId?: string, emit: AgentEmit = this.emit) {
+        const result = await this.request("thread/start", { approvalPolicy: "never", sandbox: "workspace-write", config: codexConfig(clientId), ...(cwd ? { cwd } : {}), threadSource: "user" });
         const thread = field(result, "thread") as Json | undefined;
         const id = String(field(thread, "id") || "");
         if (!id) throw new Error("Codex app-server 没有返回 thread id");
+        this.threadEmitters.set(id, emit);
         return thread || {};
     }
 
-    async resumeThread(threadId: string, cwd?: string) {
-        const result = await this.request("thread/resume", { threadId, approvalPolicy: "never", sandbox: "workspace-write", config: codexConfig(), ...(cwd ? { cwd } : {}) });
+    async resumeThread(threadId: string, cwd?: string, clientId?: string, emit: AgentEmit = this.emit) {
+        const result = await this.request("thread/resume", { threadId, approvalPolicy: "never", sandbox: "workspace-write", config: codexConfig(clientId), ...(cwd ? { cwd } : {}) });
         const thread = field(result, "thread") as Json | undefined;
         const id = String(field(thread, "id") || "");
         if (!id) throw new Error("Codex app-server 没有返回 thread id");
+        this.threadEmitters.set(id, emit);
         return thread || {};
     }
 
@@ -169,10 +171,11 @@ class CodexAppClient {
         return this.request("thread/archive", { threadId });
     }
 
-    async startTurn(threadId: string, prompt: string, images: string[]) {
+    async startTurn(threadId: string, prompt: string, images: string[], emit: AgentEmit = this.threadEmitters.get(threadId) || this.emit) {
         const result = await this.request("turn/start", { threadId, input: codexInput(prompt, images), approvalPolicy: "never" });
         const turnId = String(field(field(result, "turn"), "id") || "");
         if (!turnId) throw new Error("Codex app-server 没有返回 turn id");
+        this.turnEmitters.set(turnId, emit);
         const completed = this.completedTurns.get(turnId);
         if (this.completedTurns.has(turnId)) {
             this.completedTurns.delete(turnId);
@@ -223,7 +226,8 @@ class CodexAppClient {
         const event = normalizeCodexNotification(method, params);
         if (!event) return;
         if (event.type === "turn.completed") event.usage = this.lastUsage;
-        this.emit("agent_event", { agent: "codex", ...event });
+        const emit = this.eventEmitter(params);
+        emit("agent_event", { agent: "codex", ...event });
         if (event.type === "turn.completed") {
             const turnId = String(field(params, "turnId") || field(field(params, "turn"), "id") || "");
             const pending = this.activeTurns.get(turnId);
@@ -234,25 +238,28 @@ class CodexAppClient {
             } else if (turnId) {
                 this.completedTurns.set(turnId, error ? new Error(String(field(error, "message") || "Codex turn failed")) : null);
             }
-            this.emit("agent_event", { agent: "codex", type: "stream.summary", delta_count: this.deltaCount });
-            this.deltaCount = 0;
-            this.emit("agent_done", { agent: "codex", usage: event.usage });
+            const deltaCount = this.deltaCounts.get(turnId) || 0;
+            this.deltaCounts.delete(turnId);
+            emit("agent_event", { agent: "codex", type: "stream.summary", delta_count: deltaCount });
+            emit("agent_done", { agent: "codex", usage: event.usage });
+            this.turnEmitters.delete(turnId);
         }
     }
 
     private emitDelta(params: Json) {
         const id = String(field(params, "itemId") || "");
+        const turnId = String(field(params, "turnId") || "");
         const text = `${this.textByItem.get(id) || ""}${String(field(params, "delta") || "")}`;
-        this.deltaCount += 1;
+        this.deltaCounts.set(turnId, (this.deltaCounts.get(turnId) || 0) + 1);
         this.textByItem.set(id, text);
-        this.emit("agent_event", { agent: "codex", type: "item.updated", item: { id, type: "agent_message", text } });
+        this.eventEmitter(params)("agent_event", { agent: "codex", type: "item.updated", item: { id, type: "agent_message", text } });
     }
 
     private answerServerRequest(message: Json) {
         const method = String(message.method);
         const result = method === "mcpServer/elicitation/request" ? { action: "accept", content: {}, _meta: null } : { decision: "decline" };
         this.write({ id: message.id, result });
-        this.emit("agent_event", { agent: "codex", type: "server.request", method, params: message.params, result });
+        this.eventEmitter((message.params || {}) as Json)("agent_event", { agent: "codex", type: "server.request", method, params: message.params, result });
     }
 
     private resolve(id: number, result: unknown) {
@@ -270,6 +277,12 @@ class CodexAppClient {
         this.pending.clear();
         this.activeTurns.clear();
     }
+
+    private eventEmitter(params: Json) {
+        const turnId = String(field(params, "turnId") || field(field(params, "turn"), "id") || "");
+        const threadId = String(field(params, "threadId") || field(field(params, "thread"), "id") || "");
+        return this.turnEmitters.get(turnId) || this.threadEmitters.get(threadId) || this.emit;
+    }
 }
 
 function canvasAgentMcpCommand() {
@@ -279,8 +292,9 @@ function canvasAgentMcpCommand() {
     return entry.endsWith(".ts") ? { command: process.execPath, args: [tsx, entry, "mcp"] } : { command: process.execPath, args: [entry, "mcp"] };
 }
 
-function codexConfig() {
-    return { mcp_servers: { "infinite-canvas": { command: canvasAgentMcp.command, args: canvasAgentMcp.args, default_tools_approval_mode: "approve", startup_timeout_sec: 20, tool_timeout_sec: CANVAS_MCP_TOOL_TIMEOUT_SECONDS } } };
+function codexConfig(clientId?: string) {
+    const args = clientId ? [...canvasAgentMcp.args, "--client-id", clientId] : canvasAgentMcp.args;
+    return { mcp_servers: { "infinite-canvas": { command: canvasAgentMcp.command, args, default_tools_approval_mode: "approve", startup_timeout_sec: 20, tool_timeout_sec: CANVAS_MCP_TOOL_TIMEOUT_SECONDS } } };
 }
 
 function codexInput(prompt: string, images: string[]) {

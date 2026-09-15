@@ -49,10 +49,11 @@ export async function commitCanvasAgentState({
     viewport,
   });
   closeContextMenu();
-  await persistSnapshot(nodes, edges, viewport.zoom, {
+  const saved = await persistSnapshot(nodes, edges, viewport.zoom, {
     quiet: true,
     panX: viewport.panX,
     panY: viewport.panY,
   });
+  if (saved === false) throw new Error("画布保存失败，请重试");
   return viewport;
 }

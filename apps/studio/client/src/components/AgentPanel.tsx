@@ -308,6 +308,7 @@ export default function AgentPanel({
       const data = await sendLocalAgentTurn(url, token, {
         prompt: text,
         canvasId: projectId,
+        clientId,
         threadId,
       }, { signal });
       if (!isActiveAgentTurn(turnId)) return;

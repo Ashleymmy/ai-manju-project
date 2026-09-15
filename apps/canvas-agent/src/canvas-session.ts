@@ -8,74 +8,101 @@ import { compactCanvasState, compactNode, isToolName, nextCanvasX, parseToolInpu
 import type { CanvasNode, CanvasNodeType, CanvasSnapshot } from "./types.js";
 
 type PendingRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void };
+type ClientSession = {
+    response: ServerResponse | null;
+    snapshot: CanvasSnapshot | null;
+    pending: Map<string, PendingRequest>;
+    generation: number;
+};
 
 export class CanvasSession {
-    private clients = new Map<string, ServerResponse>();
-    private pending = new Map<string, PendingRequest>();
-    private canvasState: CanvasSnapshot | null = null;
+    private sessions = new Map<string, ClientSession>();
 
     health() {
-        return { ok: true, protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION, hasCanvas: Boolean(this.canvasState), clients: this.clients.size };
+        const sessions = [...this.sessions.values()];
+        return { ok: true, protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION, hasCanvas: sessions.some((item) => Boolean(item.snapshot)), clients: sessions.filter((item) => Boolean(item.response)).length };
     }
 
     openEvents(url: URL, res: ServerResponse) {
         const clientId = url.searchParams.get("clientId") || crypto.randomUUID();
+        const session = this.getSession(clientId);
+        if (session.response && session.response !== res) {
+            const previous = session.response;
+            session.response = null;
+            this.rejectPending(session, "画布连接已重置");
+            previous.end();
+        }
+        session.generation += 1;
         res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
-        this.clients.set(clientId, res);
+        this.sessions.set(clientId, session);
+        session.response = res;
         sendEvent(res, "hello", { ok: true, protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION, clientId });
         const timer = setInterval(() => sendEvent(res, "ping", { time: Date.now() }), 15000);
         res.on("close", () => {
             clearInterval(timer);
-            this.clients.delete(clientId);
-            if (this.canvasState?.clientId === clientId) this.canvasState = null;
+            if (session.response !== res) return;
+            session.response = null;
+            this.rejectPending(session, "画布连接已断开");
+            this.sessions.delete(clientId);
         });
     }
 
     updateState(body: unknown, clientId?: string) {
-        this.canvasState = { ...((body && typeof body === "object" && !Array.isArray(body) ? body : {}) as Record<string, unknown>), protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION, clientId } as CanvasSnapshot;
+        const session = this.requireSession(clientId);
+        session.snapshot = { ...((body && typeof body === "object" && !Array.isArray(body) ? body : {}) as Record<string, unknown>), protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION, clientId } as CanvasSnapshot;
     }
 
-    resolveResult(body: { requestId?: string; error?: string; result?: unknown }) {
-        const item = body.requestId ? this.pending.get(body.requestId) : null;
+    resolveResult(body: { requestId?: string; error?: string; result?: unknown }, clientId?: string) {
+        const session = this.requireSession(clientId);
+        const item = body.requestId ? session.pending.get(body.requestId) : null;
         if (!item || !body.requestId) return;
-        this.pending.delete(body.requestId);
+        session.pending.delete(body.requestId);
         const snapshot = body.result && typeof body.result === "object" ? (body.result as { snapshot?: CanvasSnapshot }).snapshot : undefined;
-        if (snapshot) this.canvasState = { ...snapshot, protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION, clientId: this.canvasState?.clientId };
+        if (snapshot) session.snapshot = { ...snapshot, protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION, clientId };
         body.error ? item.reject(new Error(body.error)) : item.resolve(body.result);
     }
 
-    emitAll(type: string, payload: unknown) {
-        this.clients.forEach((client) => sendEvent(client, type, payload));
+    connectionGeneration(clientId: string | undefined) {
+        return clientId ? this.sessions.get(clientId)?.generation || 0 : 0;
     }
 
-    async callTool(name: unknown, rawInput: unknown) {
+    emit(clientId: string | undefined, type: string, payload: unknown, generation = this.connectionGeneration(clientId)) {
+        if (!clientId) return;
+        const session = this.sessions.get(clientId);
+        if (!session || session.generation !== generation) return;
+        const response = session.response;
+        if (response) sendEvent(response, type, payload);
+    }
+
+    async callTool(name: unknown, rawInput: unknown, clientId?: string) {
         if (!isToolName(name)) throw new Error(`未知工具：${String(name)}`);
+        const session = this.requireSession(clientId);
+        if (!session.response) throw new Error("当前没有已连接画布");
         let tool: ToolName = name;
         let input = parseToolInput(tool, rawInput) as Record<string, unknown>;
         const readTool = isCanvasAgentReadTool(tool);
-        if (readTool && (!this.clients.size || !this.canvasState)) throw new Error("当前没有已连接画布");
-        if (tool === "canvas_get_state" || tool === "canvas_export_snapshot") return compactCanvasState(this.canvasState);
+        if (readTool && !session.snapshot) throw new Error("当前没有已同步画布");
+        if (tool === "canvas_get_state" || tool === "canvas_export_snapshot") return compactCanvasState(session.snapshot);
         if (tool === "canvas_get_selection") {
-            const ids = new Set(this.canvasState?.selectedNodeIds || []);
-            return { nodes: (this.canvasState?.nodes || []).filter((node) => ids.has(node.id)).map(compactNode) };
+            const ids = new Set(session.snapshot?.selectedNodeIds || []);
+            return { nodes: (session.snapshot?.nodes || []).filter((node) => ids.has(node.id)).map(compactNode) };
         }
         if (tool === "canvas_search_assets" || tool === "canvas_add_assets" || tool === "canvas_list_jobs" || tool === "canvas_cancel_job") {
-            if (!this.clients.size) throw new Error("当前没有已连接画布");
-            return await this.requestCanvasTool(tool, input);
+            return await this.requestCanvasTool(session, tool, input);
         }
         if (tool === "canvas_create_node") {
             const data = input as { nodeType: CanvasNodeType; title?: string; x?: number; y?: number; width?: number; height?: number; metadata?: Record<string, unknown> };
-            input = { ops: [{ type: "add_node", nodeType: data.nodeType, title: data.title, position: { x: data.x ?? nextCanvasX(this.canvasState), y: data.y ?? 0 }, width: data.width, height: data.height, metadata: data.metadata }] };
+            input = { ops: [{ type: "add_node", nodeType: data.nodeType, title: data.title, position: { x: data.x ?? nextCanvasX(session.snapshot), y: data.y ?? 0 }, width: data.width, height: data.height, metadata: data.metadata }] };
             tool = "canvas_apply_ops";
         }
         if (tool === "canvas_create_text_node") {
             const text = input as { text?: string; x?: number; y?: number; title?: string; width?: number; height?: number };
-            input = { ops: [textNodeOp(text, text.x ?? nextCanvasX(this.canvasState), text.y ?? 0)] };
+            input = { ops: [textNodeOp(text, text.x ?? nextCanvasX(session.snapshot), text.y ?? 0)] };
             tool = "canvas_apply_ops";
         }
         if (tool === "canvas_create_text_nodes") {
             const data = input as { items: Array<{ text: string; title?: string; x?: number; y?: number; width?: number; height?: number }>; x?: number; y?: number; gap?: number; direction?: "row" | "column" };
-            const x = Number(data.x ?? nextCanvasX(this.canvasState));
+            const x = Number(data.x ?? nextCanvasX(session.snapshot));
             const y = Number(data.y ?? 0);
             const gap = Number(data.gap ?? 40);
             input = {
@@ -84,12 +111,12 @@ export class CanvasSession {
             tool = "canvas_apply_ops";
         }
         if (tool === "canvas_create_image_prompt_flow") {
-            input = { ops: generationFlowOps({ ...(input as Record<string, unknown>), mode: "image" }, this.canvasState) };
+            input = { ops: generationFlowOps({ ...(input as Record<string, unknown>), mode: "image" }, session.snapshot) };
             tool = "canvas_apply_ops";
         }
         if (tool === "canvas_create_config_node") {
             const data = input as Record<string, unknown>;
-            const x = Number(data.x ?? nextCanvasX(this.canvasState));
+            const x = Number(data.x ?? nextCanvasX(session.snapshot));
             const y = Number(data.y ?? 0);
             const configId = `config-${crypto.randomUUID()}`;
             const mode = generationMode(data.mode);
@@ -98,11 +125,11 @@ export class CanvasSession {
             tool = "canvas_apply_ops";
         }
         if (tool === "canvas_create_generation_flow") {
-            input = { ops: generationFlowOps(input as Record<string, unknown>, this.canvasState) };
+            input = { ops: generationFlowOps(input as Record<string, unknown>, session.snapshot) };
             tool = "canvas_apply_ops";
         }
         if (tool === "canvas_generate_text" || tool === "canvas_generate_image" || tool === "canvas_generate_video" || tool === "canvas_generate_audio") {
-            input = { ops: generationFlowOps({ ...(input as Record<string, unknown>), mode: tool.replace("canvas_generate_", ""), autoRun: true }, this.canvasState) };
+            input = { ops: generationFlowOps({ ...(input as Record<string, unknown>), mode: tool.replace("canvas_generate_", ""), autoRun: true }, session.snapshot) };
             tool = "canvas_apply_ops";
         }
         if (tool === "canvas_update_node") {
@@ -119,7 +146,7 @@ export class CanvasSession {
             const data = input as { items: Array<{ id: string; x?: number; y?: number; dx?: number; dy?: number }> };
             input = {
                 ops: data.items.map((item) => {
-                    const current = findNode(this.canvasState, item.id);
+                    const current = findNode(session.snapshot, item.id);
                     return { type: "update_node", id: item.id, patch: { position: { x: item.x ?? ((current?.position.x || 0) + (item.dx || 0)), y: item.y ?? ((current?.position.y || 0) + (item.dy || 0)) } } };
                 }),
             };
@@ -153,13 +180,12 @@ export class CanvasSession {
             tool = "canvas_apply_ops";
         }
         if (tool !== "canvas_apply_ops") throw new Error(`未知工具：${tool}`);
-        if (!this.clients.size) throw new Error("当前没有已连接画布");
-        return await this.requestCanvasTool(tool, input);
+        return await this.requestCanvasTool(session, tool, input);
     }
 
-    private async requestCanvasTool(name: ToolName, input: Record<string, unknown>) {
+    private async requestCanvasTool(session: ClientSession, name: ToolName, input: Record<string, unknown>) {
         const requestId = crypto.randomUUID();
-        const client = this.clients.get(this.canvasState?.clientId || "") || this.clients.values().next().value;
+        const client = session.response;
         if (!client) throw new Error("当前没有已连接画布");
         sendEvent(client, "tool_call", {
             protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION,
@@ -170,11 +196,31 @@ export class CanvasSession {
         });
         return await new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
-                this.pending.delete(requestId);
+                session.pending.delete(requestId);
                 reject(new Error("画布操作超时"));
             }, CANVAS_TOOL_TIMEOUT_MS);
-            this.pending.set(requestId, { resolve: (value) => (clearTimeout(timer), resolve(value)), reject: (error) => (clearTimeout(timer), reject(error)) });
+            session.pending.set(requestId, { resolve: (value) => (clearTimeout(timer), resolve(value)), reject: (error) => (clearTimeout(timer), reject(error)) });
         });
+    }
+
+    private getSession(clientId: string) {
+        let session = this.sessions.get(clientId);
+        if (!session) {
+            session = { response: null, snapshot: null, pending: new Map(), generation: 0 };
+            this.sessions.set(clientId, session);
+        }
+        return session;
+    }
+
+    private requireSession(clientId?: string) {
+        if (!clientId) throw new Error("缺少画布 clientId");
+        return this.getSession(clientId);
+    }
+
+    private rejectPending(session: ClientSession, message: string) {
+        const error = new Error(message);
+        [...session.pending.values()].forEach((item) => item.reject(error));
+        session.pending.clear();
     }
 }
 

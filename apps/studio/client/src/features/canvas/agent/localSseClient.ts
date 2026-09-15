@@ -115,7 +115,7 @@ export function createLocalAgentSseClient(
 export async function sendLocalAgentTurn(
   endpoint: string,
   token: string,
-  input: { prompt: string; canvasId: string; threadId?: string },
+  input: { prompt: string; canvasId: string; clientId: string; threadId?: string },
   options: {
     services?: Pick<LocalAgentClientServices, "fetch">;
     signal?: AbortSignal;

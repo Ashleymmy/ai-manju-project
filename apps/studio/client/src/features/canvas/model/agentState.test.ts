@@ -133,4 +133,20 @@ describe("Canvas Agent state commit", () => {
 
     unsubscribe();
   });
+
+  it("reports persistence failure instead of confirming an unsaved Agent operation", async () => {
+    const initial = canvasStateFromAgent(before);
+    const viewport = canvasViewportFromAgent(before.viewport);
+    const store = createCanvasStore({ graph: initial, viewport });
+    const commands = createCanvasCommands(store, createCanvasServices());
+
+    await expect(commitCanvasAgentState({
+      commands,
+      ...initial,
+      agentViewport: before.viewport,
+      viewportRef: { current: viewport },
+      closeContextMenu: vi.fn(),
+      persistSnapshot: vi.fn(async () => false),
+    })).rejects.toThrow("画布保存失败");
+  });
 });
