@@ -296,7 +296,7 @@ export function CanvasInspector({
       .filter((node, index, list) => list.findIndex((item) => item.id === node.id) === index)
     : [];
   return (
-        <aside ref={panelRef} className={`inspector-panel canvas-floating-inspector${selectedNode && !selectedGroup ? " inspector-floating" : ""}${selectedGroup ? " inspector-group" : ""}`} data-canvas-ui data-canvas-no-zoom style={selectedNode && !selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedPanelStyle ? selectedPanelStyle : { display: "none" }) : selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedGroupPanelStyle ? selectedGroupPanelStyle : { display: "none" }) : { display: "none" }} onClick={(event) => event.stopPropagation()}>
+        <aside ref={panelRef} className={`inspector-panel canvas-floating-inspector${selectedNode && !selectedGroup ? " inspector-floating" : ""}${selectedGroup ? " inspector-group" : ""}${selectedNode?.metadata?.canvasOrigin === "imported" ? " inspector-imported-node" : ""}`} data-canvas-ui data-canvas-no-zoom style={selectedNode && !selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedPanelStyle ? selectedPanelStyle : { display: "none" }) : selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedGroupPanelStyle ? selectedGroupPanelStyle : { display: "none" }) : { display: "none" }} onClick={(event) => event.stopPropagation()}>
           <div className="inspector-head">
             <div><p className="eyebrow">INSPECTOR</p><div className="inspector-title-row"><h3>{selectedGroup?.title || selectedNode?.title || "未选择节点"}</h3>{selectedNode && !selectedGroup && selectedNode.kind === "video" ? <span className="video-submode-badge inspector-submode-badge">{VIDEO_SUBMODES.find((sub) => sub.value === videoSubModeFromNode(selectedNode))?.label || "文生视频"}</span> : null}</div></div>
             {selectedNode && !selectedGroup ? (
@@ -317,6 +317,17 @@ export function CanvasInspector({
               </div>
             ) : null}
           </div>
+          {selectedNode?.metadata?.canvasOrigin === "imported" ? (
+            <div className="inspector-imported-preview">
+              {selectedNode.kind === "image" && imageSrcFromNode(selectedNode, previews) ? (
+                <button type="button" title="查看原图" onClick={() => setImagePreviewNodeId(selectedNode.id)}>
+                  <img src={imageSrcFromNode(selectedNode, previews)} alt={selectedNode.title || "导入图片"} />
+                </button>
+              ) : (
+                <div className="inspector-imported-placeholder">{selectedNode.kind === "audio" ? "AUDIO" : selectedNode.kind === "video" ? "VIDEO" : selectedNode.kind === "image" ? "IMAGE" : "TEXT"}</div>
+              )}
+            </div>
+          ) : null}
           {selectedGroup ? (
             <>
               <div className="inspector-block">

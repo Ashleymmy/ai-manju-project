@@ -3220,6 +3220,7 @@ export default function CanvasWorkspaceViewContent() {
     const root = nodesRef.current.find((item) => item.id === rootId);
     if (!rootId || !root || (!child.imageAssetId && !child.imageSrc)) return;
     const nextNodes = swapImageBatchPrimary(nodesRef.current, rootId, child.id);
+    if (nextNodes === nodesRef.current) return toast.info("请等待主图与所选图片生成完成后再切换");
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
     void persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
@@ -3231,7 +3232,7 @@ export default function CanvasWorkspaceViewContent() {
     if (!text) return toast.warning("先在文本节点里写入内容");
     const created = addNode("image", { x: node.x + node.width + 96, y: node.y });
     connectNodes(node.id, created.id);
-    updateNode(created.id, { content: text, metadata: { ...(created.metadata || {}), generationMode: "image" } });
+    updateNode(created.id, updateCanvasNodeComposer({ ...created, metadata: { ...created.metadata, generationMode: "image" as const } }, text));
     await generateImageFromNode(created.id);
   };
 
@@ -3516,7 +3517,7 @@ export default function CanvasWorkspaceViewContent() {
     return { ok: true, message: `已将 ${addedNodes.length} 个资产添加到画布。`, data: { nodeIds: addedNodes.map((node) => node.id), assetIds } };
   };
 
-  const uploadFilesAsNodes = async (files: FileList | File[]) => {
+  const uploadFilesAsNodes = async (files: FileList | File[], dropPosition?: { x: number; y: number }) => {
     const list = Array.from(files).filter((file) => assetKindFromFile(file) !== null);
     if (!list.length || uploadingRef.current || projectSessionController.switching) return;
     const activeScope = projectSessionController.canonicalScope;
@@ -3564,10 +3565,24 @@ export default function CanvasWorkspaceViewContent() {
         });
       }
       const baseNodes = nodesRef.current;
+      const anchor = dropPosition || getCanvasCenter();
+      const columns = Math.min(2, Math.max(1, createdNodes.length));
+      const rows = Math.ceil(createdNodes.length / columns);
+      const scale = Math.max(0.05, zoom / 100);
+      const visibleLeft = (0 - panX) / scale;
+      const visibleTop = (CANVAS_STAGE_OFFSET - panY) / scale;
+      const visibleRight = (stageBounds.width - panX) / scale;
+      const visibleBottom = (stageBounds.height - panY) / scale;
       const nextNodes = [...baseNodes, ...createdNodes.map((node, index) => ({
         ...node,
-        x: 140 + (baseNodes.length + index) * 34,
-        y: 120 + (baseNodes.length + index) * 26,
+        x: Math.min(
+          Math.max(anchor.x + (index % columns) * 360 - ((columns - 1) * 360) / 2 - node.width / 2, visibleLeft + 12),
+          Math.max(visibleLeft + 12, visibleRight - node.width - 12),
+        ),
+        y: Math.min(
+          Math.max(anchor.y + Math.floor(index / columns) * 280 - ((rows - 1) * 280) / 2 - node.height / 2, visibleTop + 12),
+          Math.max(visibleTop + 12, visibleBottom - node.height - 12),
+        ),
       }))];
       nodesRef.current = nextNodes;
       setNodes(nextNodes);

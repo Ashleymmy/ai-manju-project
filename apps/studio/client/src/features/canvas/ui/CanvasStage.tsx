@@ -81,7 +81,7 @@ type CanvasStageActions = {
   handleStagePointerDown: (event: PointerEvent<HTMLElement>) => void;
   openCanvasContextMenu: (event: ReactMouseEvent<Element>) => void;
   handleCanvasDoubleClick: (event: ReactMouseEvent<Element>) => void;
-  uploadFilesAsNodes: (files: FileList | File[]) => Promise<unknown>;
+  uploadFilesAsNodes: (files: FileList | File[], position?: { x: number; y: number }) => Promise<unknown>;
   selectCanvasGroup: (group: CanvasGroupData) => void;
   startGroupDrag: (event: PointerEvent<HTMLElement>, group: CanvasGroupData) => void;
   moveGroupDrag: (event: PointerEvent<HTMLElement>) => void;
@@ -301,7 +301,7 @@ export function CanvasStage({
           onContextMenu={(event) => { if (projectActionDisabled) { event.preventDefault(); return; } openCanvasContextMenu(event); }}
           onDoubleClick={(event) => { if (!projectActionDisabled) handleCanvasDoubleClick(event); }}
           onDragOver={(event) => { if (!projectActionDisabled) event.preventDefault(); }}
-          onDrop={(event) => { event.preventDefault(); if (!projectActionDisabled) void uploadFilesAsNodes(event.dataTransfer.files); }}
+          onDrop={(event) => { event.preventDefault(); if (!projectActionDisabled) void uploadFilesAsNodes(event.dataTransfer.files, screenToCanvasPoint(event.clientX, event.clientY)); }}
         >
           <div className="canvas-left-dock" data-canvas-ui data-canvas-no-zoom>
             <CanvasTopToolbar {...topToolbar} />
