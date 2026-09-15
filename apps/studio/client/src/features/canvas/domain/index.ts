@@ -43,6 +43,7 @@ export {
   refreshImageBatchRoot,
   resetInterruptedCanvasGenerations,
   snapImageBatchChildrenToGrid,
+  swapImageBatchPrimary,
 } from "./batch";
 export {
   CANVAS_PENDING_JOB_MAX_AGE_MS,

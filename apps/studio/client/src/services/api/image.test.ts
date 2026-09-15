@@ -183,4 +183,27 @@ describe("image API", () => {
     expect(images[0]).toMatchObject({ assetId: "asset-1", name: "first.png" });
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
+
+  it("keeps separate batch outputs when a provider reuses a delivery URL", async () => {
+    const job = {
+      id: "job-url-reuse",
+      type: "image.generate",
+      status: "succeeded",
+      state: "succeeded",
+      result: {
+        data: [
+          { url: "https://cdn.example.test/generated.png" },
+          { url: "https://cdn.example.test/generated.png" },
+        ],
+      },
+    } as Job;
+
+    const images = await generatedImagesFromJob(job, "personal");
+
+    expect(images).toHaveLength(2);
+    expect(images.map((image) => image.src)).toEqual([
+      "https://cdn.example.test/generated.png",
+      "https://cdn.example.test/generated.png",
+    ]);
+  });
 });

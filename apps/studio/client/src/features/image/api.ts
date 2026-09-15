@@ -149,9 +149,12 @@ export async function generatedImagesFromJob(job: Job, scope: "personal" | "team
   const items = imageItems(job.result);
   const images: GeneratedImage[] = [];
   const seen = new Set<string>();
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
     const assetId = stringValue(item.asset_id) || (stringValue(item.id).startsWith("asset_") ? stringValue(item.id) : "");
-    const key = assetId || stringValue(item.asset_url) || stringValue(item.url) || stringValue(item.b64_json);
+    // A few providers reuse the same delivery URL for multiple outputs. Only
+    // asset IDs are stable identities; keep URL/base64 results indexed so a
+    // valid batch item cannot be silently removed as a duplicate.
+    const key = assetId || `${stringValue(item.asset_url) || stringValue(item.url) || stringValue(item.b64_json)}#${index}`;
     if (!key || seen.has(key)) continue;
     const src = assetId ? "" : await resolveImageSource(item, scope, signal);
     if (!assetId && !src) continue;

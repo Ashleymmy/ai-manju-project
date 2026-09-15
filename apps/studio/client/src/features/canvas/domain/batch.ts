@@ -69,6 +69,70 @@ export function refreshImageBatchRoot(nodes: CanvasNodeData[], rootId: string) {
   } : node);
 }
 
+/**
+ * Exchange the image payloads of a batch root and one child. The node IDs and
+ * batch membership stay fixed, so selecting a different primary image is a
+ * true position swap and never discards the image that was previously shown
+ * in the primary slot.
+ */
+export function swapImageBatchPrimary(nodes: CanvasNodeData[], rootId: string, childId: string) {
+  const root = nodes.find((node) => node.id === rootId);
+  const child = nodes.find((node) => node.id === childId && node.metadata?.batchRootId === rootId);
+  if (!root || !child || rootId === childId) return nodes;
+
+  const rootPayload = imagePayload(root);
+  const childPayload = imagePayload(child);
+  const next = nodes.map((node) => {
+    if (node.id === rootId) {
+      return {
+        ...node,
+        ...childPayload.node,
+        metadata: {
+          ...node.metadata,
+          ...childPayload.metadata,
+          // The swapped child is now physically in the primary slot; root
+          // owns that payload so later batch refreshes keep the same layout.
+          primaryImageId: undefined,
+          ownAssetId: childPayload.metadata.assetId,
+          ownImageSrc: childPayload.node.imageSrc,
+        },
+      };
+    }
+    if (node.id === childId) {
+      return {
+        ...node,
+        ...rootPayload.node,
+        metadata: {
+          ...node.metadata,
+          ...rootPayload.metadata,
+          batchRootId: rootId,
+        },
+      };
+    }
+    return node;
+  });
+  return refreshImageBatchRoot(next, rootId);
+}
+
+function imagePayload(node: CanvasNodeData) {
+  return {
+    node: {
+      title: node.title,
+      content: node.content,
+      imageAssetId: node.imageAssetId,
+      imageSrc: node.imageSrc,
+    },
+    metadata: {
+      assetId: node.metadata?.assetId,
+      assetScope: node.metadata?.assetScope,
+      naturalWidth: node.metadata?.naturalWidth,
+      naturalHeight: node.metadata?.naturalHeight,
+      bytes: node.metadata?.bytes,
+      mimeType: node.metadata?.mimeType,
+    },
+  };
+}
+
 export function resetInterruptedCanvasGenerations(nodes: CanvasNodeData[]) {
   const loadingJobIds = new Set(nodes
     .filter((node) => node.metadata?.status === "loading" && stringValue(node.metadata?.jobId))
