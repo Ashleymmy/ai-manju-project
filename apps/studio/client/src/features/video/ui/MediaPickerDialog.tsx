@@ -211,8 +211,6 @@ export function MediaPickerDialog({
                 disabled={busy}
                 onClick={() => {
                   setSourceTab(tab.value);
-                  setSelectedMap({});
-                  setSelectedVolcano({});
                   setPage(1);
                   setQuery("");
                 }}
