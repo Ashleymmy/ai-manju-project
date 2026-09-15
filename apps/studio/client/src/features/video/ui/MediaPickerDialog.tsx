@@ -199,7 +199,7 @@ export function MediaPickerDialog({
       <DialogContent className="wb-picker-dialog" showCloseButton={!busy}>
         <DialogHeader>
           <DialogTitle>媒体资产库</DialogTitle>
-          <DialogDescription>已选择 {selectedCount} 个项目 · 图片、视频、音频都可以作为生成参考；确认引用时才读取内容。</DialogDescription>
+          <DialogDescription>已选择 {selectedCount} 个项目 · 普通资产会按图片 URL 发送；要使用火山已注册素材，请切换“真人(火山)”页签。</DialogDescription>
         </DialogHeader>
         <div className="wb-picker-toolbar">
           <div className="wb-segments">
