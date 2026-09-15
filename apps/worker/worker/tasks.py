@@ -20,6 +20,12 @@ from .video import generate_video, transcode_video
 settings = load_settings()
 logger = logging.getLogger(__name__)
 celery_app = Celery("ai_manju_worker", broker=settings.celery_broker_url, backend=settings.celery_result_backend)
+# Generation jobs carry a per-delivery timelimit from the API. Keep the worker
+# defaults above the longest media request as a safety net for brokers/workers
+# that drop custom timelimit headers, while preserving the configured timeout
+# for subprocess-based utility tasks such as transcoding.
+DEFAULT_GENERATION_TASK_TIMEOUT_SECONDS = 60 * 60
+worker_task_timeout = max(settings.job_default_timeout_seconds, DEFAULT_GENERATION_TASK_TIMEOUT_SECONDS)
 provider_task_annotations = {}
 if settings.provider_rate_limit:
     provider_task_annotations = {
@@ -37,8 +43,8 @@ celery_app.conf.update(
     },
     task_acks_late=True,
     task_reject_on_worker_lost=True,
-    task_time_limit=settings.job_default_timeout_seconds,
-    task_soft_time_limit=max(1, settings.job_default_timeout_seconds - 5),
+    task_time_limit=worker_task_timeout,
+    task_soft_time_limit=max(1, worker_task_timeout - 5),
     worker_prefetch_multiplier=1,
     task_annotations=provider_task_annotations,
 )
