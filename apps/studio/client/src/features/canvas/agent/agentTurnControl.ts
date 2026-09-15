@@ -7,13 +7,45 @@ export function isAgentTurnCancelled(error: unknown): boolean {
   return false;
 }
 
+function copyWithLegacyCommand(value: string): boolean {
+  if (typeof document === "undefined" || typeof document.execCommand !== "function") return false;
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.setAttribute("aria-hidden", "true");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "-9999px";
+  textarea.style.opacity = "0";
+  const selection = document.getSelection();
+  const ranges = selection ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index)) : [];
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  }
+  textarea.remove();
+  if (selection) {
+    selection.removeAllRanges();
+    ranges.forEach(range => selection.addRange(range));
+  }
+  return copied;
+}
+
 export async function copyAgentMessageText(text: string): Promise<"empty" | "copied" | "failed"> {
   const value = text.trim();
   if (!value) return "empty";
   try {
-    await navigator.clipboard.writeText(value);
-    return "copied";
+    if (typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function") {
+      await navigator.clipboard.writeText(value);
+      return "copied";
+    }
   } catch {
-    return "failed";
+    // Safari、HTTP 环境以及浏览器权限策略可能拒绝异步剪贴板，继续尝试兼容方案。
   }
+  return copyWithLegacyCommand(value) ? "copied" : "failed";
 }
