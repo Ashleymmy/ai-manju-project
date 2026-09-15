@@ -638,10 +638,11 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
     for (const attachment of userMessage.attachments || []) {
       restored.push(await referenceFromAttachment(attachment, trackUrl));
     }
+    const normalized = assignReferenceTokens(restored);
     return {
       text: userMessage.text,
       config: systemMessage?.config || effectiveConfig,
-      references: restored,
+      references: normalized,
     };
   }, [effectiveConfig, trackUrl]);
 
@@ -689,9 +690,10 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
     [...references, ...(firstFrame ? [firstFrame] : []), ...(lastFrame ? [lastFrame] : [])].forEach((reference) => revokeUrl(reference.previewUrl));
     setPrompt(userMessage.text);
     if (originalTask?.role === "system" && originalTask.config) setConfig(originalTask.config);
-    setReferences(restored.filter((reference) => reference.role === "reference"));
-    setFirstFrame(restored.find((reference): reference is WorkbenchImageReference => reference.kind === "image" && reference.role === "first_frame") || null);
-    setLastFrame(restored.find((reference): reference is WorkbenchImageReference => reference.kind === "image" && reference.role === "last_frame") || null);
+    const normalized = assignReferenceTokens(restored);
+    setReferences(normalized.filter((reference) => reference.role === "reference"));
+    setFirstFrame(normalized.find((reference): reference is WorkbenchImageReference => reference.kind === "image" && reference.role === "first_frame") || null);
+    setLastFrame(normalized.find((reference): reference is WorkbenchImageReference => reference.kind === "image" && reference.role === "last_frame") || null);
     setFramesEnabled(attachments.some((attachment) => attachment.role === "first_frame" || attachment.role === "last_frame"));
     setView("generator");
     setEditingMessageId("");
@@ -990,11 +992,19 @@ function attachmentFromReference(reference: WorkbenchReference): VideoWorkbenchA
 /** 参考素材编号 token：@图片N / @视频N / @音频N（按类型顺序分配，删除不重排）。 */
 function assignReferenceTokens(references: WorkbenchReference[]) {
   const counters = { image: 0, video: 0, audio: 0 };
+  const used = { image: new Set<string>(), video: new Set<string>(), audio: new Set<string>() };
   return references.map((reference) => {
-    if (reference.token) return reference;
-    counters[reference.kind] += 1;
+    if (reference.token && !used[reference.kind].has(reference.token)) {
+      used[reference.kind].add(reference.token);
+      return reference;
+    }
+    do {
+      counters[reference.kind] += 1;
+    } while (used[reference.kind].has(`@${reference.kind === "image" ? "图片" : reference.kind === "video" ? "视频" : "音频"}${counters[reference.kind]}`));
     const label = reference.kind === "image" ? "图片" : reference.kind === "video" ? "视频" : "音频";
-    return { ...reference, token: `@${label}${counters[reference.kind]}` };
+    const token = `@${label}${counters[reference.kind]}`;
+    used[reference.kind].add(token);
+    return { ...reference, token };
   });
 }
 
