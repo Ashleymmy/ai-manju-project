@@ -85,6 +85,9 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   const [conversations, setConversations] = useState<VideoWorkbenchConversation[]>([]);
   const [currentId, setCurrentId] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [editingMessageId, setEditingMessageId] = useState("");
+  const [composerFocusRequest, setComposerFocusRequest] = useState(0);
+  const editRequestRef = useRef(0);
   const [references, setReferences] = useState<WorkbenchReference[]>([]);
   const [firstFrame, setFirstFrame] = useState<WorkbenchImageReference | null>(null);
   const [lastFrame, setLastFrame] = useState<WorkbenchImageReference | null>(null);
@@ -116,6 +119,12 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   const messages = currentConversation?.messages || [];
   const generating = Object.values(taskRuntime).some((item) => item.status === "queued" || item.status === "running");
   const effectiveConfig = useMemo(() => normalizeVideoGenerationConfig(config), [config]);
+
+  useEffect(() => {
+    // 切换对话后，旧消息的异步附件恢复不能覆盖当前输入。
+    editRequestRef.current += 1;
+    setEditingMessageId("");
+  }, [currentId]);
 
   const trackUrl = useCallback((url: string) => {
     if (url.startsWith("blob:")) objectUrlsRef.current.add(url);
@@ -381,7 +390,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
 
   /* ---------- 提交生成 ---------- */
   const handleSubmit = useCallback(async () => {
-    if (!ready || !currentConversation) return;
+    if (!ready || !currentConversation || editingMessageId) return;
     const text = prompt.trim();
     if (!text) {
       toast.warning("请输入视频描述");
@@ -450,7 +459,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
     setLastFrame(null);
 
     void runVideoTask(conversationId, systemMessage, payload);
-  }, [ready, currentConversation, prompt, effectiveConfig, references, framesEnabled, firstFrame, lastFrame, patchConversation, revokeUrl]);
+  }, [ready, currentConversation, editingMessageId, prompt, effectiveConfig, references, framesEnabled, firstFrame, lastFrame, patchConversation, revokeUrl]);
 
   /* ---------- 任务执行与轮询 ---------- */
   const setRuntime = useCallback((messageId: string, patch: Partial<WorkbenchTaskRuntime>) => {
@@ -664,25 +673,33 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patchConversation, restorePayloadFromMessages, runVideoTask]);
 
-  const handleRegenerate = useCallback(async (userMessage: VideoWorkbenchMessage) => {
-    if (!currentConversation) return;
-    try {
-      const payload = await restorePayloadFromMessages(userMessage);
-      const systemMessage = createVideoWorkbenchMessage("system", payload.text, {
-        taskStatus: "queued",
-        config: payload.config,
-        model: payload.config.model,
-      });
-      patchConversation(currentConversation.id, (conversation) => ({
-        ...conversation,
-        updatedAt: Date.now(),
-        messages: [...conversation.messages, systemMessage],
-      }));
-      void runVideoTask(currentConversation.id, systemMessage, payload);
-    } catch (error) {
-      toast.error(publicApiError(error, "恢复任务参考素材失败"));
+  const handleEditMessage = useCallback(async (userMessage: VideoWorkbenchMessage) => {
+    if (!currentConversation || editingMessageId) return;
+    const request = ++editRequestRef.current;
+    setEditingMessageId(userMessage.id);
+    const attachments = userMessage.attachments || [];
+    const results = await Promise.allSettled(attachments.map((attachment) => referenceFromAttachment(attachment, trackUrl)));
+    const restored = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+    if (!mountedRef.current || request !== editRequestRef.current) {
+      restored.forEach((reference) => revokeUrl(reference.previewUrl));
+      return;
     }
-  }, [currentConversation, patchConversation, restorePayloadFromMessages, runVideoTask]);
+    const index = currentConversation.messages.findIndex((message) => message.id === userMessage.id);
+    const originalTask = currentConversation.messages[index + 1];
+    [...references, ...(firstFrame ? [firstFrame] : []), ...(lastFrame ? [lastFrame] : [])].forEach((reference) => revokeUrl(reference.previewUrl));
+    setPrompt(userMessage.text);
+    if (originalTask?.role === "system" && originalTask.config) setConfig(originalTask.config);
+    setReferences(restored.filter((reference) => reference.role === "reference"));
+    setFirstFrame(restored.find((reference): reference is WorkbenchImageReference => reference.kind === "image" && reference.role === "first_frame") || null);
+    setLastFrame(restored.find((reference): reference is WorkbenchImageReference => reference.kind === "image" && reference.role === "last_frame") || null);
+    setFramesEnabled(attachments.some((attachment) => attachment.role === "first_frame" || attachment.role === "last_frame"));
+    setView("generator");
+    setEditingMessageId("");
+    setComposerFocusRequest((value) => value + 1);
+    const missing = attachments.filter((_, index) => results[index].status === "rejected");
+    if (missing.length) toast.warning(`描述已恢复，以下素材读取失败，请重新添加：${missing.map((item) => item.name).join("、")}`);
+    else toast.success("已恢复到编辑区，修改后点击生成");
+  }, [currentConversation, editingMessageId, references, firstFrame, lastFrame, trackUrl, revokeUrl]);
 
   /* ---------- 结果播放地址 ---------- */
   const resultUrlFor = useCallback((message: VideoWorkbenchMessage) => {
@@ -872,7 +889,8 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
               onOpenMedia={handleOpenMedia}
               onCancelTask={(message) => void handleCancelTask(message)}
               onRetryTask={(message) => void handleRetryTask(currentId, message)}
-              onRegenerate={(message) => void handleRegenerate(message)}
+              onEditMessage={(message) => void handleEditMessage(message)}
+              editingMessageId={editingMessageId}
               onDownload={(message) => void handleDownload(message)}
               empty="输入描述并提交，生成记录会沉淀到当前对话"
             />
@@ -886,7 +904,8 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
               lastFrame={lastFrame}
               framesEnabled={framesEnabled}
               generating={generating}
-              disabled={!ready}
+              disabled={!ready || Boolean(editingMessageId)}
+              focusRequest={composerFocusRequest}
               mentionCandidates={mentionCandidates}
               mentionLoading={mentionLoading}
               onMentionQuery={(query) => {

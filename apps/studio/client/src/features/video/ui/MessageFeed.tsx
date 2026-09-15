@@ -1,4 +1,4 @@
-import { Download, Film, Image as ImageIcon, Loader2, Music2, RotateCcw, Square } from "lucide-react";
+import { Download, Film, Image as ImageIcon, Loader2, Music2, Pencil, RotateCcw, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getAssetContentObjectUrl, getSeedanceAssetPreviewUrl } from "@/entities/asset";
@@ -28,7 +28,8 @@ export function MessageFeed({
   onOpenMedia,
   onCancelTask,
   onRetryTask,
-  onRegenerate,
+  onEditMessage,
+  editingMessageId,
   onDownload,
   empty,
 }: {
@@ -40,7 +41,8 @@ export function MessageFeed({
   onOpenMedia: (url: string, kind: "image" | "video") => void;
   onCancelTask: (message: VideoWorkbenchMessage) => void;
   onRetryTask: (message: VideoWorkbenchMessage) => void;
-  onRegenerate: (message: VideoWorkbenchMessage) => void;
+  onEditMessage: (message: VideoWorkbenchMessage) => void;
+  editingMessageId?: string;
   onDownload: (message: VideoWorkbenchMessage) => void;
   empty: string;
 }) {
@@ -58,7 +60,8 @@ export function MessageFeed({
           message={message}
           resolveThumb={resolveThumb}
           onOpenMedia={onOpenMedia}
-          onRegenerate={onRegenerate}
+          onEditMessage={onEditMessage}
+          editingMessageId={editingMessageId}
         />
       ) : (
         <SystemTaskCard
@@ -80,18 +83,20 @@ function UserBubble({
   message,
   resolveThumb,
   onOpenMedia,
-  onRegenerate,
+  onEditMessage,
+  editingMessageId,
 }: {
   message: VideoWorkbenchMessage;
   resolveThumb: (attachment: VideoWorkbenchAttachment) => string;
   onOpenMedia: (url: string, kind: "image" | "video") => void;
-  onRegenerate: (message: VideoWorkbenchMessage) => void;
+  onEditMessage: (message: VideoWorkbenchMessage) => void;
+  editingMessageId?: string;
 }) {
   return (
     <div className="wb-msg user">
       <div className="wb-bubble">
-        <button type="button" className="wb-msg-retry" title="用这条描述重新生成" onClick={() => onRegenerate(message)}>
-          <RotateCcw size={12} />
+        <button type="button" className="wb-msg-retry" title="重新编辑提示词和参考素材" aria-label="重新编辑提示词和参考素材" disabled={Boolean(editingMessageId)} onClick={() => onEditMessage(message)}>
+          {editingMessageId === message.id ? <Loader2 className="spin" size={12} /> : <Pencil size={12} />}
         </button>
         <p>{message.text}</p>
         {message.attachments?.length ? (

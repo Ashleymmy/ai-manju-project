@@ -35,6 +35,7 @@ export function Composer({
   framesEnabled,
   generating,
   disabled,
+  focusRequest = 0,
   mentionCandidates,
   mentionLoading,
   onMentionQuery,
@@ -56,6 +57,7 @@ export function Composer({
   framesEnabled: boolean;
   generating: boolean;
   disabled: boolean;
+  focusRequest?: number;
   mentionCandidates: MentionCandidate[];
   mentionLoading: boolean;
   onMentionQuery: (query: string) => void;
@@ -79,6 +81,14 @@ export function Composer({
   const [tokenWidths, setTokenWidths] = useState<Record<string, number>>({});
   const promptRef = useRef(prompt);
   promptRef.current = prompt;
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    const textarea = textareaRef.current;
+    textarea?.focus();
+    textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
+    textarea?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [focusRequest]);
 
   const referenceById = useMemo(() => new Map(references.map((item) => [item.id, item])), [references]);
   const parts = useMemo(() => splitPromptTokens(prompt), [prompt]);
