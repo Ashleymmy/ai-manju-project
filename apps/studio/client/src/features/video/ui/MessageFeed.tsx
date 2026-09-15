@@ -1,7 +1,7 @@
 import { Download, Film, Image as ImageIcon, Loader2, Music2, RotateCcw, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { getAssetContentObjectUrl } from "@/entities/asset";
+import { getAssetContentObjectUrl, getSeedanceAssetPreviewUrl } from "@/entities/asset";
 
 import { workbenchFormatBytes } from "../model/referenceEngine";
 import {
@@ -223,15 +223,13 @@ export function useWorkbenchThumbCache() {
   }, []);
 
   const resolveThumb = (attachment: VideoWorkbenchAttachment) => {
-    // 火山真人素材：直接渲染持久化的 http 预览地址，无需进缓存
-    if (attachment.assetRef) return attachment.previewUrl || "";
-    const key = attachment.assetId ? `asset:${attachment.assetId}` : attachment.storageKey ? `local:${attachment.storageKey}` : "";
+    const key = attachment.assetRef ? `provider:${attachment.scope}:${attachment.assetRef}:${attachment.previewUrl}` : attachment.assetId ? `asset:${attachment.assetId}` : attachment.storageKey ? `local:${attachment.storageKey}` : "";
     if (!key) return "";
     const hit = cache[key];
     if (hit !== undefined) return hit;
     if (!pendingRef.current.has(key)) {
       pendingRef.current.add(key);
-      const load = attachment.assetId
+      const load = attachment.assetRef ? getSeedanceAssetPreviewUrl(attachment.previewUrl) : attachment.assetId
         ? getAssetContentObjectUrl(attachment.assetId, attachment.scope || "personal", 320)
         : loadWorkbenchMedia(attachment.storageKey || "").then((blob) => URL.createObjectURL(blob));
       load

@@ -12,13 +12,14 @@ import {
 import {
   getAssetContentObjectUrl,
   getAssetLibrary,
-  listSeedanceAssetMentions,
+  listUserSeedanceAssets,
   seedanceAssetRef,
   type Asset,
   type SeedanceAsset,
   type SeedanceAssetTag,
 } from "@/entities/asset";
 import { listTags, type SemanticTag } from "@/entities/tag";
+import { SeedanceAssetUpload, useSeedanceAssetPreview } from "@/components/SeedanceAssetMedia";
 import { publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 
@@ -119,7 +120,9 @@ export function MediaPickerDialog({
     setVolcanoLoading(true);
     setVolcanoError("");
     try {
-      const result = await listSeedanceAssetMentions({
+      const result = await listUserSeedanceAssets({
+        // 当前视频对话属于个人空间，Provider 引用必须来自同一空间。
+        scope: "personal",
         search: keyword.trim(),
         type: type === "image" ? "Image" : type === "video" ? "Video" : undefined,
         limit: 100,
@@ -162,6 +165,13 @@ export function MediaPickerDialog({
     void loadVolcano(query, typeFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isVolcano, typeFilter, loadVolcano]);
+
+  const volcanoPending = volcanoItems.some((asset) => asset.status === "Processing");
+  useEffect(() => {
+    if (!open || !isVolcano || !volcanoPending) return;
+    const timer = window.setInterval(() => void loadVolcano(query, typeFilter), 5_000);
+    return () => window.clearInterval(timer);
+  }, [open, isVolcano, volcanoPending, query, typeFilter, loadVolcano]);
 
   const volcanoTags = useMemo(() => uniqueSeedanceTags(volcanoItems.flatMap((asset) => asset.tags || [])), [volcanoItems]);
   const visibleVolcano = useMemo(() => volcanoTagId
@@ -237,6 +247,7 @@ export function MediaPickerDialog({
               ))}
             </div>
           ) : null}
+          {isVolcano ? <SeedanceAssetUpload scope="personal" disabled={busy} onRegistered={() => void loadVolcano(query, typeFilter)} /> : null}
           <label className="wb-picker-search">
             <Search size={13} />
             <input
@@ -307,7 +318,7 @@ export function MediaPickerDialog({
                   key={asset.id}
                   asset={asset}
                   selected={Boolean(selectedVolcano[asset.volcano_asset_id])}
-                  disabled={busy}
+                  disabled={busy || asset.status !== "Active" || !asset.volcano_asset_id}
                   onToggle={() => setSelectedVolcano((current) => {
                     const next = { ...current };
                     if (next[asset.volcano_asset_id]) delete next[asset.volcano_asset_id];
@@ -317,7 +328,7 @@ export function MediaPickerDialog({
                 />
               ))
             ) : (
-              <div className="wb-picker-empty"><UserRoundCog size={22} /><p>暂无真人素材，可在管理后台的 Seedance 素材页上传或同步</p></div>
+              <div className="wb-picker-empty"><UserRoundCog size={22} /><p>上传 AI 拟真人图片，注册为“可用”后即可选入参考</p></div>
             )}
           </div>
         ) : (
@@ -420,13 +431,13 @@ function VolcanoCard({
   onToggle: () => void;
 }) {
   const status = volcanoStatusLabel(asset.status);
-  const previewUrl = /^https?:\/\//i.test(asset.source_url || "") ? String(asset.source_url) : "";
+  const previewUrl = useSeedanceAssetPreview(asset.source_url);
   return (
     <button
       type="button"
       className={`wb-picker-card ${selected ? "selected" : ""}`}
       disabled={disabled}
-      title={seedanceAssetRef(asset)}
+      title={asset.error_message || (asset.volcano_asset_id ? seedanceAssetRef(asset) : status.text)}
       onClick={onToggle}
     >
       <span className="wb-picker-thumb">
@@ -437,7 +448,7 @@ function VolcanoCard({
         <i className="wb-picker-check">{selected ? <Check size={12} /> : null}</i>
       </span>
       <span className="wb-picker-name">{asset.name || asset.volcano_asset_id}</span>
-      <span className="wb-picker-meta">{asset.asset_type === "Video" ? "视频" : "图片"} · 火山真人素材</span>
+      <span className="wb-picker-meta">{asset.error_message || `${asset.asset_type === "Video" ? "视频" : "图片"} · ${status.text}`}</span>
       {asset.tags?.length ? (
         <span className="wb-picker-card-tags">{asset.tags.slice(0, 3).map((tag) => <i key={tag.id}>#{tag.name}</i>)}</span>
       ) : null}

@@ -5,7 +5,38 @@ import type {
   SeedanceAssetReadiness,
   SeedanceAssetListParams,
 } from "./model";
-import { request } from "@/shared/api/http";
+import { apiUrl, getAuthToken, request } from "@/shared/api/http";
+import type { WorkspaceScope } from "@/shared/config";
+
+export function listUserSeedanceAssets(params: SeedanceAssetListParams = {}) {
+  return request<SeedanceAssetList>("/api/ai/seedance-assets", { query: params });
+}
+
+export function uploadUserSeedanceAsset(file: File, scope: WorkspaceScope) {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("name", file.name);
+  body.append("asset_type", file.type.startsWith("video/") ? "Video" : "Image");
+  return request<SeedanceAsset>("/api/ai/seedance-assets/upload", {
+    method: "POST", body, query: { scope }, timeoutMs: 120_000,
+  });
+}
+
+// 仅固定的同源素材路径携带鉴权；外部预览地址绝不接收 Studio Token。
+export function seedanceAssetPreviewSource(source?: string) {
+  return source && (/^https?:\/\//i.test(source) || /^\/api\/sd-video\/volcano\/assets\/[^/?#]+\/content\?scope=(personal|team)$/.test(source)) ? source : "";
+}
+
+export async function getSeedanceAssetPreviewUrl(source?: string, signal?: AbortSignal) {
+  const path = seedanceAssetPreviewSource(source);
+  if (!path.startsWith("/api/")) return path;
+  const token = getAuthToken();
+  const response = await fetch(apiUrl(path), {
+    signal, credentials: "include", headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  if (!response.ok) throw new Error(`读取素材预览失败（${response.status}）`);
+  return URL.createObjectURL(await response.blob());
+}
 
 export function getSeedanceAssetReadiness() {
   return request<SeedanceAssetReadiness>(
@@ -33,10 +64,11 @@ export function listSeedanceAssetMentions(
   });
 }
 
-export function ensureSeedanceAssetsActive(assetIds: string[]) {
+export function ensureSeedanceAssetsActive(assetIds: string[], scope: WorkspaceScope = "personal") {
   return request<{ active: boolean }>("/api/ai/seedance-assets/ensure-active", {
     method: "POST",
     body: { asset_ids: assetIds },
+    query: { scope },
   });
 }
 

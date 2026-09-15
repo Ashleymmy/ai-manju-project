@@ -66,6 +66,10 @@ func SDVideoThumbnail(client *sdvideo.Client, kind string) gin.HandlerFunc {
 func SDVideoAssetCompatibility(client *sdvideo.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.FullPath()
+		// 普通用户入口复用同一套注册实现，身份及空间始终由 Studio 鉴权生成。
+		if strings.HasPrefix(path, "/api/ai/seedance-assets") && !strings.HasSuffix(path, "/mentions") && !strings.HasSuffix(path, "/ensure-active") {
+			path = strings.Replace(path, "/api/ai/", "/api/admin/", 1)
+		}
 		if client == nil || client.Mode() != "active" || !(strings.HasPrefix(path, "/api/admin/seedance-assets") || strings.HasPrefix(path, "/api/admin/seedance-asset-tags") || path == "/api/ai/seedance-assets/mentions" || path == "/api/ai/seedance-assets/ensure-active") {
 			return
 		}
@@ -331,7 +335,21 @@ func sdVideoAssetView(item map[string]any, allTags []any, scope string) gin.H {
 		}
 	}
 	state := map[string]string{"active": "Active", "failed": "Failed", "queued": "Processing", "processing": "Processing", "delete_requested": "Processing"}[stringFromAny(item["status"])]
+	protocol := "volcano_asset"
+	if item["upstream_provider"] == "tokenspace" {
+		protocol = "tokenspace_material"
+	}
+	// 仅暴露固定说明，Provider 原始错误可能包含签名 URL。
+	errorMessage := ""
+	if detail, ok := item["error"].(map[string]any); ok {
+		errorMessage = map[string]string{
+			"provider_configuration_changed": "素材服务配置已变化，请联系管理员检查",
+			"submission_uncertain":           "注册结果待核实，请联系管理员，勿重复上传",
+			"asset_operation_failed":         "素材注册或状态查询失败，请刷新状态或联系管理员",
+			"provider_asset_failed":          "素材审核未通过，请检查图片后重新选择",
+		}[stringFromAny(detail["code"])]
+	}
 	return gin.H{"id": item["id"], "name": item["name"], "description": item["description"], "asset_type": strings.Title(stringFromAny(item["kind"])), "status": state,
-		"volcano_asset_id": item["provider_asset_id"], "provider_id": item["upstream_provider"], "provider_protocol": "volcano_asset", "tags": tags,
+		"volcano_asset_id": stringFromAny(item["provider_asset_id"]), "provider_id": item["upstream_provider"], "provider_protocol": protocol, "tags": tags, "error_message": errorMessage,
 		"source_url": "/api/sd-video/volcano/assets/" + url.PathEscape(stringFromAny(item["id"])) + "/content?scope=" + url.QueryEscape(scope), "created_at": item["created_at"], "updated_at": item["updated_at"]}
 }

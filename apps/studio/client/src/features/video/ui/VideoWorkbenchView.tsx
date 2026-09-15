@@ -7,6 +7,8 @@ import {
   ensureSeedanceAssetsActive,
   getAssetContentObjectUrl,
   getAssetLibrary,
+  getSeedanceAssetPreviewUrl,
+  seedanceAssetPreviewSource,
   uploadAsset,
   type Asset,
   type SeedanceAsset,
@@ -742,13 +744,11 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
     try {
       // 火山真人素材：先确保 Active，再以 asset:// 引用加入（无本地文件）
       if (volcanoAssets.length) {
-        try {
-          await ensureSeedanceAssetsActive(volcanoAssets.map((asset) => asset.volcano_asset_id));
-        } catch (activateError) {
-          toast.error(publicApiError(activateError, "真人素材激活失败，生成时可能不可用"));
-        }
+        await ensureSeedanceAssetsActive(volcanoAssets.map((asset) => asset.volcano_asset_id), "personal");
         for (const asset of volcanoAssets) {
           const reference = createVolcanoWorkbenchReference(asset);
+          reference.scope = "personal";
+          reference.previewUrl = trackUrl(await getSeedanceAssetPreviewUrl(reference.previewSourceUrl));
           const plan = planWorkbenchReferenceBatch(splitWorkbenchReferences(references), [reference], effectiveConfig.model);
           if (plan.accepted.length) {
             setReferences((current) => assignReferenceTokens([...current, plan.accepted[0]]));
@@ -963,8 +963,7 @@ function attachmentFromReference(reference: WorkbenchReference): VideoWorkbenchA
     durationMs: "durationMs" in reference ? reference.durationMs : undefined,
     assetId: reference.assetId,
     assetRef: reference.url,
-    // 只有 http(s) 预览（火山素材 source_url）可持久化；本地 blob: 刷新后即失效
-    previewUrl: /^https?:\/\//i.test(reference.previewUrl || "") ? reference.previewUrl : undefined,
+    previewUrl: seedanceAssetPreviewSource(reference.previewSourceUrl || reference.previewUrl) || undefined,
     scope: reference.scope,
   };
 }
@@ -985,7 +984,7 @@ async function referenceFromAttachment(
   attachment: VideoWorkbenchAttachment,
   trackUrl: (url: string) => string,
 ): Promise<WorkbenchReference> {
-  // 火山真人素材：无本地文件，直接恢复 asset:// 引用与 http 预览
+  // 火山素材保持 asset:// 引用，同源预览通过鉴权重新读取。
   if (attachment.assetRef) {
     const volcanoBase = {
       id: attachment.id,
@@ -995,7 +994,8 @@ async function referenceFromAttachment(
       mime: attachment.mime,
       bytes: attachment.bytes || 0,
       url: attachment.assetRef,
-      previewUrl: attachment.previewUrl || "",
+      previewSourceUrl: attachment.previewUrl,
+      previewUrl: trackUrl(await getSeedanceAssetPreviewUrl(attachment.previewUrl)),
       source: "asset" as const,
       scope: attachment.scope,
     };

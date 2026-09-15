@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   emptyWorkbenchReferences,
+  createVolcanoWorkbenchReference,
   generationReferencesFrom,
   planWorkbenchReferenceBatch,
   referencedTokenIds,
@@ -33,6 +34,13 @@ function imageReference(
 }
 
 describe("video reference engine contracts", () => {
+  it("已注册素材保持 asset 引用，鉴权预览不成为生成图片 URL", () => {
+    const source = "/api/sd-video/volcano/assets/local-id/content?scope=personal";
+    const reference = createVolcanoWorkbenchReference({ id: "local-id", name: "hero", volcano_asset_id: "remote-id", status: "Active", asset_type: "Image", source_url: source });
+    expect(reference.previewSourceUrl).toBe(source);
+    expect(reference.file).toBeUndefined();
+    expect(generationReferencesFrom({ images: [reference as WorkbenchImageReference], videos: [], audios: [] }).images[0].url).toBe("asset://remote-id");
+  });
   it("keeps mention tokens stable while resolving only known references", () => {
     const snapshot = emptyWorkbenchReferences();
     snapshot.images.push(imageReference("hero"));

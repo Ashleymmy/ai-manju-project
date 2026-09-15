@@ -13,7 +13,7 @@ import type {
   StoredVideoReference,
   StoredVideoReferenceSnapshot,
 } from "../repositories/historyRepository";
-import { seedanceAssetRef, type SeedanceAsset } from "@/entities/asset";
+import { seedanceAssetPreviewSource, seedanceAssetRef, type SeedanceAsset } from "@/entities/asset";
 import type { WorkspaceScope } from "@/shared/config";
 
 /* 参考素材摄取管线：从旧版 VideoWorkspaceView 原样抽出的纯逻辑（类型/元数据读取/限额校验）。
@@ -29,6 +29,8 @@ export type WorkbenchReferenceBase = {
   mime: string;
   bytes: number;
   previewUrl: string;
+  /** 可持久化的素材预览源地址，与运行时 blob URL 分开保存。 */
+  previewSourceUrl?: string;
   source: WorkbenchReferenceSource;
   role: WorkbenchReferenceRole;
   /** 提示词里的引用 token（@图片1 等），仅 role=reference 时有 */
@@ -237,7 +239,7 @@ export async function createAudioWorkbenchReference(
 /** 火山真人素材 → 工作台参考：无本地文件，以 asset:// 引用直通 Seedance；预览直接用 source_url。 */
 export function createVolcanoWorkbenchReference(asset: SeedanceAsset): WorkbenchReference {
   const name = asset.name || asset.volcano_asset_id;
-  const previewUrl = /^https?:\/\//i.test(asset.source_url || "") ? String(asset.source_url) : "";
+  const previewUrl = seedanceAssetPreviewSource(asset.source_url);
   const base = {
     id: workbenchRuntimeId(asset.asset_type === "Video" ? "video_ref" : "image_ref"),
     source: "asset" as const,
@@ -247,6 +249,7 @@ export function createVolcanoWorkbenchReference(asset: SeedanceAsset): Workbench
     mime: asset.content_type || (asset.asset_type === "Video" ? "video/mp4" : "image/*"),
     bytes: asset.size || 0,
     previewUrl,
+    previewSourceUrl: previewUrl,
   };
   if (asset.asset_type === "Video") {
     return { ...base, kind: "video", width: 0, height: 0, durationMs: 0 } as WorkbenchVideoReference;

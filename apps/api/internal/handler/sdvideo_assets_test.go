@@ -1,12 +1,16 @@
 package handler
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"strings"
 	"testing"
 
@@ -16,6 +20,78 @@ import (
 	"github.com/ai-manju/api/internal/sdvideo"
 	"github.com/gin-gonic/gin"
 )
+
+func TestUserSDVideoAssetUploadUsesAuthenticatedOwnerAndWorkspace(t *testing.T) {
+	_, private, _ := ed25519.GenerateKey(rand.Reader)
+	paths := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		parts := strings.Split(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), ".")
+		claimsJSON, _ := base64.RawURLEncoding.DecodeString(parts[1])
+		var claims map[string]any
+		_ = json.Unmarshal(claimsJSON, &claims)
+		if claims["sub"] != "owner" || claims["workspace_id"] != "default:owner" {
+			t.Fatal("lost authenticated owner/workspace")
+		}
+		var data any = map[string]any{}
+		switch r.URL.Path {
+		case "/v1/inputs/presign":
+			data = map[string]any{"upload_token": "inputs/default:owner/owner/reference"}
+		case "/v1/inputs/inputs/default:owner/owner/reference":
+			body, _ := io.ReadAll(r.Body)
+			if string(body) != "reference-image" {
+				t.Error("uploaded body changed")
+			}
+		case "/v1/inputs/complete":
+		case "/v1/volcano/assets":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["kind"] != "image" || body["storage_token"] != "inputs/default:owner/owner/reference" {
+				t.Error("registration did not use completed input")
+			}
+			data = map[string]any{"id": "asset-new", "kind": "image", "status": "queued", "upstream_provider": "tokenspace"}
+		default:
+			t.Error("unexpected route", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": data})
+	}))
+	defer server.Close()
+	client := sdvideo.NewClient(config.Config{SDVideoBaseURL: server.URL, SDVideoMode: "active", SDVideoJWTPrivateKey: base64.RawStdEncoding.EncodeToString(private)})
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set(auth.ContextUserKey, model.User{ID: "owner", Role: model.UserRoleMember}) }, SDVideoAssetCompatibility(client))
+	router.POST("/api/ai/seedance-assets/upload", func(c *gin.Context) { t.Error("must not use legacy registration") })
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", `form-data; name="file"; filename="reference.png"`)
+	header.Set("Content-Type", "image/png")
+	file, _ := form.CreatePart(header)
+	_, _ = file.Write([]byte("reference-image"))
+	// 浏览器提供的用户/空间字段不能取代经过鉴权的身份。
+	_ = form.WriteField("user_id", "other")
+	_ = form.WriteField("workspace_id", "other")
+	_ = form.Close()
+	req := httptest.NewRequest("POST", "/api/ai/seedance-assets/upload?scope=personal", &body)
+	req.Header.Set("Content-Type", form.FormDataContentType())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != 200 || len(paths) != 4 || !strings.Contains(w.Body.String(), `"status":"Processing"`) || !strings.Contains(w.Body.String(), `"provider_protocol":"tokenspace_material"`) {
+		t.Fatalf("upload not queued correctly: status=%d paths=%v body=%s", w.Code, paths, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "inputs/") {
+		t.Error("storage token leaked")
+	}
+}
+
+func TestSDVideoAssetViewRedactsProviderError(t *testing.T) {
+	view := sdVideoAssetView(map[string]any{"id": "one", "kind": "image", "status": "failed", "error": map[string]any{"code": "provider_asset_failed", "message": "https://private.test/?token=hidden"}}, nil, "team")
+	if view["error_message"] == "" || strings.Contains(view["error_message"].(string), "hidden") {
+		t.Fatal("unsafe error mapping")
+	}
+	if !strings.HasSuffix(view["source_url"].(string), "?scope=team") {
+		t.Fatal("preview scope lost")
+	}
+}
 
 func TestSDVideoAssetCompatibilityUsesScopedQueries(t *testing.T) {
 	_, private, _ := ed25519.GenerateKey(rand.Reader)

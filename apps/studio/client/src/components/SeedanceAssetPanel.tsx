@@ -2,14 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Copy, Loader2, RefreshCw, Search, UserRoundCog } from "lucide-react";
 import { toast } from "sonner";
 
-import { listSeedanceAssetMentions, seedanceAssetRef, type SeedanceAsset } from "@/entities/asset";
+import { listUserSeedanceAssets, seedanceAssetRef, type SeedanceAsset } from "@/entities/asset";
+import { SeedanceAssetUpload, useSeedanceAssetPreview } from "./SeedanceAssetMedia";
 import type { WorkspaceScope } from "@/shared/config";
 import { publicApiError } from "@/shared/api/errors";
 import "../pages/video-workbench/workbench.css";
 
-/* 资产库「真人素材」选项页：对应 SD-video 媒体库里的火山真人素材架。
-   数据来自 /api/ai/seedance-assets/mentions（只读浏览 + 复制 asset:// 引用；
-   上传/同步等管理操作仍在管理后台的 Seedance 素材页）。 */
+/* 用户自己的拟真人素材注册与状态；Active 后才能用于视频参考。 */
 
 function statusLabel(status: string) {
   const normalized = (status || "").toLowerCase();
@@ -17,10 +16,6 @@ function statusLabel(status: string) {
   if (normalized === "processing" || normalized === "pending") return { text: "处理中", tone: "busy" };
   if (normalized === "failed" || normalized === "error") return { text: "失败", tone: "bad" };
   return { text: status || "未知", tone: "muted" };
-}
-
-function isHttpUrl(value?: string) {
-  return typeof value === "string" && /^https?:\/\//i.test(value);
 }
 
 export default function SeedanceAssetPanel({ scope }: { scope: WorkspaceScope }) {
@@ -32,19 +27,26 @@ export default function SeedanceAssetPanel({ scope }: { scope: WorkspaceScope })
   const load = useCallback(async (keyword: string, type: string) => {
     setLoading(true);
     try {
-      const result = await listSeedanceAssetMentions({ search: keyword.trim(), type: type || undefined, limit: 100 });
+      const result = await listUserSeedanceAssets({ scope, search: keyword.trim(), type: type || undefined, limit: 100 });
       setItems(result.items || []);
     } catch (error) {
       toast.error(publicApiError(error, "读取真人素材失败"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(search, typeFilter), 260);
     return () => window.clearTimeout(timer);
   }, [load, search, typeFilter]);
+
+  const hasPending = items.some((item) => item.status === "Processing");
+  useEffect(() => {
+    if (!hasPending) return;
+    const timer = window.setInterval(() => void load(search, typeFilter), 5_000);
+    return () => window.clearInterval(timer);
+  }, [hasPending, load, search, typeFilter]);
 
   const stats = useMemo(() => {
     const images = items.filter((item) => item.asset_type === "Image").length;
@@ -56,6 +58,7 @@ export default function SeedanceAssetPanel({ scope }: { scope: WorkspaceScope })
   return (
     <div className="wb-seedance-panel">
       <div className="wb-seedance-toolbar">
+        <SeedanceAssetUpload scope={scope} onRegistered={() => void load(search, typeFilter)} />
         <label className="wb-picker-search">
           <Search size={13} />
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索素材名称…" />
@@ -73,17 +76,27 @@ export default function SeedanceAssetPanel({ scope }: { scope: WorkspaceScope })
       {loading && !items.length ? (
         <div className="empty-output"><Loader2 className="spin" size={24} /><p>正在读取真人素材…</p></div>
       ) : !items.length ? (
-        <div className="empty-output"><UserRoundCog size={24} /><p>暂无真人素材，可在管理后台的 Seedance 素材页上传或同步。</p></div>
+        <div className="empty-output"><UserRoundCog size={24} /><p>暂无拟真人素材，上传 AI 角色图片后等待注册完成。</p></div>
       ) : (
         <div className="wb-seedance-grid">
-          {items.map((asset) => {
-            const status = statusLabel(asset.status);
-            const previewUrl = isHttpUrl(asset.source_url) ? asset.source_url : "";
-            return (
+          {items.map((asset) => <SeedanceCard key={asset.id} asset={asset} />)}
+        </div>
+      )}
+      <p className="wb-seedance-hint">上传 AI 生成的拟真人角色图，状态变为“可用”后，在视频工作台的“媒体资产库 → 真人(火山)”中选入参考。当前工作区：{scope === "team" ? "团队空间" : "个人空间"}。</p>
+    </div>
+  );
+}
+
+function SeedanceCard({ asset }: { asset: SeedanceAsset }) {
+  const status = statusLabel(asset.status);
+  const previewUrl = useSeedanceAssetPreview(asset.source_url);
+  const active = asset.status === "Active" && Boolean(asset.volcano_asset_id);
+  return (
               <article key={asset.id} className="wb-seedance-card">
                 <button
                   type="button"
                   className="wb-seedance-thumb"
+                  disabled={!active}
                   title="复制 asset:// 引用，可在视频提示词中引用该素材"
                   onClick={() => void navigator.clipboard.writeText(seedanceAssetRef(asset)).then(() => toast.success(`已复制 ${seedanceAssetRef(asset)}`))}
                 >
@@ -94,16 +107,10 @@ export default function SeedanceAssetPanel({ scope }: { scope: WorkspaceScope })
                   <i className="wb-seedance-copy"><Copy size={11} /></i>
                 </button>
                 <b title={asset.name || asset.volcano_asset_id}>{asset.name || asset.volcano_asset_id}</b>
-                <code>{seedanceAssetRef(asset)}</code>
+                {active ? <code>{seedanceAssetRef(asset)}</code> : <small>{asset.error_message || status.text}</small>}
                 {asset.tags?.length ? (
                   <div className="wb-seedance-tags">{asset.tags.map((tag) => <span key={tag.id}>#{tag.name}</span>)}</div>
                 ) : null}
               </article>
-            );
-          })}
-        </div>
-      )}
-      <p className="wb-seedance-hint">提示：点击卡片复制 asset:// 引用；在 /video 工作台或画布视频节点的提示词里粘贴即可引用该真人素材。当前工作区：{scope === "team" ? "团队空间" : "个人空间"}。</p>
-    </div>
   );
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -271,6 +272,13 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			ai.POST("/materials/ensure-active", materialHandler.EnsureActive)
 			ai.GET("/materials/:id", materialHandler.GetAsset)
 			ai.DELETE("/materials/:id", materialHandler.DeleteAsset)
+			// 用户素材注册仅由独立 SD-video 接管；未启用时不落回旧素材库。
+			assetUnavailable := func(c *gin.Context) {
+				response.Error(c, http.StatusServiceUnavailable, "SD-video 素材库尚未启用")
+			}
+			ai.GET("/seedance-assets", assetUnavailable)
+			ai.GET("/seedance-assets/readiness", assetUnavailable)
+			ai.POST("/seedance-assets/upload", assetUnavailable)
 			ai.GET("/seedance-assets/mentions", seedanceAssetHandler.Mentions)
 			ai.POST("/seedance-assets/ensure-active", seedanceAssetHandler.EnsureActive)
 		}

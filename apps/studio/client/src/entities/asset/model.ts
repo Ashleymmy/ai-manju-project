@@ -1,3 +1,5 @@
+import type { WorkspaceScope } from "@/shared/config";
+
 export type AssetCategory =
   | "character"
   | "environment"
@@ -233,6 +235,7 @@ export type SeedanceAssetReadiness = {
 };
 
 export type SeedanceAssetListParams = {
+  scope?: WorkspaceScope;
   status?: string;
   type?: string;
   tag_id?: string;
