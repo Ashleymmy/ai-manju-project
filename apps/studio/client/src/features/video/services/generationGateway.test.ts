@@ -49,7 +49,40 @@ describe("video API", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it.each(["sdvideo/seedance-2.0", "sdvideo/vidu-q2"])("等待 %s 参考媒体上传超过 30 秒后返回原任务", async (model) => {
+    vi.useFakeTimers();
+    let finish!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementationOnce((_url, options) => new Promise((resolve, reject) => {
+      finish = resolve;
+      options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    const outcome = createVideoGenerationTask({ ...config, model }, "镜头缓慢推近")
+      .then(task => ({ task }), error => ({ error }));
+
+    await vi.advanceTimersByTimeAsync(37_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetch).mock.calls[0][1]?.signal?.aborted).toBe(false);
+    finish(apiResponse({ id: "job_existing", job_id: "job_existing" }));
+    await expect(outcome).resolves.toMatchObject({ task: { id: "job_existing", model } });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("SD-video 提交等待期间仍可主动取消", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    vi.mocked(fetch).mockImplementationOnce((_url, options) => new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    const result = createVideoGenerationTask({ ...config, model: "sdvideo/seedance-2.0" }, "取消任务", undefined, { signal: controller.signal });
+    const rejection = expect(result).rejects.toMatchObject({ status: 0, message: "请求超时或已取消" });
+    await vi.advanceTimersByTimeAsync(0);
+    controller.abort();
+    await rejection;
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("submits an OpenAI-compatible video task with the production form contract", async () => {

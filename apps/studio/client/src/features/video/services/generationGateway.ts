@@ -109,6 +109,8 @@ type ApiEnvelope<T> = T | {
 const seedanceResolutions = ["480p", "720p", "1080p"] as const;
 const seedanceRatios = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "adaptive"] as const;
 const emptyReferences: VideoGenerationReferences = { images: [], videos: [], audios: [] };
+// 提交预算包含参考媒体上传；不能在服务端返回持久任务 ID 前按普通请求超时取消。
+const sdVideoSubmissionTimeoutMs = 120_000;
 const seedanceImageDataUrlMaxBytes = 1800 * 1024;
 const seedanceImageDataUrlMaxEdge = 1280;
 const wanImageMinEdge = 300;
@@ -380,7 +382,7 @@ async function createOpenAiVideoTask(
     method: "POST",
     body,
     signal: options.signal,
-    timeoutMs: 30_000,
+    timeoutMs: config.model.startsWith("sdvideo/") ? sdVideoSubmissionTimeoutMs : 30_000,
   });
   const id = created.job_id || created.id || "";
   if (!id) throw new Error("视频接口没有返回任务 ID");
@@ -410,7 +412,7 @@ async function createSeedanceTask(
         watermark: config.watermark,
       },
       signal: options.signal,
-      timeoutMs: 30_000,
+      timeoutMs: config.model.startsWith("sdvideo/") ? sdVideoSubmissionTimeoutMs : 30_000,
     },
   ));
   if (!created.id) throw new Error("Seedance 接口没有返回任务 ID");
