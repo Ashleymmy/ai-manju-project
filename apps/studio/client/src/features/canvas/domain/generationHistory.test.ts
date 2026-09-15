@@ -320,6 +320,7 @@ describe("cloneCanvasNodeFromGenerationHistory", () => {
         status: "success",
         assetId: "asset-new",
         prompt: "新提示词",
+        composerContent: "@[node:new-reference] 新提示词",
         generationRevisions: [{
           id: "rev-old",
           kind: "image",
@@ -348,6 +349,7 @@ describe("cloneCanvasNodeFromGenerationHistory", () => {
       assetId: "asset-old",
       prompt: "旧提示词",
       appliedFromHistory: true,
+      composerContent: "旧提示词",
     });
     expect(cloned.metadata?.generationRevisions).toBeUndefined();
   });

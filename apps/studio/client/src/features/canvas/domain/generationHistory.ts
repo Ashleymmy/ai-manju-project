@@ -337,6 +337,8 @@ const HISTORY_CLONE_STRIP_KEYS = [
   "isBatchRoot",
   "batchChildIds",
   "batchModelV2",
+  "batchStatus",
+  "batchErrorDetails",
   "primaryImageId",
   "ownAssetId",
   "ownImageSrc",
@@ -378,6 +380,7 @@ export function cloneCanvasNodeFromGenerationRevision(
   metadata.assetId = assetId || undefined;
   metadata.assetScope = revision.assetScope || host.metadata?.assetScope;
   metadata.prompt = prompt;
+  metadata.composerContent = prompt;
   metadata.content = prompt;
   metadata.model = stringValue(revision.model) || metadata.model;
   metadata.generatedAt = stringValue(revision.generatedAt) || metadata.generatedAt;

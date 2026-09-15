@@ -26,8 +26,7 @@ export function canvasTextDisplayValue(node: CanvasTextNodeLike) {
 }
 
 export function canvasTextComposerValue(node: CanvasTextNodeLike) {
-  const composer = textValue(node.metadata?.composerContent);
-  if (composer) return composer;
+  if (typeof node.metadata?.composerContent === "string") return node.metadata.composerContent;
   const prompt = textValue(node.metadata?.prompt);
   if (prompt) return prompt;
   if (isGeneratedCanvasText(node)) return "";

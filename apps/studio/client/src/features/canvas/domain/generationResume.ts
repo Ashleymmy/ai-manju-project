@@ -149,7 +149,7 @@ export function markUnrecoverableCanvasGenerations(
     const batchChildren = Array.isArray(node.metadata?.batchChildIds)
       ? node.metadata.batchChildIds.filter((id): id is string => typeof id === "string")
       : [];
-    if (node.metadata?.isBatchRoot && batchChildren.some(id => recoverableIds.has(id))) {
+    if (node.metadata?.isBatchRoot && !node.metadata.batchModelV2 && batchChildren.some(id => recoverableIds.has(id))) {
       return node;
     }
     changed = true;

@@ -7,12 +7,23 @@ import {
   fitCanvasImageNodeSize,
   imageResolutionFromNode,
   isAbortError,
+  promptTextFromNode,
   qualityFromNode,
   sizeFromNode,
 } from "./nodeUtils";
 import type { CanvasNodeData } from "./types";
 
 describe("canvas node utilities", () => {
+  it("keeps editable mentions separate from the resolved request, including a cleared composer", () => {
+    const node = {
+      kind: "image", content: "图片1 在海边",
+      metadata: { prompt: "图片1 在海边", composerContent: "@[node:reference] 在海边" },
+    } as CanvasNodeData;
+    expect(promptTextFromNode(node)).toBe("@[node:reference] 在海边");
+    expect(promptTextFromNode({ ...node, metadata: { ...node.metadata, composerContent: "" } })).toBe("");
+    expect(promptTextFromNode({ ...node, metadata: { prompt: "旧提示词" } })).toBe("旧提示词");
+  });
+
   it("recognizes abort errors structurally without relying on a host constructor", () => {
     expect(isAbortError({ name: "AbortError" })).toBe(true);
     expect(isAbortError({ message: "请求超时或已取消" })).toBe(true);

@@ -64,7 +64,6 @@ import {
 } from "@/features/canvas/domain/nodeUtils";
 import {
   buildCanvasTextRequestMessages,
-  canvasTextComposerValue,
   canvasTextRequestPrompt,
   isGeneratedCanvasText,
   updateCanvasNodeComposer,
@@ -888,6 +887,7 @@ export class CanvasGenerationJobsController {
       height: 170,
       metadata: {
         content: "",
+        composerContent: promptTextFromNode(sourceNode),
         prompt,
         generationMode: "text",
         model,
@@ -900,7 +900,7 @@ export class CanvasGenerationJobsController {
         ...node,
         metadata: {
           ...node.metadata,
-          composerContent: canvasTextComposerValue(sourceNode),
+          composerContent: promptTextFromNode(sourceNode),
           prompt,
           generationMode: "text" as const,
           model,
@@ -916,6 +916,7 @@ export class CanvasGenerationJobsController {
         metadata: {
           ...node.metadata,
           content: "",
+          composerContent: promptTextFromNode(sourceNode),
           prompt,
           generationMode: "text" as const,
           model,
@@ -1028,6 +1029,7 @@ export class CanvasGenerationJobsController {
       : sourceNode.metadata?.generationRevisions;
     const commonMetadata: CanvasNodeMetadata = {
       content: prompt,
+      composerContent: promptTextFromNode(sourceNode),
       prompt,
       status: "loading",
       model,
@@ -1057,6 +1059,8 @@ export class CanvasGenerationJobsController {
         ...commonMetadata,
         count,
         isBatchRoot: spawnBatchChildren ? true : sourceNode.metadata?.isBatchRoot,
+        batchStatus: spawnBatchChildren || sourceNode.metadata?.isBatchRoot ? "loading" : undefined,
+        batchErrorDetails: undefined,
         batchChildIds: spawnBatchChildren
           ? (childIds.length ? childIds : undefined)
           : sourceNode.metadata?.batchChildIds,
@@ -1189,6 +1193,7 @@ export class CanvasGenerationJobsController {
         ...(reuseSourceNode ? sourceNode.metadata : {}),
         assetId: undefined,
         content: prompt,
+        composerContent: promptTextFromNode(sourceNode),
         prompt,
         generationMode: "video",
         videoProvider: isSeedanceVideoModel(config.model) ? "seedance" : "openai",
@@ -1271,6 +1276,7 @@ export class CanvasGenerationJobsController {
         ...(reuseSourceNode ? sourceNode.metadata : {}),
         assetId: undefined,
         content: prompt,
+        composerContent: promptTextFromNode(sourceNode),
         prompt,
         generationMode: "audio",
         model: config.model,

@@ -142,6 +142,8 @@ export function editableNodeKind(kind: CanvasNodeKind) {
 }
 
 export function promptTextFromNode(node: CanvasNodeData) {
+  // The composer retains @ reference tokens; metadata.prompt is the resolved request.
+  if (typeof node.metadata?.composerContent === "string") return node.metadata.composerContent;
   if (node.kind === "text") return canvasTextComposerValue(node);
   const metadataPrompt = stringValue(node.metadata?.prompt);
   if (metadataPrompt) return metadataPrompt;

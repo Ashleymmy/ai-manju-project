@@ -11,6 +11,13 @@ import {
 } from "./text";
 
 describe("canvas text semantics", () => {
+  it("does not restore the last resolved request when the composer is cleared", () => {
+    expect(canvasTextComposerValue({
+      kind: "text", content: "生成结果",
+      metadata: { prompt: "图片1 的描述", composerContent: "", status: "success" },
+    })).toBe("");
+  });
+
   it("keeps generated text separate from its next composer prompt", () => {
     const node = {
       kind: "text",

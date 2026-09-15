@@ -55,6 +55,7 @@ export type CanvasImageReferenceSnapshot = {
 export type CanvasNodeMetadata = Record<string, unknown> & {
   content?: string;
   prompt?: string;
+  /** Original editable prompt, including @ tokens, separate from the resolved model request. */
   composerContent?: string;
   status?: CanvasNodeStatus;
   errorDetails?: string;
@@ -94,6 +95,9 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   isBatchRoot?: boolean;
   batchChildIds?: string[];
   batchRootId?: string;
+  /** Whole-batch summary; status/errorDetails remain specific to this node's request. */
+  batchStatus?: CanvasNodeStatus;
+  batchErrorDetails?: string;
   /** 根节点自身生成第 1 张；旧数据无此标记，加载时自动迁移。 */
   batchModelV2?: boolean;
   primaryImageId?: string;

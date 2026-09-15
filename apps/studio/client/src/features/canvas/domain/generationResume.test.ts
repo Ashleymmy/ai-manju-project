@@ -28,6 +28,16 @@ function imageNode(
 }
 
 describe("generation resume", () => {
+  it("marks a missing real root request as failed even when child jobs are recoverable", () => {
+    const nodes = [
+      imageNode("root", { isBatchRoot: true, batchModelV2: true, batchChildIds: ["child"], status: "loading" }),
+      imageNode("child", { batchRootId: "root", status: "loading", jobId: "job-child" }),
+    ];
+    const next = markUnrecoverableCanvasGenerations(nodes);
+    expect(next[0].metadata?.status).toBe("error");
+    expect(next[1].metadata).toMatchObject({ status: "loading", jobId: "job-child" });
+  });
+
   it("keeps loading image nodes across refresh so jobs can be reattached", () => {
     const nodes = [
       imageNode("img-1", { status: "loading", prompt: "风景" }),

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CanvasEdgeData, CanvasNodeData } from "@/features/canvas/domain/types";
+import { buildCanvasMentionEditorModel, buildCanvasMentionReferences } from "@/features/canvas/domain/mentions";
+import { promptTextFromNode } from "@/features/canvas/domain/nodeUtils";
+import { normalizeCanvasNode, serializeCanvasNode } from "@/features/canvas/domain/nodes";
 import { CanvasGenerationJobsController } from "./controller";
 import { rememberPendingCanvasJob } from "./pendingJobStore";
 import type {
@@ -127,6 +130,7 @@ function createHarness(
   return {
     controller,
     get nodes() { return nodes; },
+    get edges() { return edges; },
     setEdges(next: CanvasEdgeData[]) { edges = next; },
     get runningIds() { return runningIds; },
     get progress() { return progress; },
@@ -145,6 +149,132 @@ describe("CanvasGenerationJobsController", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    { source: "node", kind: "image", count: 1 },
+    { source: "asset", kind: "image", count: 1 },
+    { source: "node", kind: "image", count: 4 },
+    { source: "asset", kind: "config", count: 4 },
+  ] as const)("$source 引用在 $kind 节点生成 $count 张图片时持续显示缩略图", async ({ source, kind, count }) => {
+    const token = `@[${source}:reference]`;
+    const composer = `参考 ${token} 画一片海`;
+    const assets = [{ id: "reference", name: "素材图片", type: "image" as const, scope: "personal" as const }];
+    let sequence = 0;
+    let release!: () => void;
+    const completion = new Promise<void>(resolve => { release = resolve; });
+    const generateImages = vi.fn(async () => {
+      const id = `result-${++sequence}`;
+      await completion;
+      return { images: [{ id, assetId: id, src: "", name: "result.png", contentType: "image/png" }] };
+    });
+    const services = createServices({
+      generateImages: generateImages as CanvasGenerationServices["generateImages"],
+      getAsset: vi.fn(async () => assets[0]),
+      getAssetContentObjectUrl: vi.fn(async () => "blob:reference"),
+      fetchBlob: vi.fn(async () => new Blob(["reference"], { type: "image/png" })),
+    });
+    const harness = createHarness([
+      imageNode({ kind, content: composer, metadata: { prompt: composer, count, generationMode: "image" } }),
+      imageNode({ id: "reference", title: "参考图", imageAssetId: "reference" }),
+    ], services);
+    const assertMentions = (nodes: CanvasNodeData[]) => {
+      const targets = nodes.filter(node => node.kind === "image" && node.id !== "reference");
+      expect(targets).toHaveLength(count);
+      for (const target of targets) {
+        expect(promptTextFromNode(target)).toBe(composer);
+        const references = buildCanvasMentionReferences(target.id, nodes, harness.edges, assets, "personal");
+        const editor = buildCanvasMentionEditorModel(promptTextFromNode(target), references);
+        expect(editor.segments).toEqual([expect.objectContaining({ token, key: `${source}:reference` })]);
+        expect(editor.displayValue).not.toContain(source === "node" ? "图片1" : "素材图片");
+        expect(references.find(reference => reference.key === `${source}:reference`)).toMatchObject({ kind: "image", assetId: "reference" });
+      }
+    };
+    const running = harness.controller.generateImageFromNode("image-1");
+    await vi.waitFor(() => expect(generateImages).toHaveBeenCalledTimes(count));
+    assertMentions(harness.nodes);
+    expect(harness.nodes.filter(node => node.metadata?.status === "loading")).toHaveLength(count);
+    release();
+    await running;
+    assertMentions(harness.nodes);
+    expect(harness.nodes.filter(node => node.metadata?.status === "success")).toHaveLength(count);
+    expect(harness.onError).not.toHaveBeenCalled();
+    for (const [input] of vi.mocked(services.generateImages).mock.calls) {
+      expect(input.prompt).toContain(source === "node" ? "图片1" : "素材图片");
+      expect(input.prompt).not.toContain("@[");
+      expect(input.referenceFiles).toHaveLength(1);
+    }
+    const restored = JSON.parse(JSON.stringify(harness.nodes.map(serializeCanvasNode)))
+      .map(normalizeCanvasNode) as CanvasNodeData[];
+    assertMentions(restored);
+    if (count === 1) {
+      await harness.controller.generateImageFromNode("image-1");
+      expect(services.getAssetContentObjectUrl).toHaveBeenCalledTimes(2);
+      assertMentions(harness.nodes);
+    }
+  });
+
+  it("图片失败和重试保留引用缩略图，同时继续向模型发送解析后的提示词与参考图", async () => {
+    const composer = "@[node:reference] 换成夜景";
+    const generateImages = vi.fn()
+      .mockRejectedValueOnce(new Error("暂时不可用"))
+      .mockResolvedValueOnce({ images: [{ id: "result", assetId: "result", src: "", name: "night.png" }] });
+    const services = createServices({
+      generateImages,
+      getAssetContentObjectUrl: vi.fn(async () => "blob:reference"),
+      fetchBlob: vi.fn(async () => new Blob(["reference"], { type: "image/png" })),
+    });
+    const harness = createHarness([
+      imageNode({ content: composer, metadata: { prompt: composer } }),
+      imageNode({ id: "reference", imageAssetId: "reference" }),
+    ], services);
+    await harness.controller.generateImageFromNode("image-1");
+    expect(harness.nodes[0].metadata?.status).toBe("error");
+    expect(promptTextFromNode(harness.nodes[0])).toBe(composer);
+    await harness.controller.retryImageNode(harness.nodes[0]);
+    expect(harness.nodes[0].metadata?.status).toBe("success");
+    expect(promptTextFromNode(harness.nodes[0])).toBe(composer);
+    expect(generateImages.mock.calls[1][0]).toMatchObject({ prompt: "图片1 换成夜景", referenceFiles: [expect.any(File)] });
+  });
+
+  it("批次子图先完成时仍能取消和重试主图，已完成的结果不会被覆盖", async () => {
+    const completions: Array<() => void> = [];
+    const generateImages = vi.fn((
+      input: Parameters<CanvasGenerationServices["generateImages"]>[0],
+      callbacks?: Parameters<CanvasGenerationServices["generateImages"]>[1],
+    ) => new Promise<{ images: Array<{ id: string; assetId: string; src: string }> }>((resolve, reject) => {
+      const id = `asset-${input.sourceNodeId}`;
+      callbacks?.onAccepted?.({ id: `job-${input.sourceNodeId}`, status: "queued" });
+      completions.push(() => resolve({ images: [{ id, assetId: id, src: "" }] }));
+      callbacks?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    const services = createServices({
+      generateImages: generateImages as CanvasGenerationServices["generateImages"],
+      cancelJob: vi.fn(async () => ({ id: "canceled", type: "image.generate", status: "canceled", state: "canceled" })) as CanvasGenerationServices["cancelJob"],
+    });
+    const harness = createHarness([imageNode({ metadata: { prompt: "四幅海景", count: 4 } })], services);
+    const running = harness.controller.generateImageFromNode("image-1");
+    await vi.waitFor(() => expect(completions).toHaveLength(4));
+    completions[1]();
+    await vi.waitFor(() => expect(harness.nodes[1].metadata?.status).toBe("success"));
+    const completedAssetId = harness.nodes[1].imageAssetId;
+    expect(harness.nodes[0].metadata).toMatchObject({ status: "loading", jobId: "job-image-1" });
+    harness.controller.stopGenerationByNodeId("image-1");
+    await running;
+    expect(harness.nodes.filter(node => node.metadata?.status === "error")).toHaveLength(3);
+    expect(harness.nodes[0].imageAssetId).toBeUndefined();
+    expect(services.cancelJob).toHaveBeenCalledWith("job-image-1", "personal");
+
+    generateImages.mockImplementation(async input => {
+      const id = `retry-${input.sourceNodeId}`;
+      return { images: [{ id, assetId: id, src: "" }] };
+    });
+    await harness.controller.retryImageNode(harness.nodes[0]);
+    expect(generateImages).toHaveBeenCalledTimes(7);
+    expect(harness.nodes.every(node => node.metadata?.status === "success")).toBe(true);
+    expect(harness.nodes[1].imageAssetId).toBe(completedAssetId);
+    expect(new Set(harness.nodes.map(node => node.imageAssetId)).size).toBe(4);
+    expect(harness.nodes[0].metadata?.batchStatus).toBe("success");
   });
 
   it("空图片节点无需参考图即可在原节点完成生成", async () => {
@@ -359,6 +489,7 @@ describe("CanvasGenerationJobsController", () => {
     const harness = createHarness([imageNode({
       metadata: {
         prompt: "恢复图片",
+        composerContent: "@[node:reference] 恢复图片",
         generationMode: "image",
         model: "image-model",
         status: "loading",
@@ -373,6 +504,7 @@ describe("CanvasGenerationJobsController", () => {
     expect(waitForImageJob).toHaveBeenCalledTimes(1);
     expect(generatedImagesFromJob).toHaveBeenCalledTimes(1);
     expect(harness.nodes[0]?.imageAssetId).toBe("asset-recover");
+    expect(promptTextFromNode(harness.nodes[0])).toBe("@[node:reference] 恢复图片");
   });
 
   it("提示词优化通过生成服务更新 composer 且正确释放 busy 状态", async () => {
