@@ -182,7 +182,9 @@ class SupabaseStorageAdapter:
         bucket, target = self._target(key)
         origin = _origin(settings.SUPABASE_URL)
         public = _origin(settings.SUPABASE_PUBLIC_URL or origin)
-        response = await self._request(bucket, "POST", "object/sign/" + target,
+        # NAS 签名必须绑定原始冒号；公网 URL 仍使用编码路径，其余转义保持原样。
+        signing_target = target.replace("%3A", ":")
+        response = await self._request(bucket, "POST", "object/sign/" + signing_target,
                                        json={"expiresIn": min(3600, max(60, expires_in))})
         signed = response.json().get("signedURL")
         if not isinstance(signed, str) or not signed:

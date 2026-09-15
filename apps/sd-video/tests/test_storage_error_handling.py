@@ -54,6 +54,52 @@ def test_storage_only_endpoints_and_signed_url(configure):
     asyncio.run(check())
 
 
+def test_personal_workspace_signature_downloads_through_public_origin(configure):
+    signed_objects = {}
+    image = b"\x89PNG\r\n\x1a\n" + b"image-data"
+    prefix = "/storage/v1/object/sign/"
+
+    def handler(request):
+        if request.method == "POST":
+            assert request.url.host == "new-storage.invalid"
+            # 复现 NAS：签名绑定原始请求路径，下载时按已解码的对象路径验签。
+            signed_objects["test-signature"] = request.url.raw_path.decode().removeprefix(prefix)
+            return httpx.Response(200, json={"signedURL": "/object/sign/" + signed_objects["test-signature"] + "?token=test-signature"})
+        assert request.method == "GET" and request.url.host == "media.invalid"
+        assert "authorization" not in request.headers and "apikey" not in request.headers
+        if signed_objects[request.url.params["token"]] != request.url.path.removeprefix(prefix):
+            return httpx.Response(400, json={"error": "InvalidSignature"})
+        assert request.headers["range"] == "bytes=0-7"
+        return httpx.Response(206, content=image[:8], headers={"content-type": "image/png", "content-range": f"bytes 0-7/{len(image)}"})
+
+    async def check():
+        transport = httpx.MockTransport(handler)
+        storage = SupabaseStorageAdapter(transport)
+        url = await storage.url("inputs/default:user/user/image.png")
+        assert url == "https://media.invalid/storage/v1/object/sign/studio-sdvideo-test-input/inputs/default%3Auser/user/image.png?token=test-signature"
+        async with httpx.AsyncClient(transport=transport) as client:
+            response = await client.get(url, headers={"Range": "bytes=0-7"})
+        assert response.status_code == 206
+        assert response.headers["content-type"] == "image/png"
+        assert response.content == image[:8]
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize("namespace", ["inputs", "results", "thumbnails", "volcano"])
+def test_signing_preserves_other_object_key_escapes(configure, namespace):
+    buckets = {"inputs": "input", "results": "result", "thumbnails": "thumbnail", "volcano": "volcano"}
+    target = f"studio-sdvideo-test-{buckets[namespace]}/{namespace}/default:user/user/literal%253A%20%23%3F.png"
+
+    def handler(request):
+        assert request.url.raw_path.decode() == "/storage/v1/object/sign/" + target
+        return httpx.Response(200, json={"signedURL": "/object/sign/" + target + "?token=test"})
+
+    async def check():
+        url = await SupabaseStorageAdapter(httpx.MockTransport(handler)).url(f"{namespace}/default:user/user/literal%3A #?.png")
+        assert url == "https://media.invalid/storage/v1/object/sign/" + target.replace("default:user", "default%3Auser") + "?token=test"
+    asyncio.run(check())
+
+
 def test_storage_failure_is_not_reported_as_success(configure):
     async def check():
         storage = SupabaseStorageAdapter(httpx.MockTransport(lambda request: httpx.Response(503)))
