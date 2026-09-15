@@ -761,6 +761,8 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   const handlePickerConfirm = useCallback(async (assets: Asset[], volcanoAssets: SeedanceAsset[] = []) => {
     setPickerBusy(true);
     try {
+      const failedAssets: string[] = [];
+      let addedCount = 0;
       // 火山真人素材：先确保 Active，再以 asset:// 引用加入（无本地文件）
       if (volcanoAssets.length) {
         await ensureSeedanceAssetsActive(volcanoAssets.map((asset) => asset.volcano_asset_id), "personal");
@@ -771,39 +773,45 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
           const plan = planWorkbenchReferenceBatch(splitWorkbenchReferences(references), [reference], effectiveConfig.model);
           if (plan.accepted.length) {
             setReferences((current) => assignReferenceTokens([...current, plan.accepted[0]]));
+            addedCount += 1;
           } else {
             toast.warning(`${reference.name}：${plan.rejected[0]?.reason || "不符合当前模型要求"}`);
           }
         }
       }
       for (const asset of assets) {
-        const kind = asset.type === "image" || asset.type === "video" || asset.type === "audio" ? asset.type : null;
-        if (!kind) continue;
-        const url = await getAssetContentObjectUrl(asset.id, pickerScope);
-        trackUrl(url);
-        const blob = await fetch(url).then((response) => {
-          if (!response.ok) throw new Error(`${asset.name} 读取失败`);
-          return response.blob();
-        });
-        const file = new File([blob], asset.name || `${asset.id}.${kind}`, { type: asset.content_type || blob.type });
-        let reference: WorkbenchReference;
-        if (kind === "image") reference = await createImageWorkbenchReference(file, () => url, revokeUrl);
-        else if (kind === "video") reference = await createVideoWorkbenchReference(file, () => url, revokeUrl);
-        else reference = await createAudioWorkbenchReference(file, () => url, revokeUrl);
-        reference.source = "asset";
-        reference.assetId = asset.id;
-        reference.scope = pickerScope;
-        const plan = planWorkbenchReferenceBatch(splitWorkbenchReferences(references), [reference], effectiveConfig.model);
-        if (plan.accepted.length) {
-          setReferences((current) => assignReferenceTokens([...current, plan.accepted[0]]));
-        } else {
-          revokeUrl(url);
-          toast.warning(`${asset.name}：${plan.rejected[0]?.reason || "不符合当前模型要求"}`);
+        try {
+          const kind = asset.type === "image" || asset.type === "video" || asset.type === "audio" ? asset.type : null;
+          if (!kind) continue;
+          const url = await getAssetContentObjectUrl(asset.id, pickerScope);
+          trackUrl(url);
+          const blob = await fetch(url).then((response) => {
+            if (!response.ok) throw new Error(`${asset.name} 读取失败`);
+            return response.blob();
+          });
+          const file = new File([blob], asset.name || `${asset.id}.${kind}`, { type: asset.content_type || blob.type });
+          let reference: WorkbenchReference;
+          if (kind === "image") reference = await createImageWorkbenchReference(file, () => url, revokeUrl);
+          else if (kind === "video") reference = await createVideoWorkbenchReference(file, () => url, revokeUrl);
+          else reference = await createAudioWorkbenchReference(file, () => url, revokeUrl);
+          reference.source = "asset";
+          reference.assetId = asset.id;
+          reference.scope = pickerScope;
+          const plan = planWorkbenchReferenceBatch(splitWorkbenchReferences(references), [reference], effectiveConfig.model);
+          if (plan.accepted.length) {
+            setReferences((current) => assignReferenceTokens([...current, plan.accepted[0]]));
+            addedCount += 1;
+          } else {
+            revokeUrl(url);
+            toast.warning(`${asset.name}：${plan.rejected[0]?.reason || "不符合当前模型要求"}`);
+          }
+        } catch (error) {
+          failedAssets.push(`${asset.name || asset.id}（${referenceRejectionMessage(error, "读取失败")}）`);
         }
       }
       setPickerOpen(false);
-      const total = assets.length + volcanoAssets.length;
-      if (total) toast.success(`已引用 ${total} 个素材`);
+      if (addedCount) toast.success(`已引用 ${addedCount} 个素材`);
+      if (failedAssets.length) toast.warning(`以下资产内容不可读取，请重新上传或换一张：${failedAssets.join("、")}`);
     } catch (error) {
       toast.error(publicApiError(error, "引用资产失败"));
     } finally {

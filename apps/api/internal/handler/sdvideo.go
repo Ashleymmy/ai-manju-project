@@ -167,6 +167,8 @@ func (h *AIHandler) prepareSDVideoReferences(c *gin.Context, user model.User, sc
 	references := sdVideoReferencesFromContent(raw)
 	for _, reference := range references {
 		if reference["provider_asset"] == true {
+			// 保留已在火山资产库注册的 asset:// 引用。删除标记但丢弃
+			// asset_ref 会让 SD-video 把它当成缺少输入的普通素材。
 			delete(reference, "provider_asset")
 			continue
 		}
