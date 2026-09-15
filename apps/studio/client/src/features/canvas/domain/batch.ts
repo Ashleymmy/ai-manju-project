@@ -41,30 +41,26 @@ export function refreshImageBatchRoot(nodes: CanvasNodeData[], rootId: string) {
   const loading = members.some((node) => node.metadata?.status === "loading");
   const succeeded = members.filter((node) => node.metadata?.status === "success");
   const failed = members.filter((node) => node.metadata?.status === "error");
-  const rootOwnAssetId = stringValue(root.metadata?.ownAssetId);
-  const rootOwnImageSrc = stringValue(root.metadata?.ownImageSrc);
-  const rootOwnReady = root.metadata?.status === "success" && Boolean(rootOwnAssetId || rootOwnImageSrc);
-  const explicitPrimaryId = stringValue(root.metadata?.primaryImageId);
-  const primary = members.find((node) => node.id === explicitPrimaryId) || (rootOwnReady ? root : undefined) || succeeded[0];
-  const primaryIsRoot = primary?.id === rootId;
-  const primaryAssetId = primary ? (primaryIsRoot ? rootOwnAssetId : assetIdFromNode(primary) || "") : "";
-  const primaryImageSrc = primary ? (primaryIsRoot ? rootOwnImageSrc : primary.imageSrc || "") : "";
+  // Each slot owns one result. Never copy a finished child into the root while
+  // its request is pending: that duplicates the child and loses the root's slot.
+  const rootOwnAssetId = stringValue(root.metadata?.ownAssetId) || assetIdFromNode(root);
+  const rootOwnImageSrc = stringValue(root.metadata?.ownImageSrc) || root.imageSrc;
   const total = members.length;
   const status: CanvasNodeStatus = loading ? "loading" : succeeded.length ? "success" : "error";
   const errorDetails = loading || !failed.length ? undefined : succeeded.length ? `${failed.length} 个结果失败，可单独重试。` : "全部图片生成失败，可重试。";
   return nodes.map((node) => node.id === rootId ? {
     ...node,
     title: loading ? "批量生成中…" : succeeded.length ? `批量图片 ${succeeded.length}/${total}` : "批量生成失败",
-    imageAssetId: primaryIsRoot ? rootOwnAssetId || undefined : primaryAssetId || node.imageAssetId,
-    imageSrc: primaryIsRoot ? (rootOwnAssetId ? undefined : rootOwnImageSrc || undefined) : primaryAssetId ? undefined : primaryImageSrc || node.imageSrc,
+    imageAssetId: rootOwnAssetId || undefined,
+    imageSrc: rootOwnAssetId ? undefined : rootOwnImageSrc,
     metadata: {
       ...node.metadata,
-      assetId: primaryAssetId || node.metadata?.assetId,
-      primaryImageId: primary && !primaryIsRoot ? primary.id : undefined,
-      status,
-      errorDetails,
-      jobId: undefined,
-      jobProgress: undefined,
+      assetId: rootOwnAssetId || undefined,
+      primaryImageId: undefined,
+      // status/errorDetails/jobId describe the root request and must survive a
+      // child update, so recovery, cancellation and retry still target it.
+      batchStatus: status,
+      batchErrorDetails: errorDetails,
     },
   } : node);
 }
@@ -79,6 +75,9 @@ export function swapImageBatchPrimary(nodes: CanvasNodeData[], rootId: string, c
   const root = nodes.find((node) => node.id === rootId);
   const child = nodes.find((node) => node.id === childId && node.metadata?.batchRootId === rootId);
   if (!root || !child || rootId === childId) return nodes;
+  if ([root, child].some(node => node.metadata?.status === "loading"
+    || node.metadata?.status === "error"
+    || (!assetIdFromNode(node) && !node.imageSrc))) return nodes;
 
   const rootPayload = imagePayload(root);
   const childPayload = imagePayload(child);
@@ -123,12 +122,22 @@ function imagePayload(node: CanvasNodeData) {
       imageSrc: node.imageSrc,
     },
     metadata: {
-      assetId: node.metadata?.assetId,
+      assetId: assetIdFromNode(node) || undefined,
       assetScope: node.metadata?.assetScope,
       naturalWidth: node.metadata?.naturalWidth,
       naturalHeight: node.metadata?.naturalHeight,
       bytes: node.metadata?.bytes,
       mimeType: node.metadata?.mimeType,
+      content: node.metadata?.content,
+      prompt: node.metadata?.prompt,
+      composerContent: node.metadata?.composerContent,
+      model: node.metadata?.model,
+      seed: node.metadata?.seed,
+      generatedAt: node.metadata?.generatedAt,
+      generationType: node.metadata?.generationType,
+      referenceInputs: node.metadata?.referenceInputs,
+      size: node.metadata?.size,
+      quality: node.metadata?.quality,
     },
   };
 }
