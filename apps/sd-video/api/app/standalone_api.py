@@ -236,8 +236,12 @@ async def _validate_message_links(principal: ServicePrincipal, payload: dict) ->
     if payload.get("video_url"):
         raise HTTPException(status_code=400, detail="store stable asset references, not external video URLs")
     for attachment in payload.get("attachments") or []:
-        if not isinstance(attachment, dict) or not attachment.get("assetId") or attachment.get("storageKey"):
+        if not isinstance(attachment, dict) or attachment.get("storageKey"):
             raise HTTPException(status_code=400, detail="message attachment requires a Studio asset reference")
+        asset_id = str(attachment.get("assetId") or "").strip()
+        asset_ref = str(attachment.get("assetRef") or "").strip()
+        if not asset_id and not (asset_ref.startswith("asset://") and len(asset_ref) > len("asset://")):
+            raise HTTPException(status_code=400, detail="message attachment requires a Studio asset or authorized provider asset reference")
 
 
 def _scoped_input_token(principal: ServicePrincipal, token: str) -> str:

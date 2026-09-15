@@ -57,3 +57,18 @@ def test_cancel_and_scoped_conversation_crud():
     message = client.post("/v1/messages", headers=AUTH, json={"conversation_id": conversation_id, "text": "你好"}).json()["data"]
     assert client.patch(f"/v1/messages/{message['id']}", headers=AUTH, json={"text": "已编辑"}).json()["data"]["text"] == "已编辑"
     assert client.delete(f"/v1/conversations/{conversation_id}", headers=AUTH).status_code == 200
+
+
+def test_message_accepts_provider_asset_attachment():
+    client = TestClient(app)
+    conversation = client.post("/v1/conversations", headers=AUTH, json={"title": "素材引用"}).json()["data"]
+    response = client.post(
+        "/v1/messages",
+        headers=AUTH,
+        json={
+            "conversation_id": conversation["id"],
+            "text": "引用火山素材",
+            "attachments": [{"id": "ref-1", "kind": "image", "assetRef": "asset://provider-image"}],
+        },
+    )
+    assert response.status_code == 200
