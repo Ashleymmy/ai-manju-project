@@ -1254,6 +1254,12 @@ export class CanvasStageInteractionController {
       hitIds.at(-1) || next.values().next().value || "",
       false,
     );
+    // A marquee over two or more ungrouped nodes creates a temporary frame;
+    // the host keeps it local until the user confirms the grouping action.
+    if (!current.additive && hitIds.length >= 2 && this.bindings.createGroupFromSelection) {
+      const groupedIds = hitIds.filter(id => !this.currentGroups().some(group => group.nodeIds.includes(id)));
+      if (groupedIds.length >= 2) this.bindings.createGroupFromSelection(groupedIds);
+    }
     this.clearSelectionBox();
     this.bindings.setContextMenu(null);
     this.pendingConnectionCreate = null;
@@ -1369,6 +1375,7 @@ export class CanvasStageInteractionController {
   }
 
   readonly handleStagePointerDown = (event: CanvasStagePointerEvent<HTMLElement>) => {
+    this.bindings.dismissPendingGroup?.();
     if (this.pendingConnectionCreate) this.cancelPendingConnectionCreate();
     if (this.startPan(event)) return;
     this.startSelectionBox(event);

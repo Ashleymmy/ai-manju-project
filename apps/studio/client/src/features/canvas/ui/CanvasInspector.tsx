@@ -92,6 +92,22 @@ type AudioConfigView = {
   instructions: string;
 };
 
+const CANVAS_GROUP_COLORS = [
+  { value: "#ef5748", label: "红色" },
+  { value: "#f4c44f", label: "黄色" },
+  { value: "#45d486", label: "绿色" },
+  { value: "#36b4e8", label: "蓝色" },
+  { value: "#9a7df0", label: "紫色" },
+  { value: "#e95ca5", label: "粉色" },
+  { value: "#ff913c", label: "橙色" },
+  { value: "#eceae3", label: "白色" },
+] as const;
+
+function isCanvasGroupColorSelected(current: string, value: string) {
+  const normalized = current.toLowerCase();
+  return normalized === value || (normalized === "#7dd3fc" && value === "#36b4e8");
+}
+
 const STYLE_CATEGORIES = [
   { value: "anime", label: "动漫" },
   { value: "digital", label: "数字艺术" },
@@ -156,6 +172,7 @@ export type CanvasInspectorProps = {
   inspectorOpen: boolean;
   projectActionDisabled: boolean;
   selectedPanelStyle?: CSSProperties;
+  selectedGroupPanelStyle?: CSSProperties;
   edges: CanvasEdgeData[];
   nodes: CanvasNodeData[];
   previews: Record<string, string>;
@@ -190,6 +207,7 @@ export function CanvasInspector({
   inspectorOpen,
   projectActionDisabled,
   selectedPanelStyle,
+  selectedGroupPanelStyle,
   edges,
   nodes,
   previews,
@@ -270,8 +288,15 @@ export function CanvasInspector({
     downloadSelectedMedia,
     startPanelWidthResize,
   } = actions;
+  const connectedSources = selectedNode
+    ? edges
+      .filter((edge) => edge.to === selectedNode.id)
+      .map((edge) => nodes.find((node) => node.id === edge.from))
+      .filter((node): node is CanvasNodeData => Boolean(node))
+      .filter((node, index, list) => list.findIndex((item) => item.id === node.id) === index)
+    : [];
   return (
-        <aside ref={panelRef} className={`inspector-panel canvas-floating-inspector${selectedNode && !selectedGroup ? " inspector-floating" : ""}`} data-canvas-ui data-canvas-no-zoom style={selectedNode && !selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedPanelStyle ? selectedPanelStyle : { display: "none" }) : ((selectedNode || selectedGroup) && inspectorOpen && !projectActionDisabled ? undefined : { display: "none" })} onClick={(event) => event.stopPropagation()}>
+        <aside ref={panelRef} className={`inspector-panel canvas-floating-inspector${selectedNode && !selectedGroup ? " inspector-floating" : ""}${selectedGroup ? " inspector-group" : ""}`} data-canvas-ui data-canvas-no-zoom style={selectedNode && !selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedPanelStyle ? selectedPanelStyle : { display: "none" }) : selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedGroupPanelStyle ? selectedGroupPanelStyle : { display: "none" }) : { display: "none" }} onClick={(event) => event.stopPropagation()}>
           <div className="inspector-head">
             <div><p className="eyebrow">INSPECTOR</p><div className="inspector-title-row"><h3>{selectedGroup?.title || selectedNode?.title || "未选择节点"}</h3>{selectedNode && !selectedGroup && selectedNode.kind === "video" ? <span className="video-submode-badge inspector-submode-badge">{VIDEO_SUBMODES.find((sub) => sub.value === videoSubModeFromNode(selectedNode))?.label || "文生视频"}</span> : null}</div></div>
             {selectedNode && !selectedGroup ? (
@@ -300,14 +325,20 @@ export function CanvasInspector({
               </div>
               <div className="inspector-block">
                 <span className="field-label">分组颜色</span>
-                <label className="canvas-group-color-row">
-                  <input type="color" value={selectedGroup.color} onChange={(event) => updateCanvasGroup(selectedGroup.id, { color: event.target.value })} />
-                  <b>{selectedGroup.color.toUpperCase()}</b>
-                </label>
-              </div>
-              <div className="inspector-block">
-                <span className="field-label">成员</span>
-                <p className="prompt-copy">包含 {selectedGroup.nodeIds.length} 个节点。拖动分组可整体移动，四角控制点可调整边界。</p>
+                <div className="canvas-group-color-row" role="radiogroup" aria-label="分组颜色">
+                  {CANVAS_GROUP_COLORS.map((color) => (
+                    <button
+                      key={color.value}
+                      type="button"
+                      className={`canvas-group-color-swatch${isCanvasGroupColorSelected(selectedGroup.color, color.value) ? " active" : ""}`}
+                      style={{ "--group-swatch-color": color.value } as CSSProperties}
+                      title={color.label}
+                      aria-label={color.label}
+                      aria-pressed={isCanvasGroupColorSelected(selectedGroup.color, color.value)}
+                      onClick={() => updateCanvasGroup(selectedGroup.id, { color: color.value })}
+                    />
+                  ))}
+                </div>
               </div>
               <button className="full-outline" onClick={() => void runCanvasGroupGeneration(selectedGroup.id)} disabled={Boolean(runningGroupId)}>{runningGroupId === selectedGroup.id ? <Loader2 className="spin" size={16} /> : <WandSparkles size={16} />} 批量执行分组</button>
               <button className="full-outline" onClick={() => ungroupCanvasGroup(selectedGroup.id)}><Ungroup size={16} /> 解散分组</button>
@@ -315,6 +346,26 @@ export function CanvasInspector({
           ) : selectedNode ? (
             <>
               <div className="node-card-body">
+                {connectedSources.length ? (
+                  <div className="canvas-connected-preview-strip" aria-label="前置节点预览">
+                    {connectedSources.map((source) => {
+                      const preview = source.kind === "image"
+                        ? imageSrcFromNode(source, previews)
+                        : source.metadata?.preview as string | undefined;
+                      return (
+                        <button
+                          key={source.id}
+                          type="button"
+                          className="canvas-connected-preview"
+                          title={`前置节点：${source.title || source.id}`}
+                          onClick={() => source.kind === "image" ? setImagePreviewNodeId(source.id) : undefined}
+                        >
+                          {preview ? <img src={preview} alt={source.title || "前置节点"} /> : <span>{source.kind.toUpperCase()}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
                 {selectedNode.kind === "video" ? (
                   <div className="video-submode-header">
                     {(() => {

@@ -176,6 +176,7 @@ import {
   connectCanvasNodesToConfig,
   createConnectedCanvasGraph,
   isHiddenCanvasBatchChild,
+  normalizeCanvasConnection,
 } from "@/features/canvas/domain/connections";
 import {
   createCanvasGroup,
@@ -269,6 +270,7 @@ import {
   batchChildGridPosition,
   refreshImageBatchRoot,
   snapImageBatchChildrenToGrid,
+  swapImageBatchPrimary,
 } from "@/features/canvas/domain/batch";
 import { isRecord, numberValue, stringValue } from "@/features/canvas/domain/value";
 import { collectCanvasGenerationHistory, cloneCanvasNodeFromGenerationHistory, cloneCanvasNodeFromGenerationRevision, parseCanvasGenerationHistoryItemId } from "@/features/canvas/domain/generationHistory";
@@ -475,6 +477,8 @@ export default function CanvasWorkspaceViewContent() {
   const edges = useCanvasStore((state) => state.graph.edges);
   const setEdges = canvasCommands.graph.setEdges;
   const groups = useCanvasStore((state) => state.graph.groups);
+  // Marquee groups remain local until the user confirms them from the floating action bar.
+  const persistedGroups = useMemo(() => groups.filter((group) => !group.pending), [groups]);
   const setGroups = canvasCommands.graph.setGroups;
   const selectedId = useCanvasStore((state) => state.graph.selectedNodeId);
   const setSelectedId = canvasCommands.graph.setSelectedNodeId;
@@ -482,6 +486,7 @@ export default function CanvasWorkspaceViewContent() {
   const selectedNodeIds = useMemo(() => new Set(selectedNodeIdValues), [selectedNodeIdValues]);
   const setSelectedNodeIds = canvasCommands.graph.setSelectedNodeIds;
   const selectedGroupId = useCanvasStore((state) => state.graph.selectedGroupId);
+  const [, setPendingGroupId] = useState("");
   const setSelectedGroupId = canvasCommands.graph.setSelectedGroupId;
   const zoom = useCanvasStore((state) => state.viewport.zoom);
   const panX = useCanvasStore((state) => state.viewport.panX);
@@ -978,6 +983,17 @@ export default function CanvasWorkspaceViewContent() {
     const left = Math.min(Math.max(12, nodeCenterX - width / 2), Math.max(12, stageBounds.width - width - 12));
     return { left: Math.round(left), top: Math.round(top), width, maxHeight: Math.round(availableHeight) };
   }, [panX, panY, panelHeight, selectedNode, stageBounds.height, stageBounds.width, zoom]);
+  const selectedGroupPanelStyle = useMemo<CSSProperties | undefined>(() => {
+    if (!selectedGroup) return undefined;
+    const scale = Math.max(0.05, zoom / 100);
+    // Keep enough room for both action buttons while staying inside the canvas viewport.
+    const width = Math.min(760, Math.max(360, stageBounds.width - 16));
+    const groupLeft = panX + selectedGroup.position.x * scale;
+    const groupTop = CANVAS_STAGE_OFFSET + panY + selectedGroup.position.y * scale;
+    const left = Math.min(Math.max(12, groupLeft), Math.max(12, stageBounds.width - width - 12));
+    const top = Math.max(CANVAS_STAGE_OFFSET + 8, groupTop - 90);
+    return { left: Math.round(left), top: Math.round(top), width, right: "auto", bottom: "auto" };
+  }, [panX, panY, selectedGroup, stageBounds.width, zoom]);
   const contextMenuStyle = useMemo<CSSProperties | undefined>(() => {
     if (!contextMenu) return undefined;
     const width = 220;
@@ -1085,10 +1101,10 @@ export default function CanvasWorkspaceViewContent() {
   const captureCanvasState = useCallback((): CanvasSnapshotState => ({
     nodes: structuredClone(nodesRef.current),
     edges: structuredClone(edgesRef.current),
-    groups: structuredClone(groupsRef.current),
+    groups: structuredClone(persistedGroups),
     backgroundMode,
     showImageInfo,
-  }), [backgroundMode, showImageInfo]);
+  }), [backgroundMode, persistedGroups, showImageInfo]);
 
   historyController.updateBindings({
     capture: captureCanvasState,
@@ -1143,13 +1159,13 @@ export default function CanvasWorkspaceViewContent() {
   const captureCurrentSnapshot = useCallback((): CanvasSnapshotCapture => ({
     nodes: nodesRef.current,
     edges: edgesRef.current,
-    groups: groupsRef.current,
+    groups: persistedGroups,
     zoom: viewportRef.current.zoom,
     panX: viewportRef.current.panX,
     panY: viewportRef.current.panY,
     backgroundMode,
     showImageInfo,
-  }), [backgroundMode, showImageInfo]);
+  }), [backgroundMode, persistedGroups, showImageInfo]);
 
   const copySelectedNodes = useCallback(() => {
     const clipboard = createCanvasClipboard(
@@ -1393,7 +1409,7 @@ export default function CanvasWorkspaceViewContent() {
   ): Promise<boolean> => autosaveController.persist({
     nodes: nextNodes,
     edges: nextEdges,
-    groups: groupsRef.current,
+    groups: persistedGroups,
     zoom: nextZoom,
     panX: options.panX ?? viewportRef.current.panX,
     panY: options.panY ?? viewportRef.current.panY,
@@ -1402,7 +1418,7 @@ export default function CanvasWorkspaceViewContent() {
   }, {
     quiet: options.quiet,
     expectedKey: persistProjectKey,
-  }), [autosaveController, backgroundMode, persistProjectKey, showImageInfo]);
+  }), [autosaveController, backgroundMode, persistProjectKey, persistedGroups, showImageInfo]);
 
   generationController.updateBindings({
     getProjectId: () => projectId,
@@ -1449,9 +1465,9 @@ export default function CanvasWorkspaceViewContent() {
   useEffect(() => {
     return autosaveController.observe(
       Boolean(projectId && !loading && !switching && snapshotWriteReady),
-      { nodes, edges, groups, zoom, panX, panY, backgroundMode, showImageInfo },
+      { nodes, edges, groups: persistedGroups, zoom, panX, panY, backgroundMode, showImageInfo },
     );
-  }, [autosaveController, backgroundMode, edges, groups, loading, nodes, panX, panY, projectId, showImageInfo, snapshotWriteReady, switching, zoom]);
+  }, [autosaveController, backgroundMode, edges, loading, nodes, panX, panY, persistedGroups, projectId, showImageInfo, snapshotWriteReady, switching, zoom]);
 
   autosaveController.updateBindings({
     capture: captureCurrentSnapshot,
@@ -1798,10 +1814,20 @@ export default function CanvasWorkspaceViewContent() {
       setContextMenu(null);
       return;
     }
+    // When a marquee selection is still active, fan the new node connection
+    // out to every selected node. The handle side determines the direction:
+    // source handles converge into the new node, target handles receive from it.
+    const selectedSources = [...selectedNodeIdsRef.current]
+      .filter((nodeId) => graph.nodes.some((node) => node.id === nodeId));
+    let nextEdges = graph.edges;
+    selectedSources.forEach((nodeId) => {
+      const connection = normalizeCanvasConnection(nodeId, created.id, graph.nodes, draft.connection.handleType);
+      if (connection) nextEdges = addCanvasConnection(nextEdges, connection, () => crypto.randomUUID());
+    });
     nodesRef.current = graph.nodes;
-    edgesRef.current = graph.edges;
+    edgesRef.current = nextEdges;
     setNodes(graph.nodes);
-    setEdges(graph.edges);
+    setEdges(nextEdges);
     applyNodeSelection([created.id], created.id, true);
     stageInteractionController.resetConnectionAndPending();
     setContextMenu(null);
@@ -2808,6 +2834,48 @@ export default function CanvasWorkspaceViewContent() {
     selectCanvasGroup(group);
   };
 
+  const createGroupFromSelection = (nodeIds: Iterable<string>) => {
+    const ids = new Set(nodeIds);
+    const group = createCanvasGroup(
+      nodesRef.current,
+      ids,
+      `group-${crypto.randomUUID()}`,
+      `分组 ${groupsRef.current.length + 1}`,
+    );
+    if (!group) return;
+    const pending = { ...group, pending: true };
+    const nextGroups = [...groupsRef.current, pending];
+    groupsRef.current = nextGroups;
+    setGroups(nextGroups);
+    applyNodeSelection(group.nodeIds, group.nodeIds[0] || "", false);
+    setPendingGroupId(group.id);
+  };
+
+  const confirmPendingGroup = (groupId: string) => {
+    const nextGroups = groupsRef.current.map((group) => group.id === groupId ? { ...group, pending: undefined } : group);
+    groupsRef.current = nextGroups;
+    setGroups(nextGroups);
+    setPendingGroupId("");
+    const group = nextGroups.find((item) => item.id === groupId);
+    if (group) selectCanvasGroup(group);
+  };
+
+  const cancelPendingGroup = (groupId: string) => {
+    const nextGroups = groupsRef.current.filter((group) => group.id !== groupId);
+    groupsRef.current = nextGroups;
+    setGroups(nextGroups);
+    setPendingGroupId("");
+    applyNodeSelection([], "", false);
+  };
+
+  const dismissPendingGroup = () => {
+    const nextGroups = groupsRef.current.filter((group) => !group.pending);
+    if (nextGroups.length === groupsRef.current.length) return;
+    groupsRef.current = nextGroups;
+    setGroups(nextGroups);
+    setPendingGroupId("");
+  };
+
   const connectSelectedNodesToConfig = (targetConfigId?: string) => {
     if (selectedNodeIdsRef.current.size < 2) return toast.info("请至少选择 2 个节点后再连接配置");
     const currentNodes = nodesRef.current;
@@ -2984,6 +3052,8 @@ export default function CanvasWorkspaceViewContent() {
     setEdges: nextEdges => { edgesRef.current = nextEdges; setEdges(nextEdges); },
     getGroups: () => groupsRef.current,
     setGroups: nextGroups => { groupsRef.current = nextGroups; setGroups(nextGroups); },
+    createGroupFromSelection,
+    dismissPendingGroup,
     getSelectedNodeIds: () => selectedNodeIdsRef.current,
     getSelectedGroupId: () => canvasStore.getState().graph.selectedGroupId,
     setSelectedGroupId,
@@ -3148,19 +3218,11 @@ export default function CanvasWorkspaceViewContent() {
   const setBatchPrimaryNode = (child: CanvasNodeData) => {
     const rootId = child.metadata?.batchRootId;
     const root = nodesRef.current.find((item) => item.id === rootId);
-    if (!rootId || !root || !child.imageAssetId) return;
-    updateNode(rootId, {
-      imageAssetId: child.imageAssetId,
-      width: child.width,
-      height: child.height,
-      metadata: {
-        ...root.metadata,
-        primaryImageId: child.id,
-        naturalWidth: child.metadata?.naturalWidth,
-        naturalHeight: child.metadata?.naturalHeight,
-        bytes: child.metadata?.bytes,
-      },
-    });
+    if (!rootId || !root || (!child.imageAssetId && !child.imageSrc)) return;
+    const nextNodes = swapImageBatchPrimary(nodesRef.current, rootId, child.id);
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    void persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
     toast.success("已设为图片组主图");
   };
 
@@ -3437,6 +3499,7 @@ export default function CanvasWorkspaceViewContent() {
           assetCategory: asset.category,
           assetTags: asset.tags,
           assetSourceType: asset.source_type,
+          canvasOrigin: "imported",
         },
       };
     });
@@ -3496,6 +3559,7 @@ export default function CanvasWorkspaceViewContent() {
             generationMode: defaultGenerationModeForKind(kind),
             mimeType: asset.content_type || file.type,
             bytes: asset.size || file.size,
+            canvasOrigin: "imported",
           },
         });
       }
@@ -4458,6 +4522,9 @@ export default function CanvasWorkspaceViewContent() {
             pasteCopiedNodes,
             createNodeFromConnectionDraft,
             cancelPendingConnectionCreate,
+            dismissPendingGroup,
+            confirmPendingGroup,
+            cancelPendingGroup,
           }}
         />
 
@@ -4468,6 +4535,7 @@ export default function CanvasWorkspaceViewContent() {
           inspectorOpen={inspectorOpen}
           projectActionDisabled={projectActionDisabled}
           selectedPanelStyle={selectedPanelStyle}
+          selectedGroupPanelStyle={selectedGroupPanelStyle}
           edges={edges}
           nodes={nodes}
           previews={previews}

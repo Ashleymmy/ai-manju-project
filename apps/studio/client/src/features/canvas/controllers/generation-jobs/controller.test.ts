@@ -238,6 +238,33 @@ describe("CanvasGenerationJobsController", () => {
     ]);
   });
 
+  it("用户导入的图片节点生成时创建新节点并保留原素材", async () => {
+    const generateImages = vi.fn(async () => ({
+      images: [{ id: "asset-generated", assetId: "asset-generated", src: "", name: "result.png", contentType: "image/png" }],
+    }));
+    const services = createServices({ generateImages: generateImages as CanvasGenerationServices["generateImages"] });
+    const harness = createHarness([imageNode({
+      title: "导入图片",
+      imageAssetId: "asset-imported",
+      metadata: {
+        content: "",
+        prompt: "生成一张海报",
+        generationMode: "image",
+        status: "success",
+        assetId: "asset-imported",
+        canvasOrigin: "imported",
+      },
+    })], services);
+
+    await harness.controller.generateImageFromNode("image-1");
+
+    expect(generateImages).toHaveBeenCalledTimes(1);
+    expect(harness.nodes).toHaveLength(2);
+    expect(harness.nodes[0]).toMatchObject({ id: "image-1", imageAssetId: "asset-imported" });
+    expect(harness.nodes[1]).toMatchObject({ kind: "image", metadata: { status: "success" } });
+    expect(harness.edges).toEqual([expect.objectContaining({ from: "image-1", to: harness.nodes[1]?.id })]);
+  });
+
   it("删除关联节点会按 request identity 中止请求并取消已入队 Job", async () => {
     let requestSignal: AbortSignal | undefined;
     const generateImages = vi.fn((

@@ -2,6 +2,7 @@ import {
   Boxes,
   ClipboardPaste,
   Film,
+  GitMerge,
   Image as ImageIcon,
   Images,
   Loader2,
@@ -10,6 +11,8 @@ import {
   SlidersHorizontal,
   Sparkles,
   Type,
+  Ungroup,
+  WandSparkles,
 } from "lucide-react";
 import type {
   CSSProperties,
@@ -19,7 +22,7 @@ import type {
   RefObject,
 } from "react";
 import { toast } from "sonner";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { useOutsidePress } from "@/shared/lib/useOutsidePress";
 import MetaBallOrb from "@/components/MetaBallOrb";
 import {
@@ -111,6 +114,9 @@ type CanvasStageActions = {
   pasteCopiedNodes: () => void;
   createNodeFromConnectionDraft: (kind: CanvasNodeKind, draft: PendingConnectionCreateState) => void;
   cancelPendingConnectionCreate: () => void;
+  dismissPendingGroup: () => void;
+  confirmPendingGroup: (groupId: string) => void;
+  cancelPendingGroup: (groupId: string) => void;
 };
 
 export type CanvasStageProps = {
@@ -257,9 +263,26 @@ export function CanvasStage({
     pasteCopiedNodes,
     createNodeFromConnectionDraft,
     cancelPendingConnectionCreate,
+    dismissPendingGroup,
+    confirmPendingGroup,
+    cancelPendingGroup,
   } = actions;
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const connectionMenuRef = useRef<HTMLDivElement>(null);
+  const displayEdges = useMemo(() => {
+    const groupByNode = new Map<string, CanvasGroupData>();
+    groups.forEach((group) => group.nodeIds.forEach((nodeId) => groupByNode.set(nodeId, group)));
+    const seen = new Set<string>();
+    return edges.flatMap((edge) => {
+      const fromGroup = groupByNode.get(edge.from);
+      const toGroup = groupByNode.get(edge.to);
+      if (fromGroup && toGroup && fromGroup.id === toGroup.id) return [];
+      const key = `${fromGroup?.id || edge.from}->${toGroup?.id || edge.to}`;
+      if (seen.has(key)) return [];
+      seen.add(key);
+      return [{ edge, fromGroup, toGroup }];
+    });
+  }, [edges, groups]);
   useOutsidePress(Boolean(contextMenu), event => event.composedPath().includes(contextMenuRef.current!), () => setContextMenu(null));
   // This menu opens on pointerup; the same gesture's trailing click must not dismiss it.
   useOutsidePress(Boolean(pendingConnectionCreate), event => event.composedPath().includes(connectionMenuRef.current!), cancelPendingConnectionCreate, false);
@@ -269,6 +292,12 @@ export function CanvasStage({
           className={`canvas-stage real-canvas-stage canvas-background-${backgroundMode}`}
           style={{ "--canvas-grid-size": `${40 * zoom / 100}px`, "--canvas-grid-x": `${panX}px`, "--canvas-grid-y": `${panY}px`, "--canvas-zoom": String(zoom) } as CSSProperties}
           onPointerDown={handleStagePointerDown}
+          onPointerDownCapture={(event) => {
+            if (!groups.some((group) => group.pending)) return;
+            const target = event.target instanceof Element ? event.target : null;
+            if (target?.closest(".canvas-group-frame.pending, .canvas-group-pending-actions, .canvas-node-handle, .canvas-context-menu, .canvas-connection-create-menu")) return;
+            dismissPendingGroup();
+          }}
           onContextMenu={(event) => { if (projectActionDisabled) { event.preventDefault(); return; } openCanvasContextMenu(event); }}
           onDoubleClick={(event) => { if (!projectActionDisabled) handleCanvasDoubleClick(event); }}
           onDragOver={(event) => { if (!projectActionDisabled) event.preventDefault(); }}
@@ -288,7 +317,7 @@ export function CanvasStage({
               {groups.map((group) => (
                 <section
                   key={group.id}
-                  className={`canvas-group-frame ${selectedGroupId === group.id ? "selected" : ""}`}
+                  className={`canvas-group-frame${group.pending ? " pending" : ""} ${selectedGroupId === group.id ? "selected" : ""}`}
                   data-group-id={group.id}
                   style={{
                     left: group.position.x,
@@ -304,12 +333,32 @@ export function CanvasStage({
                   onPointerUp={endGroupDrag}
                   onPointerCancel={endGroupDrag}
                 >
-                  <div className="canvas-group-header">
-                    <Boxes size={14} />
-                    <b>{group.title}</b>
-                    <span>{group.nodeIds.length} 节点</span>
-                  </div>
-                  {(["top-left", "top-right", "bottom-left", "bottom-right"] as CanvasGroupResizeCorner[]).map((corner) => (
+                  {!group.pending ? (
+                    <div className="canvas-group-header">
+                      <Boxes size={14} />
+                      <b>{group.title}</b>
+                      <span>{group.nodeIds.length} 节点</span>
+                      <div className="canvas-group-header-actions" onPointerDown={(event) => event.stopPropagation()}>
+                        <button type="button" title="批量执行分组" onClick={() => topToolbar.onRunGroup(group.id)} disabled={topToolbar.groupRunning}>
+                          {topToolbar.selectedGroupRunning ? <Loader2 className="spin" size={12} /> : <WandSparkles size={12} />}
+                        </button>
+                        <button type="button" title="将分组节点连接到配置" onClick={() => actions.openConnectSelection()}>
+                          <GitMerge size={12} />
+                        </button>
+                        <button type="button" title="解绑组" onClick={() => topToolbar.onUngroup(group.id)}>
+                          <Ungroup size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {group.pending ? (
+                    <div className="canvas-group-pending-actions" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+                      <span>已框选 {group.nodeIds.length} 个节点</span>
+                      <button type="button" onClick={() => confirmPendingGroup(group.id)}>组成分组</button>
+                      <button type="button" onClick={() => cancelPendingGroup(group.id)}>取消</button>
+                    </div>
+                  ) : null}
+                  {!group.pending && (["top-left", "top-right", "bottom-left", "bottom-right"] as CanvasGroupResizeCorner[]).map((corner) => (
                     <button
                       type="button"
                       key={corner}
@@ -358,14 +407,14 @@ export function CanvasStage({
                 onDoubleClick={handleCanvasLinesDoubleClick}
                 onContextMenu={handleCanvasLinesContextMenu}
               >
-                {edges.map((edge) => {
+                {displayEdges.map(({ edge, fromGroup, toGroup }) => {
                   const from = nodeMap.get(edge.from);
                   const to = nodeMap.get(edge.to);
                   if (!from || !to || isHiddenCanvasConnectionEndpoint(from, nodes) || isHiddenCanvasConnectionEndpoint(to, nodes)) return null;
-                  const x1 = from.x + from.width;
-                  const y1 = from.y + from.height / 2;
-                  const x2 = to.x;
-                  const y2 = to.y + to.height / 2;
+                  const x1 = fromGroup ? fromGroup.position.x + fromGroup.width : from.x + from.width;
+                  const y1 = fromGroup ? fromGroup.position.y + fromGroup.height / 2 : from.y + from.height / 2;
+                  const x2 = toGroup ? toGroup.position.x : to.x;
+                  const y2 = toGroup ? toGroup.position.y + toGroup.height / 2 : to.y + to.height / 2;
                   const curvature = canvasConnectionCurvature(x1, x2);
                   const path = `M ${x1} ${y1} C ${x1 + curvature} ${y1}, ${x2 - curvature} ${y2}, ${x2} ${y2}`;
                   const active = selectedEdgeId === edge.id || hoveredEdgeId === edge.id;

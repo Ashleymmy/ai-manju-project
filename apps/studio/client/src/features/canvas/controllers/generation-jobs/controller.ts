@@ -1003,7 +1003,10 @@ export class CanvasGenerationJobsController {
     }
     if (!this.preparationIsCurrent(preparation)) return;
     const count = imageCountFromNode(sourceNode);
-    const reuseSourceNode = sourceNode.kind === "image";
+    // Imported asset nodes are source material and must remain intact; generating
+    // from their prompt creates a new image node. Generated image nodes continue
+    // to reuse their slot for the existing overwrite workflow.
+    const reuseSourceNode = sourceNode.kind === "image" && sourceNode.metadata?.canvasOrigin !== "imported";
     const hasExistingMedia = Boolean(
       assetIdFromNode(sourceNode)
       || sourceNode.imageSrc

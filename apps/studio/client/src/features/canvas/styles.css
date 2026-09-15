@@ -228,13 +228,27 @@
   stroke: #f2f1ed;
   stroke-width: 1;
 }
-.canvas-group-frame { --canvas-group-color: #ffffff; position: absolute; z-index: 0; border: 1px solid color-mix(in srgb,var(--canvas-group-color) 48%,transparent); background: color-mix(in srgb,var(--canvas-group-color) 7%,transparent); box-shadow: inset 0 0 0 1px rgba(255,255,255,.018); cursor: grab; touch-action: none; }
+.canvas-group-frame { --canvas-group-color: #ffffff; position: absolute; z-index: 0; border: 1px solid color-mix(in srgb,var(--canvas-group-color) 48%,transparent); border-radius: 10px; background: color-mix(in srgb,var(--canvas-group-color) 7%,transparent); box-shadow: inset 0 0 0 1px rgba(255,255,255,.018); cursor: grab; touch-action: none; }
 .canvas-group-frame:active { cursor: grabbing; }
 .canvas-group-frame.selected { border-color: var(--canvas-group-color); box-shadow: 0 0 0 2px color-mix(in srgb,var(--canvas-group-color) 18%,transparent), inset 0 0 0 1px rgba(255,255,255,.025); }
-.canvas-group-header { display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 10px; border-bottom: 1px solid color-mix(in srgb,var(--canvas-group-color) 30%,transparent); color: var(--canvas-group-color); background: color-mix(in srgb,var(--canvas-group-color) 10%,rgba(20,20,20,.82)); font-size: 11px; user-select: none; }
+.canvas-group-header { position: relative; z-index: 4; display: flex; align-items: center; gap: 7px; height: 38px; margin: 0 -1px; padding: 0 10px; border: 1px solid color-mix(in srgb,var(--canvas-group-color) 30%,transparent); border-radius: 10px; color: var(--canvas-group-color); background: color-mix(in srgb,var(--canvas-group-color) 10%,rgba(20,20,20,.94)); font-size: 11px; user-select: none; transform: translateY(-24px); }
 .canvas-group-header b { min-width: 0; overflow: hidden; color: #ededed; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .canvas-group-header span { margin-left: auto; color: #bbbbbb; font: 10px "IBM Plex Mono",monospace; white-space: nowrap; }
-.canvas-group-resize-handle { position: absolute; z-index: 3; width: 14px; height: 14px; padding: 0; border: 1px solid color-mix(in srgb,var(--canvas-group-color) 82%,#fff); border-radius: 2px; background: color-mix(in srgb,var(--canvas-group-color) 55%,#1e1e1e); box-shadow: 0 0 0 2px rgba(11,16,18,.72); opacity: 0; pointer-events: none; touch-action: none; }
+.canvas-group-header-actions { display: flex; align-items: center; gap: 3px; margin-left: 8px; }
+.canvas-group-header-actions button { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 1px solid transparent; border-radius: 5px; color: #cbd5e1; background: transparent; cursor: pointer; }
+.canvas-group-header-actions button:hover:not(:disabled) { border-color: color-mix(in srgb,var(--canvas-group-color) 55%,transparent); color: #fff; background: color-mix(in srgb,var(--canvas-group-color) 20%,transparent); }
+.canvas-group-header-actions button:disabled { cursor: wait; opacity: .55; }
+.canvas-group-pending-actions { position: absolute; left: 0; top: calc(100% + 8px); z-index: 8; display: flex; align-items: center; gap: 8px; padding: 6px 9px; border: 1px solid rgba(125,211,252,.38); border-radius: 8px; background: rgba(20,28,32,.94); box-shadow: 0 8px 20px rgba(0,0,0,.22); color: #cbd5e1; font-size: 11px; white-space: nowrap; pointer-events: auto; }
+.canvas-group-pending-actions button { min-height: 24px; padding: 0 9px; border: 1px solid rgba(125,211,252,.4); border-radius: 5px; background: rgba(125,211,252,.12); color: #e0f2fe; cursor: pointer; }
+.canvas-group-pending-actions button:last-child { border-color: rgba(255,255,255,.15); background: transparent; color: #aeb8c4; }
+.canvas-group-frame.pending {
+  border-style: dashed;
+  border-color: rgba(125, 211, 252, 0.72);
+  background: rgba(125, 211, 252, 0.06);
+  /* The preview frame must never block node cards or their connection handles. */
+  pointer-events: none;
+}
+.canvas-group-resize-handle { position: absolute; z-index: 3; box-sizing: border-box; width: 14px !important; min-width: 14px; max-width: 14px; height: 14px !important; min-height: 14px; max-height: 14px; padding: 0; border: 1px solid color-mix(in srgb,var(--canvas-group-color) 82%,#fff); border-radius: 5px; background: color-mix(in srgb,var(--canvas-group-color) 55%,#1e1e1e); box-shadow: 0 0 0 2px rgba(11,16,18,.72); opacity: 0; pointer-events: none; touch-action: none; }
 .canvas-group-frame.selected .canvas-group-resize-handle { opacity: 1; pointer-events: auto; }
 .canvas-group-resize-handle.top-left { left: -7px; top: -7px; cursor: nwse-resize; }
 .canvas-group-resize-handle.top-right { right: -7px; top: -7px; cursor: nesw-resize; }
@@ -242,6 +256,11 @@
 .canvas-group-resize-handle.bottom-right { right: -7px; bottom: -7px; cursor: nwse-resize; }
 .canvas-group-color-row { display: flex; align-items: center; gap: 10px; margin-top: 9px; color: #cccccc; font: 11px "IBM Plex Mono",monospace; }
 .real-canvas-page .canvas-group-color-row input[type="color"] { width: 42px; height: 32px; margin: 0; padding: 3px; cursor: pointer; }
+.canvas-connected-preview-strip { display: flex; align-items: center; gap: 8px; max-width: 100%; overflow-x: auto; padding: 2px 0 4px; }
+.canvas-connected-preview { display: grid; place-items: center; width: 54px; height: 42px; flex: 0 0 54px; padding: 2px; border: 1px solid rgba(239,235,222,.2); border-radius: 8px; background: rgba(255,255,255,.04); color: #9da7a4; cursor: pointer; overflow: hidden; }
+.canvas-connected-preview:hover { border-color: rgba(125,211,252,.65); background: rgba(125,211,252,.1); }
+.canvas-connected-preview img { width: 100%; height: 100%; object-fit: cover; border-radius: 5px; }
+.canvas-connected-preview span { font-size: 9px; }
 .real-canvas-lines { position: absolute; z-index: 1; left: 0; top: 0; width: 10000px; height: 10000px; pointer-events: none; overflow: visible; }
 .real-canvas-lines path { fill: none; }
 .real-canvas-lines .real-canvas-edge-visible { stroke: rgba(255,255,255,.78); stroke-width: 2; stroke-dasharray: none; filter: drop-shadow(0 0 8px rgba(255,255,255,.18)); }
@@ -5450,4 +5469,57 @@ textarea.node-card-prompt {
   border-color: rgba(255, 255, 255, 0.5);
   background: rgba(24, 24, 24, 0.88);
   color: #fff;
+}
+
+/* Group controls stay lightweight: a compact horizontal floating bar keeps
+   the canvas visible while retaining the detailed node inspector separately. */
+.canvas-focus .inspector-panel.inspector-group {
+  bottom: auto;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  flex-wrap: nowrap;
+  gap: 10px;
+  max-height: none;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(22, 27, 29, 0.88);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
+}
+.inspector-group .inspector-head { display: none; }
+.inspector-group .inspector-block { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 0; }
+.inspector-group .inspector-block .field-label { margin: 0; white-space: nowrap; }
+.inspector-group .inspector-block input:not([type="color"]) { width: 110px; margin: 0; }
+.inspector-group .full-outline { width: auto; flex: 0 0 auto; margin: 0 0 0 6px; min-height: 34px; padding: 0 11px; white-space: nowrap; }
+.inspector-group .canvas-group-color-row { margin: 0; }
+.inspector-group .canvas-group-color-row { display: flex; align-items: center; gap: 5px; }
+.canvas-group-color-swatch {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--group-swatch-color);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.canvas-group-color-swatch:hover { transform: scale(1.12); }
+.canvas-group-color-swatch.active {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .2), inset 0 0 0 1px rgba(0, 0, 0, .2);
+}
+.canvas-focus .inspector-panel.inspector-group .full-outline { margin-top: 0; }
+@media (max-width: 760px) {
+  .canvas-focus .inspector-panel.inspector-group {
+    overflow: visible;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  .inspector-group .inspector-block { gap: 6px; padding: 0 4px; }
+  .inspector-group .inspector-block input:not([type="color"]) { width: 90px; }
+  .inspector-group .full-outline { gap: 5px; padding: 0 5px; font-size: 10px; }
+  .inspector-group .canvas-group-color-row { gap: 3px; }
+  .inspector-group .canvas-group-color-swatch { width: 16px; height: 16px; flex-basis: 16px; }
 }

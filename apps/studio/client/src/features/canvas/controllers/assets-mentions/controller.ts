@@ -534,6 +534,7 @@ export class CanvasAssetsMentionsController {
           status: "success",
           textAssetId: item.textAsset.id,
           textAssetScope: item.scope,
+          canvasOrigin: "imported",
         },
       }];
     }
@@ -556,6 +557,7 @@ export class CanvasAssetsMentionsController {
         generationMode: asset.type,
         status: "success",
         sourceNodeId: undefined,
+        canvasOrigin: "imported",
       },
     }];
   }

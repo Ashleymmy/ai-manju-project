@@ -110,6 +110,9 @@ export type CanvasStageInteractionBindings = {
   setEdges(edges: CanvasEdgeData[]): void;
   getGroups(): CanvasGroupData[];
   setGroups(groups: CanvasGroupData[]): void;
+  /** Create a visual group from a marquee selection when supported by the host. */
+  createGroupFromSelection?(nodeIds: Iterable<string>): void;
+  dismissPendingGroup?(): void;
   getSelectedNodeIds(): Set<string>;
   getSelectedGroupId(): string;
   setSelectedGroupId(groupId: string): void;
