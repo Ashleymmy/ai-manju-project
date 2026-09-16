@@ -1964,7 +1964,7 @@ export default function CanvasWorkspaceViewContent() {
       toast.warning("正在确认项目工作区，请稍后再试");
       return;
     }
-    if (node.metadata?.seedanceVolcanoAssets?.length) {
+    if (node.metadata?.seedanceVolcanoAssets?.some((item) => item && typeof item === "object" && typeof (item as { volcanoAssetId?: unknown }).volcanoAssetId === "string" && Boolean((item as { volcanoAssetId: string }).volcanoAssetId.trim()))) {
       toast.info("该图片已经注册过拟真人素材");
       return;
     }
