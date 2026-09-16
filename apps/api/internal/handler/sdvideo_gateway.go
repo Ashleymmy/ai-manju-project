@@ -52,6 +52,9 @@ func RegisterSDVideoGateway(group *gin.RouterGroup, client *sdvideo.Client, jobs
 						delete(payload, key)
 					}
 				}
+				if template == "/messages" || strings.HasPrefix(template, "/messages/") {
+					sanitizeSDVideoMessagePayload(payload)
+				}
 				envelope, err := client.BusinessRequest(c.Request.Context(), method, destination, user, service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID), payload)
 				if err != nil {
 					code := http.StatusBadGateway
@@ -124,4 +127,26 @@ func restoreSDVideoMessages(raw json.RawMessage, jobs *service.JobService, userI
 		}
 	}
 	return data, nil
+}
+
+// sanitizeSDVideoMessagePayload prevents browser-local media keys from reaching the independent service.
+func sanitizeSDVideoMessagePayload(payload map[string]any) {
+	raw, ok := payload["attachments"].([]any)
+	if !ok {
+		return
+	}
+	filtered := make([]any, 0, len(raw))
+	for _, value := range raw {
+		attachment, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		delete(attachment, "storageKey")
+		assetID, _ := attachment["assetId"].(string)
+		assetRef, _ := attachment["assetRef"].(string)
+		if strings.TrimSpace(assetID) != "" || strings.HasPrefix(strings.TrimSpace(assetRef), "asset://") {
+			filtered = append(filtered, attachment)
+		}
+	}
+	payload["attachments"] = filtered
 }

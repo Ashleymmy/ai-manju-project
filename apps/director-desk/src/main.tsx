@@ -1,5 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import "./polyfills/cryptoRandomUuid";
 import App from "./App";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

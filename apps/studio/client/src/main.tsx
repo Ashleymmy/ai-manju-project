@@ -1,3 +1,4 @@
+import "./shared/lib/cryptoRandomUuid";
 import { createRoot } from "react-dom/client";
 import "./shared/styles/global.css";
 import App from "./App";
