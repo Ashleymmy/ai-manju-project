@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import {
   ensureSeedanceAssetsActive,
   getAssetContentObjectUrl,
+  getAssetMediaUrl,
   getAssetLibrary,
   getSeedanceAssetPreviewUrl,
   seedanceAssetPreviewSource,
@@ -108,6 +109,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   const objectUrlsRef = useRef(new Set<string>());
   const assetMentionCacheRef = useRef<{ at: number; items: MentionCandidate[] }>({ at: 0, items: [] });
   const resultUrlsRef = useRef<Record<string, string>>({});
+  const resultLoadsRef = useRef(new Set<string>());
   const [resultUrlsVersion, setResultUrlsVersion] = useState(0);
 
   const { resolveThumb } = useWorkbenchThumbCache();
@@ -536,6 +538,16 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
     let assetId = result.assetId;
     let scope: WorkspaceScope = result.scope || "personal";
     try {
+      // The server already archived this result; don't download and save it again.
+      if (assetId) {
+        const url = getAssetMediaUrl(assetId, scope);
+        resultUrlsRef.current[message.id] = url;
+        patchMessage(conversationId, message.id, { taskStatus: "succeeded", resultAssetId: assetId, resultScope: scope, fileName });
+        setRuntime(message.id, { status: "succeeded", url });
+        setResultUrlsVersion(version => version + 1);
+        toast.success("视频生成完成");
+        return;
+      }
       const blob = await videoGenerationResultToBlob(result, signal);
       if (signal.aborted) return;
       resultStorageKey = workbenchResultMediaKey(message.id);
@@ -711,21 +723,18 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
     if (cached) return cached;
     if (message.taskStatus === "succeeded") {
       if (message.resultAssetId) {
-        resultUrlsRef.current[message.id] = "";
-        void getAssetContentObjectUrl(message.resultAssetId, message.resultScope || "personal")
-          .then((url) => {
-            resultUrlsRef.current[message.id] = url;
-            setResultUrlsVersion((version) => version + 1);
-          })
-          .catch(() => undefined);
-      } else if (message.resultStorageKey) {
-        resultUrlsRef.current[message.id] = "";
+        const url = getAssetMediaUrl(message.resultAssetId, message.resultScope || "personal");
+        resultUrlsRef.current[message.id] = url;
+        return url;
+      } else if (message.resultStorageKey && !resultLoadsRef.current.has(message.id)) {
+        resultLoadsRef.current.add(message.id);
         void loadWorkbenchMedia(message.resultStorageKey)
           .then((blob) => {
             resultUrlsRef.current[message.id] = trackUrl(URL.createObjectURL(blob));
             setResultUrlsVersion((version) => version + 1);
           })
-          .catch(() => undefined);
+          .catch(() => undefined)
+          .finally(() => resultLoadsRef.current.delete(message.id));
       }
     }
     return "";

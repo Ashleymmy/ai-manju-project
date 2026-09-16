@@ -54,6 +54,24 @@ def test_storage_only_endpoints_and_signed_url(configure):
     asyncio.run(check())
 
 
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_public_protocol_switch_keeps_storage_credentials_on_https(configure, monkeypatch, scheme):
+    monkeypatch.setattr(settings, "SUPABASE_PUBLIC_URL", scheme + "://media.invalid")
+
+    def handler(request):
+        assert request.url.scheme == "https"
+        assert request.url.host == "new-storage.invalid"
+        assert request.headers["authorization"].startswith("Bearer ")
+        return httpx.Response(200, json={"signedURL": "/object/sign/studio-sdvideo-test-input/inputs/user/image.png?token=test"})
+
+    storage = SupabaseStorageAdapter(httpx.MockTransport(handler))
+    signed = asyncio.run(storage.url("inputs/user/image.png"))
+    assert signed.startswith(scheme + "://media.invalid/storage/")
+    monkeypatch.setattr(settings, "SUPABASE_URL", "http://new-storage.invalid")
+    with pytest.raises(ValueError, match="HTTPS"):
+        asyncio.run(storage.url("inputs/user/image.png"))
+
+
 def test_personal_workspace_signature_downloads_through_public_origin(configure):
     signed_objects = {}
     image = b"\x89PNG\r\n\x1a\n" + b"image-data"

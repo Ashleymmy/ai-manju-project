@@ -27,10 +27,11 @@ import (
 )
 
 type AssetHandler struct {
-	assets  *service.AssetService
-	lineage *service.AssetLineageService
-	usage   *service.AssetUsageService
-	cfg     config.Config
+	assets     *service.AssetService
+	lineage    *service.AssetLineageService
+	usage      *service.AssetUsageService
+	cfg        config.Config
+	thumbnails *assetThumbnailCache
 }
 
 func NewAssetHandler(repo repository.AssetRepository, cfg config.Config) *AssetHandler {
@@ -38,7 +39,7 @@ func NewAssetHandler(repo repository.AssetRepository, cfg config.Config) *AssetH
 }
 
 func NewAssetHandlerWithService(assets *service.AssetService, cfg config.Config) *AssetHandler {
-	return &AssetHandler{assets: assets, cfg: cfg}
+	return &AssetHandler{assets: assets, cfg: cfg, thumbnails: newAssetThumbnailCache()}
 }
 
 func (h *AssetHandler) SetLineageService(lineage *service.AssetLineageService) {
@@ -306,7 +307,37 @@ func (h *AssetHandler) Content(c *gin.Context) {
 	}
 
 	scope := requestWorkspaceScope(c)
-	content, err := h.assets.OpenContent(c.Request.Context(), c.Param("id"), user.ID, scope)
+	thumbnailWidth, err := assetThumbnailWidth(c.Query("thumbnail"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	download := queryBool(c.Query("download"))
+	cacheKey := ""
+	if thumbnailWidth > 0 && !download {
+		// Authorize every cache hit, including after trashing or moving an asset.
+		asset, lookupErr := h.assets.AuthorizeContent(c.Param("id"), user.ID, scope)
+		if lookupErr != nil {
+			assetMutationError(c, lookupErr)
+			return
+		}
+		if asset.Type == "image" {
+			cacheKey = assetThumbnailKey(asset, thumbnailWidth)
+			if cached, ok := h.thumbnails.get(cacheKey); ok {
+				c.Header("Cache-Control", "private, max-age=86400")
+				c.Header("ETag", cached.etag)
+				c.Header("Last-Modified", cached.lastModified)
+				c.Header("X-Asset-Thumbnail-Cache", "HIT")
+				if c.GetHeader("If-None-Match") == cached.etag {
+					c.Status(http.StatusNotModified)
+				} else {
+					c.Data(http.StatusOK, cached.contentType, cached.body)
+				}
+				return
+			}
+		}
+	}
+	content, err := h.assets.DescribeContent(c.Request.Context(), c.Param("id"), user.ID, scope)
 	if err != nil {
 		if errors.Is(err, repository.ErrAssetNotFound) {
 			response.Error(c, http.StatusNotFound, "asset not found")
@@ -315,14 +346,6 @@ func (h *AssetHandler) Content(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer content.Reader.Close()
-
-	thumbnailWidth, err := assetThumbnailWidth(c.Query("thumbnail"))
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	download := queryBool(c.Query("download"))
 	if thumbnailWidth == 0 && !download {
 		deliveryURL, err := h.assets.ContentDeliveryURL(c.Request.Context(), content)
 		if err != nil {
@@ -353,6 +376,12 @@ func (h *AssetHandler) Content(c *gin.Context) {
 		c.Status(http.StatusNotModified)
 		return
 	}
+	content, err = h.assets.OpenResolvedContent(c.Request.Context(), content)
+	if err != nil {
+		response.Error(c, http.StatusBadGateway, "asset content unavailable")
+		return
+	}
+	defer content.Reader.Close()
 	contentType := firstNonEmpty(content.Asset.ContentType, content.Object.ContentType, "application/octet-stream")
 	if h.usage != nil && download {
 		_ = h.usage.RecordDownload(content.Asset.ID, user.ID, scope, response.RequestID(c))
@@ -365,9 +394,13 @@ func (h *AssetHandler) Content(c *gin.Context) {
 			return
 		}
 		if thumbnail, thumbnailType, ok := resizeAssetThumbnail(original, contentType, thumbnailWidth); ok {
+			h.thumbnails.put(cacheKey, assetThumbnail{body: thumbnail, contentType: thumbnailType, etag: etag, lastModified: c.Writer.Header().Get("Last-Modified")})
+			c.Header("X-Asset-Thumbnail-Cache", "MISS")
 			c.Data(http.StatusOK, thumbnailType, thumbnail)
 			return
 		}
+		h.thumbnails.put(cacheKey, assetThumbnail{body: original, contentType: contentType, etag: etag, lastModified: c.Writer.Header().Get("Last-Modified")})
+		c.Header("X-Asset-Thumbnail-Cache", "MISS")
 		c.Data(http.StatusOK, contentType, original)
 		return
 	}

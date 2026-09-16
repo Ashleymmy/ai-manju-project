@@ -514,6 +514,31 @@ func TestAssetContentThumbnailResizesAndValidatesVariant(t *testing.T) {
 	if resized.Bounds().Dx() != 320 || resized.Bounds().Dy() != 160 {
 		t.Fatalf("thumbnail bounds = %v", resized.Bounds())
 	}
+	path := "/api/assets/" + assetID + "/content?thumbnail=320"
+	cached := performJSON(router, http.MethodGet, path, "", ownerCookie)
+	if cached.Code != http.StatusOK || cached.Header().Get("X-Asset-Thumbnail-Cache") != "HIT" || !bytes.Equal(cached.Body.Bytes(), thumbnail.Body.Bytes()) {
+		t.Fatal("thumbnail was not reused")
+	}
+	otherCookie := loginCookie(t, router, "other", "secret")
+	if forbidden := performJSON(router, http.MethodGet, path, "", otherCookie); forbidden.Code != http.StatusNotFound {
+		t.Fatal("cached thumbnail bypassed workspace authorization")
+	}
+	conditional := httptest.NewRequest(http.MethodGet, path, nil)
+	conditional.AddCookie(ownerCookie)
+	conditional.Header.Set("If-None-Match", cached.Header().Get("ETag"))
+	notModified := httptest.NewRecorder()
+	router.ServeHTTP(notModified, conditional)
+	if notModified.Code != http.StatusNotModified || notModified.Body.Len() != 0 {
+		t.Fatal("cached conditional request failed")
+	}
+	performJSON(router, http.MethodDelete, "/api/assets/"+assetID, "", ownerCookie)
+	if trashPreview := performJSON(router, http.MethodGet, path, "", ownerCookie); trashPreview.Code != http.StatusOK {
+		t.Fatal("trash preview must stay readable")
+	}
+	performJSON(router, http.MethodDelete, "/api/assets/"+assetID+"/permanent", "", ownerCookie)
+	if removed := performJSON(router, http.MethodGet, path, "", ownerCookie); removed.Code != http.StatusNotFound {
+		t.Fatal("removed asset leaked from thumbnail cache")
+	}
 	invalid := httptest.NewRecorder()
 	invalidRequest := httptest.NewRequest(http.MethodGet, "/api/assets/"+assetID+"/content?thumbnail=400", nil)
 	invalidRequest.AddCookie(ownerCookie)

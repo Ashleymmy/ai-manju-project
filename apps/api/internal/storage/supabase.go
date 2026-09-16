@@ -57,6 +57,16 @@ func storageOrigin(value string) (string, error) {
 	return strings.TrimRight(u.String(), "/"), nil
 }
 
+// Public media URLs carry only short-lived object signatures. HTTP supports
+// the temporary test ingress; credential-bearing Storage requests stay HTTPS.
+func storagePublicOrigin(value string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return "", errors.New("Storage public endpoint must be an HTTP or HTTPS origin")
+	}
+	return strings.TrimRight(u.String(), "/"), nil
+}
+
 func NewSupabaseStorage(cfg config.Config) (*SupabaseStorage, error) {
 	origin, err := storageOrigin(cfg.SupabaseStorageURL)
 	if err != nil {
@@ -66,7 +76,7 @@ func NewSupabaseStorage(cfg config.Config) (*SupabaseStorage, error) {
 	if public == "" {
 		public = origin
 	}
-	public, err = storageOrigin(public)
+	public, err = storagePublicOrigin(public)
 	if err != nil {
 		return nil, err
 	}
@@ -356,7 +366,7 @@ func (s *SupabaseStorage) URL(ctx context.Context, key string) (string, error) {
 		return "", errors.New("invalid Storage signed URL")
 	}
 	if u.IsAbs() || u.Host != "" {
-		if u.Scheme != "https" || (u.Scheme+"://"+u.Host != s.origin && u.Scheme+"://"+u.Host != s.publicOrigin) {
+		if u.Scheme+"://"+u.Host != s.origin && u.Scheme+"://"+u.Host != s.publicOrigin {
 			return "", errors.New("external Storage signing origin rejected")
 		}
 	}

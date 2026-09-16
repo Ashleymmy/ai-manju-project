@@ -402,3 +402,13 @@ export async function getAssetContentObjectUrl(
   if (!response.ok) throw new Error(`读取资产内容失败（${response.status}）`);
   return URL.createObjectURL(await response.blob());
 }
+
+/** Native media requests use the login cookie and retain browser Range support.
+ * Keep the authenticated API URL stable so each new request gets a fresh signature.
+ * Never put the session token into a media URL.
+ */
+export function getAssetMediaUrl(id: string, scope: WorkspaceScope = "personal") {
+  const url = new URL(`${API_BASE_URL}/api/assets/${encodeURIComponent(id)}/content`);
+  url.searchParams.set("scope", scope);
+  return url.toString();
+}

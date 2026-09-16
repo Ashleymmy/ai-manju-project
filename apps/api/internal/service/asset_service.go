@@ -173,7 +173,7 @@ type AssetContent struct {
 	Reader io.ReadCloser
 }
 
-// 调用者已经通过 OpenContent 完成空间鉴权；仅对象存储生成短期访问地址。
+// 调用者已经通过 DescribeContent 完成空间鉴权；仅对象存储生成短期访问地址。
 func (s *AssetService) ContentDeliveryURL(ctx context.Context, content AssetContent) (string, error) {
 	switch s.storage.(type) {
 	case *storage.OSSStorage, *storage.SupabaseStorage:
@@ -607,12 +607,41 @@ func (s *AssetService) ApplyRegistration(id string, userID string, scope string,
 }
 
 func (s *AssetService) OpenContent(ctx context.Context, id string, userID string, scope string) (AssetContent, error) {
-	workspaceID := WorkspaceIDForScope(scope, userID)
-	asset, err := s.repo.GetByWorkspace(id, workspaceID)
+	content, err := s.DescribeContent(ctx, id, userID, scope)
 	if err != nil {
 		return AssetContent{}, err
 	}
-	return s.openContentForAsset(ctx, asset, userID, scope)
+	return s.OpenResolvedContent(ctx, content)
+}
+
+// DescribeContent authorizes and resolves metadata without starting a media GET.
+// Redirects and conditional requests must not download the object first.
+func (s *AssetService) DescribeContent(ctx context.Context, id string, userID string, scope string) (AssetContent, error) {
+	workspaceID := WorkspaceIDForScope(scope, userID)
+	asset, err := s.AuthorizeContent(id, userID, scope)
+	if err != nil {
+		return AssetContent{}, err
+	}
+	key, object, err := s.resolveAssetObject(ctx, workspaceID, asset, scope, userID)
+	if err != nil {
+		return AssetContent{}, err
+	}
+	object.Key = key
+	return AssetContent{Asset: asset, Object: object}, nil
+}
+
+// AuthorizeContent preserves read access to the owner's trash previews.
+func (s *AssetService) AuthorizeContent(id string, userID string, scope string) (model.Asset, error) {
+	return s.repo.GetByWorkspace(id, WorkspaceIDForScope(scope, userID))
+}
+
+// OpenResolvedContent is for content already authorized by DescribeContent.
+func (s *AssetService) OpenResolvedContent(ctx context.Context, content AssetContent) (AssetContent, error) {
+	reader, object, err := s.storage.Get(ctx, content.Object.Key)
+	if err != nil {
+		return AssetContent{}, err
+	}
+	return AssetContent{Asset: content.Asset, Object: object, Reader: reader}, nil
 }
 
 func (s *AssetService) openContentForAsset(ctx context.Context, asset model.Asset, userID string, scope string) (AssetContent, error) {

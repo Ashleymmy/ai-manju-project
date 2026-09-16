@@ -27,11 +27,13 @@ class StorageRequestError(RuntimeError):
         super().__init__(f"Storage request failed (HTTP {status})")
 
 
-def _origin(value: str) -> str:
+def _origin(value: str, *, public: bool = False) -> str:
     origin = urlsplit(value)
-    if (origin.scheme != "https" or not origin.hostname or origin.username is not None
+    # Only the public test ingress may use HTTP. Service credentials remain on HTTPS.
+    schemes = {"http", "https"} if public else {"https"}
+    if (origin.scheme not in schemes or not origin.hostname or origin.username is not None
             or origin.password is not None or origin.path not in {"", "/"} or origin.query or origin.fragment):
-        raise ValueError("Storage endpoint must be an HTTPS origin")
+        raise ValueError("Storage endpoint must be a valid " + ("HTTP(S)" if public else "HTTPS") + " origin")
     return value.rstrip("/")
 
 
@@ -181,7 +183,7 @@ class SupabaseStorageAdapter:
     async def url(self, key: str, expires_in: int = 900) -> str:
         bucket, target = self._target(key)
         origin = _origin(settings.SUPABASE_URL)
-        public = _origin(settings.SUPABASE_PUBLIC_URL or origin)
+        public = _origin(settings.SUPABASE_PUBLIC_URL or origin, public=True)
         # NAS 签名必须绑定原始冒号；公网 URL 仍使用编码路径，其余转义保持原样。
         signing_target = target.replace("%3A", ":")
         response = await self._request(bucket, "POST", "object/sign/" + signing_target,

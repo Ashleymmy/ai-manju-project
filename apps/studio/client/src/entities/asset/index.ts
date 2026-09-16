@@ -35,6 +35,7 @@ export {
   cancelAssetExport,
   downloadAssetExport,
   getAssetContentObjectUrl,
+  getAssetMediaUrl,
 } from "./api";
 export {
   getSeedanceAssetReadiness,

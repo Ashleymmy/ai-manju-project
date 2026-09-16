@@ -61,6 +61,17 @@ async function render() { await act(async () => root.render(<VideoWorkbenchView 
 async function edit() { await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="重新编辑提示词和参考素材"]')!.click()); }
 
 describe("视频历史消息重新编辑", () => {
+  it("历史视频使用可续签的媒体地址，不预先读取整段 Blob", async () => {
+    const history = conversations();
+    history[0].messages = [{ id: "video", role: "system", text: "已完成", createdAt: 2, taskStatus: "succeeded", resultAssetId: "asset-video", resultScope: "personal" }];
+    mocks.load.mockResolvedValue(history);
+    await render();
+    const src = container.querySelector("video")!.getAttribute("src")!;
+    expect(src).toContain("/api/assets/asset-video/content?scope=personal");
+    expect(src).not.toContain("access_token");
+    expect(mocks.assetContent).not.toHaveBeenCalled();
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
   it("点击回填描述、参考、首帧和原参数并聚焦，不发起任务或改写历史", async () => {
     await render();
     await edit();

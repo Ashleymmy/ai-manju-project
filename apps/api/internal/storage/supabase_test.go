@@ -226,3 +226,33 @@ func TestSupabaseHEAD400ResolvesActualMetadataStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestSupabasePublicProtocolSwitchDoesNotDowngradeCredentials(t *testing.T) {
+	s, cfg := testSupabase(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.TLS == nil || r.Header.Get("Authorization") == "" {
+			t.Error("credentials must stay on HTTPS")
+		}
+		json.NewEncoder(w).Encode(map[string]string{"signedURL": "/object/sign/studio-test-assets/results/test.mp4?token=test"})
+	})
+	for _, origin := range []string{"http://media.example.invalid", "https://media.example.invalid"} {
+		cfg.SupabaseStoragePublicURL = origin
+		configured, err := NewSupabaseStorage(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		configured.client.Transport = s.client.Transport
+		signed, err := configured.URL(context.Background(), "results/test.mp4")
+		if err != nil || !strings.HasPrefix(signed, origin+"/storage/") {
+			t.Fatal("public protocol switch failed")
+		}
+	}
+	cfg.SupabaseStorageURL = "http://storage.example.invalid"
+	if _, err := NewSupabaseStorage(cfg); err == nil {
+		t.Fatal("credential endpoint allowed HTTP")
+	}
+	for _, invalid := range []string{"ftp://media.invalid", "http://user:pass@media.invalid", "http://media.invalid/path", "http://media.invalid?token=x", "http://media.invalid#fragment"} {
+		if _, err := storagePublicOrigin(invalid); err == nil {
+			t.Fatal("invalid public origin accepted")
+		}
+	}
+}

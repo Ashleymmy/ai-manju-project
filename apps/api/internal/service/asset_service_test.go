@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,41 @@ import (
 	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/storage"
 )
+
+type contentReadCounter struct {
+	storage.Storage
+	gets int
+}
+
+func (s *contentReadCounter) Get(ctx context.Context, key string) (io.ReadCloser, storage.StorageObject, error) {
+	s.gets++
+	return s.Storage.Get(ctx, key)
+}
+
+func TestAssetContentMetadataDoesNotStartDownload(t *testing.T) {
+	store := &contentReadCounter{Storage: storage.NewLocalFSStorage(t.TempDir())}
+	svc := NewAssetService(repository.NewMemoryAssetRepository(), store)
+	ctx := context.Background()
+	asset, err := svc.Upload(ctx, AssetUploadInput{ID: "metadata", UserID: "owner", Scope: WorkspaceScopePersonal, Type: "video", Extension: ".mp4", Reader: strings.NewReader("video"), ContentType: "video/mp4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := svc.DescribeContent(ctx, asset.ID, "owner", WorkspaceScopePersonal)
+	if err != nil || store.gets != 0 || content.Reader != nil {
+		t.Fatal("metadata lookup downloaded media")
+	}
+	if _, err := svc.DescribeContent(ctx, asset.ID, "other", WorkspaceScopePersonal); !errors.Is(err, repository.ErrAssetNotFound) {
+		t.Fatal("metadata bypassed workspace authorization")
+	}
+	opened, err := svc.OpenResolvedContent(ctx, content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Reader.Close()
+	if store.gets != 1 {
+		t.Fatal("content must be opened only on demand")
+	}
+}
 
 func TestAssetServiceIdempotentIngestionHashesContentAndRecordsLineage(t *testing.T) {
 	assetRepo := repository.NewMemoryAssetRepository()

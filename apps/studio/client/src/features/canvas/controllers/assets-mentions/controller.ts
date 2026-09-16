@@ -602,6 +602,7 @@ export class CanvasAssetsMentionsController {
           return;
         }
         this.pickerThumbCache.set(cacheKey, url);
+        this.patchPicker({ thumbnails: this.cachedPickerThumbnails(this.snapshot.picker.items, scope) });
       } catch {
         /* 缩略图失败时保留图标占位，不阻断插入 */
       }

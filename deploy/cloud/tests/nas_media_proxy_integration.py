@@ -302,7 +302,7 @@ class NasMediaProxyTests(unittest.TestCase):
             self.assertNotIn(key, headers)
 
     def test_06_read_only_cors_and_no_cache(self):
-        for origin in ("https://studio.clouddo.cc", "http://47.103.211.217"):
+        for origin in ("https://studio.clouddo.cc", "http://studio.clouddo.cc", "http://47.103.211.217"):
             status, headers, body = self.request(signed_path(), "OPTIONS", {"Origin": origin})
             self.assertEqual((status, body), (204, b""))
             self.assertEqual(headers["access-control-allow-origin"], origin)
