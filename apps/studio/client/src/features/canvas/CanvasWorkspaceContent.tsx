@@ -82,6 +82,7 @@ import {
   updateAssetMetadata,
   updateAssetUserState,
   uploadAsset,
+  listUserSeedanceAssets,
   uploadUserSeedanceAsset,
   type Asset,
   type AssetCategory,
@@ -1975,7 +1976,22 @@ export default function CanvasWorkspaceViewContent() {
       const blob = await response.blob();
       const contentType = blob.type.startsWith("image/") ? blob.type : "image/png";
       const file = new File([blob], imageFileName(node.title || "拟真人素材", contentType), { type: contentType });
-      const asset = await uploadUserSeedanceAsset(file, scope);
+      let asset = await uploadUserSeedanceAsset(file, scope);
+      // 火山注册通常异步完成：上传接口可能先返回 Processing 和空 volcano_asset_id。
+      // 轮询同一资产记录，拿到真实 ID 后再写入画布节点，避免生成时退回原图上传。
+      if (!asset.volcano_asset_id) {
+        for (let attempt = 0; attempt < 15 && !asset.volcano_asset_id; attempt += 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+          const listed = await listUserSeedanceAssets({ scope, limit: 50, search: asset.name || file.name });
+          const refreshed = listed.items.find((item) => item.id === asset.id)
+            || listed.items.find((item) => item.name === asset.name && item.volcano_asset_id);
+          if (refreshed?.volcano_asset_id) asset = refreshed;
+        }
+      }
+      if (!asset.volcano_asset_id) {
+        toast.info("拟真人素材已提交，火山仍在处理中；完成后请重新点击注册或刷新资产库");
+        return;
+      }
       if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) return;
       const selected = {
         id: asset.id,
