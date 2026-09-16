@@ -220,6 +220,7 @@ export function CanvasInspector({
     node: {
       openDirectorNode,
       setMaterialNodeId,
+      registerImageAsSeedanceAsset,
       setImagePreviewNodeId,
       updateNodePrompt,
       mentionReferencesForNode,
@@ -275,8 +276,8 @@ export function CanvasInspector({
             <div><p className="eyebrow">INSPECTOR</p><div className="inspector-title-row"><h3>{selectedGroup?.title || selectedNode?.title || "未选择节点"}</h3>{selectedNode && !selectedGroup && selectedNode.kind === "video" ? <span className="video-submode-badge inspector-submode-badge">{VIDEO_SUBMODES.find((sub) => sub.value === videoSubModeFromNode(selectedNode))?.label || "文生视频"}</span> : null}</div></div>
             {selectedNode && !selectedGroup ? (
               <div className="node-card-head-actions">
-                {selectedNode.kind === "video" ? (
-                  <button className="icon-button subtle" title="素材校验" onClick={() => setMaterialNodeId(selectedNode.id)}><BadgeCheck size={15} /></button>
+                {selectedNode.kind === "image" ? (
+                  <button className="icon-button subtle" title="注册拟真人素材" onClick={() => void registerImageAsSeedanceAsset(selectedNode)}><BadgeCheck size={15} /></button>
                 ) : null}
                 <button
                   className="icon-button subtle"
@@ -394,7 +395,7 @@ export function CanvasInspector({
                       </PopoverTrigger>
                       <PopoverContent className="node-pop-card node-pop-wide" align="start" sideOffset={8}>
                         <p className="eyebrow">图片工具</p>
-                        <CanvasImageToolGrid node={selectedNode} imageToolBusy={imageToolBusy} storyboardBusy={storyboardBusy} openImageToolDialog={openImageToolDialog} setImageAnnotationNodeId={setImageAnnotationNodeId} setImageMaskNodeId={setImageMaskNodeId} setImageToolError={setImageToolError} flipCanvasImageNode={flipCanvasImageNode} generatePanoramaCanvasImage={generatePanoramaCanvasImage} generateStoryboard={(n) => setStoryboardNodeId(n.id)} createImageReversePromptNodes={createImageReversePromptNodes} setImagePreviewNodeId={setImagePreviewNodeId} setReplaceImageNodeId={setReplaceImageNodeId} replaceImageInputRef={replaceImageInputRef} archiveCanvasMediaNode={archiveCanvasMediaNode} />
+                        <CanvasImageToolGrid node={selectedNode} imageToolBusy={imageToolBusy} storyboardBusy={storyboardBusy} openImageToolDialog={openImageToolDialog} setImageAnnotationNodeId={setImageAnnotationNodeId} setImageMaskNodeId={setImageMaskNodeId} setImageToolError={setImageToolError} flipCanvasImageNode={flipCanvasImageNode} generatePanoramaCanvasImage={generatePanoramaCanvasImage} generateStoryboard={(n) => setStoryboardNodeId(n.id)} createImageReversePromptNodes={createImageReversePromptNodes} setImagePreviewNodeId={setImagePreviewNodeId} setReplaceImageNodeId={setReplaceImageNodeId} replaceImageInputRef={replaceImageInputRef} archiveCanvasMediaNode={archiveCanvasMediaNode} registerImageAsSeedanceAsset={registerImageAsSeedanceAsset} />
 
                       </PopoverContent>
                     </Popover>
@@ -619,6 +620,7 @@ export function CanvasInspector({
                         <button className="node-pop-item" onClick={() => setSeedanceAssetNodeId(selectedNode.id)}><UserRoundCog size={14} /> 拟真人素材 {selectedNode.metadata?.seedanceVolcanoAssets?.length || 0}</button>
                       </>
                     ) : null}
+                    {selectedNode.kind === "image" ? <button className="node-pop-item" onClick={() => void registerImageAsSeedanceAsset(selectedNode)}><BadgeCheck size={14} /> 注册拟真人素材 {selectedNode.metadata?.seedanceVolcanoAssets?.length || 0}</button> : null}
                     {selectedNode.kind === "text" ? <button className="node-pop-item" onClick={() => void archiveCanvasTextNode(selectedNode)}><Archive size={14} /> 加入素材库</button> : null}
                     {selectedNode.kind === "video" ? <button className="node-pop-item" onClick={() => void captureVideoFrameNode(selectedNode)} disabled={Boolean(captureFrameNodeId)}><Camera size={14} /> {captureFrameNodeId === selectedNode.id ? "创建中…" : "当前帧创建图片"}</button> : null}
                     {selectedNode.kind === "video" || selectedNode.kind === "audio" ? <button className="node-pop-item" onClick={() => void archiveCanvasMediaNode(selectedNode)}><Archive size={14} /> 加入素材库</button> : null}

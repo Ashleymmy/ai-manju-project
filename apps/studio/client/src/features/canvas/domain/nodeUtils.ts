@@ -289,6 +289,9 @@ export function canvasGenerationInputsFromVideoSnapshot(
       assetId,
       assetScope: item.scope || (node ? workspaceScopeValue(node.metadata?.assetScope) : undefined),
       content: content && isReadableMediaSource(content) ? content : undefined,
+      seedanceVolcanoAssets: node && Array.isArray(node.metadata?.seedanceVolcanoAssets)
+        ? node.metadata.seedanceVolcanoAssets.filter((asset): asset is { id: string; volcanoAssetId: string; name?: string; status?: string; assetType?: string } => Boolean(asset && typeof asset === "object" && typeof (asset as { volcanoAssetId?: unknown }).volcanoAssetId === "string"))
+        : undefined,
     };
   });
 }

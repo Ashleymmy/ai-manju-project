@@ -197,6 +197,37 @@ async function hydrateMediaInput(
 }> {
   const assetId = input.assetId?.trim();
   const content = input.content?.trim();
+  // 图片节点完成火山拟真人注册后，直接传递 asset:// 引用，避免再次上传原图。
+  if (input.type === "image" && input.seedanceVolcanoAssets?.length) {
+    const registered = input.seedanceVolcanoAssets.find((item) => item.volcanoAssetId.trim());
+    if (registered) {
+      const volcanoAssetId = registered.volcanoAssetId.trim();
+      return {
+        reference: {
+          id: `seedance-volcano-asset-${volcanoAssetId}`,
+          kind: "image",
+          url: `asset://${volcanoAssetId}`,
+          name: registered.name || input.title,
+          mime: "image/png",
+          bytes: 0,
+          width: 0,
+          height: 0,
+        },
+        snapshot: {
+          nodeId: input.nodeId,
+          type: "image",
+          title: input.title,
+          source: "asset",
+          scope: input.assetScope || hydrators.scope,
+          name: registered.name || input.title,
+          mime: "image/png",
+          bytes: 0,
+          width: 0,
+          height: 0,
+        },
+      };
+    }
+  }
   if (!assetId && !content)
     throw new Error(`引用“${input.title}”缺少可读取的媒体内容`);
 

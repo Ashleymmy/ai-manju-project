@@ -75,6 +75,25 @@ describe("canvas video references", () => {
     expect(merged.images[0].url).toBe("asset://shared");
   });
 
+  it("uses a registered image node as an asset:// reference without reading the original file", async () => {
+    const refs = hydrators();
+    const result = await hydrateCanvasVideoReferences([
+      {
+        nodeId: "image-registered",
+        type: "image",
+        title: "角色图",
+        seedanceVolcanoAssets: [{ id: "row-1", volcanoAssetId: "volcano-person", name: "角色图", status: "Active", assetType: "Image" }],
+      },
+    ], refs);
+
+    expect(result.references.images[0]).toEqual(expect.objectContaining({
+      url: "asset://volcano-person",
+      name: "角色图",
+    }));
+    expect(refs.resolveAssetBlob).not.toHaveBeenCalled();
+    expect(refs.resolveNodeBlob).not.toHaveBeenCalled();
+  });
+
   it("preserves typed input order and removes repeated node or asset references", async () => {
     const inputs: CanvasGenerationInput[] = [
       { nodeId: "text-1", type: "text", title: "动作", text: "缓慢推近" },

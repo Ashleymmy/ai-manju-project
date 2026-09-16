@@ -238,6 +238,14 @@ export type CanvasGenerationInput = {
   content?: string;
   assetId?: string;
   assetScope?: "personal" | "team";
+  /** 已在火山平台注册的拟真人素材，生成时直接传 asset:// 引用。 */
+  seedanceVolcanoAssets?: Array<{
+    id?: string;
+    volcanoAssetId: string;
+    name?: string;
+    status?: string;
+    assetType?: string;
+  }>;
 };
 
 export function buildCanvasGenerationInputs(
@@ -390,6 +398,9 @@ function generationInput(node: CanvasConnectionNode): CanvasGenerationInput | nu
     content: node.imageSrc || mediaContentMetadata(node) || undefined,
     assetId: node.imageAssetId || stringMetadata(node, "assetId") || undefined,
     assetScope: workspaceScopeMetadata(node, "assetScope"),
+    seedanceVolcanoAssets: Array.isArray(node.metadata?.seedanceVolcanoAssets)
+      ? node.metadata.seedanceVolcanoAssets.filter((item): item is { volcanoAssetId: string; id?: string; name?: string; status?: string; assetType?: string } => Boolean(item && typeof item === "object" && typeof (item as { volcanoAssetId?: unknown }).volcanoAssetId === "string"))
+      : undefined,
   };
 }
 

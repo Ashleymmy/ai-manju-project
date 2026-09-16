@@ -82,6 +82,7 @@ import {
   updateAssetMetadata,
   updateAssetUserState,
   uploadAsset,
+  uploadUserSeedanceAsset,
   type Asset,
   type AssetCategory,
   type AssetSourceType,
@@ -1952,6 +1953,51 @@ export default function CanvasWorkspaceViewContent() {
         if (url.startsWith("blob:")) URL.revokeObjectURL(url);
       },
     };
+  };
+
+  const registerImageAsSeedanceAsset = async (node: CanvasNodeData) => {
+    if (node.kind !== "image") return;
+    const scope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
+    if (!scope || !projectKey) {
+      toast.warning("正在确认项目工作区，请稍后再试");
+      return;
+    }
+    if (node.metadata?.seedanceVolcanoAssets?.length) {
+      toast.info("该图片已经注册过拟真人素材");
+      return;
+    }
+    let source: Awaited<ReturnType<typeof imageSourceForNode>> | null = null;
+    try {
+      source = await imageSourceForNode(node);
+      const response = await fetch(source.url);
+      if (!response.ok) throw new Error(`读取图片失败（${response.status}）`);
+      const blob = await response.blob();
+      const contentType = blob.type.startsWith("image/") ? blob.type : "image/png";
+      const file = new File([blob], imageFileName(node.title || "拟真人素材", contentType), { type: contentType });
+      const asset = await uploadUserSeedanceAsset(file, scope);
+      if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) return;
+      const selected = {
+        id: asset.id,
+        volcanoAssetId: asset.volcano_asset_id,
+        name: asset.name || file.name,
+        status: asset.status || "Active",
+        assetType: asset.asset_type || "Image",
+      };
+      const current = nodesRef.current.find((item) => item.id === node.id);
+      if (!current) return;
+      const nextNodes = nodesRef.current.map((item) => item.id === node.id
+        ? { ...item, metadata: { ...item.metadata, seedanceVolcanoAssets: [selected] } }
+        : item);
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
+      await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+      toast.success(asset.status && asset.status.toLowerCase() !== "active" ? "拟真人素材已提交，审核通过后可生成视频" : "拟真人素材注册成功，现在可以连接视频节点生成");
+    } catch (error) {
+      toast.error(publicApiError(error, "拟真人素材注册失败"));
+    } finally {
+      source?.cleanup();
+    }
   };
 
   const uploadCanvasImageDataUrl = async (
@@ -4074,6 +4120,7 @@ export default function CanvasWorkspaceViewContent() {
     setEditingInlineNodeId,
     setNodePinColor,
     setMaterialNodeId,
+    registerImageAsSeedanceAsset,
     setImageAnnotationNodeId,
     setImageMaskNodeId,
     setImageToolError,

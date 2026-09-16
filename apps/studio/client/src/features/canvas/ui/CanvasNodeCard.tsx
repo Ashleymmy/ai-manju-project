@@ -93,6 +93,7 @@ export type CanvasNodeCardActions = {
   setEditingInlineNodeId: Dispatch<SetStateAction<string>>;
   setNodePinColor: (nodeId: string, color: string) => void;
   setMaterialNodeId: Dispatch<SetStateAction<string>>;
+  registerImageAsSeedanceAsset: (node: CanvasNodeData) => Promise<unknown>;
   setImageAnnotationNodeId: Dispatch<SetStateAction<string>>;
   setImageMaskNodeId: Dispatch<SetStateAction<string>>;
   setImageToolError: Dispatch<SetStateAction<string>>;
@@ -173,6 +174,7 @@ export type CanvasImageToolGridProps = {
   setReplaceImageNodeId: (id: string) => void;
   replaceImageInputRef: RefObject<HTMLInputElement | null>;
   archiveCanvasMediaNode: (node: CanvasNodeData) => Promise<unknown>;
+  registerImageAsSeedanceAsset: (node: CanvasNodeData) => Promise<unknown>;
 };
 
 export function CanvasImageToolGrid({
@@ -191,6 +193,7 @@ export function CanvasImageToolGrid({
   setReplaceImageNodeId,
   replaceImageInputRef,
   archiveCanvasMediaNode,
+  registerImageAsSeedanceAsset,
 }: CanvasImageToolGridProps) {
   return (
     <div className="canvas-image-tool-list">
@@ -208,7 +211,7 @@ export function CanvasImageToolGrid({
           ))}
         </div>
       </div>
-      <button title="Seedance 2.0 合规验证" disabled><BadgeCheck size={14} /> Seedance 2.0 合规验证 <span className="tool-soon">即将上线</span></button>
+      <button title="上传并注册火山拟真人素材" onClick={() => void registerImageAsSeedanceAsset(node)} disabled={imageToolBusy}><BadgeCheck size={14} /> 注册拟真人素材</button>
       <div className="tool-list-divider" />
       <button title="裁剪图片" onClick={() => openImageToolDialog(node.id, "crop")} disabled={imageToolBusy}><Crop size={14} /> 裁剪</button>
       <button title="提取图片局部区域" onClick={() => openImageToolDialog(node.id, "focus")} disabled={imageToolBusy}><Eye size={14} /> 聚焦</button>
@@ -253,7 +256,7 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
     chooseNode, openNodeContextMenu, toggleCanvasBatch, openDirectorNode, applyNodeSelection, beginInlineNodeEdit,
     handleNodeHoverStart, handleNodeHoverEnd, startDrag, moveDrag, endDrag, registerConnectionHandle, beginConnection,
     commitNodeTitle, setTitleDraft, setTitleEditingNodeId, setReplaceImageNodeId, setImagePreviewNodeId,
-    setEditingInlineNodeId, setNodePinColor, setMaterialNodeId, setImageAnnotationNodeId, setImageMaskNodeId,
+    setEditingInlineNodeId, setNodePinColor, setMaterialNodeId, registerImageAsSeedanceAsset, setImageAnnotationNodeId, setImageMaskNodeId,
     setImageToolError, setStoryboardNodeId, replaceMediaNodeIdRef, replaceMediaInputRef, replaceImageInputRef,
     toggleCanvasNodeFavorite, detachBatchChildToCanvas, downloadNodeMedia, setBatchPrimaryNode, captureVideoFrameNode,
     updateNodeTextContent, updateNodePrompt, mentionReferencesForNode, queueMentionAssetSearch,
@@ -635,14 +638,14 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
                     </PopoverTrigger>
                     <PopoverContent className="node-pop-card node-pop-wide" align="center" side="top" sideOffset={10}>
                       <p className="eyebrow">图片工具</p>
-                      <CanvasImageToolGrid node={node} imageToolBusy={imageToolBusy} storyboardBusy={storyboardBusy} openImageToolDialog={openImageToolDialog} setImageAnnotationNodeId={setImageAnnotationNodeId} setImageMaskNodeId={setImageMaskNodeId} setImageToolError={setImageToolError} flipCanvasImageNode={flipCanvasImageNode} generatePanoramaCanvasImage={generatePanoramaCanvasImage} generateStoryboard={(target) => setStoryboardNodeId(target.id)} createImageReversePromptNodes={createImageReversePromptNodes} setImagePreviewNodeId={setImagePreviewNodeId} setReplaceImageNodeId={setReplaceImageNodeId} replaceImageInputRef={replaceImageInputRef} archiveCanvasMediaNode={archiveCanvasMediaNode} />
+                      <CanvasImageToolGrid node={node} imageToolBusy={imageToolBusy} storyboardBusy={storyboardBusy} openImageToolDialog={openImageToolDialog} setImageAnnotationNodeId={setImageAnnotationNodeId} setImageMaskNodeId={setImageMaskNodeId} setImageToolError={setImageToolError} flipCanvasImageNode={flipCanvasImageNode} generatePanoramaCanvasImage={generatePanoramaCanvasImage} generateStoryboard={(target) => setStoryboardNodeId(target.id)} createImageReversePromptNodes={createImageReversePromptNodes} setImagePreviewNodeId={setImagePreviewNodeId} setReplaceImageNodeId={setReplaceImageNodeId} replaceImageInputRef={replaceImageInputRef} archiveCanvasMediaNode={archiveCanvasMediaNode} registerImageAsSeedanceAsset={registerImageAsSeedanceAsset} />
                     </PopoverContent>
                   </Popover>
                 ) : null}
                 {node.kind === "image" && !preview ? <button title="上传图片" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}><Upload size={13} /></button> : null}
                 {node.kind === "video" && preview ? <button title="从当前播放帧创建图片节点" disabled={captureBusy} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void captureVideoFrameNode(node); }}><Camera size={13} /></button> : null}
                 {node.kind === "video" && preview ? <button title="AI 超分（依赖管理员配置的模型服务）" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); toast.info("视频超分依赖管理员配置的模型服务，本地暂未实现"); }}><Sparkles size={13} /></button> : null}
-                {node.kind === "video" && preview ? <button title="素材校验" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setMaterialNodeId(node.id); }}><BadgeCheck size={13} /></button> : null}
+                {node.kind === "image" && preview ? <button title="注册拟真人素材" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void registerImageAsSeedanceAsset(node); }}><BadgeCheck size={13} /></button> : null}
                 {node.kind === "video" && preview ? <button title="全屏播放" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); document.querySelector<HTMLVideoElement>(`.real-canvas-node[data-node-id="${node.id}"] video`)?.requestFullscreen?.(); }}><Maximize2 size={13} /></button> : null}
                 {preview || node.kind === "text" ? <button title="加入素材库" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void (node.kind === "text" ? archiveCanvasTextNode(node) : archiveCanvasMediaNode(node)); }}><FolderOpen size={13} /></button> : null}
                 {preview ? <button title="下载" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void downloadNodeMedia(node); }}><Download size={13} /></button> : null}

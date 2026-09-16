@@ -38,6 +38,7 @@ function createActions(): CanvasNodeCardActions {
     setEditingInlineNodeId: setString,
     setNodePinColor: () => undefined,
     setMaterialNodeId: setString,
+    registerImageAsSeedanceAsset: resolveNothing,
     setImageAnnotationNodeId: setString,
     setImageMaskNodeId: setString,
     setImageToolError: setString,
