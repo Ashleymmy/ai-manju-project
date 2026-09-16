@@ -151,6 +151,28 @@ describe("CanvasGenerationJobsController", () => {
     vi.unstubAllGlobals();
   });
 
+  it("marks a generation intent immediately and ignores duplicate clicks", async () => {
+    let release!: () => void;
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    const services = createServices({
+      generateImages: vi.fn(async () => {
+        await waiting;
+        return { images: [{ id: "result", assetId: "result", src: "", name: "result.png" }] };
+      }),
+    });
+    const harness = createHarness([imageNode()], services);
+    const running = harness.controller.generateFromNode("image-1");
+
+    expect(harness.runningIds).toContain("image-1");
+    await vi.waitFor(() => expect(services.generateImages).toHaveBeenCalledTimes(1));
+    await harness.controller.generateFromNode("image-1");
+    expect(services.generateImages).toHaveBeenCalledTimes(1);
+
+    release();
+    await running;
+    expect(harness.runningIds).toEqual(new Set());
+  });
+
   it.each([
     { source: "node", kind: "image", count: 1 },
     { source: "asset", kind: "image", count: 1 },

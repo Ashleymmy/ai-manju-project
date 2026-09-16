@@ -5456,8 +5456,35 @@ textarea.node-card-prompt {
   gap: 6px;
 }
 .node-send-button.is-running {
-  opacity: 0.88;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: linear-gradient(110deg, var(--red) 0%, #ffd6c8 45%, var(--red) 72%);
+  background-size: 220% 100%;
+  opacity: 1;
   cursor: default;
+  animation: node-generation-pulse 1.6s ease-in-out infinite;
+}
+.node-send-button.is-running::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.42) 50%, transparent 65%);
+  transform: translateX(-120%);
+  pointer-events: none;
+  animation: node-generation-sheen 1.35s ease-in-out infinite;
+}
+@keyframes node-generation-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 114, 81, 0.18); background-position: 100% 0; }
+  50% { box-shadow: 0 0 0 4px rgba(255, 114, 81, 0.12); background-position: 0 0; }
+}
+@keyframes node-generation-sheen {
+  0%, 35% { transform: translateX(-120%); }
+  75%, 100% { transform: translateX(120%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .node-send-button.is-running,
+  .node-send-button.is-running::after { animation: none; }
 }
 .node-send-button.node-send-cancel {
   border: 1px solid rgba(255, 255, 255, 0.2);

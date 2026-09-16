@@ -1320,11 +1320,19 @@ export class CanvasGenerationJobsController {
   readonly generateFromNode = async (sourceId?: string) => {
     const sourceNode = this.sourceNode(sourceId, this.bindings.getNodes());
     if (!sourceNode) return;
+    // Mark the intent before resolving references or persisting the pending node.
+    // This keeps the UI responsive on a busy page and prevents duplicate clicks.
+    if (this.isLiveCanvasTarget(sourceNode.id)) return;
+    const releaseStarting = this.trackStartingTargets([sourceNode.id]);
     const mode = generationModeFromNode(sourceNode);
-    if (mode === "text") return this.generateTextFromNode(sourceNode.id);
-    if (mode === "image") return this.generateImageFromNode(sourceNode.id);
-    if (mode === "video") return this.generateVideoFromNode(sourceNode.id);
-    return this.generateAudioFromNode(sourceNode.id);
+    try {
+      if (mode === "text") return await this.generateTextFromNode(sourceNode.id);
+      if (mode === "image") return await this.generateImageFromNode(sourceNode.id);
+      if (mode === "video") return await this.generateVideoFromNode(sourceNode.id);
+      return await this.generateAudioFromNode(sourceNode.id);
+    } finally {
+      releaseStarting();
+    }
   };
 
   readonly optimizeNodePrompt = async (node: CanvasNodeData, skillPrompt?: string) => {
@@ -1430,6 +1438,7 @@ export class CanvasGenerationJobsController {
       running.add(request.targetNodeId);
       running.add(request.runningNodeId);
     });
+    this.startingTargetIds.forEach(nodeId => running.add(nodeId));
     this.bindings.setRunningNodeIds(running);
     this.bindings.setJobProgressByNode(current => Object.fromEntries(
       Object.entries(current).filter(([nodeId]) => running.has(nodeId)),
@@ -1773,8 +1782,10 @@ export class CanvasGenerationJobsController {
 
   private trackStartingTargets(ids: readonly string[]) {
     ids.forEach(id => this.startingTargetIds.add(id));
+    this.syncRequestState();
     return () => {
       ids.forEach(id => this.startingTargetIds.delete(id));
+      this.syncRequestState();
     };
   }
 

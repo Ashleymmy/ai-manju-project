@@ -591,7 +591,7 @@ export function CanvasInspector({
                     <button className="node-send-button" onClick={() => void openDirectorNode(selectedNode)}><ArrowRight size={15} /> 导演台</button>
                   ) : runningNodeIds.has(selectedNode.id) ? (
                     <div className="node-send-running">
-                      <button className="node-send-button is-running" disabled><Loader2 className="spin" size={14} /> 生成中</button>
+                      <button className="node-send-button is-running" aria-busy="true" disabled><Loader2 className="spin" size={14} /> 生成中</button>
                       <button className="node-send-button node-send-cancel" title="取消任务" onClick={() => stopGenerationByNodeId(selectedNode.id)}><Square size={13} /> 取消</button>
                     </div>
                   ) : selectedNode.metadata?.status === "error" ? (
