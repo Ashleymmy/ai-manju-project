@@ -44,6 +44,26 @@ describe("cloud video conversations", () => {
     expect(mocks.api.updateMessage).toHaveBeenCalledWith("m", expect.objectContaining({ text: "b" }), 1);
     expect(mocks.api.renameConversation).not.toHaveBeenCalled();
   });
+
+  it("omits legacy local-only attachments when syncing a cloud conversation", async () => {
+    const repository = createCloudConversationRepository("user-a");
+    await repository.load();
+    const item = { ...conversation("new"), messages: [{
+      id: "m", role: "user" as const, text: "历史素材", createdAt: 2,
+      attachments: [
+        { id: "local", kind: "image" as const, role: "reference" as const, name: "旧图", mime: "image/png", bytes: 1, storageKey: "wb:m:local" },
+        { id: "asset", kind: "image" as const, role: "reference" as const, name: "资产", mime: "image/png", bytes: 1, assetId: "asset-1" },
+        { id: "volcano", kind: "image" as const, role: "reference" as const, name: "真人", mime: "image/png", bytes: 1, assetRef: "asset://volcano-1" },
+      ],
+    }] };
+    await repository.write([item]);
+    expect(mocks.api.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [
+        expect.objectContaining({ id: "asset", assetId: "asset-1" }),
+        expect.objectContaining({ id: "volcano", assetRef: "asset://volcano-1" }),
+      ],
+    }));
+  });
   it("does not resurrect a remotely deleted synced conversation from cache", async () => {
     mocks.cache.set("cloud:personal:user-a", { items: [conversation("deleted")], draftIds: [] });
     const repository = createCloudConversationRepository("user-a");

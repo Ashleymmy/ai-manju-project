@@ -32,7 +32,13 @@ export function createCloudConversationRepository(ownerId: string, scope: Worksp
   function messageBody(conversationId: string, message: VideoWorkbenchMessage) {
     const { id, role, text, attachments, resultStorageKey: _localResult, ...metadata } = message;
     return { id, conversation_id: conversationId, role, text, metadata,
-      attachments: (attachments || []).map(({ storageKey: _localInput, ...attachment }) => attachment) };
+      // 云端不能读取旧版本地媒体 key；只有可重建的资产引用才同步。
+      attachments: (attachments || []).flatMap((attachment) => {
+        const { storageKey: _localInput, ...remote } = attachment;
+        return remote.assetId || (typeof remote.assetRef === "string" && remote.assetRef.startsWith("asset://"))
+          ? [remote]
+          : [];
+      }) };
   }
 
   async function cacheDrafts(items: VideoWorkbenchConversation[]) {
