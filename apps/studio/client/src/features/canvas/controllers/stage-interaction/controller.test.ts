@@ -215,7 +215,7 @@ describe("CanvasStageInteractionController", () => {
     harness.controller.moveDrag(pointer(nodeElement, { clientX: 20, clientY: 10 }));
     expect(harness.nodes[0]).toMatchObject({ x: 0, y: 0 });
     harness.adapter.runFrames();
-    expect(harness.nodes[0]).toMatchObject({ x: 20, y: 10 });
+    expect(harness.nodes[0]).toMatchObject({ x: 20, y: 0 });
 
     harness.controller.endDrag();
     expect(harness.controller.mode).toBe("idle");

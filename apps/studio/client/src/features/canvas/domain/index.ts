@@ -22,7 +22,11 @@ export {
 export {
   CANVAS_NODE_DOCK_GAP,
   CANVAS_NODE_DOCK_SCREEN_PX,
+  CANVAS_NODE_ALIGN_SCREEN_PX,
+  CANVAS_NODE_ALIGN_SNAP_SCREEN_PX,
   alignmentGuidesBetween,
+  canvasNodeAlignmentThreshold,
+  canvasNodeAlignmentSnapThreshold,
   canvasNodeDockThreshold,
   snapMovingBoxesToDock,
 } from "./nodeSnap";

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   CANVAS_NODE_DOCK_GAP,
   alignmentGuidesBetween,
+  canvasNodeAlignmentThreshold,
+  canvasNodeAlignmentSnapThreshold,
   canvasNodeDockThreshold,
   snapMovingBoxesToDock,
   type CanvasNodeSnapBox,
@@ -51,9 +53,61 @@ describe("canvas node dock snap", () => {
     });
   });
 
+  it("triggers docking within the 54px screen range", () => {
+    const targetX = 300;
+    const dockX = targetX - 100 - CANVAS_NODE_DOCK_GAP;
+    const result = snapMovingBoxesToDock(
+      [box("a", dockX + 54, 0)],
+      [box("b", targetX, 0)],
+      canvasNodeDockThreshold(100),
+    );
+    expect(result.deltaX).toBe(-54);
+    expect(result.guides).toHaveLength(3);
+  });
+
+  it("shows alignment guides up to 200px without moving the node", () => {
+    const targetX = 300;
+    const dockX = targetX - 100 - CANVAS_NODE_DOCK_GAP;
+    const result = snapMovingBoxesToDock(
+      [box("a", dockX + 324, 100)],
+      [box("b", targetX, 0)],
+      canvasNodeDockThreshold(100),
+      canvasNodeAlignmentThreshold(100),
+    );
+    expect(result.deltaX).toBe(0);
+    expect(result.deltaY).toBe(0);
+    expect(result.guides).toEqual([
+      { axis: "y", position: 0, start: 300, end: 600 },
+      { axis: "y", position: 40, start: 300, end: 600 },
+      { axis: "y", position: 80, start: 300, end: 600 },
+    ]);
+  });
+
+  it("corrects a near alignment without changing the other axis", () => {
+    const target = box("b", 300, 0);
+    const result = snapMovingBoxesToDock(
+      [box("a", 500, 8)],
+      [target],
+      canvasNodeDockThreshold(100),
+      canvasNodeAlignmentThreshold(100),
+      canvasNodeAlignmentSnapThreshold(100),
+    );
+    expect(result.deltaX).toBe(0);
+    expect(result.deltaY).toBe(-8);
+    expect(result.guides).toEqual([
+      { axis: "y", position: 0, start: 300, end: 600 },
+      { axis: "y", position: 40, start: 300, end: 600 },
+      { axis: "y", position: 80, start: 300, end: 600 },
+    ]);
+  });
+
   it("scales the dock threshold with canvas zoom", () => {
-    expect(canvasNodeDockThreshold(100)).toBe(22);
-    expect(canvasNodeDockThreshold(50)).toBe(44);
+    expect(canvasNodeDockThreshold(100)).toBe(54);
+    expect(canvasNodeDockThreshold(50)).toBe(108);
+    expect(canvasNodeAlignmentThreshold(100)).toBe(200);
+    expect(canvasNodeAlignmentThreshold(50)).toBe(400);
+    expect(canvasNodeAlignmentSnapThreshold(100)).toBe(12);
+    expect(canvasNodeAlignmentSnapThreshold(50)).toBe(24);
   });
 
   it("shows only the center guide when heights differ and mids align", () => {

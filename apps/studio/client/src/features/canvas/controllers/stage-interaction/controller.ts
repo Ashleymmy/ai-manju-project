@@ -12,6 +12,8 @@ import {
 import { nearestCanvasEdgeIdAtPoint } from "@/features/canvas/domain/geometry";
 import {
   canvasNodeDockThreshold,
+  canvasNodeAlignmentThreshold,
+  canvasNodeAlignmentSnapThreshold,
   snapMovingBoxesToDock,
   type CanvasAlignGuide,
   type CanvasNodeSnapBox,
@@ -897,6 +899,8 @@ export class CanvasStageInteractionController {
       moving,
       targets,
       canvasNodeDockThreshold(this.viewport.zoom),
+      canvasNodeAlignmentThreshold(this.viewport.zoom),
+      canvasNodeAlignmentSnapThreshold(this.viewport.zoom),
     );
     this.patchView({
       alignmentGuides: snap.guides.length ? snap.guides : EMPTY_ALIGN_GUIDES,

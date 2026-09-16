@@ -1,7 +1,11 @@
 /** 两框贴靠时的固定间距（画布单位）。吸附本身不绘制，只改变位置。 */
 export const CANVAS_NODE_DOCK_GAP = 24;
-/** 磁力吸引范围（屏幕像素），随缩放换算到世界坐标。 */
-export const CANVAS_NODE_DOCK_SCREEN_PX = 22;
+/** 节点贴靠吸附的触发范围（屏幕像素），随缩放换算到世界坐标。 */
+export const CANVAS_NODE_DOCK_SCREEN_PX = 54;
+/** 对齐辅助线的触发范围（屏幕像素），独立于节点贴靠吸附。 */
+export const CANVAS_NODE_ALIGN_SCREEN_PX = 200;
+/** 对齐辅助修正的触发范围（屏幕像素），必须明显小于辅助线提示范围。 */
+export const CANVAS_NODE_ALIGN_SNAP_SCREEN_PX = 12;
 /** 判定顶 / 中 / 底（或左 / 中 / 右）已对齐的容差（画布单位）。 */
 const CANVAS_ALIGN_GUIDE_EPSILON = 0.5;
 
@@ -31,9 +35,11 @@ const EMPTY_RESULT: CanvasNodeSnapResult = { deltaX: 0, deltaY: 0, guides: [] };
 export function snapMovingBoxesToDock(
   moving: readonly CanvasNodeSnapBox[],
   targets: readonly CanvasNodeSnapBox[],
-  threshold: number,
+  dockThreshold: number,
+  alignmentThreshold = dockThreshold,
+  alignmentSnapThreshold = 0,
 ): CanvasNodeSnapResult {
-  if (!moving.length || !targets.length || threshold <= 0) return EMPTY_RESULT;
+  if (!moving.length || !targets.length || (dockThreshold <= 0 && alignmentThreshold <= 0)) return EMPTY_RESULT;
 
   const source = unionSnapBoxes(moving);
   let best: { dist: number; deltaX: number; deltaY: number; target: CanvasNodeSnapBox } | null = null;
@@ -41,7 +47,7 @@ export function snapMovingBoxesToDock(
   for (const target of targets) {
     for (const slot of dockSlots(source, target)) {
       const dist = Math.hypot(slot.x - source.x, slot.y - source.y);
-      if (dist > threshold) continue;
+      if (dist > dockThreshold) continue;
       if (best && dist >= best.dist - 1e-6) continue;
       best = {
         dist,
@@ -52,7 +58,19 @@ export function snapMovingBoxesToDock(
     }
   }
 
-  if (!best) return EMPTY_RESULT;
+  if (!best) {
+    const nearest = nearestAlignment(source, targets, alignmentThreshold);
+    if (!nearest) return EMPTY_RESULT;
+    const correction = nearest.distance <= alignmentSnapThreshold ? nearest.delta : 0;
+    const deltaX = nearest.axis === "x" ? correction : 0;
+    const deltaY = nearest.axis === "y" ? correction : 0;
+    const placed = { ...source, x: source.x + deltaX, y: source.y + deltaY };
+    return {
+      deltaX,
+      deltaY,
+      guides: correction ? alignmentGuidesBetween(placed, nearest.target) : alignmentGuidesForAxis(source, nearest.target, nearest.axis),
+    };
+  }
   const placed = { ...source, x: source.x + best.deltaX, y: source.y + best.deltaY };
   return {
     deltaX: best.deltaX,
@@ -64,6 +82,16 @@ export function snapMovingBoxesToDock(
 export function canvasNodeDockThreshold(zoomPercent: number) {
   const scale = Math.max(0.01, zoomPercent / 100);
   return CANVAS_NODE_DOCK_SCREEN_PX / scale;
+}
+
+export function canvasNodeAlignmentThreshold(zoomPercent: number) {
+  const scale = Math.max(0.01, zoomPercent / 100);
+  return CANVAS_NODE_ALIGN_SCREEN_PX / scale;
+}
+
+export function canvasNodeAlignmentSnapThreshold(zoomPercent: number) {
+  const scale = Math.max(0.01, zoomPercent / 100);
+  return CANVAS_NODE_ALIGN_SNAP_SCREEN_PX / scale;
 }
 
 export function alignmentGuidesBetween(
@@ -100,6 +128,55 @@ export function alignmentGuidesBetween(
     guides.push({ axis: "x", position: target.x + target.width, start: yStart, end: yEnd });
   }
   return guides;
+}
+
+function nearestAlignment(
+  placed: CanvasNodeSnapBox,
+  targets: readonly CanvasNodeSnapBox[],
+  threshold: number,
+) {
+  let nearest: { distance: number; priority: number; axis: CanvasAlignGuide["axis"]; delta: number; target: CanvasNodeSnapBox } | null = null;
+  for (const target of targets) {
+    const candidates = [
+      { axis: "y" as const, delta: target.y - placed.y, priority: 1 },
+      { axis: "y" as const, delta: target.y + target.height / 2 - (placed.y + placed.height / 2), priority: 0 },
+      { axis: "y" as const, delta: target.y + target.height - (placed.y + placed.height), priority: 1 },
+      { axis: "x" as const, delta: target.x - placed.x, priority: 1 },
+      { axis: "x" as const, delta: target.x + target.width / 2 - (placed.x + placed.width / 2), priority: 0 },
+      { axis: "x" as const, delta: target.x + target.width - (placed.x + placed.width), priority: 1 },
+    ];
+    for (const { delta, priority, axis } of candidates) {
+      const distance = Math.abs(delta);
+      if (distance > threshold) continue;
+      if (!nearest || distance < nearest.distance - 1e-6 || (Math.abs(distance - nearest.distance) <= 1e-6 && priority < nearest.priority)) {
+        nearest = { distance, priority, axis, delta, target };
+      }
+    }
+  }
+  return nearest;
+}
+
+function alignmentGuidesForAxis(
+  placed: CanvasNodeSnapBox,
+  target: CanvasNodeSnapBox,
+  axis: CanvasAlignGuide["axis"],
+): CanvasAlignGuide[] {
+  if (axis === "y") {
+    const start = Math.min(placed.x, target.x);
+    const end = Math.max(placed.x + placed.width, target.x + target.width);
+    return [
+      { axis, position: target.y, start, end },
+      { axis, position: target.y + target.height / 2, start, end },
+      { axis, position: target.y + target.height, start, end },
+    ];
+  }
+  const start = Math.min(placed.y, target.y);
+  const end = Math.max(placed.y + placed.height, target.y + target.height);
+  return [
+    { axis, position: target.x, start, end },
+    { axis, position: target.x + target.width / 2, start, end },
+    { axis, position: target.x + target.width, start, end },
+  ];
 }
 
 function aligned(a: number, b: number) {
