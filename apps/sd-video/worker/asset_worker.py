@@ -7,6 +7,7 @@ import os
 from app.config import settings
 from app.providers.seedance import seedance_provider_registry
 from app.providers.seedance.base import first_string
+from app.storage.reference_urls import validate_provider_reference_url
 from app.standalone_api import local_storage, volcano_store
 
 logger = logging.getLogger("sdvideo.assets")
@@ -44,8 +45,13 @@ async def process_asset(item, store=volcano_store, storage=local_storage, provid
             if item.get("submission_started_at"):
                 await save(release=True, status="failed", error={"code": "submission_uncertain"})
                 return
+            # A deployment/configuration change must not silently resubmit an
+            # earlier invalid registration. A new user registration can retry it.
+            if (item.get("error") or {}).get("category") == "ValueError":
+                await save(release=True)
+                return
             source = await storage.url(item["storage_key"])
-            if not source.startswith("https://"): raise ValueError("public HTTPS input storage required")
+            validate_provider_reference_url(source, storage_key=item["storage_key"])
             # 先持久化意图；恢复时不重新调用可能已经成功的远端创建。
             await save(submission_started_at=time.time())
             group = await provider.create_asset_group(item["id"], "Studio isolated asset group")

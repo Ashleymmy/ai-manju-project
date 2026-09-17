@@ -15,7 +15,6 @@ from copy import copy
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import urlsplit
 
 from app.config import settings
 from app.standalone_api import _execution_mode, _rollout_mode, catalog_store, local_storage, task_store
@@ -26,6 +25,7 @@ from app.providers.seedance import LEGACY_PROXY, seedance_provider_registry
 from app.providers.seedance.registry import SEEDANCE_PROVIDER_MODELS
 from app.model_store import model_store
 from app.mock_media import MOCK_VIDEO
+from app.storage.reference_urls import validate_provider_reference_url
 from worker.errors import exception_details, submission_rejected, terminal_details
 
 
@@ -81,9 +81,7 @@ async def _references(record: Any) -> list[dict[str, Any]]:
                 raise ValueError("provider reference is no longer Active or belongs to another namespace")
             url = "asset://" + str(raw.get("asset_ref")).strip().removeprefix("asset://")
         if url and not url.startswith("asset://"):
-            parsed = urlsplit(url)
-            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
-                raise ValueError("reference URL must be a public HTTPS URL")
+            validate_provider_reference_url(url, storage_key=storage_token)
         if url:
             result.append({"type": ref_type, "url": url, "asset_ref": raw.get("asset_ref"), "role": raw.get("role")})
     return result
