@@ -43,7 +43,7 @@ class SeedanceProviderRegistry:
         return LEGACY_PROXY
 
     def asset_provider(self) -> SeedanceProvider:
-        return self.get(settings.SEEDANCE_ASSET_PROVIDER or settings.SEEDANCE20_PROVIDER)
+        return self.get(settings.SEEDANCE_ASSET_PROVIDER or ARK_OFFICIAL)
 
     def configured(self, provider_name: str) -> bool:
         return self.get(provider_name).configured()

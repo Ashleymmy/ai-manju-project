@@ -149,6 +149,13 @@ def test_official_slot_is_independent_of_proxy_default(monkeypatch):
     assert public_model(model)["available"]
 
 
+@pytest.mark.parametrize("configured,expected", [("", ARK_OFFICIAL), (ARK_OFFICIAL, ARK_OFFICIAL), (TOKENSPACE, TOKENSPACE), (LEGACY_PROXY, LEGACY_PROXY)])
+def test_asset_default_is_official_with_explicit_proxy_overrides(monkeypatch, configured, expected):
+    monkeypatch.setattr(settings, "SEEDANCE20_PROVIDER", TOKENSPACE)
+    monkeypatch.setattr(settings, "SEEDANCE_ASSET_PROVIDER", configured)
+    assert seedance_provider_registry.asset_provider().name == expected
+
+
 def test_custom_model_uses_frozen_official_provider_for_all_operations(monkeypatch):
     seen = []
     def handler(request):
@@ -175,10 +182,14 @@ def test_custom_model_uses_frozen_official_provider_for_all_operations(monkeypat
 
 def test_readiness_distinguishes_asset_credentials_and_does_not_probe_cloud(monkeypatch):
     from api.main import app
+    from app import standalone_api as api
     monkeypatch.setattr(settings, "SEEDANCE_ASSET_PROVIDER", ARK_OFFICIAL)
     monkeypatch.setattr(settings, "EXECUTION_MODE", "provider")
     monkeypatch.setattr(settings, "SD_VIDEO_MODE", "active")
     monkeypatch.setitem(seedance_provider_registry._providers, ARK_OFFICIAL, provider(access_key_id="", secret_access_key=""))
+    monkeypatch.setattr(api, "_completed_input", AsyncMock(return_value="inputs/team/admin/a"))
+    create = AsyncMock()
+    monkeypatch.setattr(api.volcano_store, "create", create)
     app.dependency_overrides[require_principal] = lambda: ServicePrincipal("admin", "team", "admin", frozenset({"*"}))
     try:
         with TestClient(app) as client:
@@ -189,6 +200,9 @@ def test_readiness_distinguishes_asset_credentials_and_does_not_probe_cloud(monk
             assert not data["provider_configured"] and not data["upload_registration_available"]
             assert "AK/SK" in data["provider_error"]
             assert "test-api-key" not in response.text
+            registration = client.post("/v1/volcano/assets", json={"storage_token": "inputs/team/admin/a"})
+            assert registration.status_code == 503
+            create.assert_not_awaited()
     finally:
         app.dependency_overrides.clear()
 

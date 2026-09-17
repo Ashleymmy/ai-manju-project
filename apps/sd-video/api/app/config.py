@@ -112,9 +112,9 @@ class Settings:
         "legacy_proxy",
         {"legacy_proxy", "tokenspace", "ark_official"},
     )
-    # Registration can select an independent provider without moving proxy models.
-    # Empty retains SEEDANCE20_PROVIDER for existing deployments.
-    SEEDANCE_ASSET_PROVIDER: str = os.getenv("SEEDANCE_ASSET_PROVIDER", "").strip().lower()
+    # New registrations default to official Ark, independently of proxy video models.
+    # Empty deployment values use the same default; proxies require an explicit choice.
+    SEEDANCE_ASSET_PROVIDER: str = os.getenv("SEEDANCE_ASSET_PROVIDER", "").strip().lower() or "ark_official"
     # Official credentials never fall back to ARK_API_KEY or proxy credentials.
     ARK_OFFICIAL_BASE_URL: str = os.getenv("ARK_OFFICIAL_BASE_URL", "https://ark.cn-beijing.volces.com").rstrip("/")
     ARK_OFFICIAL_API_KEY: str = _secret("ARK_OFFICIAL_API_KEY")

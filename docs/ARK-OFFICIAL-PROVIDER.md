@@ -20,11 +20,15 @@ ARK_OFFICIAL_REGION=cn-beijing
 ARK_OFFICIAL_PROJECT_NAME=default
 # 临时凭证可额外配置 ARK_OFFICIAL_SECURITY_TOKEN_FILE
 
-# 让现有“注册拟真人素材”入口提交到官方，原代理视频模型仍保留。
+# 注册入口默认提交到官方，此项可以省略；原代理视频模型仍保留。
 SEEDANCE_ASSET_PROVIDER=ark_official
 ```
 
 独立官方项不回退使用 `ARK_API_KEY`、`SEEDANCE20_KEY` 或 `TOKENSPACE_API_KEY`。只有 API Key 时可生成视频，但素材注册 readiness 会提示缺少 AK/SK。后台可修改模型 ID（也支持官方推理接入点 ID）、名称、并发和启停；凭证只由 SD-video 管理。
+
+方舟控制台生成的单个 API Key（不要求固定前缀）用于视频推理，不能替代素材接口要求的 Access Key ID / Secret Access Key。默认配置只涵盖上游地址、北京区域、`default` 项目、模型和官方注册路由，不能提供或推导凭证。因此只配置一个 API Key 并重建应用，可手动验证视频生成；官方素材注册仍需在同账号下配置 AK/SK，并完成火山要求的授权。
+
+`SEEDANCE_ASSET_PROVIDER` 未设置或为空时均使用 `ark_official`。需要继续向 TokenSpace/旧代理注册新素材的部署，应显式设为 `tokenspace` / `legacy_proxy`。已注册素材的查询、删除仍使用各自记录的 Provider。
 
 本地根 Compose 或 `apps/sd-video/docker-compose.sd-video.yml` 使用相应的 `SDVIDEO_` 前缀变量；`*_FILE` 必须是容器内已挂载的路径。直接运行 Python 时使用无前缀的 `ARK_OFFICIAL_*` / `SEEDANCE_ASSET_PROVIDER`。不要重新运行 NAS 初始化脚本。
 
@@ -63,7 +67,7 @@ SEEDANCE_ASSET_PROVIDER=ark_official
 关键实际输出：
 
 ```text
-SD-video pytest: 181 passed
+SD-video pytest: 185 passed（包含默认官方路由及缺少 AK/SK 时拒绝注册）
 Studio: Test Files 124 passed (124), Tests 651 passed (651)
 Canvas Agent: tests 4, pass 4, fail 0
 Director Desk: Test Files 87 passed (87), Tests 686 passed (686)

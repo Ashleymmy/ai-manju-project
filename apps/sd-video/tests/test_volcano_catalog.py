@@ -22,7 +22,7 @@ def volcano(catalog, monkeypatch):
 
 def seed(volcano, count=61):
     _, actor, database, store = volcano
-    provider = seedance_provider_registry.get(api.settings.SEEDANCE20_PROVIDER)
+    provider = seedance_provider_registry.asset_provider()
     async def create():
         return [await store.create(actor[0], dict(name=f"Clip {index:03d} %_", kind="video", tags=[],
                 provider_namespace=provider.namespace, upstream_provider=provider.name, storage_key=f"inputs/{index}")) for index in range(count)]
