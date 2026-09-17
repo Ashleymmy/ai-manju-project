@@ -724,7 +724,7 @@ func (s *AssetService) BulkRestore(ids []string, userID string, scope string) ([
 		}
 		folderID := asset.FolderID
 		if s.folders != nil {
-			if _, folderErr := s.folders.ValidateDestination(folderID, userID, scope); folderErr != nil {
+			if folder, folderErr := s.folders.ValidateDestination(folderID, userID, scope); folderErr != nil {
 				resolved, resolveErr := s.folders.ResolveRegistration(userID, scope, AssetRegistrationContext{
 					Category: asset.Category, SourceType: asset.SourceType, SourceProjectID: asset.SourceProjectID,
 					SourceBatchID: asset.SourceBatchID, SourceItemID: asset.SourceItemID, SourceJobID: asset.SourceJobID,
@@ -733,6 +733,8 @@ func (s *AssetService) BulkRestore(ids []string, userID string, scope string) ([
 					return nil, resolveErr
 				}
 				folderID = resolved.FolderID
+			} else {
+				folderID = folder.ID
 			}
 		}
 		targets = append(targets, repository.AssetRestoreTarget{ID: asset.ID, FolderID: folderID})

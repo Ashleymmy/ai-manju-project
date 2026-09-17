@@ -94,6 +94,19 @@ func TestCanvasProjectLibraryParity(t *testing.T) {
 			if err != nil || loadedAsset.FolderID != child.ID || loadedAsset.URL != asset.URL {
 				t.Fatalf("rename disturbed asset: %+v, err=%v", loadedAsset, err)
 			}
+			// The same API used by the canvas archive action can reclassify an
+			// already-uploaded asset without creating a duplicate or changing its URL.
+			other, err := folders.FindSystem(workspace, model.AssetFolderSystemKeyCanvasCategory, first.ID+":"+model.AssetCategoryOther)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assetService := NewAssetService(assets, nil)
+			assetService.SetFolderService(folderService)
+			category := model.AssetCategoryOther
+			reclassified, err := assetService.UpdateMetadata(asset.ID, user, WorkspaceScopePersonal, AssetMetadataInput{FolderID: &other.ID, Category: &category})
+			if err != nil || reclassified.ID != asset.ID || reclassified.FolderID != other.ID || reclassified.Category != category || reclassified.URL != asset.URL {
+				t.Fatalf("reclassified asset = %+v, err=%v", reclassified, err)
+			}
 			if _, err := svc.Update(first.ID, user+"_other", WorkspaceScopePersonal, UpdateProjectInput{Title: &customTitle}); !errors.Is(err, repository.ErrNotFound) {
 				t.Fatalf("cross-workspace rename = %v", err)
 			}
@@ -194,7 +207,7 @@ func assertCanvasFolderTree(t *testing.T, repo repository.AssetFolderRepository,
 			children[item.Name]++
 		}
 	}
-	if len(children) != 3 || children["角色"] != 1 || children["场景"] != 1 || children["道具"] != 1 {
+	if len(children) != 4 || children["角色"] != 1 || children["场景"] != 1 || children["道具"] != 1 || children["其他"] != 1 {
 		t.Fatalf("category children = %+v", children)
 	}
 	return folder
@@ -299,18 +312,177 @@ func TestOpeningLegacyCanvasEnsuresLibraryParity(t *testing.T) {
 				assertCanvasFolderTree(t, folders, loaded)
 			}
 			items, err := folders.ListByWorkspace(workspace)
-			if err != nil || len(items) != 10 {
+			if err != nil || len(items) != 11 {
 				t.Fatalf("idempotent legacy folders = %d, err=%v", len(items), err)
 			}
+			// A canvas created before the fallback category existed is upgraded
+			// in place when reopened. Existing category IDs stay stable.
+			other, err := folders.FindSystem(workspace, model.AssetFolderSystemKeyCanvasCategory, original.ID+":"+model.AssetCategoryOther)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := folders.DeleteByIDs([]string{other.ID}, workspace); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := svc.Get(original.ID, user, WorkspaceScopePersonal); err != nil {
+				t.Fatal(err)
+			}
+			for _, previous := range items {
+				if previous.ID == other.ID {
+					continue
+				}
+				if _, err := folders.GetByWorkspace(previous.ID, workspace); err != nil {
+					t.Fatalf("category upgrade lost existing folder %s: %v", previous.ID, err)
+				}
+			}
+			upgraded := original
+			upgraded.WorkspaceID = workspace
+			assertCanvasFolderTree(t, folders, upgraded)
 		})
 	}
 }
 
 var errCanvasFolderInjectedFailure = errors.New("injected category write failure")
 
+func TestListingCanvasFoldersRepairsMissingCategoriesParity(t *testing.T) {
+	for _, driver := range []string{"memory", "postgres"} {
+		t.Run(driver, func(t *testing.T) {
+			projects, folders, assets := canvasLibraryRepositories(t, driver)
+			user := "list_categories_" + randomHex(6)
+			workspace := WorkspaceIDForScope(WorkspaceScopePersonal, user)
+			folderService := NewAssetFolderService(folders, assets)
+			svc := NewProjectService(projects)
+			svc.SetAssetFolderService(folderService)
+			project, err := svc.Create(user, WorkspaceScopePersonal, CreateProjectInput{Title: "历史画布"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			linked := assertCanvasFolderTree(t, folders, project)
+			other, err := folders.FindSystem(workspace, model.AssetFolderSystemKeyCanvasCategory, project.ID+":"+model.AssetCategoryOther)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Simulate the old three-category tree, with a real asset still present.
+			if err := folders.DeleteByIDs([]string{other.ID}, workspace); err != nil {
+				t.Fatal(err)
+			}
+			asset, err := assets.Create(model.Asset{ID: "asset_" + user, UserID: user, WorkspaceID: workspace, Type: "image", FolderID: linked.ID, URL: "/preserved.png"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var repairedID string
+			for index := 0; index < 2; index++ {
+				items, err := folderService.List(user, WorkspaceScopePersonal)
+				if err != nil {
+					t.Fatal(err)
+				}
+				found := false
+				for _, item := range items {
+					if item.ParentID == linked.ID && item.SystemKey == model.AssetFolderSystemKeyCanvasCategory && item.Name == "其他" {
+						if repairedID != "" && repairedID != item.ID {
+							t.Fatal("listing duplicated the fallback category")
+						}
+						repairedID, found = item.ID, true
+					}
+				}
+				if !found {
+					t.Fatal("listing omitted the repaired fallback category")
+				}
+				assertCanvasFolderTree(t, folders, project)
+			}
+			loaded, err := assets.GetByWorkspace(asset.ID, workspace)
+			if err != nil || loaded.FolderID != repairedID || loaded.URL != asset.URL {
+				t.Fatalf("repair did not adopt the unclassified asset: %+v, err=%v", loaded, err)
+			}
+		})
+	}
+}
+
 func canvasJSONEqual(first, second model.JSONB) bool {
 	var a, b any
 	return json.Unmarshal(first, &a) == nil && json.Unmarshal(second, &b) == nil && reflect.DeepEqual(a, b)
+}
+
+func TestCanvasDefaultAssetDestinationParity(t *testing.T) {
+	for _, driver := range []string{"memory", "postgres"} {
+		t.Run(driver, func(t *testing.T) {
+			projects, folders, assets := canvasLibraryRepositories(t, driver)
+			user := "default_assets_" + randomHex(6)
+			workspace := WorkspaceIDForScope(WorkspaceScopePersonal, user)
+			folderService := NewAssetFolderService(folders, assets)
+			svc := NewProjectService(projects)
+			svc.SetAssetFolderService(folderService)
+			project, err := svc.Create(user, WorkspaceScopePersonal, CreateProjectInput{Title: "相同画布 / " + strings.Repeat("长", 100)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			linked := assertCanvasFolderTree(t, folders, project)
+			other, err := folders.FindSystem(workspace, model.AssetFolderSystemKeyCanvasCategory, project.ID+":"+model.AssetCategoryOther)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, category := range []string{"", model.AssetCategoryOther, model.AssetCategoryReference, model.AssetCategoryCharacter, model.AssetCategoryEnvironment, model.AssetCategoryProp} {
+				resolved, err := folderService.ResolveRegistration(user, WorkspaceScopePersonal, AssetRegistrationContext{
+					SourceType: model.AssetSourceCanvas, SourceProjectID: project.ID, SourceProjectName: project.Title, Category: category,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := category
+				if want == "" || want == model.AssetCategoryReference {
+					want = model.AssetCategoryOther
+				}
+				folder, err := folders.GetByWorkspace(resolved.FolderID, workspace)
+				if err != nil || folder.ParentID != linked.ID || folder.SourceRefID != project.ID+":"+want || resolved.Category != want {
+					t.Fatalf("canvas category %q = %+v, folder=%+v, err=%v", category, resolved, folder, err)
+				}
+			}
+			all, err := folders.ListByWorkspace(workspace)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, folder := range all {
+				if folder.SystemKey == model.AssetFolderSystemKeyCanvasProjectDate {
+					t.Fatal("new registration created a date folder")
+				}
+			}
+			role, _ := folders.FindSystem(workspace, model.AssetFolderSystemKeyCanvasCategory, project.ID+":"+model.AssetCategoryCharacter)
+			explicit, err := folderService.ResolveRegistration(user, WorkspaceScopePersonal, AssetRegistrationContext{
+				SourceType: model.AssetSourceCanvas, SourceProjectID: project.ID, FolderID: role.ID, Category: model.AssetCategoryCharacter,
+			})
+			if err != nil || explicit.FolderID != role.ID {
+				t.Fatalf("explicit destination reset: %+v, err=%v", explicit, err)
+			}
+			date := createLegacyDateFolder(t, folderService, linked, model.AssetFolderSystemKeyCanvasProjectDate, "2026-09-10")
+			for _, folder := range []model.AssetFolder{linked, date, role} {
+				_, err := assets.Create(model.Asset{ID: "asset_" + folder.ID, UserID: user, WorkspaceID: workspace, Type: "image", FolderID: folder.ID, URL: "/" + folder.ID + ".png"})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			for i := 0; i < 2; i++ {
+				views, err := folderService.List(user, WorkspaceScopePersonal)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, folder := range []model.AssetFolder{linked, date, role} {
+					asset, err := assets.GetByWorkspace("asset_"+folder.ID, workspace)
+					want := other.ID
+					if folder.ID == role.ID {
+						want = role.ID
+					}
+					if err != nil || asset.FolderID != want || asset.URL != "/"+folder.ID+".png" {
+						t.Fatalf("legacy asset = %+v, err=%v", asset, err)
+					}
+				}
+				for _, view := range views {
+					if view.ID == other.ID && view.AssetCount != 2 {
+						t.Fatalf("other count=%d", view.AssetCount)
+					}
+				}
+			}
+		})
+	}
 }
 
 type failingCanvasProjectRepository struct{ repository.ProjectRepository }

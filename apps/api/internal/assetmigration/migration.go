@@ -80,8 +80,8 @@ func Run(db *gorm.DB, dryRun bool) (Result, error) {
 	return RunWithArchiveTimezone(db, dryRun, "Asia/Shanghai")
 }
 
-// RunWithArchiveTimezone keeps historical canvas folder backfills aligned
-// with the same business-day boundary used by live ingestion.
+// RunWithArchiveTimezone preserves the existing migration CLI contract. Canvas
+// backfills now use category folders regardless of the historical timestamp.
 func RunWithArchiveTimezone(db *gorm.DB, dryRun bool, timezone string) (Result, error) {
 	zone, err := archiveLocation(timezone)
 	if err != nil {
@@ -248,7 +248,10 @@ func buildPlan(db *gorm.DB, archiveTimezone string, archiveZone *time.Location) 
 				if userID == "" {
 					userID = plan.workspaceOwners[workspaceID]
 				}
-				plan.canvasArchiveMoves = append(plan.canvasArchiveMoves, canvasArchiveMove{AssetID: asset.ID, WorkspaceID: workspaceID, UserID: userID, ProjectID: projectID, ProjectTitle: projectTitle, OriginalFolderID: asset.FolderID, CreatedAt: asset.CreatedAt})
+				// An unassigned asset is already in its final date-free destination.
+				if folder.SystemKey != model.AssetFolderSystemKeyCanvasUnassigned || projectID != "" {
+					plan.canvasArchiveMoves = append(plan.canvasArchiveMoves, canvasArchiveMove{AssetID: asset.ID, WorkspaceID: workspaceID, UserID: userID, ProjectID: projectID, ProjectTitle: projectTitle, OriginalFolderID: asset.FolderID, CreatedAt: asset.CreatedAt})
+				}
 			}
 		}
 		managed := strings.TrimSpace(asset.WorkspaceID) != "" && strings.TrimSpace(asset.FolderID) != "" && strings.TrimSpace(asset.Category) != "" && strings.TrimSpace(asset.SourceType) != ""
@@ -458,13 +461,14 @@ func planMissingFolders(db *gorm.DB, plan *migrationPlan) error {
 		}
 	}
 	for _, move := range plan.canvasArchiveMoves {
-		date := move.CreatedAt.In(plan.archiveZone).Format("2006-01-02")
 		if move.ProjectID == "" {
 			desired[folderIdentity(move.WorkspaceID, model.AssetFolderSystemKeyCanvasUnassigned, "")] = true
 		} else {
 			desired[folderIdentity(move.WorkspaceID, model.AssetFolderSystemKeyCanvasProject, move.ProjectID)] = true
+			for _, category := range []string{model.AssetCategoryCharacter, model.AssetCategoryEnvironment, model.AssetCategoryProp, model.AssetCategoryOther} {
+				desired[folderIdentity(move.WorkspaceID, model.AssetFolderSystemKeyCanvasCategory, move.ProjectID+":"+category)] = true
+			}
 		}
-		desired[folderIdentity(move.WorkspaceID, model.AssetFolderSystemKeyCanvasProjectDate, move.ProjectID+":"+date)] = true
 	}
 	for identity := range desired {
 		if !existing[identity] {
