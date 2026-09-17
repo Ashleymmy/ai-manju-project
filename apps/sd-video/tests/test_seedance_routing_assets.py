@@ -12,7 +12,7 @@ from app.volcano_store import VolcanoStore
 from worker import processor
 
 
-@pytest.mark.parametrize("logical,expected", [("seedance-2.0", TOKENSPACE), ("seedance-2.5", TOKENSPACE), ("seedance-2.0-mini", LEGACY_PROXY), ("seedance-fast", LEGACY_PROXY)])
+@pytest.mark.parametrize("logical,expected", [("seedance-2.0", TOKENSPACE), ("seedance-2.5", LEGACY_PROXY), ("seedance-2.0-mini", LEGACY_PROXY), ("seedance-fast", LEGACY_PROXY)])
 def test_new_tasks_route_by_logical_model(monkeypatch, logical, expected):
     monkeypatch.setattr(settings, "SEEDANCE20_PROVIDER", TOKENSPACE)
     assert seedance_provider_registry.submission_provider(logical) == expected

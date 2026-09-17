@@ -10,31 +10,6 @@ from app.vidu_api import ViduVideoAPI
 
 
 class TokenSpaceProviderTests(unittest.IsolatedAsyncioTestCase):
-    async def test_seedance25_uses_the_same_tokenspace_channel_and_model_mapping(self):
-        from app.config import settings
-
-        provider = TokenSpaceProvider(
-            "https://api.tokenspace.test",
-            "secret-key",
-            "tokenhub-2.0",
-        )
-        original_25 = settings.SEEDANCE25_MODEL_ID
-        original_tokenspace_25 = settings.TOKENSPACE_SEEDANCE25_MODEL_ID
-        try:
-            settings.SEEDANCE25_MODEL_ID = "tokenhub-2.5"
-            settings.TOKENSPACE_SEEDANCE25_MODEL_ID = "tokenhub-2.5"
-            self.assertEqual(provider.model_id_for("tokenhub-2.5"), "tokenhub-2.5")
-            self.assertEqual(provider.model_id_for("tokenhub-2.0"), "tokenhub-2.0")
-        finally:
-            settings.SEEDANCE25_MODEL_ID = original_25
-            settings.TOKENSPACE_SEEDANCE25_MODEL_ID = original_tokenspace_25
-
-    async def test_seedance25_default_is_not_the_legacy_proxy_endpoint(self):
-        from app.config import settings
-
-        self.assertEqual(settings.TOKENSPACE_SEEDANCE25_MODEL_ID, "doubao-seedance-2-5-260628")
-        self.assertNotEqual(settings.TOKENSPACE_SEEDANCE25_MODEL_ID, settings.SEEDANCE25_MODEL_ID)
-
     async def test_create_requires_upstream_task_id(self):
         provider = TokenSpaceProvider(
             "https://api.tokenspace.test",

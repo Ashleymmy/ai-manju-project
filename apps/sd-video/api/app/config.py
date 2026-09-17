@@ -128,18 +128,12 @@ class Settings:
     TOKENSPACE_BASE_URL: str = (os.getenv("TOKENSPACE_BASE_URL", "") or "https://api.tokenspace.net.cn").rstrip("/")
     TOKENSPACE_API_KEY: str = _secret("TOKENSPACE_API_KEY")
     TOKENSPACE_MODEL_ID: str = os.getenv("TOKENSPACE_MODEL_ID", "") or "doubao-seedance-2-0-260128"
-    # The isolated TokenSpace channel can expose more than one Seedance model.
-    # Keep the old single-model setting as the 2.0 fallback and allow the
-    # ``VM_Seedance25`` is an old proxy endpoint ID, not a TokenSpace model ID.
-    # The TokenSpace model has a stable explicit default from the old Studio.
-    TOKENSPACE_SEEDANCE25_MODEL_ID: str = os.getenv("TOKENSPACE_SEEDANCE25_MODEL_ID", "")
     TOKENSPACE_ASSET_POLL_CONCURRENCY: int = _env_int("TOKENSPACE_ASSET_POLL_CONCURRENCY", 4)
 
     SEEDANCE20_MODEL_ID: str = os.getenv("VM_SEEDANCE_20", "") or os.getenv("VM_Seedance20", "doubao-seedance-2-0-260128")
     # Keep the logical 2.5 slot usable in a fresh environment while allowing
     # production to override it with the provider's dedicated model ID.
     SEEDANCE25_MODEL_ID: str = os.getenv("VM_SEEDANCE_25", "") or os.getenv("VM_Seedance25", "") or SEEDANCE20_MODEL_ID
-    TOKENSPACE_SEEDANCE25_MODEL_ID = TOKENSPACE_SEEDANCE25_MODEL_ID or "doubao-seedance-2-5-260628"
     SEEDANCE20_MINI_MODEL_ID: str = (
         os.getenv("VM_SEEDANCE_20_MINI", "")
         or os.getenv("VM_Seedance20Mini", "")
@@ -247,11 +241,7 @@ class Settings:
             "id": SEEDANCE25_MODEL_ID,
             "name": "Seedance 2.5",
             "provider": "volcano",
-            "available": LOCAL_DEMO_MODE or (
-                bool(TOKENSPACE_BASE_URL and TOKENSPACE_API_KEY and TOKENSPACE_SEEDANCE25_MODEL_ID)
-                if SEEDANCE20_PROVIDER == "tokenspace"
-                else bool(SEEDANCE20_URL and SEEDANCE20_KEY and SEEDANCE25_MODEL_ID)
-            ),
+            "available": LOCAL_DEMO_MODE or bool(SEEDANCE20_URL and SEEDANCE20_KEY and SEEDANCE25_MODEL_ID),
             "supports": ["text", "first_frame", "last_frame", "reference_image", "reference_video", "reference_audio"],
             "ratios": ["16:9", "9:16", "1:1", "21:9", "4:3", "3:4"],
             "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30],

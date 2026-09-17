@@ -38,7 +38,7 @@ class SeedanceProviderRegistry:
     def submission_provider(self, logical_model: str) -> str:
         if logical_model == "seedance-2.0-ark":
             return ARK_OFFICIAL
-        if logical_model in {"seedance-2.0", "seedance-2.5"}:
+        if logical_model == "seedance-2.0":
             return settings.SEEDANCE20_PROVIDER
         return LEGACY_PROXY
 
