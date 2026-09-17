@@ -2,7 +2,6 @@ import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 
 import { CanvasPopover as Popover, CanvasPopoverContent as PopoverContent, CanvasPopoverTrigger as PopoverTrigger } from "./CanvasPopover";
-import { modelName } from "@/shared/lib/modelSelection";
 
 type Props = {
   active: boolean;
@@ -18,7 +17,7 @@ export function CanvasModelPicker({ active, value, label, options, onSelect }: P
   return (
     <Popover active={active} open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button type="button" className="node-chip node-chip-model" title={modelName(value)} aria-label="选择生成模型">
+        <button type="button" className="node-chip node-chip-model" title={label} aria-label="选择生成模型">
           {label} <ChevronDown size={12} />
         </button>
       </PopoverTrigger>

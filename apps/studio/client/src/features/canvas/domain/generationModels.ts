@@ -1,4 +1,4 @@
-import { modelName, modelOptions } from "@/shared/lib/modelSelection";
+import { modelDisplayName, modelOptions } from "@/shared/lib/modelSelection";
 
-export const canvasModelName = modelName;
+export const canvasModelName = modelDisplayName;
 export const canvasGenerationModelOptions = modelOptions;

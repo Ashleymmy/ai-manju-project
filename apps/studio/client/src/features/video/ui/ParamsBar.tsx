@@ -13,6 +13,7 @@ import {
 
 export function ParamsBar({
   models,
+  labels,
   config,
   onChange,
   disabled,
@@ -42,8 +43,8 @@ export function ParamsBar({
           onChange={(event) => patch({ model: event.target.value })}
         >
           {!models.length ? <option value="">未配置</option> : null}
-          {/* 去掉 "provider_xxx::" 前缀，下拉只显示纯模型名 */}
-          {modelOptions(models, normalized.model).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+          {/* 展示模型名称，option value 保留完整调用标识。 */}
+          {modelOptions(models, normalized.model, labels).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
         </select>
       </div>
       <div className="wb-param-group">

@@ -3,15 +3,26 @@ export function modelName(model: string) {
   return model.split("::").at(-1)?.trim() || "";
 }
 
+// SD-video selectors identify managed slots, not user-facing model names.
+const SDVIDEO_MODEL_PREFIX = "sdvideo/";
+
+export function modelDisplayName(model: string, labels: Record<string, string> = {}) {
+  if (model.startsWith(SDVIDEO_MODEL_PREFIX)) {
+    return labels[model]?.trim() || model.slice(SDVIDEO_MODEL_PREFIX.length);
+  }
+  return modelName(model);
+}
+
 /** Keep the saved selector for routing while showing each real model once. */
-export function modelOptions(models: string[], selected = "") {
+export function modelOptions(models: string[], selected = "", labels: Record<string, string> = {}) {
   const grouped = new Map<string, { value: string; label: string }>();
   for (const value of models) {
     const name = modelName(value);
     if (!name) continue;
-    if (!grouped.has(name)) grouped.set(name, { value, label: name });
+    const label = modelDisplayName(value, labels);
+    if (!grouped.has(name)) grouped.set(name, { value, label });
     if (selected && modelName(selected) === name) {
-      grouped.set(name, { value: selected, label: name });
+      grouped.set(name, { value: selected, label });
     }
   }
   return [...grouped.values()];

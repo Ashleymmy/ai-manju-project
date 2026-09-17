@@ -1,4 +1,4 @@
-import { modelName } from "@/shared/lib/modelSelection";
+import { modelDisplayName } from "@/shared/lib/modelSelection";
 import { request } from "@/shared/api/http";
 
 import type {
@@ -96,9 +96,9 @@ export function normalizeModelList(value?: ModelDescriptor[]) {
 
 export function modelLabel(
   model: string,
-  _catalog?: Pick<CapabilityModelCatalog, "labels" | "providerNames">
+  catalog?: Pick<CapabilityModelCatalog, "labels" | "providerNames">
 ) {
-  return modelName(model);
+  return modelDisplayName(model, catalog?.labels);
 }
 
 function normalizeModelValue(value?: ModelDescriptor) {

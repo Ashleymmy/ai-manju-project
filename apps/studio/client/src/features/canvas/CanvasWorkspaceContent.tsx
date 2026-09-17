@@ -4559,13 +4559,13 @@ export default function CanvasWorkspaceViewContent() {
           storyboardBusy={storyboardBusy}
           selectedGenerationMode={selectedGenerationMode}
           selectedGenerationModel={selectedGenerationModel}
-          selectedGenerationModelLabel={canvasModelName(selectedGenerationModel) || "选择模型"}
+          selectedGenerationModelLabel={canvasModelName(selectedGenerationModel, textModelLabels) || "选择模型"}
           generationModelOptions={selectedGenerationMode === "text"
             ? canvasGenerationModelOptions(textModels, selectedGenerationModel)
             : selectedGenerationMode === "image"
               ? canvasGenerationModelOptions(modelCatalog?.models || [], selectedGenerationModel)
               : selectedGenerationMode === "video"
-                ? canvasGenerationModelOptions(videoModels, selectedGenerationModel)
+                ? canvasGenerationModelOptions(videoModels, selectedGenerationModel, textModelLabels)
                 : canvasGenerationModelOptions(audioModels, selectedGenerationModel)}
           selectedVideoConfig={selectedVideoConfig || null}
           selectedVideoSeedance={selectedVideoSeedance}
