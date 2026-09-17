@@ -52,6 +52,7 @@ import {
 import { createAndOpenProject } from "@/features/projects";
 
 import { StudioCommandPalette } from "./StudioCommandPalette";
+import { clampSidebarEffect, nextSidebarEffect, SIDEBAR_POINTER_RADIUS_PX } from "./sidebarMotion";
 import "../styles/shell.css";
 
 const logoUrl = "/logo.png";
@@ -218,7 +219,7 @@ function BrandMark() {
   );
 }
 
-function LineNav({
+export function LineNav({
   groups,
   currentPath,
 }: {
@@ -242,39 +243,59 @@ function LineNav({
   const targetsRef = useRef<number[]>([]);
   const currentsRef = useRef<number[]>([]);
   const rafRef = useRef<number | null>(null);
-  const lastRef = useRef(0);
+  const lastRef = useRef<number | null>(null);
 
   const runFrame = useCallback((now: number) => {
-    const dt = Math.min((now - lastRef.current) / 1000, 0.05);
+    const elapsedMs = lastRef.current === null ? 0 : now - lastRef.current;
     lastRef.current = now;
-    const smoothing = 1 - Math.exp(-dt / 0.1);
     let moving = false;
     rowRefs.current.forEach((element, index) => {
       if (!element) return;
       const target = Math.max(
-        targetsRef.current[index] || 0,
+        clampSidebarEffect(targetsRef.current[index] || 0),
         element.dataset.active === "1" ? 1 : 0
       );
-      const current = currentsRef.current[index] || 0;
-      const next = current + (target - current) * smoothing;
-      const settled = Math.abs(target - next) < 0.0015;
-      const value = settled ? target : next;
+      const value = nextSidebarEffect(currentsRef.current[index] || 0, target, elapsedMs);
       currentsRef.current[index] = value;
       element.style.setProperty("--effect", value.toFixed(4));
-      if (!settled) moving = true;
+      if (value !== target) moving = true;
     });
     rafRef.current = moving ? requestAnimationFrame(runFrame) : null;
   }, []);
 
   const startLoop = useCallback(() => {
-    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
-    lastRef.current = performance.now();
+    // Keep one loop and use only RAF timestamps; pointer events must not reset its clock.
+    if (rafRef.current != null) return;
+    lastRef.current = null;
     rafRef.current = requestAnimationFrame(runFrame);
   }, [runFrame]);
 
+  const resetMotion = useCallback(() => {
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    lastRef.current = null;
+    targetsRef.current = [];
+    currentsRef.current = [];
+    rowRefs.current.forEach((element, index) => {
+      if (!element) return;
+      const value = element.dataset.active === "1" ? 1 : 0;
+      currentsRef.current[index] = value;
+      element.style.setProperty("--effect", String(value));
+    });
+  }, []);
+
   useEffect(() => {
-    startLoop();
-  }, [currentPath, startLoop]);
+    resetMotion();
+  }, [currentPath, openGroups, resetMotion]);
+
+  useEffect(() => {
+    window.addEventListener("blur", resetMotion);
+    document.addEventListener("visibilitychange", resetMotion);
+    return () => {
+      window.removeEventListener("blur", resetMotion);
+      document.removeEventListener("visibilitychange", resetMotion);
+    };
+  }, [resetMotion]);
 
   useEffect(
     () => () => {
@@ -303,14 +324,13 @@ function LineNav({
   const handlePointerMove = (event: ReactPointerEvent) => {
     const list = listRef.current;
     if (!list) return;
-    const rect = list.getBoundingClientRect();
-    const pointerY = event.clientY - rect.top;
-    const radius = 100;
     rowRefs.current.forEach((element, index) => {
       if (!element) return;
-      const center = element.offsetTop + element.offsetHeight / 2;
-      const distance = Math.abs(pointerY - center);
-      const proximity = Math.max(0, 1 - distance / radius);
+      const rect = element.getBoundingClientRect();
+      const center = rect.top + rect.height / 2;
+      const distance = Math.abs(event.clientY - center);
+      const proximity = rect.height > 0
+        ? clampSidebarEffect(1 - distance / SIDEBAR_POINTER_RADIUS_PX) : 0;
       targetsRef.current[index] =
         proximity * proximity * (3 - 2 * proximity);
     });
@@ -343,6 +363,7 @@ function LineNav({
       className="line-nav"
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
+      onScroll={resetMotion}
     >
       {groups.map((group) => {
         const open = openGroups.includes(group.id);
