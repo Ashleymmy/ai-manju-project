@@ -132,18 +132,18 @@ export function useModelProvidersController(active: boolean) {
     clearSensitiveInputs();
   };
 
-  const saveProvider = async () => {
-    if (!(providerDraft.name || "").trim()) {
+  const saveProvider = async (draft = providerDraft) => {
+    if (!(draft.name || "").trim()) {
       toast.error("请填写 Provider 名称");
       return;
     }
-    if (!(providerDraft.base_url || "").trim()) {
+    if (!(draft.base_url || "").trim()) {
       toast.error("请填写 Base URL");
       return;
     }
     setBusy("provider-save");
     try {
-      const payload = buildModelProviderPayload(providerDraft, {
+      const payload = buildModelProviderPayload(draft, {
         apiKey,
         secrets: providerSecrets,
       });

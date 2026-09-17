@@ -118,8 +118,8 @@ func (h *ModelProviderHandler) List(c *gin.Context) {
 	if h.sdVideo != nil && h.sdVideo.Enabled() {
 		remote, err := h.sdVideoModels(c)
 		if err == nil {
-			for _, item := range remote {
-				items = append(items, sdVideoModelProvider(item))
+			if len(remote) > 0 {
+				items = append(items, sdVideoProviderGroup(remote))
 			}
 		} else {
 			c.Header("X-SD-Video-Status", "unavailable")

@@ -33,7 +33,22 @@ export type ImageGenerationProtocol =
   | "dashscope_multimodal"
   | "stability_image";
 
+export type SDVideoManagedModel = {
+  key: string;
+  model_id: string;
+  name: string;
+  enabled: boolean;
+  available: boolean;
+  version: number;
+  concurrency_limit: number;
+  credentials_configured: boolean;
+  disabled_reason?: string;
+  upstream_provider?: string;
+};
+
 export type ModelProviderConfig = {
+  sdvideo_models?: SDVideoManagedModel[];
+  enabled_model_count?: number;
   upstream_provider?: string;
   version?: number;
   configured?: boolean;

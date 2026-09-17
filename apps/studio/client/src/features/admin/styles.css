@@ -30,3 +30,12 @@
   .provider-capability-grid,
 .provider-protocol-grid { grid-template-columns: 1fr; }
 }/* ---- 闂佹澘绉堕悿鍡涘垂鐎ｎ喓鈧妫冮姀銈嗘嚈婵犲ň鈧彃鐦滈柛鏍ф惈閻撴瑧鈧妫勭€规娊鏁嶉崼婵嗗緭濞?feature-page 濞ｅ洦绻冪€?1480px 闂傚啫鎳撻鎵偓纭呮鐎规娊鏁?---- */.feature-page.admin-page { max-width: none; }
+.sdvideo-model-list { display: grid; gap: 12px; min-width: 0; }
+.sdvideo-model-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.6fr) 72px 80px; align-items: end; gap: 12px; min-width: 0; margin: 0; padding: 14px; border: 1px solid var(--line); }
+.sdvideo-model-row legend { padding: 0 6px; color: #edf2ec; font-size: 12px; }
+.sdvideo-model-row label { min-width: 0; }
+.sdvideo-model-row small { grid-column: 1 / -1; font-size: 11px; }
+.sdvideo-ready { color: #b3d5bc; }
+.sdvideo-missing { color: #e5c58b; }
+@media (max-width: 1100px) { .sdvideo-model-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+@media (max-width: 640px) { .sdvideo-model-row { grid-template-columns: minmax(0, 1fr); } }

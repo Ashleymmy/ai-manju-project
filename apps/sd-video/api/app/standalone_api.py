@@ -85,6 +85,18 @@ class ModelUpdateRequest(BaseModel):
     name: str | None = None
 
 
+class ModelBatchItem(ModelUpdateRequest):
+    key: str = Field(min_length=1)
+    version: int = Field(ge=1)
+    model_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+
+
+class ModelBatchUpdateRequest(BaseModel):
+    # Bounded independently of the number of models currently in the catalog.
+    items: list[ModelBatchItem] = Field(min_length=1, max_length=100)
+
+
 class InputPresignRequest(BaseModel):
     name: str = Field(min_length=1, max_length=180)
     content_type: str = "application/octet-stream"
@@ -908,6 +920,16 @@ async def update_admin_model(model_key: str, request: ModelUpdateRequest, http_r
         raise HTTPException(status_code=404, detail="model not found")
     updated = await model_store.update(model_key, request.model_dump(exclude_none=True))
     return ok(public_model(updated), http_request)
+
+
+@router.put("/admin/models")
+async def update_admin_models(request: ModelBatchUpdateRequest, http_request: Request, principal: Annotated[ServicePrincipal, Depends(require_admin)]):
+    del principal
+    try:
+        updated = await model_store.update_many([item.model_dump(exclude_none=True) for item in request.items])
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ok({"items": [public_model(item) for item in updated]}, http_request)
 
 
 @router.post("/admin/models/{model_key}/test")

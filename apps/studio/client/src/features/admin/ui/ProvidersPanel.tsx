@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 import type { ModelProvidersController } from "../controllers/useModelProvidersController";
+import { SDVideoProviderEditor } from "./SDVideoProviderEditor";
 import {
   capabilityOptions,
   imageProtocolOptions,
@@ -102,16 +103,22 @@ export function ProvidersPanel({
                 <span>
                   <b>{provider.name}</b>
                   <small>
-                    {provider.provider_type} · {provider.capabilities?.join("/")}
+                    {provider.sdvideo_models
+                      ? `视频 · ${provider.sdvideo_models.length} 个模型`
+                      : `${provider.provider_type} · ${provider.capabilities?.join("/")}`}
                   </small>
                 </span>
                 <em className={provider.enabled ? "active" : "pending"}>
-                  {provider.enabled ? "启用" : "停用"}
+                  {provider.sdvideo_models && provider.enabled_model_count && provider.enabled_model_count < provider.sdvideo_models.length
+                    ? "部分启用"
+                    : provider.enabled ? "启用" : "停用"}
                 </em>
               </button>
             ))}
           </aside>
-          <section className="provider-form">
+          {providerDraft.sdvideo_models ? (
+            <SDVideoProviderEditor draft={providerDraft} setDraft={setProviderDraft} busy={Boolean(busy)} save={draft => void saveProvider(draft)} />
+          ) : <section className="provider-form">
             {managedBySDVideo && (
               <div className="provider-test-result"><p>
                 {activeProvider?.upstream_provider === "ark_official"
@@ -659,7 +666,7 @@ export function ProvidersPanel({
                 ) : null}
               </div>
             ) : null}
-          </section>
+          </section>}
         </div>
       </section>
 

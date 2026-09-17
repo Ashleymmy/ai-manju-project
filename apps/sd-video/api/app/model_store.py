@@ -75,6 +75,45 @@ class ModelConfigStore:
             settings.MODELS[key].update(current)
         return {**current, "enabled": bool(current.get("available", True))}
 
+    async def update_many(self, updates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Save a provider's model edits atomically, with per-model versions."""
+        current = {item["key"]: item for item in await self.list()}
+        keys = [item["key"] for item in updates]
+        if not keys or len(keys) != len(set(keys)) or any(key not in current for key in keys):
+            raise ValueError("invalid model selection")
+        prepared = []
+        for update in updates:
+            key = update["key"]
+            item = dict(current[key])
+            expected = update["version"]
+            if expected != item.get("version", 1):
+                raise ValueError("model version conflict")
+            changes = {name: value for name, value in update.items() if name not in {"key", "version"}}
+            if "model_id" in changes:
+                changes["id"] = changes.pop("model_id")
+            if "enabled" in changes:
+                changes["available"] = changes.pop("enabled")
+            item.update(changes)
+            item.update(enabled=bool(item.get("available", True)), version=expected + 1)
+            prepared.append(item)
+        if self.database_url:
+            async with await psycopg.AsyncConnection.connect(self.database_url, row_factory=dict_row) as connection:
+                async with connection.cursor() as cursor:
+                    # Stable lock order also keeps concurrent group edits from deadlocking.
+                    for item in sorted(prepared, key=lambda value: value["key"]):
+                        await cursor.execute(
+                            "update model_configs set model_id=%s,name=%s,enabled=%s,config=%s::jsonb,version=version+1,updated_at=now() where id=%s and version=%s returning version",
+                            (item.get("id") or item["key"], item.get("name") or item["key"], item["enabled"], json.dumps(item), item["key"], item["version"] - 1),
+                        )
+                        if await cursor.fetchone() is None:
+                            # Raising rolls back every update in this connection's transaction.
+                            raise ValueError("model version conflict")
+        else:
+            # No await between validation and mutation of the in-memory store.
+            for item in prepared:
+                settings.MODELS[item["key"]].update(item)
+        return prepared
+
 
 def public_model(value: dict[str, Any]) -> dict[str, Any]:
     allowed = {"key", "id", "name", "provider", "upstream_provider", "available", "enabled", "version", "supports", "ratios", "durations", "resolutions", "has_audio", "description", "concurrency_limit"}
@@ -89,7 +128,8 @@ def public_model(value: dict[str, Any]) -> dict[str, Any]:
             from app.providers.seedance import seedance_provider_registry
             logical = str(value.get("key") or "")
             original_id = settings.MODELS.get(logical, {}).get("id") or value.get("id")
-            if logical == "seedance-2.0-ark" or original_id in settings.SEEDANCE20_MODEL_IDS:
+            from app.providers.seedance.registry import SEEDANCE_PROVIDER_MODELS
+            if logical in SEEDANCE_PROVIDER_MODELS or original_id in settings.SEEDANCE20_MODEL_IDS:
                 configured = seedance_provider_registry.configured(seedance_provider_registry.submission_provider(logical))
             else:
                 configured = bool(settings.ARK_API_KEY)
