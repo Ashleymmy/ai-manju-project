@@ -52,7 +52,9 @@ class PrepareTests(unittest.TestCase):
             buckets = [v for k, v in env.items() if k.endswith('_BUCKET')]
             self.assertEqual(set(buckets), {'studio-sdvideo-test-' + s for s in
                                            ('inputs', 'results', 'thumbnails', 'volcano')})
-            for key in ('ARK_API_KEY', 'SEEDANCE20_KEY', 'VIDU_API_KEY', 'YIKE_API_KEY', 'AMK_API_KEY'):
+            for key in ('ARK_API_KEY', 'SEEDANCE20_KEY', 'VIDU_API_KEY', 'YIKE_API_KEY', 'AMK_API_KEY',
+                        'ARK_OFFICIAL_API_KEY', 'ARK_OFFICIAL_ACCESS_KEY_ID',
+                        'ARK_OFFICIAL_SECRET_ACCESS_KEY', 'ARK_OFFICIAL_SECURITY_TOKEN'):
                 self.assertEqual(env[key], '')
                 self.assertEqual(env[key + '_FILE'], '')
             self.assertEqual(env['SDVIDEO_SUPABASE_PUBLIC_URL'], 'https://studio.clouddo.cc')

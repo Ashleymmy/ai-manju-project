@@ -68,13 +68,14 @@ def register_asset_routes(router):
     @router.get("/volcano/readiness")
     async def readiness(request: Request, principal: Annotated[ServicePrincipal, Depends(require_scope("assets:read"))]):
         from app.providers.seedance import seedance_provider_registry
-        provider = seedance_provider_registry.get(settings.SEEDANCE20_PROVIDER)
-        configured = settings.EXECUTION_MODE == "mock" or provider.configured()
+        provider = seedance_provider_registry.asset_provider()
+        configured = settings.EXECUTION_MODE == "mock" or provider.assets_configured()
         return ok({"provider_configured": configured, "provider_id": provider.name,
-                   "provider_protocol": "tokenspace_material" if provider.name == "tokenspace" else "volcano_asset",
+                   "provider_protocol": {"tokenspace": "tokenspace_material", "ark_official": "ark_official_asset"}.get(provider.name, "volcano_asset"),
+                   "video_provider_configured": settings.EXECUTION_MODE == "mock" or provider.configured(),
                    "upload_registration_available": configured and settings.SD_VIDEO_MODE == "active",
                    "public_asset_base_url_configured": settings.STORAGE_BACKEND != "local",
-                   "provider_error": "" if configured else "新 SD-video 尚未配置素材 Provider 凭证"}, request)
+                   "provider_error": "" if configured else ("火山方舟官方素材管理需要独立配置 AK/SK，视频 API Key 不能用于素材注册" if provider.name == "ark_official" else "新 SD-video 尚未配置素材 Provider 凭证")}, request)
 
     @router.get("/volcano/assets/{asset_id}/content")
     async def content(asset_id: str, principal: Annotated[ServicePrincipal, Depends(require_scope("assets:read"))]):

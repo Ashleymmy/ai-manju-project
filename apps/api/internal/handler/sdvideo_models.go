@@ -38,14 +38,19 @@ func sdVideoModelProvider(item map[string]any) gin.H {
 	if !ok {
 		enabled, _ = item["available"].(bool)
 	}
+	providerType := "openai_compatible"
+	if item["upstream_provider"] == "ark_official" {
+		providerType = "volcengine_ark"
+	}
 	return gin.H{
 		"id": sdVideoManagedProviderPrefix + stringFromAny(item["key"]), "name": item["name"],
-		"configured": true, "provider_type": "openai_compatible", "mode": "openai_compatible",
+		"configured": true, "provider_type": providerType, "mode": "openai_compatible",
 		"base_url": "sd-video://managed", "auth_type": "none", "text_model": "", "video_model": modelID,
 		"capabilities": []string{"video"}, "models_by_capability": gin.H{"video": []string{modelID}},
 		"default_for": []string{}, "timeout_ms": 120000, "max_concurrency": item["concurrency_limit"],
 		"enabled": enabled, "version": item["version"], "api_key_set": item["disabled_reason"] == nil,
-		"disabled_reason": item["disabled_reason"],
+		"disabled_reason":   item["disabled_reason"],
+		"upstream_provider": item["upstream_provider"],
 	}
 }
 

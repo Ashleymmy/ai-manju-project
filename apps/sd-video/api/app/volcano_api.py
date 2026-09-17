@@ -367,7 +367,7 @@ class VolcanoVideoAPI:
             reference_inputs=reference_inputs,
         )
 
-        if self._is_seedance20_model(model):
+        if upstream_provider or self._is_seedance20_model(model):
             provider = seedance_provider_registry.get(upstream_provider or LEGACY_PROXY)
             if not provider.configured():
                 raise VolcanoAPIError(
@@ -436,6 +436,8 @@ class VolcanoVideoAPI:
             }
             if resolution:
                 payload["resolution"] = resolution
+            if seed is not None:
+                payload["seed"] = seed
 
             logger.info(f"[Volcano API] Seedance 2.0 准备提交 | 映射后提示词: {cleaned_prompt[:100]}... | 原始Token: {original_tokens}")
 
@@ -512,7 +514,7 @@ class VolcanoVideoAPI:
         Returns:
             任务详情，包含 status, content(video_url) 等
         """
-        if self._is_seedance20_model(model):
+        if upstream_provider or self._is_seedance20_model(model):
             provider = seedance_provider_registry.get(upstream_provider or LEGACY_PROXY)
             last_provider_error: SeedanceProviderError | None = None
             for attempt in range(max_retries):
@@ -624,7 +626,7 @@ class VolcanoVideoAPI:
         - succeeded/failed/expired -> 删除记录，无返回参数
         - cancelled -> 不支持
         """
-        if self._is_seedance20_model(model):
+        if upstream_provider or self._is_seedance20_model(model):
             provider = seedance_provider_registry.get(upstream_provider or LEGACY_PROXY)
             try:
                 return await provider.cancel_video_task(task_id)

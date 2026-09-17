@@ -22,8 +22,13 @@ class ModelConfigStore:
             async with connection.cursor() as cursor:
                 await cursor.execute("select id, model_id, provider, name, enabled, capabilities, config,version from model_configs order by id")
                 rows = await cursor.fetchall()
-                if not rows:
+                existing = {row["id"] for row in rows}
+                if not rows or "seedance-2.0-ark" not in existing:
                     for key, value in settings.MODELS.items():
+                        # Upgrade adds the independent official slot, preserving all
+                        # existing metadata, enablement and operator deletions.
+                        if rows and key != "seedance-2.0-ark":
+                            continue
                         await cursor.execute(
                             "insert into model_configs(id,model_id,provider,name,enabled,capabilities,config) values (%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb) on conflict do nothing",
                             (key, value.get("id") or key, value.get("provider") or "", value.get("name") or key, bool(value.get("available", True)), json.dumps({"supports": value.get("supports", []), "ratios": value.get("ratios", []), "durations": value.get("durations", []), "resolutions": value.get("resolutions", []), "has_audio": value.get("has_audio", False)}), json.dumps(value)),
@@ -72,7 +77,7 @@ class ModelConfigStore:
 
 
 def public_model(value: dict[str, Any]) -> dict[str, Any]:
-    allowed = {"key", "id", "name", "provider", "available", "enabled", "version", "supports", "ratios", "durations", "resolutions", "has_audio", "description", "concurrency_limit"}
+    allowed = {"key", "id", "name", "provider", "upstream_provider", "available", "enabled", "version", "supports", "ratios", "durations", "resolutions", "has_audio", "description", "concurrency_limit"}
     result = {key: item for key, item in value.items() if key in allowed}
     result.setdefault("concurrency_limit", 1)
     result.setdefault("enabled", bool(value.get("available", True)))
@@ -84,7 +89,10 @@ def public_model(value: dict[str, Any]) -> dict[str, Any]:
             from app.providers.seedance import seedance_provider_registry
             logical = str(value.get("key") or "")
             original_id = settings.MODELS.get(logical, {}).get("id") or value.get("id")
-            configured = bool(settings.ARK_API_KEY) if original_id not in settings.SEEDANCE20_MODEL_IDS else seedance_provider_registry.configured(seedance_provider_registry.submission_provider(logical))
+            if logical == "seedance-2.0-ark" or original_id in settings.SEEDANCE20_MODEL_IDS:
+                configured = seedance_provider_registry.configured(seedance_provider_registry.submission_provider(logical))
+            else:
+                configured = bool(settings.ARK_API_KEY)
         if not configured:
             result.update(available=False, disabled_reason="provider_credentials_missing")
     return result

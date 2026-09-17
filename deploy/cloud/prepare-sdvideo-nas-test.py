@@ -86,7 +86,8 @@ def make_overlay(image):
                          ('THUMBNAIL', 'thumbnails'), ('VOLCANO', 'volcano')):
         runtime[f'SDVIDEO_SUPABASE_{kind}_BUCKET'] = f'studio-sdvideo-test-{suffix}'
     # 清空继承自根 Compose 的上游凭据；本轮不调用付费 Provider。
-    for key in ('ARK_API_KEY', 'SEEDANCE20_KEY', 'TOKENSPACE_API_KEY', 'VIDU_API_KEY',
+    for key in ('ARK_OFFICIAL_API_KEY', 'ARK_OFFICIAL_ACCESS_KEY_ID',
+                'ARK_OFFICIAL_SECRET_ACCESS_KEY', 'ARK_OFFICIAL_SECURITY_TOKEN', 'ARK_API_KEY', 'SEEDANCE20_KEY', 'TOKENSPACE_API_KEY', 'VIDU_API_KEY',
                 'YIKE_API_KEY', 'YIKE_ACCESS_KEY_ID', 'YIKE_ACCESS_KEY_SECRET', 'AMK_API_KEY'):
         runtime[key] = ''
         runtime[key + '_FILE'] = ''

@@ -93,6 +93,17 @@ func TestSDVideoAssetViewRedactsProviderError(t *testing.T) {
 	}
 }
 
+func TestSDVideoOfficialProviderViewsStayIndependent(t *testing.T) {
+	asset := sdVideoAssetView(map[string]any{"id": "official", "kind": "image", "status": "active", "upstream_provider": "ark_official", "provider_asset_id": "asset-official"}, nil, "personal")
+	if asset["provider_id"] != "ark_official" || asset["provider_protocol"] != "ark_official_asset" {
+		t.Fatal("official assets lost provider identity")
+	}
+	item := sdVideoModelProvider(map[string]any{"key": "seedance-2.0-ark", "id": "ep-official", "name": "火山方舟官方", "upstream_provider": "ark_official", "enabled": true, "disabled_reason": "provider_credentials_missing"})
+	if item["id"] != "sdvideo::seedance-2.0-ark" || item["provider_type"] != "volcengine_ark" || item["api_key_set"] != false || item["base_url"] != "sd-video://managed" {
+		t.Fatal("official model must retain managed configuration and credential readiness")
+	}
+}
+
 func TestSDVideoAssetCompatibilityUsesScopedQueries(t *testing.T) {
 	_, private, _ := ed25519.GenerateKey(rand.Reader)
 	paths := []string{}

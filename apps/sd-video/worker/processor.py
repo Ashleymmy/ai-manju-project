@@ -23,6 +23,7 @@ from app.vidu_api import vidu_api
 from app.volcano_api import volcano_api
 from app.yike_api import yike_api
 from app.providers.seedance import LEGACY_PROXY, seedance_provider_registry
+from app.providers.seedance.registry import SEEDANCE_PROVIDER_MODELS
 from app.model_store import model_store
 from app.mock_media import MOCK_VIDEO
 from worker.errors import exception_details, submission_rejected, terminal_details
@@ -126,7 +127,7 @@ async def _create_upstream(record: Any, provider: str, model_id: str, *, referen
     if provider == "yike":
         return await yike_api.create_video_task(**kwargs)
     upstream = str(request.get("upstream_provider") or "").strip() or seedance_provider_registry.submission_provider(record.model)
-    if model_id not in settings.SEEDANCE20_MODEL_IDS and not seedance_provider_registry.configured(upstream):
+    if record.model not in SEEDANCE_PROVIDER_MODELS and model_id not in settings.SEEDANCE20_MODEL_IDS:
         # Non-Seedance Volcano models use the Ark client directly; the copied
         # client performs its own credential check and error classification.
         upstream = None
@@ -151,7 +152,8 @@ async def _query_upstream(record: Any, provider: str, provider_id: str, model_id
     return await volcano_api.query_task(
         provider_id,
         model=model_id,
-        upstream_provider=str(request.get("upstream_provider") or seedance_provider_registry.submission_provider(record.model)),
+        upstream_provider=(str(request.get("upstream_provider") or LEGACY_PROXY)
+                           if record.model in SEEDANCE_PROVIDER_MODELS or model_id in settings.SEEDANCE20_MODEL_IDS else None),
     )
 
 
@@ -165,7 +167,8 @@ async def _cancel_upstream(record: Any, provider: str, provider_id: str, model_i
             return
         else:
             request = record.request or {}
-            await volcano_api.cancel_task(provider_id, model=model_id, upstream_provider=str(request.get("upstream_provider") or LEGACY_PROXY))
+            await volcano_api.cancel_task(provider_id, model=model_id, upstream_provider=(str(request.get("upstream_provider") or LEGACY_PROXY)
+                                          if record.model in SEEDANCE_PROVIDER_MODELS or model_id in settings.SEEDANCE20_MODEL_IDS else None))
     except Exception as exc:
         if getattr(exc, "http_status", None) in {404, 405, 409, 422}: return
         raise

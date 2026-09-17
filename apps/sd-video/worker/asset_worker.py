@@ -24,7 +24,7 @@ async def process_asset(item, store=volcano_store, storage=local_storage, provid
                        provider_asset_id=item.get("provider_asset_id") or f"mock_{item['id']}")
             return
         provider = provider or seedance_provider_registry.get(item["upstream_provider"])
-        if not provider.configured() or provider.namespace != item["provider_namespace"]:
+        if not provider.assets_configured() or provider.namespace != item["provider_namespace"]:
             await save(release=True, error={"code": "provider_configuration_changed"})
             return
         remote_id = item.get("provider_asset_id")

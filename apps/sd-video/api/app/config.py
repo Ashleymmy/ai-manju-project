@@ -110,8 +110,21 @@ class Settings:
     SEEDANCE20_PROVIDER: str = _env_choice(
         "SEEDANCE20_PROVIDER",
         "legacy_proxy",
-        {"legacy_proxy", "tokenspace"},
+        {"legacy_proxy", "tokenspace", "ark_official"},
     )
+    # Registration can select an independent provider without moving proxy models.
+    # Empty retains SEEDANCE20_PROVIDER for existing deployments.
+    SEEDANCE_ASSET_PROVIDER: str = os.getenv("SEEDANCE_ASSET_PROVIDER", "").strip().lower()
+    # Official credentials never fall back to ARK_API_KEY or proxy credentials.
+    ARK_OFFICIAL_BASE_URL: str = os.getenv("ARK_OFFICIAL_BASE_URL", "https://ark.cn-beijing.volces.com").rstrip("/")
+    ARK_OFFICIAL_API_KEY: str = _secret("ARK_OFFICIAL_API_KEY")
+    ARK_OFFICIAL_ASSET_BASE_URL: str = os.getenv("ARK_OFFICIAL_ASSET_BASE_URL", "https://ark.cn-beijing.volcengineapi.com").rstrip("/")
+    ARK_OFFICIAL_ACCESS_KEY_ID: str = _secret("ARK_OFFICIAL_ACCESS_KEY_ID")
+    ARK_OFFICIAL_SECRET_ACCESS_KEY: str = _secret("ARK_OFFICIAL_SECRET_ACCESS_KEY")
+    ARK_OFFICIAL_SECURITY_TOKEN: str = _secret("ARK_OFFICIAL_SECURITY_TOKEN")
+    ARK_OFFICIAL_REGION: str = os.getenv("ARK_OFFICIAL_REGION", "cn-beijing")
+    ARK_OFFICIAL_PROJECT_NAME: str = os.getenv("ARK_OFFICIAL_PROJECT_NAME", "default")
+    ARK_OFFICIAL_MODEL_ID: str = os.getenv("ARK_OFFICIAL_MODEL_ID", "doubao-seedance-2-0-260128")
     TOKENSPACE_BASE_URL: str = (os.getenv("TOKENSPACE_BASE_URL", "") or "https://api.tokenspace.net.cn").rstrip("/")
     TOKENSPACE_API_KEY: str = _secret("TOKENSPACE_API_KEY")
     TOKENSPACE_MODEL_ID: str = os.getenv("TOKENSPACE_MODEL_ID", "") or "doubao-seedance-2-0-260128"
@@ -240,7 +253,9 @@ class Settings:
             "name": "Seedance 2.0",
             "provider": "volcano",
             "available": LOCAL_DEMO_MODE or (
-                bool(TOKENSPACE_BASE_URL and TOKENSPACE_API_KEY and TOKENSPACE_MODEL_ID)
+                bool(ARK_OFFICIAL_BASE_URL and ARK_OFFICIAL_API_KEY)
+                if SEEDANCE20_PROVIDER == "ark_official"
+                else bool(TOKENSPACE_BASE_URL and TOKENSPACE_API_KEY and TOKENSPACE_MODEL_ID)
                 if SEEDANCE20_PROVIDER == "tokenspace"
                 else bool(SEEDANCE20_URL and SEEDANCE20_KEY and SEEDANCE20_MODEL_ID)
             ),
@@ -271,6 +286,19 @@ class Settings:
             "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
             "has_audio": True,
             "resolutions": ["480p", "720p"],
+        },
+        "seedance-2.0-ark": {
+            "id": ARK_OFFICIAL_MODEL_ID,
+            "name": "Seedance 2.0 · 火山方舟官方",
+            "provider": "volcano",
+            "upstream_provider": "ark_official",
+            # Admin enablement is independent of credential readiness (public_model).
+            "available": True,
+            "supports": ["text", "first_frame", "last_frame", "reference_image", "reference_video", "reference_audio"],
+            "ratios": ["16:9", "9:16", "1:1", "21:9", "4:3", "3:4"],
+            "durations": list(range(4, 16)),
+            "has_audio": True,
+            "resolutions": ["480p", "720p", "1080p"],
         },
         "seedance-1.5-pro": {
             "id": "doubao-seedance-1-5-pro-251215",

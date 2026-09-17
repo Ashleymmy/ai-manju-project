@@ -40,6 +40,7 @@ def test_asset_register_poll_delete_and_owner_boundary():
         provider = AsyncMock()
         provider.namespace = "namespace"
         provider.configured = lambda: True
+        provider.assets_configured = lambda: True
         provider.create_asset_group.return_value = {"id": "group"}
         provider.create_asset.return_value = {"id": "remote"}
         provider.get_asset.return_value = {"record": {"Status": "Active"}}
@@ -67,6 +68,7 @@ def test_uncertain_asset_submission_never_recreates():
         provider = AsyncMock()
         provider.namespace = "namespace"
         provider.configured = lambda: True
+        provider.assets_configured = lambda: True
         await process_asset(await store.claim(), store, AsyncMock(), provider)
         provider.create_asset.assert_not_awaited()
         assert store.items[item["id"]]["error"]["code"] == "submission_uncertain"

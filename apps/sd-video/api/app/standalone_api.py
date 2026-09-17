@@ -800,7 +800,7 @@ async def ensure_volcano_active(http_request: Request, principal: Annotated[Serv
     if not isinstance(ids, list) or len(ids) > 100 or any(not isinstance(value, str) or not value or len(value) > 512 for value in ids):
         raise HTTPException(status_code=400, detail="invalid asset references")
     from app.providers.seedance import seedance_provider_registry
-    namespace = seedance_provider_registry.get(settings.SEEDANCE20_PROVIDER).namespace
+    namespace = seedance_provider_registry.asset_provider().namespace
     for value in dict.fromkeys(ids):
         if await volcano_store.active_reference(principal, value.removeprefix("asset://"), namespace) is None:
             raise HTTPException(status_code=409, detail="asset not owned or not active in current provider namespace")
@@ -847,8 +847,8 @@ async def register_material(principal, payload):
     kind = payload.get("kind", "image")
     if kind not in {"image", "video", "audio"}: raise HTTPException(status_code=400, detail="invalid asset kind")
     from app.providers.seedance import seedance_provider_registry
-    provider = seedance_provider_registry.get(settings.SEEDANCE20_PROVIDER)
-    if _execution_mode() != "mock" and not provider.configured(): raise HTTPException(status_code=503, detail="asset provider is not configured")
+    provider = seedance_provider_registry.asset_provider()
+    if _execution_mode() != "mock" and not provider.assets_configured(): raise HTTPException(status_code=503, detail="asset provider is not configured")
     asset = await volcano_store.create(principal, {"storage_key": token, "kind": kind,
         "name": str(payload.get("name") or "素材")[:200], "description": str(payload.get("description") or "")[:2000], "tags": await _validated_asset_tags(principal, payload.get("tags") or []),
         "upstream_provider": provider.name, "provider_namespace": provider.namespace})

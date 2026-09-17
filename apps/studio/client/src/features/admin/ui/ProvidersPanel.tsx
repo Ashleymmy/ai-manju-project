@@ -71,6 +71,7 @@ export function ProvidersPanel({
     setProviderTestConfirmOpen,
     testProvider,
   } = controller;
+  const managedBySDVideo = Boolean(activeProvider?.id?.startsWith("sdvideo::"));
 
   return (
     <>
@@ -111,10 +112,18 @@ export function ProvidersPanel({
             ))}
           </aside>
           <section className="provider-form">
+            {managedBySDVideo && (
+              <div className="provider-test-result"><p>
+                {activeProvider?.upstream_provider === "ark_official"
+                  ? "火山方舟官方直连：视频 API Key 与素材 AK/SK 由独立 SD-video 服务配置。这里可调整模型、名称、并发和启停。"
+                  : "此视频模型由独立 SD-video 服务管理上游地址和凭证。"}
+              </p></div>
+            )}
             <label>
               预设
               <select
                 value={providerDraft.preset_id || ""}
+                disabled={managedBySDVideo}
                 onChange={event => changePreset(event.target.value)}
               >
                 <option value="">不使用预设</option>
@@ -168,6 +177,7 @@ export function ProvidersPanel({
               Base URL
               <input
                 value={providerDraft.base_url || ""}
+                disabled={managedBySDVideo}
                 onChange={event =>
                   setProviderDraft(draft => ({
                     ...draft,
@@ -180,6 +190,7 @@ export function ProvidersPanel({
               模式
               <select
                 value={providerDraft.mode}
+                disabled={managedBySDVideo}
                 onChange={event =>
                   setProviderDraft(draft => ({
                     ...draft,
@@ -195,6 +206,7 @@ export function ProvidersPanel({
               Provider 类型
               <select
                 value={providerDraft.provider_type || "openai_compatible"}
+                disabled={managedBySDVideo}
                 onChange={event =>
                   setProviderDraft(draft => ({
                     ...draft,
@@ -218,6 +230,7 @@ export function ProvidersPanel({
               鉴权方式
               <select
                 value={providerDraft.auth_type}
+                disabled={managedBySDVideo}
                 onChange={event =>
                   setProviderDraft(draft => ({
                     ...draft,
@@ -271,9 +284,10 @@ export function ProvidersPanel({
                 type="password"
                 autoComplete="new-password"
                 value={apiKey}
+                disabled={managedBySDVideo}
                 onChange={event => setApiKey(event.target.value)}
                 placeholder={
-                  activeProvider?.api_key_configured
+                  managedBySDVideo ? "由独立 SD-video 服务配置" : activeProvider?.api_key_configured
                     ? "留空则保留已有密钥"
                     : "保存或测试时可填入"
                 }

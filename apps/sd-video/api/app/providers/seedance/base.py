@@ -10,6 +10,8 @@ import httpx
 
 LEGACY_PROXY = "legacy_proxy"
 TOKENSPACE = "tokenspace"
+# Official Ark uses separate inference and signed asset-management APIs.
+ARK_OFFICIAL = "ark_official"
 
 
 class SeedanceProviderError(RuntimeError):
@@ -139,6 +141,9 @@ class SeedanceProvider(ABC):
     @abstractmethod
     def configured(self) -> bool:
         raise NotImplementedError
+
+    def assets_configured(self) -> bool:
+        return self.configured()
 
     @abstractmethod
     async def create_video_task(self, payload: dict[str, Any]) -> dict[str, Any]:

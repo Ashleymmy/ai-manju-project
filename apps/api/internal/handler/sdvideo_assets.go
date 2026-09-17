@@ -338,6 +338,8 @@ func sdVideoAssetView(item map[string]any, allTags []any, scope string) gin.H {
 	protocol := "volcano_asset"
 	if item["upstream_provider"] == "tokenspace" {
 		protocol = "tokenspace_material"
+	} else if item["upstream_provider"] == "ark_official" {
+		protocol = "ark_official_asset"
 	}
 	// 仅暴露固定说明，Provider 原始错误可能包含签名 URL。
 	errorMessage := ""
