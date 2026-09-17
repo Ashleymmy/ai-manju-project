@@ -20,7 +20,7 @@ import {
 import { imageSrcFromNode } from "@/features/canvas/domain/nodes";
 import { promptTextFromNode } from "@/features/canvas/domain/nodeUtils";
 import type { CanvasNodeData } from "@/features/canvas/domain/types";
-import { numberValue, stringValue } from "@/features/canvas/domain/value";
+import { stringValue } from "@/features/canvas/domain/value";
 import type { StoryboardLayout } from "@/features/canvas/domain/imageData";
 
 export type CanvasAnnotationMaskDialogsProps = {
@@ -88,6 +88,10 @@ export function CanvasStoryboardDialog({
 export type CanvasImagePreviewDialogProps = {
   node?: CanvasNodeData;
   source: string;
+  loading?: boolean;
+  error?: string;
+  originalBytes?: number;
+  onRetry?: () => void;
   siblings: CanvasNodeData[];
   selectedNodeId: string;
   previews: Record<string, string>;
@@ -104,6 +108,10 @@ export type CanvasImagePreviewDialogProps = {
 export function CanvasImagePreviewDialog({
   node,
   source,
+  loading = false,
+  error = "",
+  originalBytes,
+  onRetry,
   siblings,
   selectedNodeId,
   previews,
@@ -117,6 +125,7 @@ export function CanvasImagePreviewDialog({
   onClose,
 }: CanvasImagePreviewDialogProps) {
   const previewImageRef = useRef<HTMLImageElement | null>(null);
+  const [failedSource, setFailedSource] = useState("");
   const [loadedResolution, setLoadedResolution] = useState<{
     nodeId: string | undefined;
     source: string;
@@ -124,6 +133,8 @@ export function CanvasImagePreviewDialog({
     height: number;
   } | null>(null);
   const nodeId = node?.id;
+  const imageKey = `${nodeId}:${source}`;
+  const imageError = error || (failedSource === imageKey ? "原图无法显示，请重试" : "");
   const readImageResolution = useCallback((image: HTMLImageElement) => {
     if (image !== previewImageRef.current) return;
     // 读取实际图片的像素尺寸，不使用画布节点大小或可能已过期的生成参数。
@@ -146,7 +157,7 @@ export function CanvasImagePreviewDialog({
     ? loadedResolution : null;
 
   return (
-    <Dialog open={Boolean(node && source)} onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog open={Boolean(node)} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="sm:max-w-[1120px] canvas-image-preview-dialog">
         <DialogHeader>
           <DialogTitle>{node?.title || "图片预览"}</DialogTitle>
@@ -156,14 +167,23 @@ export function CanvasImagePreviewDialog({
           <div className="preview-detail-layout">
             <div className="preview-detail-main">
               <div className="canvas-image-preview-stage">
-                {source ? <img
+                {loading || imageError ? (
+                  <div className="canvas-original-image-status" role={imageError ? "alert" : "status"}>
+                    <span>{imageError || "正在加载原图…"}</span>
+                    {imageError && onRetry ? <button className="outline-button small" type="button" onClick={() => { setFailedSource(""); onRetry(); }}>重新加载</button> : null}
+                  </div>
+                ) : null}
+                {source && !imageError ? <img
                   key={`${node.id}:${source}`}
                   ref={bindPreviewImage}
                   src={source}
                   alt={node.title || "画布图片"}
                   onLoad={event => readImageResolution(event.currentTarget)}
                   onError={event => {
-                    if (event.currentTarget === previewImageRef.current) setLoadedResolution(null);
+                    if (event.currentTarget === previewImageRef.current) {
+                      setLoadedResolution(null);
+                      setFailedSource(imageKey);
+                    }
                   }}
                 /> : null}
                 {siblings.length > 1 ? (
@@ -201,7 +221,7 @@ export function CanvasImagePreviewDialog({
                 <div><span>质量</span><b>{stringValue(node.metadata?.quality) || "auto"}</b></div>
                 <div><span>宽高比</span><b>{stringValue(node.metadata?.size) || "auto"}</b></div>
                 <div><span>分辨率</span><b>{resolution ? `${resolution.width} × ${resolution.height} px` : "—"}</b></div>
-                <div><span>文件大小</span><b>{numberValue(node.metadata?.bytes) ? formatBytes(numberValue(node.metadata?.bytes) as number) : "—"}</b></div>
+                <div><span>文件大小</span><b>{originalBytes !== undefined ? formatBytes(originalBytes) : "—"}</b></div>
                 <div><span>日期</span><b>{createdAt ? new Date(createdAt).toLocaleString("zh-CN") : "—"}</b></div>
                 <div><span>创建者</span><b>{creatorLabel}</b></div>
               </div>

@@ -1,7 +1,7 @@
 /** 两框贴靠时的固定间距（画布单位）。吸附本身不绘制，只改变位置。 */
 export const CANVAS_NODE_DOCK_GAP = 24;
 /** 节点贴靠吸附的触发范围（屏幕像素），随缩放换算到世界坐标。 */
-export const CANVAS_NODE_DOCK_SCREEN_PX = 54;
+export const CANVAS_NODE_DOCK_SCREEN_PX = 24;
 /** 对齐辅助线的触发范围（屏幕像素），独立于节点贴靠吸附。 */
 export const CANVAS_NODE_ALIGN_SCREEN_PX = 200;
 /** 对齐辅助修正的触发范围（屏幕像素），必须明显小于辅助线提示范围。 */

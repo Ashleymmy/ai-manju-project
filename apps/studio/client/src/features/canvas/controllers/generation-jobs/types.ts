@@ -104,7 +104,7 @@ export type CanvasGenerationBindings = {
   setEdges(edges: CanvasEdgeData[]): void;
   getSelectedNodeId(): string;
   getSelectedNodeIds(): Set<string>;
-  getCanvasAssets(): Array<Asset & { scope: WorkspaceScope }>;
+  getCanvasAssets(): import("@/features/canvas/domain/mentions").CanvasMentionAsset[];
   mergeCanvasAssets(assets: Asset[], scope: WorkspaceScope): void;
   getImageModel(): string;
   getTextModel(): string;

@@ -1,5 +1,6 @@
 import type { AssetFolder } from "@/entities/asset";
 import type { WorkspaceScope } from "@/shared/config";
+import { visibleCanvasAssetFolders } from "./assetFolders";
 import { filterCanvasMentionReferences, type CanvasMentionReference } from "./mentions";
 
 /** Virtual views never become API folder IDs. Only folder:<server ID> does. */
@@ -47,17 +48,18 @@ export function buildCanvasMentionLibraryMenu(
     .filter(ref => ref.group === "canvas-node" && ref.upstreamDistance !== undefined)
     .sort((a, b) => a.upstreamDistance! - b.upstreamDistance!)
     .map(reference => ({ kind: "reference", id: reference.id, reference }));
-  const projectFolder = library.folders.find(folder => folder.system_key === "canvas_project" && folder.source_ref_id === library.projectId);
+  const visibleFolders = visibleCanvasAssetFolders(library.folders);
+  const projectFolder = visibleFolders.find(folder => folder.system_key === "canvas_project" && folder.source_ref_id === library.projectId);
   const folderItem = (folder: AssetFolder): CanvasMentionLibraryItem => ({
     kind: "folder", id: `folder:${folder.id}`, target: `folder:${folder.id}`, label: folder.name,
     currentProject: folder.id === projectFolder?.id,
   });
   let folders: CanvasMentionLibraryItem[] = [];
   if (target === "root") {
-    // Show real library roots directly; system archive follows favorites.
-    const libraryRoots = library.folders
+    // Show archive categories directly after favorites, followed by user roots.
+    const libraryRoots = visibleFolders
       .filter(folder => !folder.parent_id && folder.id !== projectFolder?.id)
-      .sort((a, b) => Number(b.system_key === "system_root") - Number(a.system_key === "system_root")
+      .sort((a, b) => Number(b.kind === "system") - Number(a.kind === "system")
         || a.sort_order - b.sort_order || a.name.localeCompare(b.name, "zh-CN", { numeric: true }));
     folders = [
       ...(projectFolder ? [folderItem(projectFolder)] : []),
@@ -67,7 +69,7 @@ export function buildCanvasMentionLibraryMenu(
   } else if (target !== "favorites") {
     const parentId = mentionLibraryFolderId(target) || "";
     const keyword = query.trim().toLowerCase();
-    folders = library.folders
+    folders = visibleFolders
       .filter(folder => folder.parent_id === parentId && folder.id !== projectFolder?.id)
       .filter(folder => !keyword || folder.name.toLowerCase().includes(keyword))
       .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, "zh-CN", { numeric: true }))

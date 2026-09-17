@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_CANVAS_SHORTCUTS } from "@/features/canvas/domain/hotkeys";
 import { CANVAS_NODE_DOCK_GAP } from "@/features/canvas/domain/nodeSnap";
+import { createCanvasGroup, type CanvasGroupData } from "@/features/canvas/domain/groups";
 import type { CanvasEdgeData, CanvasNodeData } from "@/features/canvas/domain/types";
 import { CanvasStageInteractionController } from "./controller";
 import type {
@@ -123,11 +124,11 @@ function pointer(
   };
 }
 
-function createHarness(initialNodes: CanvasNodeData[] = [node("a"), node("b", 300)]) {
+function createHarness(initialNodes: CanvasNodeData[] = [node("a"), node("b", 300)], initialGroups: CanvasGroupData[] = []) {
   const adapter = new FakeStageAdapter();
   let nodes = initialNodes;
   let edges: CanvasEdgeData[] = [];
-  let groups: CanvasStageInteractionBindings["getGroups"] extends () => infer Result ? Result : never = [];
+  let groups = initialGroups;
   let selectedIds = new Set<string>();
   let selectedId = "";
   let selectedGroupId = "";
@@ -199,12 +200,82 @@ function createHarness(initialNodes: CanvasNodeData[] = [node("a"), node("b", 30
     info,
     resumeHistory,
     get nodes() { return nodes; },
+    get groups() { return groups; },
+    get selectedGroupId() { return selectedGroupId; },
     get viewport() { return viewport; },
     get selectedIds() { return selectedIds; },
   };
 }
 
 describe("CanvasStageInteractionController", () => {
+  it.each(["member", "background"])("moves the complete confirmed group from its %s at any zoom", entry => {
+    const nodes = [node("a"), { ...node("b", 300), y: 80, width: 220, height: 170 }, node("outside", 1400)];
+    const group = createCanvasGroup(nodes, ["a", "b"], "group")!;
+    const harness = createHarness(nodes, [group]);
+    harness.controller.syncViewport({ zoom: 50, panX: 0, panY: 0 });
+    const element = {} as HTMLElement;
+    if (entry === "member") harness.controller.startDrag(pointer(element), nodes[1]);
+    else harness.controller.startGroupDrag(pointer(element), group);
+    expect(harness.controller.mode).toBe("group-drag");
+    const move = pointer(element, { clientX: 80, clientY: 40, altKey: true });
+    if (entry === "member") harness.controller.moveDrag(move);
+    else harness.controller.moveGroupDrag(move);
+    harness.adapter.runFrames();
+    expect(harness.nodes[0]).toMatchObject({ x: 160, y: 80 });
+    expect(harness.nodes[1]).toMatchObject({ x: 460, y: 160 });
+    expect(harness.nodes[2]).toBe(nodes[2]);
+    expect(harness.groups[0]).toMatchObject({ position: { x: group.position.x + 160, y: group.position.y + 80 }, width: group.width, height: group.height });
+    if (entry === "member") harness.controller.endDrag();
+    else harness.controller.endGroupDrag();
+    expect(harness.controller.mode).toBe("idle");
+    expect(harness.resumeHistory).toHaveBeenCalledTimes(1);
+    expect(harness.resumeHistory).toHaveBeenCalledWith(true);
+    expect(harness.adapter.releases).toContainEqual({ element, pointerId: 1 });
+    if (entry === "member") expect(harness.controller.chooseNode("b")).toBe(false);
+    expect(harness.selectedGroupId).toBe(group.id);
+  });
+
+  it("does not lock temporary selections into a group and restores independent drag after ungrouping", () => {
+    const nodes = [node("a"), node("b", 300)];
+    const group = createCanvasGroup(nodes, ["a", "b"], "group")!;
+    for (const groups of [[{ ...group, pending: true }], []]) {
+      const harness = createHarness(nodes, groups);
+      const element = {} as HTMLElement;
+      harness.controller.startDrag(pointer(element), nodes[0]);
+      expect(harness.controller.mode).toBe("drag");
+      harness.controller.moveDrag(pointer(element, { clientX: 60, clientY: 30, altKey: true }));
+      harness.controller.endDrag();
+      expect(harness.nodes[0]).toMatchObject({ x: 60, y: 30 });
+      expect(harness.nodes[1]).toBe(nodes[1]);
+    }
+  });
+
+  it("keeps collapsed batch children with a dragged group and preserves unrelated nodes on cancellation", () => {
+    const root = { ...node("a"), metadata: { isBatchRoot: true, batchChildIds: ["child"] } };
+    const nodes = [root, node("b", 300), node("child", 600), node("outside", 1200)];
+    const group = createCanvasGroup(nodes, ["a", "b"], "group")!;
+    const harness = createHarness(nodes, [group]);
+    const element = {} as HTMLElement;
+    harness.controller.startDrag(pointer(element), root);
+    harness.controller.moveDrag(pointer(element, { clientX: 40, clientY: 30, altKey: true }));
+    harness.controller.cancelActiveCanvasInteractions();
+    expect(harness.nodes.map(node => node.x)).toEqual([40, 340, 640, 1200]);
+    expect(harness.controller.mode).toBe("idle");
+    expect(harness.resumeHistory).toHaveBeenCalledTimes(1);
+    expect(harness.adapter.releases).toContainEqual({ element, pointerId: 1 });
+  });
+
+  it("keeps inputs and connection handles interactive inside confirmed groups", () => {
+    const nodes = [node("a"), node("b", 300)];
+    const group = createCanvasGroup(nodes, ["a", "b"], "group")!;
+    const harness = createHarness(nodes, [group]);
+    const input = {} as HTMLElement;
+    vi.spyOn(harness.adapter, "closest").mockReturnValue(input as never);
+    harness.controller.startDrag(pointer(input), nodes[0]);
+    expect(harness.controller.mode).toBe("idle");
+    expect(harness.adapter.captures).toEqual([]);
+  });
+
   it("commits node drag once per frame and releases pointer capture on completion", () => {
     const harness = createHarness();
     const nodeElement = {} as HTMLElement;

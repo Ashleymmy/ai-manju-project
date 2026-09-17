@@ -11,6 +11,7 @@ import {
   selectCanvasViewportZoom,
 } from "./store";
 import { createCanvasServices } from "@/features/canvas/services/contracts";
+import { createCanvasGroup } from "@/features/canvas/domain/groups";
 
 const node = (title: string) => ({
   id: "shared-node",
@@ -97,5 +98,33 @@ describe("canvas scoped store", () => {
     ] as const) {
       expect(source, label).not.toMatch(forbidden);
     }
+  });
+
+  it("updates group geometry atomically for generation, deletion and history restoration", () => {
+    const first = node("first");
+    const second = { ...node("second"), id: "second", x: 400 };
+    const nodes = [first, second];
+    const group = createCanvasGroup(nodes, nodes.map(node => node.id), "group")!;
+    const store = createCanvasStore({ graph: { nodes, groups: [{ ...group, width: 100, height: 100 }] } });
+    const actions = store.getState().actions;
+    expect(store.getState().graph.groups[0]).toEqual(group);
+    const onChange = vi.fn();
+    store.subscribe(onChange);
+    // Loading a different image changes the node's frame and the group together.
+    actions.setField("graph", "nodes", current => current.map(node => node.id === second.id ? { ...node, width: 800, height: 500 } : node));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(store.getState().graph.groups[0]).toMatchObject({ width: 1256, height: 574 });
+    // Autosave sees exactly the bounds that are drawn.
+    expect(canvasSerializableState(store.getState()).graph.groups).toBe(store.getState().graph.groups);
+    actions.setField("graph", "nodes", [first]);
+    expect(store.getState().graph.groups[0]).toMatchObject({ nodeIds: [first.id], width: 296, height: 234 });
+    actions.commit({ graph: { nodes, groups: [{ ...group, width: 1, height: 1 }] } });
+    expect(store.getState().graph.groups[0]).toEqual(group);
+    const stableGroups = store.getState().graph.groups;
+    actions.setField("graph", "nodes", current => current.map(node => ({ ...node, content: "edited text" })));
+    expect(store.getState().graph.groups).toBe(stableGroups);
+    actions.setField("graph", "groups", []);
+    actions.setField("graph", "nodes", current => current.map(node => ({ ...node, x: 20 })));
+    expect(store.getState().graph.groups).toEqual([]);
   });
 });

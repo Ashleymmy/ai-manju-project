@@ -215,9 +215,6 @@ export function CanvasStage({
     startGroupDrag,
     moveGroupDrag,
     endGroupDrag,
-    startGroupResize,
-    moveGroupResize,
-    endGroupResize,
     handleCanvasLinesPointerDown,
     handleCanvasLinesPointerMove,
     handleCanvasLinesPointerLeave,
@@ -359,16 +356,10 @@ export function CanvasStage({
                     </div>
                   ) : null}
                   {!group.pending && (["top-left", "top-right", "bottom-left", "bottom-right"] as CanvasGroupResizeCorner[]).map((corner) => (
-                    <button
-                      type="button"
+                    <span
                       key={corner}
-                      className={`canvas-group-resize-handle ${corner}`}
-                      title="调整分组尺寸"
-                      aria-label={`调整分组尺寸：${corner}`}
-                      onPointerDown={(event) => startGroupResize(event, group, corner)}
-                      onPointerMove={moveGroupResize}
-                      onPointerUp={endGroupResize}
-                      onPointerCancel={endGroupResize}
+                      className={`canvas-group-corner ${corner}`}
+                      aria-hidden="true"
                     />
                   ))}
                 </section>

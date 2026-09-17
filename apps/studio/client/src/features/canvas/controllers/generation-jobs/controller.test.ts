@@ -75,6 +75,7 @@ function createServices(overrides: Partial<CanvasGenerationServices> = {}) {
 function createHarness(
   initialNodes: CanvasNodeData[],
   services: CanvasGenerationServices,
+  defaultImageModel = "image-model",
 ) {
   let nodes = initialNodes;
   let edges: CanvasEdgeData[] = [];
@@ -103,7 +104,7 @@ function createHarness(
     getSelectedNodeIds: () => new Set(selectedIds),
     getCanvasAssets: () => [],
     mergeCanvasAssets: vi.fn(),
-    getImageModel: () => "image-model",
+    getImageModel: () => defaultImageModel,
     getTextModel: () => "text-model",
     getVideoModel: () => "video-model",
     getAudioModel: () => "audio-model",
@@ -149,6 +150,39 @@ describe("CanvasGenerationJobsController", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("keeps explicit image choices separate from default nodes and Agent batches", async () => {
+    const services = createServices({
+      generateImages: vi.fn(async () => ({ images: [{ id: "result", assetId: "result", src: "", name: "result.png" }] })),
+    });
+    const explicit = imageNode({ id: "chosen", metadata: { prompt: "猫", model: "a::gpt-image-2" } });
+    const standard = imageNode({ id: "standard" });
+    const config = imageNode({ id: "agent-config", kind: "config", metadata: { prompt: "海", generationMode: "image", count: 4 } });
+    const harness = createHarness([explicit, standard, config], services, "b::gpt-image-2.5-flare");
+
+    await harness.controller.generateFromNode(explicit.id);
+    await harness.controller.generateFromNode(standard.id);
+    await harness.controller.generateFromNode(config.id);
+
+    const models = vi.mocked(services.generateImages).mock.calls.map(([input]) => input.model);
+    expect(models).toEqual(["a::gpt-image-2", ...Array(5).fill("b::gpt-image-2.5-flare")]);
+    expect(harness.nodes.find(node => node.id === explicit.id)?.metadata?.model).toBe("a::gpt-image-2");
+    expect(harness.onError).not.toHaveBeenCalled();
+  });
+
+  it("does not submit an empty model or mutate nodes before the catalog is ready", async () => {
+    const source = imageNode();
+    const services = createServices();
+    const harness = createHarness([source], services, "");
+
+    await harness.controller.generateFromNode(source.id);
+
+    expect(services.generateImages).not.toHaveBeenCalled();
+    expect(harness.nodes).toEqual([source]);
+    expect(harness.persistSnapshot).not.toHaveBeenCalled();
+    expect(harness.runningIds.size).toBe(0);
+    expect(harness.onWarning).toHaveBeenCalledWith("图片模型尚未就绪，请稍后重试");
   });
 
   it("marks a generation intent immediately and ignores duplicate clicks", async () => {

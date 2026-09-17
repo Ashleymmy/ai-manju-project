@@ -18,6 +18,7 @@ export type CanvasGroupData = Record<string, unknown> & {
 
 export type CanvasGroupResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
+// World-space clearance around member nodes, including the floating title row.
 const GROUP_HORIZONTAL_PADDING = 28;
 const GROUP_HEADER_HEIGHT = 46;
 const GROUP_BOTTOM_PADDING = 28;
@@ -65,22 +66,45 @@ export function normalizeCanvasGroups(value: unknown, nodes: readonly CanvasGrou
     if (!members.length) return [];
     const memberNodes = nodes.filter((node) => members.includes(node.id));
     const fallback = buildCanvasGroup(memberNodes, stringValue(source.id) || `group-${index + 1}`);
-    const position = recordValue(source.position);
     return [{
       ...source,
       id: stringValue(source.id) || fallback.id,
       title: stringValue(source.title) || fallback.title,
       nodeIds: members,
       position: {
-        ...position,
-        x: numberValue(position.x) ?? numberValue(source.x) ?? fallback.position.x,
-        y: numberValue(position.y) ?? numberValue(source.y) ?? fallback.position.y,
+        ...recordValue(source.position),
+        ...fallback.position,
       },
-      width: Math.max(120, numberValue(source.width) ?? fallback.width),
-      height: Math.max(90, numberValue(source.height) ?? fallback.height),
+      width: fallback.width,
+      height: fallback.height,
       color: stringValue(source.color) || fallback.color,
     } satisfies CanvasGroupData];
   });
+}
+
+/** Group geometry is derived from its members, never a separately sized box.
+ * Preserve identities on non-geometric changes to avoid redundant rendering. */
+export function fitCanvasGroupsToNodes(groups: CanvasGroupData[], nodes: readonly CanvasGroupNode[]): CanvasGroupData[] {
+  if (!groups.length) return groups;
+  const byId = new Map(nodes.map(node => [node.id, node]));
+  let changed = false;
+  const fitted = groups.flatMap(group => {
+    const members = group.nodeIds.flatMap(id => {
+      const node = byId.get(id);
+      return node ? [node] : [];
+    });
+    if (!members.length) {
+      changed = true;
+      return [];
+    }
+    const bounds = buildCanvasGroup(members, group.id, group.title, group.color);
+    if (members.length === group.nodeIds.length
+      && group.position.x === bounds.position.x && group.position.y === bounds.position.y
+      && group.width === bounds.width && group.height === bounds.height) return [group];
+    changed = true;
+    return [{ ...group, nodeIds: bounds.nodeIds, position: { ...group.position, ...bounds.position }, width: bounds.width, height: bounds.height }];
+  });
+  return changed ? fitted : groups;
 }
 
 export function removeNodesFromCanvasGroups(groups: readonly CanvasGroupData[], removedIds: Iterable<string>) {
@@ -131,8 +155,4 @@ function recordValue(value: unknown) {
 
 function stringValue(value: unknown) {
   return typeof value === "string" ? value : "";
-}
-
-function numberValue(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

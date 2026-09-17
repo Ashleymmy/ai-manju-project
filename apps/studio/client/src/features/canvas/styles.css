@@ -249,14 +249,14 @@
   /* The preview frame must never block node cards or their connection handles. */
   pointer-events: none;
 }
-.canvas-group-resize-handle { position: absolute; z-index: 3; box-sizing: border-box; width: 14px !important; min-width: 14px; max-width: 14px; height: 14px !important; min-height: 14px; max-height: 14px; padding: 0; border: 1px solid color-mix(in srgb,var(--canvas-group-color) 82%,#fff); border-radius: 5px; background: color-mix(in srgb,var(--canvas-group-color) 55%,#1e1e1e); box-shadow: 0 0 0 2px rgba(11,16,18,.72); opacity: 0; pointer-events: none; touch-action: none; }
-.canvas-group-frame.selected .canvas-group-resize-handle { opacity: 1; pointer-events: auto; }
-.canvas-group-resize-handle.top-left,
-.canvas-group-resize-handle.top-right { top: calc(var(--canvas-group-header-offset) - 7px); z-index: 5; }
-.canvas-group-resize-handle.top-left { left: -7px; cursor: nwse-resize; }
-.canvas-group-resize-handle.top-right { right: -7px; cursor: nesw-resize; }
-.canvas-group-resize-handle.bottom-left { left: -7px; bottom: -7px; cursor: nesw-resize; }
-.canvas-group-resize-handle.bottom-right { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.canvas-group-corner { position: absolute; z-index: 3; box-sizing: border-box; width: 14px !important; min-width: 14px; max-width: 14px; height: 14px !important; min-height: 14px; max-height: 14px; padding: 0; border: 1px solid color-mix(in srgb,var(--canvas-group-color) 82%,#fff); border-radius: 5px; background: color-mix(in srgb,var(--canvas-group-color) 55%,#1e1e1e); box-shadow: 0 0 0 2px rgba(11,16,18,.72); opacity: 0; pointer-events: none; touch-action: none; }
+.canvas-group-frame.selected .canvas-group-corner { opacity: 1; }
+.canvas-group-corner.top-left,
+.canvas-group-corner.top-right { top: calc(var(--canvas-group-header-offset) - 7px); z-index: 5; }
+.canvas-group-corner.top-left { left: -7px; }
+.canvas-group-corner.top-right { right: -7px; }
+.canvas-group-corner.bottom-left { left: -7px; bottom: -7px; }
+.canvas-group-corner.bottom-right { right: -7px; bottom: -7px; }
 .canvas-group-color-row { display: flex; align-items: center; gap: 10px; margin-top: 9px; color: #cccccc; font: 11px "IBM Plex Mono",monospace; }
 .real-canvas-page .canvas-group-color-row input[type="color"] { width: 42px; height: 32px; margin: 0; padding: 3px; cursor: pointer; }
 .canvas-connected-preview-strip { display: flex; align-items: center; gap: 8px; max-width: 100%; overflow-x: auto; padding: 2px 0 4px; }
@@ -316,8 +316,8 @@
 .real-canvas-node audio { width: calc(100% - 20px); min-height: 40px; margin: auto 10px; }
 .real-canvas-node .prompt-body { flex: 1; min-height: 0; overflow: auto; }
 .real-canvas-node.image .prompt-body { display: grid; place-items: center; text-align: center; }
-.node-running { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,.08); }
-.node-running i { display: block; height: 100%; background: var(--red); }
+.node-running { height: 3px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.14); }
+.node-running i { display: block; max-width: 100%; height: 100%; border-radius: inherit; background: #ededed; }
 .canvas-head-actions { flex-wrap: nowrap; justify-content: flex-end; }
 .project-switcher { min-width: 148px; height: 33px; padding: 0 10px; border: 1px solid rgba(239,235,222,.18); background: rgba(28,28,28,.92); color: #d6d7d1; font-size: 11px; outline: none; }
 .project-switcher option { background: #1c1c1c; color: #e9e9e4; }
@@ -628,6 +628,7 @@
 .canvas-image-preview-dialog { width: min(920px,calc(100vw - 2rem)); max-width: 920px; max-height: 90vh; overflow-y: auto; border-color: var(--line); background: #171d1e; color: #e3e4dc; }
 .canvas-image-preview-stage { display: grid; place-items: center; min-height: 360px; max-height: 68vh; overflow: auto; border: 1px solid var(--line); background: #0c1112; }
 .canvas-image-preview-stage img { display: block; max-width: 100%; max-height: 66vh; object-fit: contain; }
+.canvas-original-image-status { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 24px; color: #bfc7c5; font-size: 13px; }
 .canvas-seedance-inspector { display: grid; gap: 9px; }
 .canvas-seedance-picker-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
 .canvas-seedance-picker-actions button { display: inline-flex; min-width: 0; min-height: 34px; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; border: 1px solid rgba(255,255,255,.24); background: rgba(255,255,255,.06); color: #efefef; cursor: pointer; font-size: 10px; }
@@ -3442,8 +3443,21 @@ textarea.node-card-prompt {
 .canvas-mention-editor > .canvas-mention-overlay + textarea {
   color: transparent;
   -webkit-text-fill-color: transparent;
-  caret-color: #f2f1ed;
+  caret-color: #ffd478;
 }
+.canvas-mention-editor > textarea { caret-color: #ffd478; }
+.canvas-mention-editor[data-enhanced-caret="true"] > textarea { caret-color: transparent; }
+.canvas-mention-caret {
+  position: absolute;
+  z-index: 3;
+  border-radius: 1px;
+  background: #ffd478;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .8);
+  pointer-events: none;
+  animation: canvas-caret-blink 1s step-end infinite;
+}
+@keyframes canvas-caret-blink { 0%, 60%, 100% { opacity: 1; } 61%, 99% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .canvas-mention-caret { animation: none; } }
 /* ---- Canvas: 閹煎瓨娲濇竟濠勭磼閻斿墎顏卞☉鎾规〃閼垫垿骞€瑜旂划锕傛倶鐢喚绀勯柛妯绘閹?闂傚牊甯熸竟濠囨儎闂堚晝绀?---- */
 .real-canvas-stage {
   background-color: #121314;
@@ -5295,14 +5309,16 @@ textarea.node-card-prompt {
 .canvas-submenu-panel .full-outline { min-height: 30px; padding: 0 9px; }
 /* ---- Canvas: @ 鐎殿喗娲滈弫?chip 闁炽儲鏌￠埀?闁搞儱澧芥晶鏍ь嚕閺囩姵鏆忛悽顖ゅ缂傚鎮鹃妷銉︾闁挎稑鑻ぐ鏌ユ倷閻熸澘姣婇柡灞诲劤濠€鍛嫚閿旇棄鍓?----
    overlay 闁轰胶绻濈紞?pointer-events:none闁挎稑鐣県ip 闁告娲滅€氼參骞侀姀鐙€妲婚柣鎰嚀閸ゎ噣鏁嶇仦鑲╃憹鐟滄澘宕幖閿嬫償閺囩偟婀撮弶鍫熸尭閸欏棗顩?*/
-.canvas-mention-overlay .mention-chip-clickable {
+.canvas-mention-overlay .mention-chip-caret {
   pointer-events: auto;
-  cursor: pointer;
+  cursor: text;
 }
-.canvas-mention-overlay .mention-chip-clickable:hover {
+.canvas-mention-overlay .mention-chip-caret:hover {
   background: rgba(255, 255, 255, 0.28);
 }
 .canvas-mention-overlay .reference.mention-chip-thumb-only {
+  /* Intrinsic padding matches the quarter-em spaces inside the atomic image placeholder. */
+  --mention-image-inset: .25em;
   /* 布局宽度完全由隐藏的全角空格决定，和 textarea 里同一串字符对齐光标 */
   position: relative;
   display: inline-block;
@@ -5317,7 +5333,7 @@ textarea.node-card-prompt {
   aspect-ratio: auto;
   vertical-align: -0.18em;
 }
-.canvas-mention-overlay .mention-chip-thumb-only.mention-chip-clickable:hover {
+.canvas-mention-overlay .mention-chip-thumb-only.mention-chip-caret:hover {
   background: transparent;
 }
 .canvas-mention-overlay .mention-chip-sizer {
@@ -5336,12 +5352,12 @@ textarea.node-card-prompt {
 }
 .canvas-mention-overlay .mention-chip-thumb-only .mention-chip-thumb {
   position: absolute;
-  left: 0;
+  left: var(--mention-image-inset);
   top: 50%;
   transform: translateY(-50%);
   display: block;
   box-sizing: border-box;
-  width: 100%;
+  width: calc(100% - 2 * var(--mention-image-inset));
   height: auto;
   aspect-ratio: 4 / 3;
   border: 1px solid #ffffff;
@@ -5414,10 +5430,11 @@ textarea.node-card-prompt {
    节点生成中视觉：像素微光罩层（替代旧的扫光光效 + 大转圈）
    - 罩层换成 PixelLoadingOverlay（canvas 像素 shimmer，循环）
    - 转圈移到检查器「生成中」按钮上；旁边提供「取消」
-   - 进度百分比改为节点右上角小数字徽章
+   - 进度信息统一显示在节点内部的底部圆角提示条
    ============================================================ */
 .node-loading-overlay.is-pixel {
   gap: 0;
+  overflow: hidden;
   background: rgba(0, 0, 0, 0.38);
 }
 /* 停用旧的扫光光效 */
@@ -5434,20 +5451,51 @@ textarea.node-card-prompt {
   height: 100%;
   opacity: 0.55;
 }
-/* 节点右上角进度数字（小巧、不抢眼） */
-.node-progress-badge {
+/* Inset progress panel stays inside the rounded loading layer at every canvas zoom. */
+.node-generation-status {
   position: absolute;
-  top: 6px;
-  right: 8px;
-  z-index: 10;
-  padding: 2px 7px;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1;
+  min-width: 0;
+  padding: 9px 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.5);
-  color: rgba(255, 255, 255, 0.82);
+  border-radius: 10px;
+  background: rgba(20, 20, 20, 0.88);
+  color: #ededed;
+  pointer-events: none;
+}
+.node-generation-status-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+.node-generation-status-label > span:first-child {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.node-generation-percent {
+  flex-shrink: 0;
   font: 10px "IBM Plex Mono", monospace;
   font-variant-numeric: tabular-nums;
-  pointer-events: none;
+}
+.node-running.is-indeterminate i {
+  width: 35%;
+  animation: node-progress-travel 1.5s ease-in-out infinite;
+}
+@keyframes node-progress-travel {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(185%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .node-running i,
+  .node-running.is-indeterminate i { animation: none; transition: none; }
 }
 /* 生成按钮组：转圈在「生成中」上，旁边是取消 */
 .node-send-running {

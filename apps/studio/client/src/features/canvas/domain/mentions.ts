@@ -21,7 +21,8 @@ export type CanvasMentionGroup = "canvas-node" | "asset-library";
 
 export type CanvasMentionAsset = {
   id: string;
-  type: "image" | "video" | "audio";
+  type: "image" | "video" | "audio" | "text";
+  text?: string;
   name: string;
   category?: string;
   note?: string;
@@ -63,25 +64,22 @@ export type CanvasMentionTextPart =
 
 /** 编辑态给 mention 预留的不可见宽度，用来容纳缩略图和 chip 间距。 */
 export const CANVAS_MENTION_EDITOR_SPACER = "\u2003";
-/** 图片 chip 占位：两个全角空格。中文字体下宽度稳定约为 2em，overlay 用同一串隐藏字符撑开，避免光标错位。 */
-const CANVAS_MENTION_IMAGE_CHIP_SPACER = "\u3000\u3000";
-/** 两张图片引用之间的间隔：en 空格 ≈ 0.5em，约为全角空格的一半。 */
-export const CANVAS_MENTION_IMAGE_CHIP_GAP = "\u2002";
-const IMAGE_MENTION_GAP_ONLY = /^[\s\u00a0\u2002\u2003\u3000]*$/;
+/** 图片和两侧各 0.25em 留白属于同一引用；与 CSS --mention-image-inset 对应。 */
+const CANVAS_MENTION_IMAGE_CHIP_SPACER = "\u2005\u3000\u3000\u2005";
 
 export function canvasMentionShowsName(kind?: CanvasMentionKind, missing = false) {
   return missing || kind !== "image";
 }
 
 export function canvasMentionEditorSpacer(kind?: CanvasMentionKind) {
-  // 图片 chip 只保留 4:3 缩略图，textarea 用这段不可见宽度对齐光标。
+  // 图片 chip 包含 4:3 缩略图及固有留白，textarea 用同一段宽度对齐光标。
   return kind === "image"
     ? CANVAS_MENTION_IMAGE_CHIP_SPACER
     : CANVAS_MENTION_EDITOR_SPACER;
 }
 
 export function canvasMentionEditorGap(kind?: CanvasMentionKind) {
-  return kind === "image" ? CANVAS_MENTION_IMAGE_CHIP_GAP : " ";
+  return kind === "image" ? "" : " ";
 }
 
 export function canvasMentionEditorDisplayText(
@@ -103,7 +101,7 @@ export type CanvasMentionEditorSegment = {
 
 export type CanvasMentionEditorPart =
   | { type: "text"; value: string }
-  | { type: "reference"; key: string; label: string; missing: boolean };
+  | { type: "reference"; key: string; label: string; missing: boolean; start: number; end: number };
 
 export function buildCanvasMentionEditorModel(
   value: string,
@@ -115,16 +113,10 @@ export function buildCanvasMentionEditorModel(
   const segments: CanvasMentionEditorSegment[] = [];
   let displayValue = "";
   let cursor = 0;
-  let previousWasImage = false;
   for (const token of extractCanvasMentionTokens(value)) {
     const between = value.slice(cursor, token.index);
     const reference = byKey.get(token.key);
-    const nextIsImage = reference?.kind === "image";
-    if (previousWasImage && nextIsImage && IMAGE_MENTION_GAP_ONLY.test(between)) {
-      displayValue += CANVAS_MENTION_IMAGE_CHIP_GAP;
-    } else {
-      displayValue += between;
-    }
+    displayValue += between;
     const label = reference?.label || "引用已失效";
     const start = displayValue.length;
     displayValue += canvasMentionEditorDisplayText(
@@ -138,7 +130,6 @@ export function buildCanvasMentionEditorModel(
       token: token.raw,
     });
     cursor = token.index + token.raw.length;
-    previousWasImage = reference?.kind === "image";
   }
   displayValue += value.slice(cursor);
   return { displayValue, segments };
@@ -211,6 +202,8 @@ export function splitCanvasMentionEditorDisplay(
     parts.push({
       type: "reference",
       key: segment.key,
+      start: segment.start,
+      end: segment.end,
       label: reference?.label || segment.label || "引用已失效",
       missing: !reference,
     });
@@ -406,6 +399,7 @@ export function buildCanvasMentionReferences(
     assetScope: asset.scope || assetScope,
     category: normalizeAssetCategory(asset.category),
     kind: asset.type,
+    text: asset.text,
     label: asset.name || asset.id,
     title: asset.name || asset.id,
     searchText: [
@@ -414,6 +408,7 @@ export function buildCanvasMentionReferences(
       asset.category,
       ASSET_CATEGORY_LABELS[normalizeAssetCategory(asset.category)],
       asset.note,
+      asset.text,
       asset.source_type,
       ...(asset.tags || []),
     ]
@@ -533,7 +528,7 @@ function referenceToInput(
     title: reference.title,
     text: reference.text,
     content: reference.content,
-    assetId: reference.assetId,
+    assetId: reference.kind === "text" ? undefined : reference.assetId,
     assetScope: reference.assetScope,
     seedanceVolcanoAssets: reference.seedanceVolcanoAssets,
   };

@@ -225,6 +225,7 @@ export class CanvasGenerationJobsController {
           request.controller.signal,
         )))[0];
       } else {
+        if (!input.model.trim()) throw new Error("图片模型尚未就绪，请稍后重试");
         const result = await this.generation(() => this.services.generateImages({
           model: input.model,
           prompt: input.requestPrompt || input.prompt,
@@ -985,6 +986,11 @@ export class CanvasGenerationJobsController {
     if (!sourceNode || this.bindings.isSwitching()) return;
     const session = this.activeSession("画布");
     if (!session) return;
+    const model = modelFromNode(sourceNode, this.bindings.getImageModel());
+    if (!model.trim()) {
+      this.bindings.onWarning("图片模型尚未就绪，请稍后重试");
+      return;
+    }
     const context = await this.resolveMentionContextOrNotify(sourceNode, nodes, edges, {
       includeConnectedInputs: false,
     });
@@ -1038,7 +1044,6 @@ export class CanvasGenerationJobsController {
       ? Array.from({ length: count - 1 }, () => this.services.createId())
       : [];
     const targetIds = [rootId, ...childIds];
-    const model = modelFromNode(sourceNode, this.bindings.getImageModel());
     const size = toImageSizeValue(sizeFromNode(sourceNode));
     const quality = qualityFromNode(sourceNode);
     const generationRevisions = reuseSourceNode

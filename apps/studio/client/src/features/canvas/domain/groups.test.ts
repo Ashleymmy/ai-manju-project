@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createCanvasGroup, normalizeCanvasGroups, removeNodesFromCanvasGroups, resizeCanvasGroup } from "./groups";
+import { createCanvasGroup, fitCanvasGroupsToNodes, normalizeCanvasGroups, removeNodesFromCanvasGroups, resizeCanvasGroup } from "./groups";
 
 const nodes = [
   { id: "a", x: 100, y: 80, width: 200, height: 120 },
@@ -22,7 +22,7 @@ describe("canvas groups", () => {
     });
   });
 
-  it("normalizes persisted groups and removes missing node ids", () => {
+  it("repairs stale persisted frames using member bounds and removes missing node ids", () => {
     expect(normalizeCanvasGroups([{
       id: "group-1",
       title: "已保存",
@@ -35,15 +35,27 @@ describe("canvas groups", () => {
       id: "group-1",
       title: "已保存",
       nodeIds: ["a", "b"],
-      position: { x: 10, y: 20 },
-      width: 500,
-      height: 320,
+      position: { x: 72, y: 34 },
+      width: 496,
+      height: 294,
       color: "#ff0000",
     }]);
     expect(normalizeCanvasGroups([{
       id: "group-2",
       nodeIds: ["a", "missing"],
     }], nodes)[0].nodeIds).toEqual(["a"]);
+  });
+
+  it("fits changed member positions and dimensions, shrinks after removal, and preserves metadata", () => {
+    const group = { ...createCanvasGroup(nodes, ["a", "b"], "group-1")!, pending: true, custom: "keep" };
+    const groups = [group];
+    expect(fitCanvasGroupsToNodes(groups, nodes)).toBe(groups);
+    const updated = nodes.map(node => node.id === "b" ? { ...node, x: 600, y: -100, width: 400, height: 500 } : node);
+    const fitted = fitCanvasGroupsToNodes(groups, updated);
+    expect(fitted[0]).toMatchObject({ position: { x: 72, y: -146 }, width: 956, height: 574, pending: true, custom: "keep" });
+    expect(group.position).toEqual({ x: 72, y: 34 });
+    expect(fitCanvasGroupsToNodes(fitted, [nodes[0]])[0]).toMatchObject({ nodeIds: ["a"], position: { x: 72, y: 34 }, width: 256, height: 194 });
+    expect(fitCanvasGroupsToNodes(fitted, [])).toEqual([]);
   });
 
   it("keeps remaining group members when nodes are deleted", () => {

@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ComponentProps } from "react";
 
 const CanvasAssetPickerDialog = lazy(() => import("./CanvasAssetPickerDialog").then(module => ({ default: module.CanvasAssetPickerDialog })));
+const CanvasArchiveAssetDialog = lazy(() => import("./CanvasArchiveAssetDialog").then(module => ({ default: module.CanvasArchiveAssetDialog })));
 const CanvasConnectSelectionDialog = lazy(() => import("./CanvasConfirmationDialogs").then(module => ({ default: module.CanvasConnectSelectionDialog })));
 const CanvasDestructiveDialogs = lazy(() => import("./CanvasConfirmationDialogs").then(module => ({ default: module.CanvasDestructiveDialogs })));
 const CanvasImageToolDialog = lazy(() => import("./CanvasDialogs").then(module => ({ default: module.CanvasImageToolDialog })));
@@ -17,6 +18,7 @@ export type CanvasDialogHostProps = {
   imagePreview: ComponentProps<typeof CanvasImagePreviewDialog>;
   mentionPreview: ComponentProps<typeof CanvasMentionPreviewDialog>;
   assetPicker: ComponentProps<typeof CanvasAssetPickerDialog>;
+  assetArchive: ComponentProps<typeof CanvasArchiveAssetDialog>;
   generationHistory: ComponentProps<typeof CanvasGenerationHistoryDialog>;
   connectSelection: ComponentProps<typeof CanvasConnectSelectionDialog>;
   destructive: ComponentProps<typeof CanvasDestructiveDialogs>;
@@ -29,6 +31,7 @@ export function CanvasDialogHost({
   imagePreview,
   mentionPreview,
   assetPicker,
+  assetArchive,
   generationHistory,
   connectSelection,
   destructive,
@@ -41,6 +44,7 @@ export function CanvasDialogHost({
       <CanvasImagePreviewDialog {...imagePreview} />
       <CanvasMentionPreviewDialog {...mentionPreview} />
       <CanvasAssetPickerDialog {...assetPicker} />
+      <CanvasArchiveAssetDialog key={assetArchive.nodeKey} {...assetArchive} />
       <CanvasGenerationHistoryDialog {...generationHistory} />
       <CanvasConnectSelectionDialog {...connectSelection} />
       <CanvasDestructiveDialogs {...destructive} />

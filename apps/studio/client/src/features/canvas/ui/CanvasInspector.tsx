@@ -59,6 +59,7 @@ import {
   type CanvasNodeCardActions,
 } from "./CanvasNodeCard";
 import { CanvasModelPicker } from "./CanvasModelPicker";
+import { CanvasCopyPromptButton } from "./CanvasCopyPromptButton";
 
 type PromptPresetView = {
   id: string;
@@ -305,15 +306,7 @@ export function CanvasInspector({
                 {selectedNode.kind === "image" ? (
                   <button className="icon-button subtle" title="注册拟真人素材" onClick={() => void registerImageAsSeedanceAsset(selectedNode)}><BadgeCheck size={15} /></button>
                 ) : null}
-                <button
-                  className="icon-button subtle"
-                  title="一键复制提示词内容"
-                  onClick={() => {
-                    const text = promptTextFromNode(selectedNode);
-                    if (!text.trim()) return toast.info("当前节点没有提示词");
-                    void navigator.clipboard.writeText(text).then(() => toast.success("提示词已复制"));
-                  }}
-                ><Copy size={15} /></button>
+                <CanvasCopyPromptButton key={selectedNode.id} text={promptTextFromNode(selectedNode)} />
                 <button className="icon-button subtle node-card-close" title="关闭面板" onClick={() => setInspectorOpen(false)}><X size={15} /></button>
               </div>
             ) : null}

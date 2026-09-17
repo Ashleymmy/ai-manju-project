@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { Asset } from "@/entities/asset";
+import type { Asset, AssetFolder, AssetLibraryQuery } from "@/entities/asset";
 import type { CanvasMentionReference } from "@/features/canvas/domain/mentions";
+import { buildCanvasMentionGenerationContext } from "@/features/canvas/domain/mentions";
 import type { CanvasEdgeData, CanvasNodeData } from "@/features/canvas/domain/types";
 import { CanvasAssetsMentionsController } from "./controller";
 import type {
@@ -16,6 +17,13 @@ const imageAsset: Asset = {
   content_type: "image/png",
   size: 128,
 };
+
+const archiveFolders: AssetFolder[] = [
+  { id: "mine", parent_id: "", name: "当前画布", system_key: "canvas_project", source_ref_id: "project-1" },
+  { id: "day-1", parent_id: "mine", name: "2026-09-15", system_key: "canvas_project_date" },
+  { id: "day-2", parent_id: "mine", name: "2026-09-16", system_key: "canvas_project_date" },
+  { id: "roles", parent_id: "mine", name: "角色", system_key: "canvas_category" },
+].map(folder => ({ ...folder, kind: "system", asset_count: 0, descendant_asset_count: 0, sort_order: 0 }));
 
 function canvasNode(id: string, metadata: CanvasNodeData["metadata"] = {}): CanvasNodeData {
   return {
@@ -116,6 +124,36 @@ function mentionReference(values: Partial<CanvasMentionReference> = {}): CanvasM
 }
 
 describe("CanvasAssetsMentionsController", () => {
+  it("loads small canvas thumbnails while leaving other media unscaled", async () => {
+    const services = createServices();
+    const image = { ...canvasNode("image"), imageAssetId: "image-original" };
+    const video = { ...canvasNode("video"), kind: "video" as const, imageAssetId: "video-original" };
+    const { controller } = createHarness([image, video], services);
+    await controller.syncNodePreviews({ projectId: "project-1", canonicalScope: "personal", fallbackScope: "personal" });
+    expect(services.getAssetContentObjectUrl).toHaveBeenCalledWith("image-original", "personal", 320);
+    expect(services.getAssetContentObjectUrl).toHaveBeenCalledWith("video-original", "personal", undefined);
+    controller.dispose();
+  });
+  it("shows automatic text in its own canvas other folder without flattening categories into the canvas root", async () => {
+    const folders: AssetFolder[] = [...archiveFolders, {
+      id: "other", parent_id: "mine", name: "其他", system_key: "canvas_category", source_ref_id: "project-1:other",
+      kind: "system", asset_count: 0, descendant_asset_count: 0, sort_order: 0,
+    }];
+    const services = createServices({
+      getAssetFolders: vi.fn(async () => folders),
+      listCanvasTextAssets: vi.fn(async () => [
+        { id: "auto", title: "未分类文本", content: "真实正文", scope: "personal", projectId: "project-1", category: "other", automatic: true, createdAt: "", updatedAt: "" },
+        { id: "outside", title: "另一画布", content: "不应该出现", scope: "personal", projectId: "project-2", category: "other", automatic: true, createdAt: "", updatedAt: "" },
+      ]),
+    });
+    const { controller } = createHarness([], services);
+    await controller.loadMentionCatalog("", "personal", "folder:other");
+    expect(controller.getSnapshot().mentionLibrary.assetIds).toEqual(["local-text:auto"]);
+    expect(controller.getAssets().find(asset => asset.id === "local-text:auto")).toMatchObject({ folder_id: "other", text: "真实正文" });
+    await controller.loadMentionCatalog("", "personal", "folder:mine");
+    expect(services.getAssetLibrary).toHaveBeenLastCalledWith("personal", expect.objectContaining({ folderId: "mine", includeDescendants: undefined }), expect.anything());
+    expect(controller.getSnapshot().mentionLibrary.assetIds).toEqual([]);
+  });
   it("合并服务端与本地文本目录并按原节点结构插入选择项", async () => {
     const getAssetLibrary = vi.fn(async () => ({
       items: [imageAsset],
@@ -365,6 +403,73 @@ describe("CanvasAssetsMentionsController", () => {
     expect(harness.controller.getSnapshot().mentionLibrary).toMatchObject({ assetIds: [], loading: false, hasMore: false });
     expect(harness.controller.getSnapshot().mentionLibrary.error).toContain("文件夹");
     expect(harness.controller.getAssets()).toHaveLength(1);
+  });
+
+  it("日期归档素材直接从画布文件夹读取，跨日期分页和搜索不会丢失素材", async () => {
+    const archivedAssets = [
+      { ...imageAsset, id: "new-image", folder_id: "day-2", name: "新参考图" },
+      { ...imageAsset, id: "old-image", folder_id: "day-1", name: "旧参考图" },
+    ];
+    const getAssetLibrary = vi.fn(async (_scope: "personal" | "team", query: AssetLibraryQuery = {}) => {
+      const items = archivedAssets.filter(asset => (
+        asset.folder_id === query.folderId
+        || (query.includeDescendants && archiveFolders.some(folder => folder.id === asset.folder_id && folder.parent_id === query.folderId))
+      ) && (!query.keyword || asset.name.includes(query.keyword)));
+      const page = query.page || 1;
+      return { items: items.slice(page - 1, page), total: items.length, page, page_size: 1 };
+    });
+    const harness = createHarness([], createServices({ getAssetLibrary, getAssetFolders: async () => archiveFolders }));
+    await harness.controller.loadMentionCatalog("", "personal", "folder:mine");
+    expect(harness.controller.getSnapshot().mentionLibrary).toMatchObject({ assetIds: ["new-image"], hasMore: true });
+    await harness.controller.loadMentionCatalog("", "personal", "folder:mine", 2);
+    expect(harness.controller.getSnapshot().mentionLibrary).toMatchObject({ assetIds: ["new-image", "old-image"], hasMore: false });
+    expect(harness.controller.mentionReferencesForNode("target").map(ref => ref.assetId)).toEqual(["new-image", "old-image"]);
+    await harness.controller.loadMentionCatalog("旧", "personal", "folder:mine");
+    expect(harness.controller.getSnapshot().mentionLibrary).toMatchObject({ assetIds: ["old-image"], hasMore: false });
+  });
+
+  it("画布素材选择器同样省去日期层级并保留分类入口", async () => {
+    const services = createServices({ getAssetFolders: async () => archiveFolders });
+    const harness = createHarness([], services);
+    harness.controller.openAssetPicker();
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.loading).toBe(false));
+    expect(harness.controller.getSnapshot().picker.folders).toEqual([
+      { id: "mine", label: "当前画布" }, { id: "roles", label: "当前画布 / 角色" },
+    ]);
+    harness.controller.setAssetPickerFolder("mine");
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.loading).toBe(false));
+    expect(services.getAssetLibrary).toHaveBeenLastCalledWith("personal", expect.objectContaining({ folderId: "mine", includeDescendants: true }), expect.anything());
+  });
+
+  it("分类保存的文本在对应文件夹可被引用，生成时带入正文而不是虚假的媒体 ID", async () => {
+    const services = createServices({
+      getAssetFolders: async () => archiveFolders,
+      listCanvasTextAssets: async () => [
+        { id: "local", title: "角色背景", content: "主角是邮递员", folderId: "roles", scope: "personal", createdAt: "", updatedAt: "" },
+        { id: "elsewhere", title: "其他画布", content: "不属于当前分类", folderId: "another-folder", scope: "personal", createdAt: "", updatedAt: "" },
+      ],
+    });
+    const harness = createHarness([], services);
+    await harness.controller.loadMentionCatalog("", "personal", "folder:roles");
+    expect(harness.controller.getSnapshot().mentionLibrary.assetIds).toEqual(["local-text:local"]);
+    const context = buildCanvasMentionGenerationContext("target", [], [], "参考 @[asset:local-text:local]", harness.controller.getAssets(), "personal");
+    expect(context.prompt).toContain("主角是邮递员");
+    expect(context.inputs[0]).toMatchObject({ type: "text", text: "主角是邮递员", assetId: undefined });
+    expect(context.missingKeys).toEqual([]);
+    harness.controller.setAssetPickerFolder("roles");
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.loading).toBe(false));
+    expect(harness.controller.getSnapshot().picker.items.map(item => item.name)).toEqual(["角色背景"]);
+  });
+
+  it("本地文本存储故障不会阻止服务端图片的读取", async () => {
+    const services = createServices({
+      getAssetFolders: async () => archiveFolders,
+      getAssetLibrary: async () => ({ items: [imageAsset], total: 1, page: 1, page_size: 100 }),
+      listCanvasTextAssets: async () => { throw new Error("browser storage unavailable"); },
+    });
+    const harness = createHarness([], services);
+    await harness.controller.loadMentionCatalog("", "personal", "folder:roles");
+    expect(harness.controller.getSnapshot().mentionLibrary).toMatchObject({ error: "", assetIds: ["asset-1"], loading: false });
   });
 
   it("延迟到达的旧查询不会覆盖收藏，分页追加且不截断收藏列表", async () => {

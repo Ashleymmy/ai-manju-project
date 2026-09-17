@@ -240,7 +240,11 @@ function nodeKindCenterIcon(kind: CanvasNodeKind) {
   return <ImageIcon {...props} />;
 }
 
+// Percent values from generation updates must not extend beyond the progress track.
+const GENERATION_PROGRESS_MAX = 100;
+
 function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHovered, isConnectionTarget, isConnecting, connectActiveTarget, connectActiveSource, isTitleEditing, titleDraft, isInlineEditing, isRunning, progress, captureBusy, isCapturingFrame, imageToolBusy, storyboardBusy, actions, mentionLibrary }: CanvasNodeCardProps) {
+  const displayProgress = Number.isFinite(progress) ? Math.round(Math.max(0, Math.min(GENERATION_PROGRESS_MAX, progress))) : 0;
   const preview = imageSrcFromNode(node, previews);
   const previewKind = mediaKindFromNode(node);
   const nodeText = nodeEditorTextFromNode(node);
@@ -329,7 +333,7 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
           beginConnection(event, node.id, "source");
         }}
       />
-      <div className="node-float-label" data-node-title-editor onPointerDown={(event) => event.stopPropagation()}>
+      <div className="node-float-label" data-node-title-editor onPointerDown={(event) => { if (isTitleEditing) event.stopPropagation(); }}>
         <span className="node-float-kind">{nodeKindBadge(node.kind)}</span>
         {isTitleEditing ? (
           <input
@@ -563,9 +567,20 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
         </div>
       ) : null}
       {(isSelected || isHovered) && <button className="node-resize-handle" title="调整尺寸" onPointerDown={(event) => startResize(event, node)} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} />}
-      {isRunning && <div className="node-running"><i style={{ width: `${progress}%` }} /></div>}
-      {isRunning ? <div className="node-loading-overlay is-pixel"><PixelLoadingOverlay /></div> : null}
-      {isRunning ? <span className="node-progress-badge">{progress > 0 ? `${progress}%` : "…"}</span> : null}
+      {isRunning ? (
+        <div className="node-loading-overlay is-pixel">
+          <PixelLoadingOverlay />
+          <div className="node-generation-status" role="progressbar" aria-label="生成进度" aria-valuemin={0} aria-valuemax={GENERATION_PROGRESS_MAX} aria-valuenow={displayProgress > 0 ? displayProgress : undefined} aria-valuetext={displayProgress > 0 ? `生成中 ${displayProgress}%` : "正在准备生成"}>
+            <div className="node-generation-status-label">
+              <span>{displayProgress > 0 ? "生成中" : "正在准备生成"}</span>
+              <span className="node-generation-percent">{displayProgress > 0 ? `${displayProgress}%` : "…"}</span>
+            </div>
+            <div className={`node-running${displayProgress > 0 ? "" : " is-indeterminate"}`} aria-hidden="true">
+              <i style={displayProgress > 0 ? { width: `${displayProgress}%` } : undefined} />
+            </div>
+          </div>
+        </div>
+      ) : null}
       {pinColor ? <span className="node-pin-marker" style={{ backgroundColor: pinColor }} aria-hidden /> : null}
       {isSelectedSingle && !isEmptyMediaNode && (
         <div className="node-toolbar-wrap" data-canvas-ui data-canvas-no-zoom>
