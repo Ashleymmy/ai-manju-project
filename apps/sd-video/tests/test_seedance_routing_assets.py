@@ -54,6 +54,34 @@ def test_provider_asset_reference_is_not_double_prefixed(monkeypatch):
     asyncio.run(check())
 
 
+def test_provider_asset_reference_takes_precedence_over_stale_storage_token(monkeypatch):
+    async def check():
+        import app.standalone_api as api
+        store = VolcanoStore()
+        principal = ServicePrincipal("owner", "team", "member", frozenset())
+        item = await store.create(principal, {"provider_namespace": "current", "upstream_provider": LEGACY_PROXY, "name": "ref", "kind": "image", "storage_key": "inputs/team/owner/ref"})
+        store.items[item["id"]].update(status="active", provider_asset_id="remote-company")
+        monkeypatch.setattr(api, "volcano_store", store)
+        storage = AsyncMock()
+        monkeypatch.setattr(processor, "local_storage", storage)
+        record = SimpleNamespace(
+            owner_subject="owner",
+            workspace_id="team",
+            request={
+                "provider_namespace": "current",
+                "references": [{
+                    "kind": "image",
+                    "asset_ref": "asset://remote-company",
+                    "storage_token": "inputs/team/owner/stale",
+                }],
+            },
+        )
+        references = await processor._references(record)
+        assert references[0]["url"] == "asset://remote-company"
+        storage.url.assert_not_awaited()
+    asyncio.run(check())
+
+
 def test_storage_reference_refreshes_signed_url_instead_of_reusing_snapshot(monkeypatch):
     async def check():
         storage = AsyncMock()

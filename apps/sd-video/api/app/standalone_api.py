@@ -408,8 +408,6 @@ async def create_task(request: CreateTaskRequest, http_request: Request, princip
     upstream = seedance_provider_registry.submission_provider(request.model)
     namespace = seedance_provider_registry.get(upstream).namespace
     for reference in request.references:
-        if reference.storage_token:
-            await _completed_input(principal, reference.storage_token)
         if reference.role not in {None, "reference", "reference_image", "first_frame", "last_frame"}:
             raise HTTPException(status_code=400, detail="invalid reference role")
         if reference.kind not in {"image", "video", "audio"}:
@@ -419,7 +417,9 @@ async def create_task(request: CreateTaskRequest, http_request: Request, princip
             active = await volcano_store.active_reference(principal, reference.asset_ref.removeprefix("asset://"), namespace)
             if active is None:
                 raise HTTPException(status_code=403, detail="provider asset is not owned or Active")
-        elif not reference.storage_token:
+        elif reference.storage_token:
+            await _completed_input(principal, reference.storage_token)
+        else:
             raise HTTPException(status_code=400, detail="reference requires a completed input or an authorized provider asset")
     if request.conversation_id:
         current = await catalog_store.get_conversation(principal, request.conversation_id) if catalog_store else conversation_store.get(request.conversation_id)

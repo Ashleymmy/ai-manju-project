@@ -59,11 +59,22 @@ async def _references(record: Any) -> list[dict[str, Any]]:
         kind = str(raw.get("kind") or raw.get("type") or "image").lower()
         ref_type = kind if kind.startswith("reference_") else f"reference_{kind}"
         storage_token = str(raw.get("storage_token") or "").strip()
+        asset_ref = str(raw.get("asset_ref") or "").strip()
         # A persisted URL is only a snapshot.  Re-sign the canonical storage
         # key for every Provider submission so retries never reuse an expired
         # URL or one issued for a previous public endpoint.
         url = ""
-        if storage_token:
+        # Registered provider assets take precedence over any stale upload token
+        # that may have been persisted by an older client or retry path.
+        if asset_ref.startswith("asset://"):
+            from app.core.auth import ServicePrincipal
+            from app.standalone_api import volcano_store
+            principal = ServicePrincipal(record.owner_subject, record.workspace_id, "member", frozenset())
+            asset_id = asset_ref.removeprefix("asset://")
+            if not asset_id or await volcano_store.active_reference(principal, asset_id, record.request.get("provider_namespace")) is None:
+                raise ValueError("provider reference is no longer Active or belongs to another namespace")
+            url = "asset://" + asset_id
+        elif storage_token:
             if hasattr(local_storage, "url"):
                 try:
                     url = str(await local_storage.url(storage_token, settings.RESULT_SIGNED_URL_TTL_SECONDS) or "").strip()
@@ -73,13 +84,6 @@ async def _references(record: Any) -> list[dict[str, Any]]:
                 raise ValueError("storage cannot provide a signed reference URL")
         else:
             url = str(raw.get("url") or "").strip()
-        if not url and raw.get("asset_ref"):
-            from app.core.auth import ServicePrincipal
-            from app.standalone_api import volcano_store
-            principal = ServicePrincipal(record.owner_subject, record.workspace_id, "member", frozenset())
-            if await volcano_store.active_reference(principal, str(raw["asset_ref"]).removeprefix("asset://"), record.request.get("provider_namespace")) is None:
-                raise ValueError("provider reference is no longer Active or belongs to another namespace")
-            url = "asset://" + str(raw.get("asset_ref")).strip().removeprefix("asset://")
         if url and not url.startswith("asset://"):
             validate_provider_reference_url(url, storage_key=storage_token)
         if url:

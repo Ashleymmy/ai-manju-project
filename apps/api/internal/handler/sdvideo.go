@@ -166,10 +166,12 @@ func (h *AIHandler) createSDVideoTask(c *gin.Context, body map[string]any) {
 func (h *AIHandler) prepareSDVideoReferences(c *gin.Context, user model.User, scope string, raw any) ([]map[string]any, error) {
 	references := sdVideoReferencesFromContent(raw)
 	for _, reference := range references {
-		if reference["provider_asset"] == true {
-			// 保留已在火山资产库注册的 asset:// 引用。删除标记但丢弃
-			// asset_ref 会让 SD-video 把它当成缺少输入的普通素材。
+		// 已注册的火山资产必须直通 asset://。即使旧客户端同时带了
+		// storage_token，也不能把它降级为普通图片，否则会触发真人拦截。
+		if assetRef := strings.TrimSpace(stringFromAny(reference["asset_ref"])); strings.HasPrefix(assetRef, "asset://") {
+			reference["asset_ref"] = assetRef
 			delete(reference, "provider_asset")
+			delete(reference, "storage_token")
 			continue
 		}
 		if raw := strings.TrimSpace(stringFromAny(reference["storage_token"])); raw != "" {
