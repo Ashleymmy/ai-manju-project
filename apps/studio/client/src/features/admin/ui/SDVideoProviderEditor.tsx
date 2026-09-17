@@ -142,6 +142,11 @@ export function SDVideoProviderEditor({
                 ? "凭据已配置"
                 : "缺少凭据，启用后仍不可生成"}
             </small>
+            {model.creation_disabled_reason && (
+              <small className="sdvideo-missing">
+                {model.creation_disabled_reason}
+              </small>
+            )}
           </fieldset>
         ))}
       </div>

@@ -26,6 +26,13 @@ import (
 
 var ErrDisabled = errors.New("sd-video gateway is disabled")
 
+// Creation policy failures name only the relevant setting, never its private values.
+var (
+	ErrCreationDisabled    = errors.New("视频提交入口未开启，请联系管理员检查 SD_VIDEO_MODE")
+	ErrWorkspaceNotAllowed = errors.New("当前工作区未获准提交视频，请联系管理员检查 SD_VIDEO_ALLOWED_WORKSPACES")
+	ErrModelNotAllowed     = errors.New("当前视频模型未获准提交，请联系管理员检查 SD_VIDEO_ALLOWED_MODELS")
+)
+
 const maxResultBytes = int64(512 * 1024 * 1024)
 
 type Client struct {
@@ -102,6 +109,11 @@ func (c *Client) Mode() string { return strings.ToLower(strings.TrimSpace(c.cfg.
 func (c *Client) Shadow() bool { return c.Enabled() && c.Mode() == "shadow" }
 
 func (c *Client) AllowsCreation(workspace, modelID string) bool {
+	return c.CreationError(workspace, modelID) == nil
+}
+
+// CreationError is shared by discovery, admin diagnostics and submission checks.
+func (c *Client) CreationError(workspace, modelID string) error {
 	allows := func(values []string, expected string) bool {
 		if len(values) == 0 {
 			return true
@@ -113,7 +125,16 @@ func (c *Client) AllowsCreation(workspace, modelID string) bool {
 		}
 		return false
 	}
-	return c.Mode() == "active" && allows(c.cfg.SDVideoAllowedWorkspaces, workspace) && allows(c.cfg.SDVideoAllowedModels, strings.TrimPrefix(modelID, "sdvideo/"))
+	if c.Mode() != "active" {
+		return ErrCreationDisabled
+	}
+	if !allows(c.cfg.SDVideoAllowedWorkspaces, workspace) {
+		return ErrWorkspaceNotAllowed
+	}
+	if !allows(c.cfg.SDVideoAllowedModels, strings.TrimPrefix(modelID, "sdvideo/")) {
+		return ErrModelNotAllowed
+	}
+	return nil
 }
 
 // 仅 Bridge 调用：关闭新任务入口后，继续发送已持久化、已获准的 outbox。

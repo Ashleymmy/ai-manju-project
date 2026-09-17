@@ -43,6 +43,7 @@ export type SDVideoManagedModel = {
   concurrency_limit: number;
   credentials_configured: boolean;
   disabled_reason?: string;
+  creation_disabled_reason?: string;
   upstream_provider?: string;
 };
 

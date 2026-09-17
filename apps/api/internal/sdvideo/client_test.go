@@ -16,6 +16,34 @@ import (
 	"github.com/ai-manju/api/internal/model"
 )
 
+func TestCreationPolicyRetainsRolloutAndAllowlistRules(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode, model  string
+		workspaces, models []string
+		want               error
+	}{
+		{name: "unrestricted", mode: "active", model: "seedance-2.5"},
+		{name: "prefixed request", mode: "active", model: "sdvideo/seedance-2.5", models: []string{"seedance-2.5"}},
+		{name: "prefixed allowlist", mode: "active", model: "seedance-2.5", models: []string{"sdvideo/seedance-2.5"}},
+		{name: "workspace allowed", mode: "active", model: "seedance-2.5", workspaces: []string{"default:owner"}},
+		{name: "other model", mode: "active", model: "seedance-2.5", models: []string{"seedance-2.0"}, want: ErrModelNotAllowed},
+		{name: "upstream id is not logical key", mode: "active", model: "seedance-2.5", models: []string{"ep-upstream"}, want: ErrModelNotAllowed},
+		{name: "other workspace", mode: "active", model: "seedance-2.5", workspaces: []string{"team:default"}, want: ErrWorkspaceNotAllowed},
+		{name: "shadow", mode: "shadow", model: "seedance-2.5", want: ErrCreationDisabled},
+		{name: "disabled", mode: "disabled", model: "seedance-2.5", want: ErrCreationDisabled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &Client{cfg: config.Config{SDVideoMode: tc.mode, SDVideoAllowedModels: tc.models, SDVideoAllowedWorkspaces: tc.workspaces}}
+			if got := client.CreationError("default:owner", tc.model); got != tc.want {
+				t.Fatalf("creation error = %v, want %v", got, tc.want)
+			}
+			if client.AllowsCreation("default:owner", tc.model) != (tc.want == nil) {
+				t.Fatal("creation predicate disagrees with diagnostic")
+			}
+		})
+	}
+}
+
 func TestClientCreateTaskSignsAndUnwrapsStandaloneEnvelope(t *testing.T) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

@@ -73,6 +73,21 @@ func RegisterSDVideoGateway(group *gin.RouterGroup, client *sdvideo.Client, jobs
 					response.OK(c, data)
 					return
 				}
+				if method == http.MethodGet && (template == "/models" || template == "/admin/models") {
+					var data map[string]any
+					if json.Unmarshal(envelope.Data, &data) != nil {
+						response.Error(c, http.StatusBadGateway, "invalid model response")
+						return
+					}
+					items, _ := data["items"].([]any)
+					for _, value := range items {
+						if item, ok := value.(map[string]any); ok {
+							applySDVideoCreationPolicy(client, service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID), item)
+						}
+					}
+					response.OK(c, data)
+					return
+				}
 				response.OK(c, envelope.Data)
 			})
 		}

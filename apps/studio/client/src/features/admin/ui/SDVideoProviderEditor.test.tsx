@@ -30,6 +30,7 @@ describe("sdvideo management", () => {
           enabled: false,
           available: false,
           credentials_configured: true,
+          creation_disabled_reason: "当前视频模型未获准提交，请联系管理员检查 SD_VIDEO_ALLOWED_MODELS",
           concurrency_limit: 3,
         },
         {
@@ -59,11 +60,15 @@ describe("sdvideo management", () => {
       await act(async () => root.render(<Harness />));
       expect(container.querySelectorAll("fieldset")).toHaveLength(2);
       expect(container.textContent).toContain("缺少凭据，启用后仍不可生成");
+      const restricted = container.querySelectorAll("fieldset")[0];
+      expect(restricted.textContent).toContain("凭据已配置");
+      expect(restricted.textContent).toContain("SD_VIDEO_ALLOWED_MODELS");
       const button = (text: string) =>
         Array.from(container.querySelectorAll("button")).find(
           item => item.textContent === text
         )!;
       await act(async () => button("全部启用").click());
+      expect(restricted.textContent).toContain("SD_VIDEO_ALLOWED_MODELS");
       expect(save).toHaveBeenCalledTimes(1);
       const payload = buildModelProviderPayload(save.mock.calls[0][0]);
       expect(

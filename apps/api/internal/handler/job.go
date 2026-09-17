@@ -62,8 +62,8 @@ func (h *JobHandler) Retry(c *gin.Context) {
 		response.Error(c, 409, "job request unavailable")
 		return
 	}
-	if !h.sdVideo.AllowsCreation(previous.WorkspaceID, stringFromAny(payload["model"])) {
-		response.Error(c, 403, "video model is not enabled for this workspace")
+	if err := h.sdVideo.CreationError(previous.WorkspaceID, stringFromAny(payload["model"])); err != nil {
+		response.Error(c, 403, err.Error())
 		return
 	}
 	payload["idempotency_key"], payload["retry_of"] = "retry:"+previous.ID, previous.ID

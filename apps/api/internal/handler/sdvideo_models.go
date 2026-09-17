@@ -37,6 +37,7 @@ func sdVideoProviderGroup(items []map[string]any) gin.H {
 			"enabled": view["enabled"], "available": item["available"], "version": item["version"],
 			"concurrency_limit": item["concurrency_limit"], "credentials_configured": view["api_key_set"],
 			"upstream_provider": item["upstream_provider"], "disabled_reason": item["disabled_reason"],
+			"creation_disabled_reason": stringFromAny(item["creation_disabled_reason"]),
 		})
 	}
 	return gin.H{
@@ -118,7 +119,20 @@ func (h *ModelProviderHandler) handleSDVideoGroup(c *gin.Context, operation stri
 		response.Error(c, 502, "invalid model response")
 		return
 	}
+	for _, item := range updated.Items {
+		applySDVideoCreationPolicy(h.sdVideo, service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID), item)
+	}
 	response.OK(c, sdVideoProviderGroup(updated.Items))
+}
+
+// Keep gateway restrictions separate from upstream enablement and credentials.
+// Admin toggles still edit the remote model; they cannot bypass deployment policy.
+func applySDVideoCreationPolicy(client *sdvideo.Client, workspaceID string, item map[string]any) {
+	delete(item, "creation_disabled_reason")
+	if err := client.CreationError(workspaceID, stringFromAny(item["key"])); err != nil {
+		item["available"] = false
+		item["creation_disabled_reason"] = err.Error()
+	}
 }
 
 func (h *ModelProviderHandler) sdVideoModels(c *gin.Context) ([]map[string]any, error) {
@@ -131,6 +145,11 @@ func (h *ModelProviderHandler) sdVideoModels(c *gin.Context) ([]map[string]any, 
 		Items []map[string]any `json:"items"`
 	}
 	err = json.Unmarshal(envelope.Data, &result)
+	if err == nil {
+		for _, item := range result.Items {
+			applySDVideoCreationPolicy(h.sdVideo, service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID), item)
+		}
+	}
 	return result.Items, err
 }
 
@@ -152,8 +171,9 @@ func sdVideoModelProvider(item map[string]any) gin.H {
 		"capabilities": []string{"video"}, "models_by_capability": gin.H{"video": []string{modelID}},
 		"default_for": []string{}, "timeout_ms": 120000, "max_concurrency": item["concurrency_limit"],
 		"enabled": enabled, "version": item["version"], "api_key_set": item["disabled_reason"] == nil,
-		"disabled_reason":   item["disabled_reason"],
-		"upstream_provider": item["upstream_provider"],
+		"disabled_reason":          item["disabled_reason"],
+		"creation_disabled_reason": stringFromAny(item["creation_disabled_reason"]),
+		"upstream_provider":        item["upstream_provider"],
 	}
 }
 
@@ -250,6 +270,7 @@ func (h *ModelProviderHandler) handleSDVideoModel(c *gin.Context, operation stri
 			response.Error(c, 502, "invalid model response")
 			return true
 		}
+		applySDVideoCreationPolicy(h.sdVideo, service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID), updated)
 		response.OK(c, sdVideoModelProvider(updated))
 	} else {
 		response.OK(c, envelope.Data)

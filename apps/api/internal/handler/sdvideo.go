@@ -86,8 +86,8 @@ func (h *AIHandler) createSDVideoTask(c *gin.Context, body map[string]any) {
 	}
 	modelName := strings.TrimSpace(stringFromAny(body["model"]))
 	modelID := strings.TrimPrefix(modelName, "sdvideo/")
-	if !h.sdVideo.AllowsCreation(service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID), modelID) {
-		response.Error(c, 403, "video model is not enabled for this workspace")
+	if err := h.sdVideo.CreationError(service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID), modelID); err != nil {
+		response.Error(c, 403, err.Error())
 		return
 	}
 	if modelID == "" {

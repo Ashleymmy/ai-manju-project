@@ -827,7 +827,7 @@ func (h *ModelProviderHandler) AggregatedModelsWithSDVideo(c *gin.Context, clien
 	providerNames, _ := result["model_provider_names"].(map[string]string)
 	for _, item := range payload.Items {
 		key := strings.TrimSpace(item.Key)
-		if key == "" || !item.Available {
+		if key == "" || !item.Available || !client.AllowsCreation(workspaceID, key) {
 			continue
 		}
 		encoded := "sdvideo/" + key
