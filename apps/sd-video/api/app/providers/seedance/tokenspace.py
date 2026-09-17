@@ -39,6 +39,14 @@ class TokenSpaceProvider(SeedanceProvider):
         self.transport = transport
         self.namespace = hashlib.sha256(self.api_key.encode("utf-8")).hexdigest()[:16] if self.api_key else "unconfigured"
 
+    def model_id_for(self, requested_model: str = "") -> str:
+        """Resolve the logical model ID while retaining old single-model behavior."""
+        if requested_model == settings.SEEDANCE25_MODEL_ID:
+            return settings.TOKENSPACE_SEEDANCE25_MODEL_ID
+        if requested_model == settings.SEEDANCE20_MODEL_ID:
+            return self.model_id
+        return self.model_id
+
     def configured(self) -> bool:
         return bool(self.base_url and self.api_key and self.model_id)
 
@@ -108,7 +116,8 @@ class TokenSpaceProvider(SeedanceProvider):
                 )
 
     async def create_video_task(self, payload: dict[str, Any]) -> dict[str, Any]:
-        upstream_payload = {**payload, "model": self.model_id}
+        requested_model = str(payload.get("model") or "")
+        upstream_payload = {**payload, "model": self.model_id_for(requested_model)}
         raw, headers = await self._request(
             "POST",
             "/api/v3/contents/generations/tasks",

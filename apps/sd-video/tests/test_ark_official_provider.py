@@ -139,7 +139,7 @@ def test_official_slot_is_independent_of_proxy_default(monkeypatch):
     monkeypatch.setattr(settings, "SEEDANCE_ASSET_PROVIDER", ARK_OFFICIAL)
     assert seedance_provider_registry.submission_provider("seedance-2.0-ark") == ARK_OFFICIAL
     assert seedance_provider_registry.submission_provider("seedance-2.0") == TOKENSPACE
-    assert seedance_provider_registry.submission_provider("seedance-2.5") == LEGACY_PROXY
+    assert seedance_provider_registry.submission_provider("seedance-2.5") == TOKENSPACE
     assert seedance_provider_registry.asset_provider().name == ARK_OFFICIAL
     monkeypatch.setattr(settings, "EXECUTION_MODE", "provider")
     model = {"key": "seedance-2.0-ark", **settings.MODELS["seedance-2.0-ark"], "id": "ep-custom"}
