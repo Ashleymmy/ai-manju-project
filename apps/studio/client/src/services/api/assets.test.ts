@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getAssetContentBlob } from "@/entities/asset";
 
 import {
   bindAssetTags,
@@ -27,6 +28,17 @@ function apiResponse(data: unknown) {
 }
 
 describe("asset API client", () => {
+  it("requests original bytes without a thumbnail transform and retains scope and cancellation", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(new Uint8Array([1, 2, 3]), { headers: { "Content-Type": "image/png" } }));
+    const abort = new AbortController();
+    const blob = await getAssetContentBlob("original-image", "team", undefined, abort.signal);
+    const [url, options] = vi.mocked(fetch).mock.calls[0];
+    expect(new URL(String(url)).searchParams.has("thumbnail")).toBe(false);
+    expect(new URL(String(url)).searchParams.get("scope")).toBe("team");
+    expect(options?.signal).toBe(abort.signal);
+    expect(options?.credentials).toBe("include");
+    expect(blob.size).toBe(3);
+  });
   beforeEach(() => {
     vi.stubGlobal("window", globalThis);
     vi.stubGlobal("localStorage", new MemoryStorage());

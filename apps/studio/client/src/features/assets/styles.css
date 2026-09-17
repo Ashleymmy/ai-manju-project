@@ -421,3 +421,36 @@
 .library-asset .asset-trash-countdown.urgent {
   color: #f5a3a3;
 }
+
+.asset-bulk-bar .asset-move-folder-select {
+  width: 240px;
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+/* Asset marquee selection and independent bulk tag editor. */
+.asset-selection-area { position: relative; padding: 6px; margin: -6px; overflow: hidden; user-select: none; }
+.asset-selection-area.is-selecting, .asset-selection-area.is-selecting * { cursor: crosshair !important; }
+.asset-selection-rectangle { position: absolute; z-index: 5; pointer-events: none; border: 1px solid #e9c17d; background: rgba(233,193,125,.13); border-radius: 4px; }
+.library-asset.bulk-selected { border-color: #e9c17d; box-shadow: 0 0 0 1px #e9c17d; background: #383126; }
+.library-asset.bulk-selected .library-asset-preview { background: rgba(233,193,125,.06); }
+.asset-check input { accent-color: #e9c17d; cursor: pointer; }
+.asset-selection-hint { margin: 0 0 12px; color: #aaa69e; font-size: 11px; }
+.asset-bulk-bar { border-radius: 10px; gap: 8px; }
+.asset-bulk-bar button { border-radius: 6px; }
+.asset-bulk-bar button:disabled { opacity: .4; cursor: default; }
+.asset-bulk-bar .asset-bulk-tags-trigger { display: inline-flex; align-items: center; gap: 6px; border-color: #806e4e; color: #f0d8b0; background: #302b23; }
+.asset-tag-action { display: flex; padding: 4px; border-radius: 10px; background: rgba(255,255,255,.04); gap: 4px; }
+.asset-tag-action button { flex: 1; padding: 9px; border-radius: 7px; cursor: pointer; }
+.asset-tag-action button[aria-pressed="true"] { background: #393228; color: #f0d8b0; }
+.asset-bulk-tag-search { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; }
+.asset-bulk-tag-search input { flex: 1; min-width: 0; background: transparent; outline: none; font-size: 13px; }
+.asset-bulk-tag-list { display: flex; flex-direction: column; gap: 6px; max-height: min(340px, 45vh); overflow: auto; }
+.asset-bulk-tag-list label { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; }
+.asset-bulk-tag-list label:hover { background: rgba(255,255,255,.04); }
+.asset-bulk-tag-list label.chosen { background: #302b23; border-color: #806e4e; }
+.asset-bulk-tag-list input { accent-color: #e9c17d; }
+.asset-bulk-tag-list p { padding: 24px 12px; text-align: center; color: #aaa69e; }
+.asset-bulk-tags-dialog small { color: #aaa69e; }
+
+.asset-bulk-tag-list .asset-tag-coverage { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
