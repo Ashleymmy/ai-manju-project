@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  fetchImageModels,
   generateImages,
   generatedImagesFromJob,
   submitImageEdit,
   submitImageGeneration,
 } from "./image";
+import { fetchAiModels } from "./ai";
 import type { Job } from "./jobs";
 
 class MemoryStorage implements Storage {
@@ -42,6 +44,26 @@ describe("image API", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    { models: ["a::gpt-image-2", "b::gpt-image-2.5-flare", "a::gpt-image-2.5-sunburst"], apiDefault: "a::gpt-image-2", expected: "b::gpt-image-2.5-flare" },
+    { models: ["a::gpt-image-1", "b::gpt-image-2"], apiDefault: "b::gpt-image-2", expected: "b::gpt-image-2" },
+    { models: [], apiDefault: "", expected: "" },
+  ])("shares the real image default across both catalogs: $expected", async ({ models, apiDefault, expected }) => {
+    vi.mocked(fetch).mockImplementation(async () => apiResponse({
+      image_models: models,
+      default_image_model: apiDefault,
+      text_models: ["a::text-model"],
+      default_text_model: "a::text-model",
+    }));
+
+    const [imageCatalog, allModels] = await Promise.all([fetchImageModels(), fetchAiModels()]);
+    expect(imageCatalog.defaultModel).toBe(expected);
+    expect(allModels.defaultImageModel).toBe(expected);
+    expect(imageCatalog.models).toEqual(models);
+    expect(allModels.imageModels).toEqual(models);
+    expect(allModels.defaultTextModel).toBe("a::text-model");
   });
 
   it("submits generation with the production JSON contract", async () => {

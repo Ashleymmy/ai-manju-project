@@ -1,4 +1,4 @@
-import { modelOptions, resolveModel } from "@/shared/lib/modelSelection";
+import { modelOptions, pickDefaultImageModel, resolveModel } from "@/shared/lib/modelSelection";
 import {
   ArrowDown,
   ArrowDownToLine,
@@ -201,7 +201,10 @@ export function ImageWorkbenchView() {
       return;
     }
     setCatalog(catalogQuery.data);
-    setModel(current => resolveModel(catalogQuery.data.models, current || preferencesQuery.data?.generation?.imageModel || "") || catalogQuery.data.defaultModel);
+    setModel(current => resolveModel(catalogQuery.data.models, current)
+      || pickDefaultImageModel(catalogQuery.data.models,
+        resolveModel(catalogQuery.data.models, preferencesQuery.data?.generation?.imageModel || "")
+        || catalogQuery.data.defaultModel));
   }, [catalogQuery.data, catalogQuery.error, catalogQuery.isPending]);
 
   useEffect(() => {
@@ -211,7 +214,6 @@ export function ImageWorkbenchView() {
     if (!preferences) return;
     setPromptPresets(preferences.canvas?.promptPresets || []);
     const generation = preferences.generation || {};
-    if (generation.imageModel) setModel((current) => current || generation.imageModel || "");
     if (generation.size && ["auto", "1:1", "16:9", "9:16"].includes(generation.size)) {
       const nextSize = generation.size as ImageWorkbenchSizeOption;
       setSize(nextSize);

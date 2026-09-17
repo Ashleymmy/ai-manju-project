@@ -1,3 +1,6 @@
+/** Preferred default for image creation when offered by the live model catalog. */
+export const DEFAULT_IMAGE_MODEL = "gpt-image-2.5-flare";
+
 /** Real upstream identity; supplier aliases must never rename or merge models. */
 export function modelName(model: string) {
   return model.split("::").at(-1)?.trim() || "";
@@ -36,4 +39,12 @@ export function modelOptions(models: string[], selected = "", labels: Record<str
 export function resolveModel(models: string[], requested: string) {
   const name = modelName(requested);
   return name && models.some(model => modelName(model) === name) ? requested : "";
+}
+
+/** All image creation entry points use the same default from the real catalog. */
+export function pickDefaultImageModel(models: string[], fallback = "") {
+  return models.find(model => modelName(model) === DEFAULT_IMAGE_MODEL)
+    || resolveModel(models, fallback)
+    || models[0]
+    || "";
 }

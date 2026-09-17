@@ -1,4 +1,4 @@
-import { modelDisplayName } from "@/shared/lib/modelSelection";
+import { modelDisplayName, pickDefaultImageModel } from "@/shared/lib/modelSelection";
 import { request } from "@/shared/api/http";
 import { replaceVideoModelProtocols } from "./videoProtocol";
 
@@ -45,7 +45,7 @@ export async function fetchModelCatalog(): Promise<ModelCatalog> {
     videoModels,
     audioModels,
     defaultTextModel: preferredModel(defaultTextModel, textModels),
-    defaultImageModel: preferredModel(defaultImageModel, imageModels),
+    defaultImageModel: pickDefaultImageModel(imageModels, defaultImageModel),
     defaultVideoModel: preferredModel(defaultVideoModel, videoModels),
     defaultAudioModel: preferredModel(defaultAudioModel, audioModels),
     modelLabels: normalizeStringRecord(data.model_labels),
@@ -84,7 +84,7 @@ export async function fetchImageModelCatalog(
   ]);
   return {
     models,
-    defaultModel: preferredModel(defaultModel, models),
+    defaultModel: pickDefaultImageModel(models, defaultModel),
     labels: modelMetadata(data.model_labels, normalizeMetadata),
     providerNames: modelMetadata(data.model_provider_names, normalizeMetadata),
   };
