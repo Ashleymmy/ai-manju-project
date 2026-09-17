@@ -29,6 +29,12 @@ class TokenSpaceProviderTests(unittest.IsolatedAsyncioTestCase):
             settings.SEEDANCE25_MODEL_ID = original_25
             settings.TOKENSPACE_SEEDANCE25_MODEL_ID = original_tokenspace_25
 
+    async def test_seedance25_default_is_not_the_legacy_proxy_endpoint(self):
+        from app.config import settings
+
+        self.assertEqual(settings.TOKENSPACE_SEEDANCE25_MODEL_ID, "doubao-seedance-2-5-260628")
+        self.assertNotEqual(settings.TOKENSPACE_SEEDANCE25_MODEL_ID, settings.SEEDANCE25_MODEL_ID)
+
     async def test_create_requires_upstream_task_id(self):
         provider = TokenSpaceProvider(
             "https://api.tokenspace.test",

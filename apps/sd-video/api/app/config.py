@@ -130,7 +130,8 @@ class Settings:
     TOKENSPACE_MODEL_ID: str = os.getenv("TOKENSPACE_MODEL_ID", "") or "doubao-seedance-2-0-260128"
     # The isolated TokenSpace channel can expose more than one Seedance model.
     # Keep the old single-model setting as the 2.0 fallback and allow the
-    # existing VM_Seedance25 value to select 2.5 without changing other models.
+    # ``VM_Seedance25`` is an old proxy endpoint ID, not a TokenSpace model ID.
+    # The TokenSpace model has a stable explicit default from the old Studio.
     TOKENSPACE_SEEDANCE25_MODEL_ID: str = os.getenv("TOKENSPACE_SEEDANCE25_MODEL_ID", "")
     TOKENSPACE_ASSET_POLL_CONCURRENCY: int = _env_int("TOKENSPACE_ASSET_POLL_CONCURRENCY", 4)
 
@@ -138,7 +139,7 @@ class Settings:
     # Keep the logical 2.5 slot usable in a fresh environment while allowing
     # production to override it with the provider's dedicated model ID.
     SEEDANCE25_MODEL_ID: str = os.getenv("VM_SEEDANCE_25", "") or os.getenv("VM_Seedance25", "") or SEEDANCE20_MODEL_ID
-    TOKENSPACE_SEEDANCE25_MODEL_ID = TOKENSPACE_SEEDANCE25_MODEL_ID or SEEDANCE25_MODEL_ID
+    TOKENSPACE_SEEDANCE25_MODEL_ID = TOKENSPACE_SEEDANCE25_MODEL_ID or "doubao-seedance-2-5-260628"
     SEEDANCE20_MINI_MODEL_ID: str = (
         os.getenv("VM_SEEDANCE_20_MINI", "")
         or os.getenv("VM_Seedance20Mini", "")
