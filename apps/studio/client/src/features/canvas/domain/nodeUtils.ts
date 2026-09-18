@@ -284,6 +284,14 @@ export function canvasGenerationInputsFromVideoSnapshot(
     const content = !assetId && node
       ? node.imageSrc || stringValue(node.metadata?.content) || undefined
       : undefined;
+    const snapshotProviderAssetId = item.providerAssetId?.trim();
+    const nodeProviderAssets = node && Array.isArray(node.metadata?.seedanceVolcanoAssets)
+      ? node.metadata.seedanceVolcanoAssets.filter((asset): asset is { id: string; volcanoAssetId: string; name?: string; status?: string; assetType?: string } => Boolean(asset && typeof asset === "object" && typeof (asset as { volcanoAssetId?: unknown }).volcanoAssetId === "string"))
+      : [];
+    const providerAssets = snapshotProviderAssetId
+      ? [{ volcanoAssetId: snapshotProviderAssetId, name: item.name, assetType: item.providerAssetType || (item.type === "video" ? "Video" : "Image") }, ...nodeProviderAssets]
+      : nodeProviderAssets;
+    const seedanceVolcanoAssets = providerAssets.filter((asset, index, all) => all.findIndex(candidate => candidate.volcanoAssetId === asset.volcanoAssetId) === index);
     return {
       nodeId: item.nodeId,
       type: item.type,
@@ -291,9 +299,7 @@ export function canvasGenerationInputsFromVideoSnapshot(
       assetId,
       assetScope: item.scope || (node ? workspaceScopeValue(node.metadata?.assetScope) : undefined),
       content: content && isReadableMediaSource(content) ? content : undefined,
-      seedanceVolcanoAssets: node && Array.isArray(node.metadata?.seedanceVolcanoAssets)
-        ? node.metadata.seedanceVolcanoAssets.filter((asset): asset is { id: string; volcanoAssetId: string; name?: string; status?: string; assetType?: string } => Boolean(asset && typeof asset === "object" && typeof (asset as { volcanoAssetId?: unknown }).volcanoAssetId === "string"))
-        : undefined,
+      seedanceVolcanoAssets: seedanceVolcanoAssets.length ? seedanceVolcanoAssets : undefined,
     };
   });
 }

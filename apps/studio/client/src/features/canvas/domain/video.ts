@@ -25,6 +25,9 @@ export type CanvasVideoReferenceSnapshotItem =
       type: MediaKind;
       title: string;
       source: "asset" | "node";
+      /** 已注册的火山素材 ID；节点被替换后重试仍可直传 asset://。 */
+      providerAssetId?: string;
+      providerAssetType?: string;
       assetId?: string;
       scope: WorkspaceScope;
       name: string;
@@ -218,6 +221,8 @@ async function hydrateMediaInput(
           type: "image",
           title: input.title,
           source: "asset",
+          providerAssetId: volcanoAssetId,
+          providerAssetType: registered.assetType || "Image",
           scope: input.assetScope || hydrators.scope,
           name: registered.name || input.title,
           mime: "image/png",

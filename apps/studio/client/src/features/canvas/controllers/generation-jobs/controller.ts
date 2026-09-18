@@ -725,8 +725,25 @@ export class CanvasGenerationJobsController {
       this.bindings.onWarning(!config.model ? "请先配置视频模型" : "提示词不能为空");
       return;
     }
+    const nodes = this.bindings.getNodes();
+    const edges = this.bindings.getEdges();
     const snapshot = canvasVideoReferenceSnapshot(node.metadata?.videoReferenceInputs);
-    const generationInputs = canvasGenerationInputsFromVideoSnapshot(snapshot, this.bindings.getNodes());
+    let retryPrompt = prompt;
+    let generationInputs = canvasGenerationInputsFromVideoSnapshot(snapshot, nodes);
+    // Retry must resolve the current graph first. A failed node can outlive or
+    // replace the image nodes captured by its old snapshot; using that stale
+    // snapshot silently re-uploads the original image as storage_token and
+    // loses a registered asset:// reference.
+    try {
+      const current = await this.resolveMentionContext(node, nodes, edges);
+      if (!current.missingKeys.length && (current.inputs.length || extractCanvasMentionTokens(prompt).length)) {
+        retryPrompt = current.prompt;
+        generationInputs = current.inputs;
+      }
+    } catch {
+      // Keep the durable snapshot fallback for retries whose source nodes were
+      // intentionally removed from the current canvas.
+    }
     const sourceNodeId = stringValue(node.metadata?.sourceNodeId) || node.id;
     const preparation = this.startPreparation({
       projectKey,
@@ -790,7 +807,7 @@ export class CanvasGenerationJobsController {
         runningNodeId: node.id,
         projectKey,
         scope,
-        prompt,
+        prompt: retryPrompt,
         config,
         references,
         referenceInputs: prepared.snapshot,

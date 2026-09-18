@@ -90,6 +90,10 @@ describe("canvas video references", () => {
       url: "asset://volcano-person",
       name: "角色图",
     }));
+    expect(result.snapshot.items[0]).toEqual(expect.objectContaining({
+      providerAssetId: "volcano-person",
+      providerAssetType: "Image",
+    }));
     expect(refs.resolveAssetBlob).not.toHaveBeenCalled();
     expect(refs.resolveNodeBlob).not.toHaveBeenCalled();
   });

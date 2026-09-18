@@ -4,6 +4,7 @@ import {
   fragmentMediaFileName,
   fragmentMediaMimeType,
   applyCanvasImageNaturalSize,
+  canvasGenerationInputsFromVideoSnapshot,
   fitCanvasImageNodeSize,
   imageResolutionFromNode,
   isAbortError,
@@ -14,6 +15,32 @@ import {
 import type { CanvasNodeData } from "./types";
 
 describe("canvas node utilities", () => {
+  it("keeps a registered provider asset when the original node was replaced", () => {
+    const inputs = canvasGenerationInputsFromVideoSnapshot({
+      items: [{
+        nodeId: "removed-image",
+        type: "image",
+        title: "角色图",
+        source: "asset",
+        providerAssetId: "volcano-person",
+        providerAssetType: "Image",
+        scope: "personal",
+        name: "角色图",
+        mime: "image/png",
+        bytes: 0,
+      }],
+    }, []);
+
+    expect(inputs).toEqual([expect.objectContaining({
+      type: "image",
+      seedanceVolcanoAssets: [{
+        volcanoAssetId: "volcano-person",
+        name: "角色图",
+        assetType: "Image",
+      }],
+    })]);
+  });
+
   it("keeps editable mentions separate from the resolved request, including a cleared composer", () => {
     const node = {
       kind: "image", content: "图片1 在海边",
