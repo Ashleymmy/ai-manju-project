@@ -128,6 +128,8 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
     status?: string;
     assetType?: string;
   }>;
+  /** Identifies the image registered by this node so replacing it resets feedback. */
+  seedanceRegistrationSource?: string;
 };
 
 /** Canonical Canvas node. Extra snapshot fields remain attached for lossless writes. */

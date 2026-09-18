@@ -1,4 +1,4 @@
-import { registerCanvasImageAsset, registrationProviderId } from "./services/seedanceRegistration";
+import { registerCanvasImageAsset, registrationProviderId, savedSeedanceRegistration, seedanceRegistrationKey, seedanceRegistrationPhase, seedanceRegistrationSource, type SeedanceRegistrationState } from "./services/seedanceRegistration";
 import { pickDefaultImageModel, resolveModel } from "@/shared/lib/modelSelection";
 import {
   Archive,
@@ -14,7 +14,6 @@ import {
   Home,
   Loader2,
   MoreHorizontal,
-  PanelRight,
   Plus,
   Redo2,
   Save,
@@ -259,6 +258,7 @@ import {
 } from "@/features/canvas/domain/snapshotCodec";
 import {
   applyAssetNameToLinkedNodes,
+  applySyncedAssetNameToLinkedNodes,
   collectLinkedAssetRefs,
   reconcileLinkedAssetNames,
 } from "@/features/canvas/domain/assetNameSync";
@@ -354,13 +354,17 @@ const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用�
 3. 尽量写成可直接用于生图模型的完整提示词。`;
 const scopeOptions: Array<{ value: WorkspaceScope; label: string }> = [
   { value: "personal", label: "个人空间" },
-  { value: "team", label: "团队空间" },
+  // 暂时隐藏"团队空间"入口（全局隐藏，影响顶部切换/项目列表/新建对话框/资产选择器），恢复时取消下行注释
+  // { value: "team", label: "团队空间" },
 ];
 
 const CANVAS_FLOATING_PANEL_WIDTH = 340;
 const CANVAS_FLOATING_PANEL_MIN_HEIGHT = 280;
 const CANVAS_MINIMAP_WIDTH = 184;
 const CANVAS_MINIMAP_HEIGHT = 122;
+// Keep registration outcomes readable; pending progress remains visible until settled.
+const REGISTRATION_TOAST_SUCCESS_MS = 5_000;
+const REGISTRATION_TOAST_NOTICE_MS = 8_000;
 // 缩略导航关闭时的占位模型，避免 minimapModel 每帧随视口重建
 const EMPTY_CANVAS_MINIMAP_MODEL: CanvasMinimapModel = {
   width: CANVAS_MINIMAP_WIDTH,
@@ -611,6 +615,8 @@ export default function CanvasWorkspaceViewContent() {
   const [imageToolDraft, setImageToolDraft] = useState<CanvasImageToolDraft>(defaultCanvasImageToolDraft);
   const [imageCropLocked, setImageCropLocked] = useState(false);
   const [imageToolBusy, setImageToolBusy] = useState(false);
+  const [seedanceRegistrationStates, setSeedanceRegistrationStates] = useState<Record<string, SeedanceRegistrationState>>({});
+  const seedanceRegistrationInFlight = useRef(new Set<string>());
   const [imageToolError, setImageToolError] = useState("");
   const imageAnnotationNodeId = useCanvasStore((state) => state.ui.imageAnnotationNodeId);
   const setImageAnnotationNodeId = canvasCommands.ui.setImageAnnotationNodeId;
@@ -1054,8 +1060,8 @@ export default function CanvasWorkspaceViewContent() {
     if (!source) return "";
     const target = connectionTargetId ? nodeMap.get(connectionTargetId) : null;
     if (!target && !connectionPreviewPoint) return "";
-    return canvasActiveConnectionPath(source, connectHandleType, connectionPreviewPoint || { x: source.x, y: source.y + source.height / 2 }, target);
-  }, [connectFrom, connectHandleType, connectionPreviewPoint, connectionTargetId, nodeMap]);
+    return canvasActiveConnectionPath(source, connectHandleType, connectionPreviewPoint || { x: source.x, y: source.y + source.height / 2 }, target, groups);
+  }, [connectFrom, connectHandleType, connectionPreviewPoint, connectionTargetId, nodeMap, groups]);
   const connectionLayerBounds = useMemo(() => buildCanvasConnectionLayerBounds(
     visibleNodes,
     edges,
@@ -1065,7 +1071,8 @@ export default function CanvasWorkspaceViewContent() {
       previewPoint: connectionPreviewPoint,
       targetNodeId: connectionTargetId || undefined,
     } : undefined,
-  ), [connectFrom, connectHandleType, connectionPreviewPoint, connectionTargetId, edges, visibleNodes]);
+    groups,
+  ), [connectFrom, connectHandleType, connectionPreviewPoint, connectionTargetId, edges, visibleNodes, groups]);
   const {
     activateConnectionMode,
     beginInlineNodeEdit,
@@ -1386,7 +1393,7 @@ export default function CanvasWorkspaceViewContent() {
   }, [canonicalProjectScope, loading, projectId, queryClient, switching]);
 
   useEffect(() => subscribeAssetNameChanges(message => {
-    const nextNodes = applyAssetNameToLinkedNodes(nodesRef.current, message.assetId, message.name);
+    const nextNodes = applySyncedAssetNameToLinkedNodes(nodesRef.current, message.assetId, message.name);
     if (nextNodes === nodesRef.current) return;
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
@@ -2005,6 +2012,11 @@ export default function CanvasWorkspaceViewContent() {
     if (node.kind !== "image" || registrationBusyRef.current) return;
     const projectKey = projectSessionController.canonicalKey;
     if (!projectKey || projectSessionController.switching) return;
+    const saved = savedSeedanceRegistration(node);
+    if (saved && seedanceRegistrationPhase(saved) === "success") {
+      toast.info("该图片已经注册过拟真人素材");
+      return;
+    }
     const linked = edgesRef.current.filter((edge) => edge.from === node.id)
       .map((edge) => nodesRef.current.find((item) => item.id === edge.to))
       .find((item) => item?.kind === "video");
@@ -2018,18 +2030,52 @@ export default function CanvasWorkspaceViewContent() {
     if (!registrationTarget || registrationBusyRef.current) return;
     const { nodeId, model: selectedModel, projectKey } = registrationTarget;
     const scope = projectSessionController.canonicalScope;
-    const isCurrent = () => !projectSessionController.switching && projectSessionController.canonicalKey === projectKey;
+    const isCurrent = () => !projectSessionController.switching
+      && projectSessionController.canonicalKey === projectKey
+      && nodesRef.current.some((item) => item.id === nodeId);
     const node = nodesRef.current.find((item) => item.id === nodeId);
     if (!scope || !node || !isCurrent() || !selectedModel) return;
     const providerId = registrationProviderId(selectedModel);
+    const key = seedanceRegistrationKey(projectKey, node);
+    if (seedanceRegistrationInFlight.current.has(key)) return;
+    const saved = savedSeedanceRegistration(node);
+    // A stale record from a replaced image is ignored so the new image uploads fresh.
+    const existing = saved
+      ? node.metadata?.seedanceVolcanoAssets?.find((item) => item.id === saved.id && (item.providerId || "") === (providerId || ""))
+      : undefined;
+    if (saved && existing && seedanceRegistrationPhase(saved) === "success") {
+      toast.info("该图片已经注册过拟真人素材");
+      setRegistrationTarget(null);
+      return;
+    }
+    seedanceRegistrationInFlight.current.add(key);
     registrationBusyRef.current = true;
     setRegistrationBusy(true);
     setRegistrationError("");
+    let registrationToastId: string | number | undefined;
+    let lastToastPhase: SeedanceRegistrationState["phase"] | undefined;
+    let toastSettled = false;
+    const onState = (state: SeedanceRegistrationState) => {
+      if (!isCurrent()) return;
+      setSeedanceRegistrationStates(previous => ({ ...previous, [key]: state }));
+      if ((state.phase === "uploading" || state.phase === "processing") && state.phase !== lastToastPhase) {
+        lastToastPhase = state.phase;
+        registrationToastId = toast.loading(
+          state.phase === "uploading" ? "正在上传拟真人素材…" : "素材已上传，正在处理注册…",
+          {
+            id: registrationToastId,
+            description: `${node.title || "当前图片"} · 完成后将出现在资产库「真人素材」中`,
+            duration: Infinity,
+            // Match the existing green success toast while retaining a progress spinner.
+            style: { background: "var(--success-bg)", color: "var(--success-text)", borderColor: "var(--success-border)" },
+          },
+        );
+      }
+    };
     let source: Awaited<ReturnType<typeof imageSourceForNode>> | null = null;
     try {
       const asset = await registerCanvasImageAsset({
-        scope, providerId, isCurrent,
-        existing: node.metadata?.seedanceVolcanoAssets?.find((item) => (item.providerId || "") === (providerId || "")),
+        scope, providerId, isCurrent, existing, onState,
         loadFile: async () => {
           source = await imageSourceForNode(node);
           const response = await fetch(source.url);
@@ -2042,7 +2088,7 @@ export default function CanvasWorkspaceViewContent() {
           if (!isCurrent()) return;
           const selected = { id: asset.id, providerId, volcanoAssetId: asset.volcano_asset_id || "", name: asset.name || node.title, status: asset.status, assetType: asset.asset_type || "Image" };
           const nextNodes = nodesRef.current.map((item) => item.id === node.id
-            ? { ...item, metadata: { ...item.metadata, seedanceVolcanoAssets: [selected] } }
+            ? { ...item, metadata: { ...item.metadata, seedanceVolcanoAssets: [selected], seedanceRegistrationSource: seedanceRegistrationSource(node) } }
             : item);
           nodesRef.current = nextNodes;
           setNodes(nextNodes);
@@ -2051,19 +2097,46 @@ export default function CanvasWorkspaceViewContent() {
       });
       if (!isCurrent()) return;
       if (asset.status.toLowerCase() === "active" && asset.volcano_asset_id) {
-        toast.success("素材注册成功，可以连接使用同一 Provider 的视频节点生成");
+        onState({ phase: "success" });
+        toast.success("拟真人素材注册成功", {
+          id: registrationToastId, style: {}, duration: REGISTRATION_TOAST_SUCCESS_MS,
+          description: `${node.title || "当前图片"} · 已加入资产库「真人素材」，可用于视频参考`,
+        });
+        toastSettled = true;
       } else {
-        toast.info("素材已提交，仍在处理中；再次点击注册会查询原记录的进度");
+        onState({ phase: "pending" });
+        toast.warning("素材已上传，后台仍在处理中", {
+          id: registrationToastId, style: {}, duration: REGISTRATION_TOAST_NOTICE_MS,
+          description: "可在资产库「真人素材」查看，或点击注册按钮刷新状态，无需重复上传。",
+        });
+        toastSettled = true;
       }
       setRegistrationTarget(null);
     } catch (error) {
-      const message = publicApiError(error, "拟真人素材注册失败");
-      setRegistrationError(message);
-      toast.error(message);
+      if (isCurrent()) {
+        const message = publicApiError(error, "拟真人素材注册失败");
+        setRegistrationError(message);
+        onState({ phase: "error", error: message });
+        toast.error("拟真人素材上传或注册失败", {
+          id: registrationToastId, style: {}, duration: REGISTRATION_TOAST_NOTICE_MS,
+          description: `${message}；可点击注册按钮重试。`,
+        });
+        toastSettled = true;
+      }
     } finally {
+      if (!toastSettled && registrationToastId !== undefined) toast.dismiss(registrationToastId);
       (source as Awaited<ReturnType<typeof imageSourceForNode>> | null)?.cleanup();
       registrationBusyRef.current = false;
       setRegistrationBusy(false);
+      seedanceRegistrationInFlight.current.delete(key);
+      setSeedanceRegistrationStates(previous => {
+        const state = previous[key];
+        // Settled states come from saved metadata; only transient errors need a local message.
+        if (!state || state.phase === "error") return previous;
+        const next = { ...previous };
+        delete next[key];
+        return next;
+      });
     }
   };
 
@@ -4355,6 +4428,7 @@ export default function CanvasWorkspaceViewContent() {
         <div className="canvas-head-actions">
           <button className="outline-button small canvas-home-button" onClick={() => navigate("/dashboard")} title="返回首页" aria-label="返回首页"><Home size={15} /> 首页</button>
           {/* 空间切换是"离开当前画布"的导航出口：项目加载中/未确认时直接回列表页，不参与保存门禁，避免按钮卡死 */}
+          {/* "团队空间"已全局暂时隐藏：team 入口在 scopeOptions 数组定义处注释掉了，恢复见该处 */}
           <div className="scope-switch mini-scope">{scopeOptions.map((item) => <button key={item.value} className={currentProjectDisplayScope === item.value ? "active" : ""} onClick={() => { if (loading || projectScopePending) { navigate(canvasListHref(item.value)); return; } void switchCanvasScope(item.value); }} disabled={switching} title={loading || projectScopePending ? "返回该工作区的画布列表" : undefined}>{item.label}</button>)}</div>
           <button className="outline-button small canvas-icon-button" title="撤销" aria-label="撤销" onClick={() => void undoCanvas()} disabled={!canUndo || projectActionDisabled}><Undo2 size={15} /></button>
           <button className="outline-button small canvas-icon-button" title="重做" aria-label="重做" onClick={() => void redoCanvas()} disabled={!canRedo || projectActionDisabled}><Redo2 size={15} /></button>
@@ -4366,7 +4440,10 @@ export default function CanvasWorkspaceViewContent() {
           >
             <Save size={15} /> {projectScopePending ? "确认工作区" : switching ? "切换中" : saving || syncStatus === "saving" ? "保存中" : snapshotWriteReady ? "保存" : "保存已暂停"}
           </button>
+          {/* 暂时隐藏：顶部工具栏的"检查器"切换按钮（选中节点时检查器仍会自动打开）。
+              恢复时取消下方注释，并在顶部 lucide-react 导入中恢复 PanelRight
           <button className={`outline-button small inspector-trigger ${inspectorOpen ? "is-active" : ""}`} onClick={() => setInspectorOpen((value) => !value)} disabled={projectActionDisabled}><PanelRight size={15} /> 检查器</button>
+          */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="outline-button small canvas-icon-button canvas-more-trigger" title="更多操作" aria-label="更多操作" disabled={projectActionDisabled}><MoreHorizontal size={16} /></button>
@@ -4456,6 +4533,8 @@ export default function CanvasWorkspaceViewContent() {
           selectionBoxStyle={selectionBoxStyle}
           alignmentGuides={alignmentGuides}
           connectionLayerBounds={connectionLayerBounds}
+          connectFrom={connectFrom}
+          connectHandleType={connectHandleType}
           edges={edges}
           nodes={nodes}
           nodeMap={nodeMap}
@@ -4464,6 +4543,7 @@ export default function CanvasWorkspaceViewContent() {
           connectionPreviewPath={connectionPreviewPath}
           renderedNodes={renderedNodes}
           nodeCardProps={(node) => ({
+            seedanceRegistrationState: seedanceRegistrationStates[seedanceRegistrationKey(projectSessionController.canonicalKey, node)],
             node,
             mentionLibrary: editingInlineNodeId === node.id ? mentionLibrary : undefined,
             previews,
@@ -4471,6 +4551,7 @@ export default function CanvasWorkspaceViewContent() {
             isSelectedSingle: selectedId === node.id,
             isHovered: hoveredId === node.id,
             isConnectionTarget: connectionTargetId === node.id,
+            isGrouped: groups.some(group => !group.pending && group.nodeIds.includes(node.id)),
             isConnecting: Boolean(connectFrom),
             connectActiveTarget: connectFrom === node.id && connectHandleType === "target",
             connectActiveSource: connectFrom === node.id && connectHandleType === "source",
@@ -4542,6 +4623,7 @@ export default function CanvasWorkspaceViewContent() {
         />
 
         <CanvasInspector
+          seedanceRegistrationState={selectedNode ? seedanceRegistrationStates[seedanceRegistrationKey(projectSessionController.canonicalKey, selectedNode)] : undefined}
           panelRef={panelRef}
           selectedNode={selectedNode}
           selectedGroup={selectedGroup}

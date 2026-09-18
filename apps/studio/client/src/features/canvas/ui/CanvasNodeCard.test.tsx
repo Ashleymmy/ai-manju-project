@@ -103,6 +103,7 @@ function createProps(node: CanvasNodeData, actions = createActions()): CanvasNod
     isSelectedSingle: false,
     isHovered: false,
     isConnectionTarget: false,
+    isGrouped: false,
     isConnecting: false,
     connectActiveTarget: false,
     connectActiveSource: false,
@@ -152,11 +153,18 @@ describe("CanvasNodeCard render boundary", () => {
     expect(chooseNode).toHaveBeenCalledWith("node-image", expect.anything());
   });
 
+  it("removes member connection handles while a node belongs to a group", async () => {
+    const node = createNode();
+    await act(async () => root.render(<CanvasNodeCard {...createProps(node)} isGrouped />));
+    expect(container.querySelectorAll(".canvas-connection-handle")).toHaveLength(0);
+  });
+
   it("keeps the original comparator semantics and ignores action object identity", () => {
     const node = createNode();
     const previous = createProps(node);
     expect(canvasNodeCardPropsEqual(previous, { ...previous, actions: createActions() })).toBe(true);
     expect(canvasNodeCardPropsEqual(previous, { ...previous, node: { ...node } })).toBe(false);
+    expect(canvasNodeCardPropsEqual(previous, { ...previous, seedanceRegistrationState: { phase: "uploading" } })).toBe(false);
     expect(canvasNodeCardPropsEqual(previous, { ...previous, mentionLibrary: { projectId: "project-1", scope: "personal", folders: [], target: "root", query: "", assetIds: [], loading: true, error: "", page: 0, hasMore: false } })).toBe(false);
   });
 
