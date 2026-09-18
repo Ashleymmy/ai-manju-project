@@ -55,24 +55,25 @@ PASS: admin route, capability selection, JSON save/reload, invalid JSON, respons
 
 ## ECS 部署验收
 
-已部署应用提交 `d0cff6872f775f8bd8d9928028b82330f54f694b`。沿用原完整 Compose 配置，仅通过 `up -d --no-deps --no-build --pull never api web` 切换 Web / API；SD-video、数据库、Redis 与密钥挂载保持原配置。
+已部署应用提交 `2b183b2c09dee2718fc681d54b3ddb90c9d708de`。沿用原完整 Compose 配置，仅通过 `up -d --no-deps --no-build --pull never api web` 切换 Web / API；SD-video、数据库、Redis 与密钥挂载保持原配置。
 
 ```text
-API image                 be3cb72da933; running healthy
-Web image                 d960b3a64904; running healthy
+API image                 7bbf69d2cfd1; running healthy
+Web image                 6758f0921135; running healthy
 nginx -t                  syntax is ok; test is successful
 GET /health               200; success=true; db=ok; storage=postgres
 GET /admin/model-hub      200
-ProviderHubPage JS        200
+ProviderHubPage JS        200 (`ProviderHubPage-BkJ0-Y8Q.js`)
 GET /api/admin/model-providers          401 (未登录)
 GET /api/admin/model-provider-presets   401 (未登录)
+SD-video API/Worker/Asset Worker         unchanged; all running healthy
 ```
 
 在 ECS 复用 API 构建阶段镜像，挂载本次源码测试目录并禁用外网，执行下列测试全部通过：
 
 ```text
-go test -count=1 -v ./internal/providerhub ./internal/handler \
-  -run 'TestDocument|TestManagedDocument|TestProviderHub|TestSDVideoGroup'
+go test -count=1 ./internal/providerhub ./internal/handler ./internal/sdvideo \
+  -run 'TestDocument|TestManagedDocument|TestProviderHub|TestSDVideoGroup|TestCreationPolicy|TestCreation'
 ```
 
 其中配置保存、运行配置回读、普通用户拒绝、素材通道保留使用内存仓库与本地 mock 上游验证，不修改云端业务配置。访问入口为 `http://studio.clouddo.cc/admin/model-hub`；超级管理员登录后的云端配置操作及真实生成待用户手动验收。本次未发起真实或付费 Provider 任务。
