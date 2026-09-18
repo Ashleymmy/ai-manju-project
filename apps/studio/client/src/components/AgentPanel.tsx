@@ -855,6 +855,7 @@ export default function AgentPanel({
           )}
         </div>
         <div className="agent-toolbar-spacer" />
+        {/* [暂时隐藏] 历史记录 / 文件 / 设置按钮 —— 代码保留，恢复时取消本注释并恢复图标导入 Settings：
         <button
           className={`agent-toolbar-btn ${openMenu === "threads" ? "is-active" : ""}`}
           title="历史记录"
@@ -896,6 +897,7 @@ export default function AgentPanel({
         <button className="agent-toolbar-btn" title="设置" onClick={() => setTab(tab === "connect" ? "chat" : "connect")}>
           <Settings size={16} />
         </button>
+        */}
         <button className="agent-toolbar-btn" title="关闭对话" onClick={onClose}>
           <X size={16} />
         </button>

@@ -87,7 +87,8 @@ type Option<T extends string> = { value: T; label: string };
 
 const scopeOptions: Array<Option<WorkspaceScope>> = [
   { value: "personal", label: "个人空间" },
-  { value: "team", label: "团队空间" },
+  // 暂时隐藏"团队空间"入口（全局隐藏），恢复时取消下行注释
+  // { value: "team", label: "团队空间" },
 ];
 
 function initialScopeFromSearch(): WorkspaceScope {
@@ -673,7 +674,7 @@ export function ImageWorkbenchView() {
   return <div className="feature-page image-page">
     <input ref={referenceInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { if (event.target.files) addReferenceFiles(event.target.files); event.target.value = ""; }} />
     <PromptLibraryDialog open={promptLibraryOpen} onOpenChange={setPromptLibraryOpen} onSelect={(value) => { setPrompt(value); setPromptLibraryOpen(false); }} />
-    <SurfaceTitle eyebrow="KEYFRAME / NEW" title="关键帧生成" description="走真实模型与队列，支持参考图编辑，把结果直接送回画布。"
+    <SurfaceTitle eyebrow="KEYFRAME / NEW" title="图片生成" description="走真实模型与队列，支持参考图编辑，把结果直接送回画布。"
       actions={<div className="scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => setScope(item.value)}>{item.label}</button>)}</div>} />
     <div className="image-workbench">
       <aside className="generation-history-sidebar">
@@ -839,7 +840,7 @@ export function ImageWorkbenchView() {
           <div className="result-stage generating">
             <div className="generation-waiting">
               <span className="waiting-ring"><Loader2 className="spin" size={24} /></span>
-              <p>关键帧生成中</p>
+              <p>图片生成中</p>
               <small>{jobProgress}% · 已等待 {elapsedSeconds}s</small>
               <div className="waiting-progress"><i style={{ width: `${Math.max(jobProgress, 6)}%` }} /></div>
             </div>

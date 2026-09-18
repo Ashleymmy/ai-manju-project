@@ -166,7 +166,8 @@ export default function QueuePage() {
         action={
           <div className="queue-actions">
             <div className="scope-switch">
-              {(["personal", "team"] as const).map(item => (
+              {/* 暂时隐藏"团队空间"切换（全局隐藏），恢复时删除下方 filter 调用 */}
+              {(["personal", "team"] as const).filter((item) => item !== "team").map(item => (
                 <button
                   key={item}
                   className={scope === item ? "active" : ""}
@@ -280,7 +281,7 @@ export default function QueuePage() {
                 {job.kind === "comic" ? (
                   <button
                     className="icon-button subtle"
-                    title="打开漫剧资产助手"
+                    title="打开资产助手"
                     onClick={() => navigate("/comic-assets")}
                   >
                     <ArrowUpRight size={16} />
@@ -325,7 +326,8 @@ export default function QueuePage() {
             <span>succeeded</span>
           </div>
           <p>
-            队列状态来自服务端 Job 与漫剧批次，随个人 / 团队空间切换；页面刷新后会重新读取，不依赖本地假数据。
+            {/* 暂时隐藏"团队空间"文案：原文为"队列状态来自服务端 Job 与漫剧批次，随个人 / 团队空间切换；页面刷新后会重新读取，不依赖本地假数据。" */}
+            队列状态来自服务端 Job 与漫剧批次；页面刷新后会重新读取，不依赖本地假数据。
           </p>
           <code>GET /api/jobs?limit=50&scope={scope}</code>
         </aside>

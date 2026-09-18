@@ -712,11 +712,13 @@ export function ComicAssetsView() {
     <div className="comic-hero-header">
       <div className="comic-hero-content">
         <p className="eyebrow">COMIC ASSET PIPELINE</p>
-        <h1>漫剧资产助手</h1>
+        <h1>资产助手</h1>
         <p className="comic-hero-description">可从剧本、四 Sheet 资产表或空项目开始；候选资产确认入库后，再处理提示词并创建服务端后台批次。关闭页面不会中断已创建的任务。</p>
         <div className="comic-hero-actions">
           <button className={`comic-tab-button ${scope === "personal" ? "active" : ""}`} onClick={() => setScope("personal")}>个人空间</button>
+          {/* 暂时隐藏"团队空间"标签按钮（全局隐藏），恢复时取消注释
           <button className={`comic-tab-button ${scope === "team" ? "active" : ""}`} onClick={() => setScope("team")}>团队空间</button>
+          */}
           <button className="create-button" onClick={handleCreateProject}><Plus size={16} /> 新建资产项目</button>
         </div>
       </div>

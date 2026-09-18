@@ -106,7 +106,8 @@ type SmartView = "all" | "favorite" | "dislike" | "unused" | "frequent" | "seeda
 
 const scopeOptions: Array<Option<WorkspaceScope>> = [
   { value: "personal", label: "个人空间" },
-  { value: "team", label: "团队空间" },
+  // 暂时隐藏"团队空间"入口（全局隐藏），恢复时取消下行注释
+  // { value: "team", label: "团队空间" },
 ];
 
 const assetCategoryOptions: Array<Option<AssetCategory | "">> = [
@@ -839,7 +840,8 @@ export function AssetLibraryView() {
   return <div className="feature-page asset-library-page">
     <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => event.target.files && void handleFiles(event.target.files)} />
     <input ref={packageInputRef} type="file" accept=".zip,application/zip" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void importAssetPackage(file); }} />
-    <SurfaceTitle eyebrow={`LIBRARY / ${total}`} title="资产库" description="支持个人 / 团队空间、标签组合筛选、批量删除 / 移动 / 导出，以及拖入文件直接上传。"
+    {/* 暂时隐藏"团队空间"文案：原描述为"支持个人 / 团队空间、标签组合筛选、批量删除 / 移动 / 导出，以及拖入文件直接上传。" */}
+    <SurfaceTitle eyebrow={`LIBRARY / ${total}`} title="资产库" description="支持个人空间、标签组合筛选、批量删除 / 移动 / 导出，以及拖入文件直接上传。"
       actions={<div className="scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => setScope(item.value)}>{item.label}</button>)}</div>} />
     <div className="asset-tag-index"><div className="tag-index-head"><span><Tag size={15} /> 分类标签</span><div><button className={tagMatch === "and" ? "active" : ""} onClick={() => setTagMatch("and")}>交集</button><button className={tagMatch === "or" ? "active" : ""} onClick={() => setTagMatch("or")}>并集</button><button onClick={() => setSelectedTagIds([])}>清空</button>{roots.length > 8 && <button onClick={() => setShowAllFilterTags((value) => !value)}>{showAllFilterTags ? "收起" : `展开 ${roots.length}`}</button>}</div></div><div className="tag-index-body">{filterRoots.map((root) => <div className="tag-index-group" key={root.id}><button className={selectedTagIds.includes(root.id) ? "selected" : ""} onClick={() => toggleFilterTag(root.id)}>{root.name}<b>{root.asset_count || 0}</b></button>{tagChildren(tags, root.id).map((child) => <button key={child.id} className={selectedTagIds.includes(child.id) ? "selected child" : "child"} onClick={() => toggleFilterTag(child.id)}>{child.name}<b>{child.asset_count || 0}</b></button>)}</div>)}</div></div>
     <div className="library-workspace">

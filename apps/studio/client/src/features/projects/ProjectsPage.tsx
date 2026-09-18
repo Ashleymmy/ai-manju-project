@@ -167,7 +167,8 @@ export default function ProjectsPage() {
       />
       <div className="filter-line">
         <div className="segmented">
-          {(["personal", "team"] as const).map(item => (
+          {/* 暂时隐藏"团队空间"切换（全局隐藏），恢复时删除下方 filter 调用 */}
+          {(["personal", "team"] as const).filter((item) => item !== "team").map(item => (
             <button
               key={item}
               className={scope === item ? "selected" : ""}
