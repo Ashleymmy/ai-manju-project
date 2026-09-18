@@ -49,6 +49,8 @@ export type CanvasMentionReference = {
   category?: AssetCategory;
   text?: string;
   content?: string;
+  /** 已注册的火山拟真人素材；显式 @[node:...] 引用也必须透传。 */
+  seedanceVolcanoAssets?: CanvasGenerationInput["seedanceVolcanoAssets"];
 };
 
 export type CanvasMentionMenuItem =
@@ -390,6 +392,7 @@ export function buildCanvasMentionReferences(
         assetScope: input.assetScope,
         text: input.text,
         content: input.content,
+        seedanceVolcanoAssets: input.seedanceVolcanoAssets,
       },
     ];
   });
@@ -532,6 +535,7 @@ function referenceToInput(
     content: reference.content,
     assetId: reference.assetId,
     assetScope: reference.assetScope,
+    seedanceVolcanoAssets: reference.seedanceVolcanoAssets,
   };
 }
 
@@ -540,6 +544,7 @@ function inputFromNode(
 ): Pick<
   CanvasGenerationInput,
   "type" | "text" | "content" | "assetId" | "assetScope"
+  | "seedanceVolcanoAssets"
 > | null {
   const type =
     node.kind === "prompt" || node.kind === "text"
@@ -561,7 +566,17 @@ function inputFromNode(
     metadata.assetScope === "personal" || metadata.assetScope === "team"
       ? metadata.assetScope
       : undefined;
-  return content || assetId ? { type, content, assetId, assetScope } : null;
+  const seedanceVolcanoAssets = Array.isArray(metadata.seedanceVolcanoAssets)
+    ? metadata.seedanceVolcanoAssets.filter((item): item is NonNullable<CanvasGenerationInput["seedanceVolcanoAssets"]>[number] => (
+      Boolean(item)
+      && typeof item === "object"
+      && typeof (item as { volcanoAssetId?: unknown }).volcanoAssetId === "string"
+      && Boolean((item as { volcanoAssetId: string }).volcanoAssetId.trim())
+    ))
+    : undefined;
+  return content || assetId || seedanceVolcanoAssets?.length
+    ? { type, content, assetId, assetScope, seedanceVolcanoAssets }
+    : null;
 }
 
 function upstreamCanvasNodeDistances(

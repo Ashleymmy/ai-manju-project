@@ -135,6 +135,42 @@ describe("canvas mention references", () => {
     expect(withMention.prompt).toContain("图片1");
   });
 
+  it("preserves registered Volcano assets through explicit node mentions", () => {
+    const registeredNodes = [
+      { id: "video", kind: "video", title: "视频", content: "动作" },
+      {
+        id: "image",
+        kind: "image",
+        title: "拟真人角色",
+        imageAssetId: "asset-image",
+        metadata: {
+          assetId: "asset-image",
+          seedanceVolcanoAssets: [{
+            id: "row-1",
+            volcanoAssetId: "volcano-person",
+            name: "拟真人角色",
+            status: "Active",
+            assetType: "Image",
+          }],
+        },
+      },
+    ];
+    const result = buildCanvasMentionGenerationContext(
+      "video",
+      registeredNodes,
+      [{ id: "edge", from: "image", to: "video" }],
+      "使用 @[node:image] 生成视频",
+      [],
+      "personal",
+    );
+
+    expect(result.inputs).toContainEqual(expect.objectContaining({
+      nodeId: "image",
+      type: "image",
+      seedanceVolcanoAssets: [expect.objectContaining({ volcanoAssetId: "volcano-person" })],
+    }));
+  });
+
   it("resolves explicit node and asset tokens and reports stale references", () => {
     const result = buildCanvasMentionGenerationContext(
       "prompt",
