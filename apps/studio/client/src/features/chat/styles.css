@@ -197,7 +197,18 @@
 }
 
 .chat-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
   margin-bottom: 26px;
+}
+.chat-hero-text {
+  min-width: 0;
+}
+.chat-hero-create {
+  flex-shrink: 0;
 }
 .chat-hero .eyebrow {
   margin: 0 0 10px;

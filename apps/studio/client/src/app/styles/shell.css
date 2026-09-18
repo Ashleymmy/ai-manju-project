@@ -51,7 +51,8 @@
 .user-meta b { font-size: 11px; }
 .user-meta small { margin-top: 2px; color: #aaaaaa; font-size: 10px; }
 .main-stage { grid-column: 2; min-width: 0; }
-.topbar { position: sticky; top: 0; z-index: 10; height: 82px; display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; padding: 0 38px; background-color: var(--background); background-image: var(--desk-dot-image); background-size: var(--desk-dot-size); background-attachment: fixed; border-bottom: 1px solid var(--line); isolation: isolate; }
+/* 顶部中央导航暂时隐藏后，顶栏改为两列（原三列值 minmax(0,1fr) auto minmax(0,1fr) 保留在注释中，恢复导航时换回） */
+.topbar { position: sticky; top: 0; z-index: 10; height: 82px; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; padding: 0 38px; background-color: var(--background); background-image: var(--desk-dot-image); background-size: var(--desk-dot-size); background-attachment: fixed; border-bottom: 1px solid var(--line); isolation: isolate; }
 .top-mode-tabs { display: flex; align-items: center; justify-content: center; gap: 18px; }
 .top-mode-tabs a { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 6px 0; color: var(--muted-foreground); text-decoration: none; font-size: 12px; font-weight: 500; white-space: nowrap; transition: color .16s ease; }
 .top-mode-tabs a:hover { color: var(--foreground); }
@@ -97,7 +98,7 @@
 .side-rail .side-foot { display: none; }.side-rail .side-link { justify-content: center; padding: 0; }.topbar { padding: 0 24px; }.live-dot { display: none; }.top-mode-tabs { gap: 14px; } }
 @media (max-width: 760px) { .studio-app,
 .studio-app.rail-collapsed { display: block; }.side-rail { position: sticky; top: 0; width: 100%; height: 57px; flex-direction: row; align-items: center; border-right: 0; border-bottom: 1px solid var(--line); }.side-rail .brand-type { display: flex; }.side-rail .side-nav,
-.side-rail .side-foot { display: none; }.main-stage { display: block; }.topbar { position: relative; height: 59px; padding: 0 16px; grid-template-columns: auto minmax(0,1fr) auto; }.top-actions .command-search,
+.side-rail .side-foot { display: none; }.main-stage { display: block; }.topbar { position: relative; height: 59px; padding: 0 16px; grid-template-columns: auto minmax(0,1fr); }.top-actions .command-search,
 .top-actions .icon-button { display: none; }.crumbs { font-size: 11px; }.top-mode-tabs { gap: 10px; } }
 /* 闁哄本鏌ㄧ€靛弶绗熻缁旂喖寮借箛姘辩彾婵℃妫寸槐婵嬫焼閸喖甯崇€归潻缂氱粭鍛喆閹烘梹顏ら柤鐟板级濞碱垳鐥涵鍛畺濞存粌瀛╁Σ鎴﹀及?*/
 .side-rail {
@@ -548,4 +549,57 @@
 .user-pop-logout:hover {
   background: rgba(255, 255, 255, 0.06);
   color: #e8e6de;
+}
+
+/* ---- 侧边栏禁用项（如“剧本创作”，路由待定）：保留位置但点击无反应 ---- */
+.ln-row.is-disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---- 全站右下角 Agent 小球（与画布 canvas-agent-fab 同款 MetaBallOrb） ---- */
+.studio-agent-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  overflow: hidden; /* 圆形裁切，让 MetaBallOrb 球体贴着圆边运动 */
+  background: #0c0f10;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 高于顶栏(30)/侧栏浮层(25)，低于发送中的全屏加载覆盖层(50)与命令面板(520) */
+  z-index: 45;
+}
+.studio-agent-fab:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.53);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55), 0 3px 8px rgba(0, 0, 0, 0.35);
+}
+.studio-agent-fab:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+.studio-agent-fab svg {
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+}
+.studio-agent-fab .metaball-orb {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+}
+.studio-agent-fab .metaball-orb canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
 }

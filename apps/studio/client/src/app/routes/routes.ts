@@ -20,7 +20,8 @@ function defineAppRoute(route: Omit<AppRoute, "Component">): AppRoute {
 }
 
 const authLoader = () => import("@/features/auth");
-const chatLoader = () => import("@/features/chat");
+/* [暂时隐藏] 聊天台主页：页面代码完整保留在 features/chat，恢复时取消下方 /chat 路由的注释即可
+const chatLoader = () => import("@/features/chat"); */
 const legacyRedirectLoader = () => import("./LegacyRedirectPage");
 
 const primaryRoutes: AppRoute[] = [
@@ -28,8 +29,8 @@ const primaryRoutes: AppRoute[] = [
   defineAppRoute({ id: "auth-login", path: "/login", loader: authLoader, permission: "public", layout: "none" }),
   defineAppRoute({ id: "auth-v2-login", path: "/v2-login", loader: authLoader, permission: "public", layout: "none" }),
   defineAppRoute({ id: "auth-register", path: "/register", loader: authLoader, permission: "public", layout: "none" }),
-  defineAppRoute({ id: "chat-root", path: "/", loader: chatLoader, permission: "public", layout: "none" }),
-  defineAppRoute({ id: "chat", path: "/chat", loader: chatLoader, permission: "public", layout: "none" }),
+  defineAppRoute({ id: "home", path: "/", loader: () => import("./HomeRedirectPage"), permission: "public", layout: "none" }),
+  // [暂时隐藏] 聊天台主页路由（不要删除）：defineAppRoute({ id: "chat", path: "/chat", loader: chatLoader, permission: "public", layout: "none" }),
   defineAppRoute({ id: "legacy-v2-canvas-id", path: "/v2-canvas/:id", loader: legacyRedirectLoader, permission: "public", layout: "none" }),
   defineAppRoute({ id: "tag-deep-link", path: "/tags/:tagId", loader: () => import("./TagRedirectPage"), permission: "authenticated", layout: "none" }),
   defineAppRoute({ id: "canvas-project", path: "/canvas/:id", loader: () => import("@/features/canvas/CanvasPage"), permission: "authenticated", layout: "canvas" }),

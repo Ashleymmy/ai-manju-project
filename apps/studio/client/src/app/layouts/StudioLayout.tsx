@@ -1,7 +1,6 @@
 import {
   Box,
   ChevronRight,
-  CircleDashed,
   Clapperboard,
   Compass,
   Crown,
@@ -16,10 +15,8 @@ import {
   LogOut,
   MoreHorizontal,
   PanelRight,
-  Plus,
   Puzzle,
   RadioTower,
-  Search,
   Settings2,
   ShieldCheck,
   Tag,
@@ -36,10 +33,10 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { toast } from "sonner";
 import { Link, useLocation } from "wouter";
 
 import ReleaseNotesDialog from "@/components/ReleaseNotesDialog";
+import StudioAgentFab from "@/components/StudioAgentFab";
 import { useAuth } from "@/contexts/AuthContext";
 import { isAdminTierRole } from "@/entities/auth";
 import AnnouncementBanner from "@/features/announcements";
@@ -49,25 +46,30 @@ import {
   useWorkspaceDashboardData,
   type WorkspaceData,
 } from "@/features/dashboard";
-import { createAndOpenProject } from "@/features/projects";
 
-import { StudioCommandPalette } from "./StudioCommandPalette";
 import { clampSidebarEffect, nextSidebarEffect, SIDEBAR_POINTER_RADIUS_PX } from "./sidebarMotion";
 import "../styles/shell.css";
+/* [暂时隐藏] 顶栏检索入口/命令面板/通知按钮/新建画布 —— 代码保留，恢复时连同 TopBar 中被注释的 JSX 一起还原：
+import { toast } from "sonner";
+import { CircleDashed, Plus, Search } from "lucide-react";
+import { StudioCommandPalette } from "./StudioCommandPalette";
+import { createAndOpenProject } from "@/features/projects";
+*/
 
 const logoUrl = "/logo.png";
 const railGroupsStorageKey = "ai-manju:rail-open-groups";
 
 type Icon = typeof Grid2X2;
-type NavItem = { label: string; href: string; icon: Icon; shortcut?: string };
+type NavItem = { label: string; href: string; icon: Icon; shortcut?: string; disabled?: boolean };
 
 const creationNav: NavItem[] = [
   { label: "工作台", href: "/dashboard", icon: Grid2X2, shortcut: "G D" },
-  { label: "剧本创作", href: "/chat", icon: FileText, shortcut: "G S" },
+  // 剧本创作：目标路由待定，暂且保留入口但点击无反应（disabled 渲染为纯文本行，不跳转）
+  { label: "剧本创作", href: "/chat", icon: FileText, shortcut: "G S", disabled: true },
   { label: "全部项目", href: "/projects", icon: FolderKanban, shortcut: "G P" },
   { label: "画布工坊", href: "/canvas", icon: Compass, shortcut: "G C" },
   { label: "3D 导演台", href: "/director", icon: Box },
-  { label: "漫剧资产助手", href: "/comic-assets", icon: Clapperboard },
+  { label: "资产助手", href: "/comic-assets", icon: Clapperboard },
 ];
 
 export const creationModeTabs = [
@@ -83,7 +85,7 @@ export function creationModeTabActive(href: string, path: string) {
 }
 
 const libraryNav: NavItem[] = [
-  { label: "关键帧生成", href: "/image", icon: WandSparkles },
+  { label: "图片生成", href: "/image", icon: WandSparkles },
   { label: "视频生成", href: "/video", icon: Film },
   { label: "资产库", href: "/assets", icon: Library },
   { label: "标签库", href: "/tags", icon: Tag },
@@ -135,12 +137,12 @@ export const studioPageTitles: Record<
   },
   "/comic-assets": {
     code: "ASSET ASSIST / 05",
-    title: "漫剧资产助手",
+    title: "资产助手",
     subtitle: "从剧本中提取角色、场景和关键道具，并一次性组织批量生成。",
   },
   "/image": {
     code: "KEYFRAME / NEW",
-    title: "关键帧生成",
+    title: "图片生成",
     subtitle: "把描述、参考图和模型参数收束为一帧可继续工作的画面。",
   },
   "/video": {
@@ -392,6 +394,26 @@ export function LineNav({
                 {group.items.map((item, itemIndex) => {
                   const active = item.href === currentPath;
                   const itemRow = ++rowCounter;
+                  // 禁用项（路由待定）渲染为纯文本行：保留位置与编号，点击无反应
+                  if (item.disabled) {
+                    return (
+                      <span
+                        key={item.href}
+                        title={item.label}
+                        className="ln-row ln-item is-disabled"
+                        data-active="0"
+                        ref={element => {
+                          rowRefs.current[itemRow] = element;
+                        }}
+                        aria-disabled="true"
+                      >
+                        <span className="ln-marker" aria-hidden="true" />
+                        <span className="ln-index">{String(itemIndex + 1).padStart(2, "0")}</span>
+                        <span className="ln-label">{item.label}</span>
+                        {item.shortcut ? <kbd>{item.shortcut}</kbd> : null}
+                      </span>
+                    );
+                  }
                   return (
                     <Link
                       key={item.href}
@@ -599,9 +621,11 @@ function SideFootCard({ data }: { data: WorkspaceData }) {
   );
 }
 
-function TopBar({ path, runningJobs }: { path: string; runningJobs?: number }) {
+// runningJobs 仍在调用处传入（顶栏任务指示暂时隐藏，恢复时重新解构即可）
+function TopBar({ path }: { path: string; runningJobs?: number }) {
   const [, navigate] = useLocation();
-  const [commandOpen, setCommandOpen] = useState(false);
+  /* [暂时隐藏] 命令面板开关，与下方检索按钮/命令面板 JSX 一起恢复：
+  const [commandOpen, setCommandOpen] = useState(false); */
   return (
     <header className="topbar">
       <div className="top-brand-area">
@@ -612,6 +636,7 @@ function TopBar({ path, runningJobs }: { path: string; runningJobs?: number }) {
           <b>{studioPageTitles[path]?.title ?? "工作台"}</b>
         </div>
       </div>
+      {/* [暂时隐藏] 顶部中央创作导航（主页/视频创作/图片创作/剧本创作）——代码保留：
       <nav className="top-mode-tabs" aria-label="创作入口">
         {creationModeTabs.map((tab) => {
           const Icon = tab.icon;
@@ -627,7 +652,9 @@ function TopBar({ path, runningJobs }: { path: string; runningJobs?: number }) {
           );
         })}
       </nav>
+      */}
       <div className="top-actions">
+        {/* [暂时隐藏] 检索入口 / 命令面板 / 任务指示 / 通知 —— 代码保留：
         <button
           type="button"
           className="command-search"
@@ -650,12 +677,15 @@ function TopBar({ path, runningJobs }: { path: string; runningJobs?: number }) {
         >
           <CircleDashed size={18} />
         </button>
+        */}
+        {/* [暂时隐藏] “新建画布”已移到工作台打招呼一行的右侧（ChatComposer 的 .chat-hero-create）；顶栏原位代码保留：
         <button
           className="create-button"
           onClick={() => void createAndOpenProject(navigate)}
         >
           <Plus size={17} /> 新建画布
         </button>
+        */}
       </div>
     </header>
   );
@@ -679,6 +709,8 @@ export default function StudioLayout({ children }: { children: ReactNode }) {
         {children}
       </main>
       <ReleaseNotesDialog />
+      {/* 全站右下角 Agent 小球（画布同款 MetaBallOrb） */}
+      <StudioAgentFab />
     </div>
   );
 }

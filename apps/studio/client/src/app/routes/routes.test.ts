@@ -16,7 +16,8 @@ describe("declarative Studio routes", () => {
 
   it("preserves public entry, auth, and compatibility routes", () => {
     const routes = new Map(appRoutes.map(route => [route.path, route]));
-    for (const path of ["/", "/chat", "/login", "/v2-login", "/register"]) {
+    // 聊天台主页 /chat 暂时从路由表隐藏（代码保留在 features/chat），恢复时把它加回断言列表
+    for (const path of ["/", "/login", "/v2-login", "/register"]) {
       expect(routes.get(path)).toMatchObject({
         permission: "public",
         layout: "none",
