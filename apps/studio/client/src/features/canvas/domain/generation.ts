@@ -5,6 +5,8 @@ import type { WorkspaceScope } from "@/shared/config/workspace";
 import type { CanvasVideoReferenceSnapshot } from "./video";
 import { videoResultPersistentMetadata } from "./video";
 import { refreshImageBatchRoot } from "./batch";
+import { generatedImageTitle } from "./imageTitles";
+import { canvasImageBatchSlot } from "./imageBatchDiversity";
 import type { CanvasNodeData } from "./types";
 import { stringValue } from "./value";
 import {
@@ -130,9 +132,10 @@ export function failGeneratedVideoTarget(nodes: CanvasNodeData[], targetNodeId: 
 export function resolveGeneratedNode(nodes: CanvasNodeData[], childId: string, generated: GeneratedImage | undefined, prompt: string) {
   return nodes.map((node) => {
     if (node.id !== childId) return node;
+    const slot = canvasImageBatchSlot(nodes, childId);
     return {
       ...node,
-      title: generated?.name || "生成图片",
+      title: generatedImageTitle(generated?.name || "", prompt, slot.count > 1 ? slot.index : undefined),
       imageAssetId: generated?.assetId,
       imageSrc: generated?.assetId ? undefined : generated?.src,
       metadata: {

@@ -6,6 +6,7 @@ import type {
   CanvasNodeStatus,
 } from "./types";
 import { isRecord, numberValue, stringValue } from "./value";
+import { normalizeGeneratedImageTitle } from "./imageTitles";
 
 export function normalizeCanvasNodeKind(value: unknown): CanvasNodeKind {
   const kind = stringValue(value).toLowerCase();
@@ -91,7 +92,7 @@ export function normalizeCanvasNode(value: unknown): CanvasNodeData | null {
     stringValue(value.assetId) ||
     stringValue(metadata.assetId);
 
-  return {
+  const node: CanvasNodeData = {
     ...value,
     id,
     kind,
@@ -115,6 +116,8 @@ export function normalizeCanvasNode(value: unknown): CanvasNodeData | null {
       status: normalizeNodeStatus(metadata.status),
     },
   };
+  node.title = normalizeGeneratedImageTitle(node);
+  return node;
 }
 
 export function normalizeCanvasEdge(value: unknown): CanvasEdgeData | null {

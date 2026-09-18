@@ -376,6 +376,7 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.nodes[0]).toMatchObject({
       id: "image-1",
       kind: "image",
+      title: "cat",
       imageAssetId: "asset-1",
       metadata: { assetId: "asset-1", status: "success" },
     });
