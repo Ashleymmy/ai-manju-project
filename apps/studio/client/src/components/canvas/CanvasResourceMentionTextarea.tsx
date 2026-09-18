@@ -13,6 +13,7 @@ import {
 import { createPortal } from "react-dom";
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -47,6 +48,9 @@ type Props = Omit<ComponentProps<"textarea">, "onChange" | "value"> & {
   mentionLibrary?: CanvasMentionLibraryState;
   onSubmit?: () => void;
   containerClassName?: string;
+  /** 随内容自动撑高（受 CSS max-height 限制）。仅在需要高度自适应的场合开启（如 Inspector 提示词框）；
+      节点内联编辑器等由布局决定高度的场景不要开。 */
+  autoGrow?: boolean;
   /** 返回引用对应的缩略图 URL（画布节点读预览缓存；返回空时资产库图片会按需拉取） */
   thumbnailForReference?: (reference: CanvasMentionReference) => string;
   /** 双击已插入的引用 chip / 点击菜单项的"详情"按钮 */
@@ -78,6 +82,7 @@ export const CanvasResourceMentionTextarea = forwardRef<
     onMentionQueryChange,
     mentionLibrary = emptyCanvasMentionLibrary(),
     containerClassName,
+    autoGrow = false,
     className,
     onKeyDown,
     onSubmit,
@@ -137,6 +142,40 @@ export const CanvasResourceMentionTextarea = forwardRef<
     textareaRef.current.focus({ preventScroll: true });
     textareaRef.current.setSelectionRange(caret.start, caret.end, caret.direction);
   }, [editorValue, editorSegments]);
+
+  // 用 JS 显式撑高，不走浏览器 field-sizing: content 的渲染路径：
+  // Chrome 在该属性 + 中文 IME 合成/长文本换行重排时会残留旧帧，
+  // 表现为一整条竖向“重影”带（看似凭空多出间隔、删除错位）。
+  const autoSizeTextarea = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || !autoGrow) return;
+    textarea.style.height = "0px";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [autoGrow]);
+  useLayoutEffect(() => {
+    autoSizeTextarea();
+  }, [editorValue, autoSizeTextarea]);
+  // 宽度变化（面板拖拽/画布缩放）会改变换行位置，需要重算高度；只在宽度变化时触发，避免高度回路。
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || typeof ResizeObserver === "undefined") return;
+    let lastWidth = textarea.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (textarea.clientWidth === lastWidth) return;
+      lastWidth = textarea.clientWidth;
+      autoSizeTextarea();
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [autoSizeTextarea]);
+  // 打字触发的自动滚动先于 onScroll 到达，渲染后立刻同步覆盖层滚动位置，避免长文本时双层短暂错位。
+  useLayoutEffect(() => {
+    const overlay = overlayRef.current;
+    const textarea = textareaRef.current;
+    if (!overlay || !textarea) return;
+    overlay.scrollTop = textarea.scrollTop;
+    overlay.scrollLeft = textarea.scrollLeft;
+  });
   const { caret, refresh: refreshCaret } = useMentionCaret(textareaRef, editorValue);
   const referenceByKey = useMemo(
     () => new Map(references.map(reference => [reference.key, reference])),
@@ -415,6 +454,8 @@ export const CanvasResourceMentionTextarea = forwardRef<
       ) : null}
       <textarea
         {...props}
+        // 拼写检查的波浪线不受透明文字颜色影响，会穿透覆盖层显示成游离的红线
+        spellCheck={false}
         ref={node => {
           textareaRef.current = node;
           if (typeof forwardedRef === "function") forwardedRef(node);

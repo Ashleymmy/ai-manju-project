@@ -257,6 +257,20 @@
 .canvas-group-corner.top-right { right: -7px; }
 .canvas-group-corner.bottom-left { left: -7px; bottom: -7px; }
 .canvas-group-corner.bottom-right { right: -7px; bottom: -7px; }
+.canvas-group-connection-handle { position: absolute; top: 50%; z-index: 6; width: 22px; height: 22px; margin-top: -11px; padding: 0; border: 1px solid rgba(144,144,144,.55); border-radius: 999px; background: rgba(20,20,20,.85); box-shadow: none; cursor: crosshair; opacity: 0; pointer-events: none; touch-action: none; transition: opacity .15s ease, transform .12s ease, box-shadow .15s ease; }
+.canvas-group-frame:hover .canvas-group-connection-handle,
+.canvas-group-frame.selected .canvas-group-connection-handle,
+.real-canvas-workspace.connecting .canvas-group-connection-handle { opacity: 1; pointer-events: auto; }
+.canvas-group-connection-handle.handle-magnet { opacity: 1; pointer-events: auto; border-color: #fff; box-shadow: 0 0 18px rgba(255,255,255,.5); }
+.canvas-group-connection-handle.handle-magnet::after { background-image: linear-gradient(#fff,#fff),linear-gradient(#fff,#fff); }
+/* Keep group ports floating outside the frame, matching the node ports. */
+.canvas-group-connection-handle.target { left: -34px; }
+.canvas-group-connection-handle.source { right: -34px; }
+.canvas-group-connection-handle::after { content: ""; position: absolute; inset: 5px; background-image: linear-gradient(#909090,#909090),linear-gradient(#909090,#909090); background-position: center; background-size: 100% 1.5px,1.5px 100%; background-repeat: no-repeat; }
+.canvas-group-connection-handle:hover,
+.canvas-group-connection-handle.active { border-color: #fff; box-shadow: 0 0 12px rgba(255,255,255,.35); }
+.canvas-group-connection-handle:hover::after,
+.canvas-group-connection-handle.active::after { background-image: linear-gradient(#fff,#fff),linear-gradient(#fff,#fff); }
 .canvas-group-color-row { display: flex; align-items: center; gap: 10px; margin-top: 9px; color: #cccccc; font: 11px "IBM Plex Mono",monospace; }
 .real-canvas-page .canvas-group-color-row input[type="color"] { width: 42px; height: 32px; margin: 0; padding: 3px; cursor: pointer; }
 .canvas-connected-preview-strip { display: flex; align-items: center; gap: 8px; max-width: 100%; overflow-x: auto; padding: 2px 0 4px; }
@@ -1960,6 +1974,15 @@
   z-index: 1;
   width: 100%;
   margin: 0;
+  /* 默认 content-box 会让 width:100% 再叠加左右 padding，输入框比覆盖层宽出一段，
+     两者换行位置不同（长文本逐行错位），还会把输入框顶出容器产生横向滚动条 */
+  box-sizing: border-box;
+  /* 滚动条会挤占内容宽度，导致覆盖层与输入框换行位置错位；编辑器内统一隐藏 */
+  scrollbar-width: none;
+}
+.canvas-mention-editor > textarea::-webkit-scrollbar {
+  display: none;
+  width: 0;
 }
 .canvas-mention-overlay {
   position: absolute;
@@ -1968,7 +1991,11 @@
   box-sizing: border-box;
   overflow: hidden;
   white-space: pre-wrap;
-  word-break: break-word;
+  /* 必须与 textarea 的 UA 换行规则完全一致：textarea 默认是 overflow-wrap: break-word，
+     而 word-break: break-word 等价于 overflow-wrap: anywhere —— 遇到无空格的长串字符时
+     两者断行位置不同，覆盖层会逐行错位成双影。 */
+  overflow-wrap: break-word;
+  word-break: normal;
   pointer-events: none;
   color: var(--studio-text, #e7e5e4);
 }
@@ -3350,6 +3377,12 @@ textarea.node-card-prompt {
   align-items: center;
   gap: 4px;
 }
+/* Registration feedback is shared by the inspector, toolbar and image tools. */
+button.canvas-seedance-registration.is-uploading,
+button.canvas-seedance-registration.is-processing { color: #7dd3fc; opacity: 1; cursor: progress; }
+button.canvas-seedance-registration.is-pending { color: #f4c44f; background: rgba(244,196,79,.1); }
+button.canvas-seedance-registration.is-success { color: #65d99b; background: rgba(69,212,134,.14); border-color: rgba(101,217,155,.4); opacity: 1; cursor: default; }
+button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(252,165,165,.1); }
 .node-credit-chip {
   cursor: default;
   color: #ffd9d2;
@@ -5395,7 +5428,6 @@ textarea.node-card-prompt {
   border-radius: 0;
   background: transparent;
   resize: none;
-  field-sizing: content;
   font: 12px/1.75 "Noto Sans SC", sans-serif;
 }
 .inspector-floating .node-card-body .canvas-mention-editor > textarea:focus {
