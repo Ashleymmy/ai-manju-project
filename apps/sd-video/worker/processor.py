@@ -21,7 +21,7 @@ from app.standalone_api import _execution_mode, _rollout_mode, catalog_store, lo
 from app.vidu_api import vidu_api
 from app.volcano_api import volcano_api
 from app.yike_api import yike_api
-from app.providers.seedance import LEGACY_PROXY, seedance_provider_registry
+from app.providers.seedance import seedance_provider_registry
 from app.providers.seedance.registry import SEEDANCE_PROVIDER_MODELS
 from app.model_store import model_store
 from app.mock_media import MOCK_VIDEO
@@ -91,6 +91,14 @@ async def _references(record: Any) -> list[dict[str, Any]]:
     return result
 
 
+def _seedance_upstream_provider(record: Any, model_id: str) -> str | None:
+    """Return the persisted route or the canonical model-scoped fallback."""
+    if record.model not in SEEDANCE_PROVIDER_MODELS and model_id not in settings.SEEDANCE20_MODEL_IDS:
+        return None
+    request = record.request or {}
+    return str(request.get("upstream_provider") or "").strip() or seedance_provider_registry.submission_provider(record.model)
+
+
 async def _create_upstream(record: Any, provider: str, model_id: str, *, references: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     request = record.request or {}
     refs = await _references(record) if references is None else references
@@ -128,12 +136,9 @@ async def _create_upstream(record: Any, provider: str, model_id: str, *, referen
         )
     if provider == "yike":
         return await yike_api.create_video_task(**kwargs)
-    upstream = str(request.get("upstream_provider") or "").strip() or seedance_provider_registry.submission_provider(record.model)
-    if record.model not in SEEDANCE_PROVIDER_MODELS and model_id not in settings.SEEDANCE20_MODEL_IDS:
-        # Non-Seedance Volcano models use the Ark client directly; the copied
-        # client performs its own credential check and error classification.
-        upstream = None
-    kwargs.update({"upstream_provider": upstream})
+    # Non-Seedance Volcano models use the Ark client directly; Seedance models
+    # use the saved route and fall back to the canonical model-scoped mapping.
+    kwargs.update({"upstream_provider": _seedance_upstream_provider(record, model_id)})
     return await volcano_api.create_video_task(**kwargs)
 
 
@@ -150,12 +155,10 @@ async def _query_upstream(record: Any, provider: str, provider_id: str, model_id
         return await vidu_api.query_task(provider_id)
     if provider == "yike":
         return await yike_api.query_task(provider_id)
-    request = record.request or {}
     return await volcano_api.query_task(
         provider_id,
         model=model_id,
-        upstream_provider=(str(request.get("upstream_provider") or LEGACY_PROXY)
-                           if record.model in SEEDANCE_PROVIDER_MODELS or model_id in settings.SEEDANCE20_MODEL_IDS else None),
+        upstream_provider=_seedance_upstream_provider(record, model_id),
     )
 
 
@@ -168,9 +171,7 @@ async def _cancel_upstream(record: Any, provider: str, provider_id: str, model_i
             # still prevents the result from being imported.
             return
         else:
-            request = record.request or {}
-            await volcano_api.cancel_task(provider_id, model=model_id, upstream_provider=(str(request.get("upstream_provider") or LEGACY_PROXY)
-                                          if record.model in SEEDANCE_PROVIDER_MODELS or model_id in settings.SEEDANCE20_MODEL_IDS else None))
+            await volcano_api.cancel_task(provider_id, model=model_id, upstream_provider=_seedance_upstream_provider(record, model_id))
     except Exception as exc:
         if getattr(exc, "http_status", None) in {404, 405, 409, 422}: return
         raise

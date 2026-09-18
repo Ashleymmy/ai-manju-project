@@ -40,6 +40,12 @@ class ModelConfigStore:
         for row in rows:
             base = dict(row.get("config") or {})
             base.update({"key": row["id"], "id": row["model_id"], "provider": row["provider"], "name": row["name"], "available": bool(row["enabled"]), "enabled": bool(row["enabled"])})
+            # Provider routing is derived from the canonical logical model key,
+            # so stale bootstrap JSON cannot make the admin catalog disagree
+            # with task submission.
+            if row["id"] in settings.SEEDANCE_MODEL_PROVIDER_OVERRIDES or row["id"] == "seedance-2.0":
+                from app.providers.seedance.registry import seedance_provider_registry
+                base["upstream_provider"] = seedance_provider_registry.submission_provider(row["id"])
             base.update(row.get("capabilities") or {})
             base["version"] = row["version"]
             result.append(base)
@@ -120,16 +126,20 @@ def public_model(value: dict[str, Any]) -> dict[str, Any]:
     result = {key: item for key, item in value.items() if key in allowed}
     result.setdefault("concurrency_limit", 1)
     result.setdefault("enabled", bool(value.get("available", True)))
+    logical = str(value.get("key") or "")
+    from app.providers.seedance.registry import SEEDANCE_PROVIDER_MODELS, seedance_provider_registry
+    original_id = settings.MODELS.get(logical, {}).get("id") or value.get("id")
+    is_seedance = logical in SEEDANCE_PROVIDER_MODELS or original_id in settings.SEEDANCE20_MODEL_IDS
+    if is_seedance:
+        # The catalog may come from an older database row. Always expose the
+        # same model-scoped route that task creation will persist.
+        result["upstream_provider"] = seedance_provider_registry.submission_provider(logical)
     if settings.EXECUTION_MODE != "mock":
         provider = value.get("provider")
         if provider == "vidu": configured = bool(settings.VIDU_API_KEY)
         elif provider == "yike": configured = bool(settings.YIKE_API_HOST and settings.YIKE_API_KEY) or bool(settings.YIKE_ACCESS_KEY_ID and settings.YIKE_ACCESS_KEY_SECRET)
         else:
-            from app.providers.seedance import seedance_provider_registry
-            logical = str(value.get("key") or "")
-            original_id = settings.MODELS.get(logical, {}).get("id") or value.get("id")
-            from app.providers.seedance.registry import SEEDANCE_PROVIDER_MODELS
-            if logical in SEEDANCE_PROVIDER_MODELS or original_id in settings.SEEDANCE20_MODEL_IDS:
+            if is_seedance:
                 configured = seedance_provider_registry.configured(seedance_provider_registry.submission_provider(logical))
             else:
                 configured = bool(settings.ARK_API_KEY)

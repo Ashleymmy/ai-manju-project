@@ -48,6 +48,48 @@ def _normalize_url(value: str) -> str:
     return value
 
 
+SEEDANCE_PROVIDER_NAMES = {"legacy_proxy", "tokenspace", "ark_official"}
+
+
+def _seedance_provider_from_values(
+    logical_model: str,
+    overrides: dict[str, str],
+    legacy_provider: str,
+) -> str:
+    """Resolve a Seedance route without depending on ``Settings`` construction.
+
+    ``Settings.MODELS`` is built in the class body, so it cannot call a
+    classmethod that is declared later in the same body.  Keeping this small
+    pure helper at module scope also makes the compatibility fallback explicit
+    and easy to exercise in tests.
+    """
+    explicit = overrides.get(logical_model, "")
+    if explicit:
+        return explicit
+    if logical_model == "seedance-2.0":
+        return legacy_provider
+    return "legacy_proxy"
+
+
+def _seedance_model_available(
+    logical_model: str,
+    model_id: str,
+    local_demo: bool,
+    overrides: dict[str, str],
+    legacy_provider: str,
+    provider_configured: dict[str, bool],
+) -> bool:
+    """Check credentials and model identity for one logical Seedance slot."""
+    if local_demo:
+        return True
+    provider = _seedance_provider_from_values(logical_model, overrides, legacy_provider)
+    if not provider_configured.get(provider, False):
+        return False
+    # TokenSpace owns one configured model ID and injects it into requests;
+    # proxy/official routes need the logical slot's own model ID as well.
+    return provider == "tokenspace" or bool(model_id)
+
+
 
 class Settings:
     """集中管理所有配置项"""
@@ -140,6 +182,31 @@ class Settings:
         or SEEDANCE20_MODEL_ID
     )
     SEEDANCE_FAST_MODEL_ID: str = os.getenv("VM_SEEDANCE_FAST", "") or os.getenv("VM_SeedanceFast", "")
+
+    # 每个逻辑模型独立绑定上游 Provider。空值保持旧版兼容：2.0 继续读取
+    # SEEDANCE20_PROVIDER，其他 Seedance 模型继续使用 legacy_proxy。
+    # 新部署应使用这些显式变量，避免用一个全局开关同时改变多个模型。
+    SEEDANCE_MODEL_PROVIDER_OVERRIDES: dict[str, str] = {
+        "seedance-2.0": _env_choice("SDVIDEO_MODEL_SEEDANCE_20_PROVIDER", "", SEEDANCE_PROVIDER_NAMES),
+        "seedance-2.5": _env_choice("SDVIDEO_MODEL_SEEDANCE_25_PROVIDER", "", SEEDANCE_PROVIDER_NAMES),
+        "seedance-2.0-mini": _env_choice("SDVIDEO_MODEL_SEEDANCE_20_MINI_PROVIDER", "", SEEDANCE_PROVIDER_NAMES),
+        "seedance-fast": _env_choice("SDVIDEO_MODEL_SEEDANCE_FAST_PROVIDER", "", SEEDANCE_PROVIDER_NAMES),
+        "seedance-2.0-ark": "ark_official",
+    }
+
+    SEEDANCE_PROVIDER_CONFIGURED: dict[str, bool] = {
+        "legacy_proxy": bool(SEEDANCE20_URL and SEEDANCE20_KEY),
+        "tokenspace": bool(TOKENSPACE_BASE_URL and TOKENSPACE_API_KEY and TOKENSPACE_MODEL_ID),
+        "ark_official": bool(ARK_OFFICIAL_BASE_URL and ARK_OFFICIAL_API_KEY),
+    }
+
+    @classmethod
+    def seedance_provider_for_model(cls, logical_model: str) -> str:
+        return _seedance_provider_from_values(
+            logical_model,
+            cls.SEEDANCE_MODEL_PROVIDER_OVERRIDES,
+            cls.SEEDANCE20_PROVIDER,
+        )
 
     # 模型标识
     VM_SEEDANCE_20: str = os.getenv("VM_SEEDANCE_20", "") or os.getenv("VM_Seedance20", "doubao-seedance-2-0-260128")
@@ -241,7 +308,8 @@ class Settings:
             "id": SEEDANCE25_MODEL_ID,
             "name": "Seedance 2.5",
             "provider": "volcano",
-            "available": LOCAL_DEMO_MODE or bool(SEEDANCE20_URL and SEEDANCE20_KEY and SEEDANCE25_MODEL_ID),
+            "upstream_provider": _seedance_provider_from_values("seedance-2.5", SEEDANCE_MODEL_PROVIDER_OVERRIDES, SEEDANCE20_PROVIDER),
+            "available": _seedance_model_available("seedance-2.5", SEEDANCE25_MODEL_ID, LOCAL_DEMO_MODE, SEEDANCE_MODEL_PROVIDER_OVERRIDES, SEEDANCE20_PROVIDER, SEEDANCE_PROVIDER_CONFIGURED),
             "supports": ["text", "first_frame", "last_frame", "reference_image", "reference_video", "reference_audio"],
             "ratios": ["16:9", "9:16", "1:1", "21:9", "4:3", "3:4"],
             "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30],
@@ -252,13 +320,8 @@ class Settings:
             "id": SEEDANCE20_MODEL_ID,
             "name": "Seedance 2.0",
             "provider": "volcano",
-            "available": LOCAL_DEMO_MODE or (
-                bool(ARK_OFFICIAL_BASE_URL and ARK_OFFICIAL_API_KEY)
-                if SEEDANCE20_PROVIDER == "ark_official"
-                else bool(TOKENSPACE_BASE_URL and TOKENSPACE_API_KEY and TOKENSPACE_MODEL_ID)
-                if SEEDANCE20_PROVIDER == "tokenspace"
-                else bool(SEEDANCE20_URL and SEEDANCE20_KEY and SEEDANCE20_MODEL_ID)
-            ),
+            "upstream_provider": _seedance_provider_from_values("seedance-2.0", SEEDANCE_MODEL_PROVIDER_OVERRIDES, SEEDANCE20_PROVIDER),
+            "available": _seedance_model_available("seedance-2.0", SEEDANCE20_MODEL_ID, LOCAL_DEMO_MODE, SEEDANCE_MODEL_PROVIDER_OVERRIDES, SEEDANCE20_PROVIDER, SEEDANCE_PROVIDER_CONFIGURED),
             "supports": ["text", "first_frame", "last_frame", "reference_image", "reference_video", "reference_audio"],
             "ratios": ["16:9", "9:16", "1:1", "21:9", "4:3", "3:4"],
             "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
@@ -269,7 +332,8 @@ class Settings:
             "id": SEEDANCE20_MINI_MODEL_ID,
             "name": "Seedance 2.0 Mini",
             "provider": "volcano",
-            "available": LOCAL_DEMO_MODE or bool(SEEDANCE20_URL and SEEDANCE20_KEY and SEEDANCE20_MINI_MODEL_ID),
+            "upstream_provider": _seedance_provider_from_values("seedance-2.0-mini", SEEDANCE_MODEL_PROVIDER_OVERRIDES, SEEDANCE20_PROVIDER),
+            "available": _seedance_model_available("seedance-2.0-mini", SEEDANCE20_MINI_MODEL_ID, LOCAL_DEMO_MODE, SEEDANCE_MODEL_PROVIDER_OVERRIDES, SEEDANCE20_PROVIDER, SEEDANCE_PROVIDER_CONFIGURED),
             "supports": ["text", "first_frame", "last_frame", "reference_image", "reference_video", "reference_audio"],
             "ratios": ["16:9", "9:16", "1:1", "21:9", "4:3", "3:4"],
             "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
@@ -280,7 +344,8 @@ class Settings:
             "id": SEEDANCE_FAST_MODEL_ID,
             "name": "Seedance Fast",
             "provider": "volcano",
-            "available": LOCAL_DEMO_MODE or bool(SEEDANCE20_URL and SEEDANCE20_KEY and SEEDANCE_FAST_MODEL_ID),
+            "upstream_provider": _seedance_provider_from_values("seedance-fast", SEEDANCE_MODEL_PROVIDER_OVERRIDES, SEEDANCE20_PROVIDER),
+            "available": _seedance_model_available("seedance-fast", SEEDANCE_FAST_MODEL_ID, LOCAL_DEMO_MODE, SEEDANCE_MODEL_PROVIDER_OVERRIDES, SEEDANCE20_PROVIDER, SEEDANCE_PROVIDER_CONFIGURED),
             "supports": ["text", "first_frame", "last_frame", "reference_image", "reference_video", "reference_audio"],
             "ratios": ["16:9", "9:16", "1:1", "21:9", "4:3", "3:4"],
             "durations": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
@@ -291,7 +356,7 @@ class Settings:
             "id": ARK_OFFICIAL_MODEL_ID,
             "name": "Seedance 2.0 · 火山方舟官方",
             "provider": "volcano",
-            "upstream_provider": "ark_official",
+            "upstream_provider": _seedance_provider_from_values("seedance-2.0-ark", SEEDANCE_MODEL_PROVIDER_OVERRIDES, SEEDANCE20_PROVIDER),
             # Admin enablement is independent of credential readiness (public_model).
             "available": True,
             "supports": ["text", "first_frame", "last_frame", "reference_image", "reference_video", "reference_audio"],

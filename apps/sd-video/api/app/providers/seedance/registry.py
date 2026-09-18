@@ -36,11 +36,9 @@ class SeedanceProviderRegistry:
         return provider
 
     def submission_provider(self, logical_model: str) -> str:
-        if logical_model == "seedance-2.0-ark":
-            return ARK_OFFICIAL
-        if logical_model == "seedance-2.0":
-            return settings.SEEDANCE20_PROVIDER
-        return LEGACY_PROXY
+        # Provider routing is model-scoped.  The compatibility fallback lives
+        # in Settings so old deployments using SEEDANCE20_PROVIDER keep working.
+        return settings.seedance_provider_for_model(logical_model)
 
     def asset_provider(self) -> SeedanceProvider:
         return self.get(settings.SEEDANCE_ASSET_PROVIDER or ARK_OFFICIAL)

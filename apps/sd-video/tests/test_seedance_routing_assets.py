@@ -8,6 +8,7 @@ import pytest
 from app.config import settings
 from app.core.auth import ServicePrincipal
 from app.providers.seedance import LEGACY_PROXY, TOKENSPACE, seedance_provider_registry
+from app.model_store import public_model
 from app.volcano_store import VolcanoStore
 from worker import processor
 
@@ -16,6 +17,36 @@ from worker import processor
 def test_new_tasks_route_by_logical_model(monkeypatch, logical, expected):
     monkeypatch.setattr(settings, "SEEDANCE20_PROVIDER", TOKENSPACE)
     assert seedance_provider_registry.submission_provider(logical) == expected
+
+
+def test_explicit_model_routes_are_reflected_in_public_catalog(monkeypatch):
+    overrides = dict(settings.SEEDANCE_MODEL_PROVIDER_OVERRIDES)
+    overrides.update({
+        "seedance-2.0": TOKENSPACE,
+        "seedance-2.5": LEGACY_PROXY,
+        "seedance-2.0-mini": LEGACY_PROXY,
+        "seedance-fast": LEGACY_PROXY,
+    })
+    monkeypatch.setattr(settings, "SEEDANCE_MODEL_PROVIDER_OVERRIDES", overrides)
+    monkeypatch.setattr(settings, "EXECUTION_MODE", "mock")
+
+    assert seedance_provider_registry.submission_provider("seedance-2.0") == TOKENSPACE
+    # A stale database row must not make the public catalog advertise another
+    # route than task submission uses.
+    item = public_model({
+        "key": "seedance-2.0",
+        "id": "old-model-id",
+        "provider": "volcano",
+        "upstream_provider": LEGACY_PROXY,
+        "available": True,
+    })
+    assert item["upstream_provider"] == TOKENSPACE
+
+
+def test_legacy_task_without_route_snapshot_uses_model_mapping(monkeypatch):
+    monkeypatch.setattr(settings, "SEEDANCE20_PROVIDER", TOKENSPACE)
+    record = SimpleNamespace(model="seedance-2.0", request={})
+    assert processor._seedance_upstream_provider(record, settings.SEEDANCE20_MODEL_ID) == TOKENSPACE
 
 
 def test_existing_task_retains_provider_and_model_snapshot(monkeypatch):
