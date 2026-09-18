@@ -9,7 +9,7 @@ export type AdminTab =
 
 export const adminTabPaths: Record<AdminTab, string> = {
   users: "/admin/users",
-  providers: "/admin/model-provider",
+  providers: "/admin/model-hub",
   announcements: "/admin/announcements",
   monitoring: "/admin",
   seedance: "/admin/seedance-assets",
@@ -17,7 +17,7 @@ export const adminTabPaths: Record<AdminTab, string> = {
 
 export const adminTabs = [
   ["users", "用户", Users],
-  ["providers", "模型提供商", ServerCog],
+  ["providers", "模型接入", ServerCog],
   ["announcements", "系统公告", Bell],
   ["monitoring", "运行监控", Activity],
   ["seedance", "Seedance 素材", Database],
@@ -25,7 +25,7 @@ export const adminTabs = [
 
 export function adminTabFromLocation(pathname: string, hash: string): AdminTab {
   if (pathname === "/admin/users") return "users";
-  if (pathname === "/admin/model-provider") return "providers";
+  if (pathname === "/admin/model-provider" || pathname === "/admin/model-hub") return "providers";
   if (pathname === "/admin/announcements") return "announcements";
   if (pathname === "/admin/seedance-assets") return "seedance";
   if (hash === "#monitoring" || pathname === "/admin") return "monitoring";

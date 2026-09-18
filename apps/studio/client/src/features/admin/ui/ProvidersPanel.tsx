@@ -36,8 +36,10 @@ import type {
 
 export function ProvidersPanel({
   controller,
+  editorOnly = false,
 }: {
   controller: ModelProvidersController;
+  editorOnly?: boolean;
 }) {
   const {
     activeProvider,
@@ -77,7 +79,7 @@ export function ProvidersPanel({
   return (
     <>
       <section className="real-admin-section provider-editor">
-        <div className="admin-panel-head">
+        {!editorOnly && <div className="admin-panel-head">
           <div>
             <p className="eyebrow">PROVIDERS / {providers.length}</p>
             <h2>模型提供商</h2>
@@ -88,9 +90,9 @@ export function ProvidersPanel({
           >
             <Plus size={16} /> 新建 Provider
           </button>
-        </div>
-        <div className="provider-editor-layout">
-          <aside className="provider-list compact">
+        </div>}
+        <div className={`provider-editor-layout${editorOnly ? " hub-editor-only" : ""}`}>
+          {!editorOnly && <aside className="provider-list compact">
             {providers.map(provider => (
               <button
                 className={
@@ -115,7 +117,7 @@ export function ProvidersPanel({
                 </em>
               </button>
             ))}
-          </aside>
+          </aside>}
           {providerDraft.sdvideo_models ? (
             <SDVideoProviderEditor draft={providerDraft} setDraft={setProviderDraft} busy={Boolean(busy)} save={draft => void saveProvider(draft)} />
           ) : <section className="provider-form">
@@ -321,7 +323,7 @@ export function ProvidersPanel({
                 />
               </label>
             ))}
-            <label>
+            {(providerDraft.capabilities || []).includes("text") && <label>
               文本模型
               <input
                 value={providerDraft.text_model || ""}
@@ -332,8 +334,8 @@ export function ProvidersPanel({
                   }))
                 }
               />
-            </label>
-            <label>
+            </label>}
+            {(providerDraft.capabilities || []).includes("image") && <label>
               图像模型
               <input
                 value={providerDraft.image_model || ""}
@@ -344,8 +346,8 @@ export function ProvidersPanel({
                   }))
                 }
               />
-            </label>
-            <label>
+            </label>}
+            {(providerDraft.capabilities || []).includes("video") && <label>
               视频模型
               <input
                 value={providerDraft.video_model || ""}
@@ -356,8 +358,8 @@ export function ProvidersPanel({
                   }))
                 }
               />
-            </label>
-            <label>
+            </label>}
+            {(providerDraft.capabilities || []).includes("audio") && <label>
               音频模型
               <input
                 value={providerDraft.audio_model || ""}
@@ -368,7 +370,7 @@ export function ProvidersPanel({
                   }))
                 }
               />
-            </label>
+            </label>}
             <label>
               超时时间 ms
               <input
@@ -465,7 +467,7 @@ export function ProvidersPanel({
                 </span>
               </div>
               <div className="provider-capability-grid">
-                {capabilityOptions.map(item => (
+                {capabilityOptions.filter(item => (providerDraft.capabilities || []).includes(item.value)).map(item => (
                   <label key={item.value}>
                     {item.label}模型列表
                     <textarea
@@ -519,7 +521,7 @@ export function ProvidersPanel({
                 placeholder={"wan3.0 = Wan 3.0\nbanana-pro = Banana Pro"}
               />
             </div>
-            <div className="provider-form-full">
+            {(providerDraft.capabilities || []).includes("image") && <div className="provider-form-full">
               <div className="provider-section-head">
                 <div>
                   <b>图片模型调用协议</b>
@@ -564,7 +566,7 @@ export function ProvidersPanel({
                   <p>请先拉取模型或填写图像模型。</p>
                 </div>
               )}
-            </div>
+            </div>}
             <ProviderMapEditor
               title="Endpoint Overrides"
               description="格式：video_create = /contents/generations/tasks；每行一个覆盖路径。"

@@ -24,6 +24,7 @@ const chatLoader = () => import("@/features/chat");
 const legacyRedirectLoader = () => import("./LegacyRedirectPage");
 
 const primaryRoutes: AppRoute[] = [
+  defineAppRoute({ id: "provider-hub", path: "/admin/model-hub", loader: () => import("@/features/admin/ui/ProviderHubPage"), permission: "super_admin", layout: "none" }),
   defineAppRoute({ id: "auth-login", path: "/login", loader: authLoader, permission: "public", layout: "none" }),
   defineAppRoute({ id: "auth-v2-login", path: "/v2-login", loader: authLoader, permission: "public", layout: "none" }),
   defineAppRoute({ id: "auth-register", path: "/register", loader: authLoader, permission: "public", layout: "none" }),

@@ -36,6 +36,8 @@ apps/*
 packages/*
 !packages/canvas-agent-protocol
 !packages/canvas-agent-protocol/**
+!packages/provider-hub
+!packages/provider-hub/**
 
 .next
 **/.next

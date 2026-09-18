@@ -1,5 +1,6 @@
 import { normalizeModelList } from "@/entities/model";
 import { ApiError, request } from "@/shared/api/http";
+import type { ConfigDocument } from "@ai-manju/provider-hub";
 
 export const DEFAULT_PROVIDER_MAX_CONCURRENCY = 3;
 export const MIN_PROVIDER_MAX_CONCURRENCY = 1;
@@ -84,6 +85,7 @@ export type ModelProviderConfig = {
 };
 
 export type ModelProviderPayload = Omit<ModelProviderConfig, "api_key_configured" | "api_key_set" | "secrets_set" | "configured" | "created_at" | "updated_at"> & {
+  config_document?: ConfigDocument;
   api_key?: string;
   secrets?: Record<string, string>;
 };

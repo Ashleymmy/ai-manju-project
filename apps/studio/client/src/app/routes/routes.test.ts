@@ -85,6 +85,7 @@ describe("declarative Studio routes", () => {
   });
 
   it("stores a lazy loader on every declared route", () => {
+    expect(appRoutes.find(route => route.path === "/admin/model-hub")).toMatchObject({ permission: "super_admin", layout: "none" });
     for (const route of appRoutes) {
       expect(route.loader).toBeTypeOf("function");
       expect(route.Component).toBeTruthy();

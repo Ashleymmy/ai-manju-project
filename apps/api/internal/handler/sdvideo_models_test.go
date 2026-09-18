@@ -86,4 +86,12 @@ func TestSDVideoGroupUpdateUsesOneAtomicRequestAndPreservesLegacyRoute(t *testin
 	if out := invoke("PUT", "/providers/sdvideo::all", invalid); out.Code != 400 || writes != 1 {
 		t.Fatal("duplicate model caused remote mutation")
 	}
+	documentBody := `{"base_url":"sd-video://managed","config_document":{"schema_version":1,"adapter":"sdvideo","config":` + strings.Replace(body, `"base_url":"sd-video://managed",`, "", 1) + `}}`
+	if out := invoke("PUT", "/providers/sdvideo::all", documentBody); out.Code != 200 || writes != 2 {
+		t.Fatalf("document did not use atomic model update: %d %s", out.Code, out.Body.String())
+	}
+	wrongChannel := strings.Replace(documentBody, `"name":"Seedance"`, `"name":"Seedance","upstream_provider":"tokenspace"`, 1)
+	if out := invoke("PUT", "/providers/sdvideo::all", wrongChannel); out.Code != 400 || writes != 2 {
+		t.Fatal("document changed a model's asset-registration channel")
+	}
 }

@@ -16,6 +16,7 @@
     "baseUrl": ".",
     "types": ["node", "vite/client"],
     "paths": {
+      "@ai-manju/provider-hub": ["../../packages/provider-hub/src/index.ts"],
       "@ai-manju/canvas-agent-protocol": ["../../packages/canvas-agent-protocol/src/index.ts"],
       "@/*": ["./client/src/*"],
       "@shared/*": ["./shared/*"]

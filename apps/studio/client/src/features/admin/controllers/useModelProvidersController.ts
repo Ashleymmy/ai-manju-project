@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { publicApiError } from "@/shared/api/errors";
+import type { ConfigDocument } from "@ai-manju/provider-hub";
 
 import {
   allConfiguredModelIds,
@@ -34,6 +35,7 @@ export function useModelProvidersController(active: boolean) {
   const providersQuery = useQuery({
     queryKey: adminQueryKeys.providers(),
     queryFn: listModelProviders,
+    refetchOnWindowFocus: false,
     placeholderData: previous => previous,
   });
   const presetsQuery = useQuery({
@@ -132,14 +134,14 @@ export function useModelProvidersController(active: boolean) {
     clearSensitiveInputs();
   };
 
-  const saveProvider = async (draft = providerDraft) => {
+  const saveProvider = async (draft = providerDraft, document?: ConfigDocument) => {
     if (!(draft.name || "").trim()) {
       toast.error("请填写 Provider 名称");
-      return;
+      return false;
     }
     if (!(draft.base_url || "").trim()) {
       toast.error("请填写 Base URL");
-      return;
+      return false;
     }
     setBusy("provider-save");
     try {
@@ -147,6 +149,7 @@ export function useModelProvidersController(active: boolean) {
         apiKey,
         secrets: providerSecrets,
       });
+      if (document) payload.config_document = document;
       const saved = activeProvider?.id
         ? await updateModelProvider(activeProvider.id, payload)
         : await createModelProvider(payload);
@@ -162,8 +165,10 @@ export function useModelProvidersController(active: boolean) {
         }
       );
       setProviderDraft(saved);
+      return true;
     } catch (error) {
       toast.error(publicApiError(error, "保存 Provider 失败"));
+      return false;
     } finally {
       setBusy("");
     }
@@ -287,6 +292,7 @@ export function useModelProvidersController(active: boolean) {
     deleteTarget,
     fetchModels,
     isPending: providersQuery.isPending || presetsQuery.isPending,
+    loadError: providersQuery.error ? publicApiError(providersQuery.error, "读取 Provider 失败") : presetsQuery.error ? publicApiError(presetsQuery.error, "读取预设失败") : "",
     openDeleteDialog,
     closeDeleteDialog,
     presets,

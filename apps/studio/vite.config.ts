@@ -142,6 +142,8 @@ export default defineConfig({
   resolve: {
     dedupe: ["react", "react-dom"],
     alias: [
+      { find: "@ai-manju/provider-hub/styles.css", replacement: path.resolve(repositoryRoot, "packages", "provider-hub", "src", "styles.css") },
+      { find: "@ai-manju/provider-hub", replacement: path.resolve(repositoryRoot, "packages", "provider-hub", "src", "index.ts") },
       { find: "@ai-manju/canvas-agent-protocol", replacement: path.resolve(repositoryRoot, "packages", "canvas-agent-protocol", "src", "index.ts") },
       { find: "@", replacement: path.resolve(import.meta.dirname, "client", "src") },
       { find: "@shared", replacement: path.resolve(import.meta.dirname, "shared") },

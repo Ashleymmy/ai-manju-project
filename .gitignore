@@ -33,8 +33,10 @@ apps/*
 !apps/sd-video/
 packages/*
 !packages/canvas-agent-protocol/
+!packages/provider-hub/
 ui重构参考/
 demo/
+!packages/provider-hub/demo/
 old/
 导演台/
 

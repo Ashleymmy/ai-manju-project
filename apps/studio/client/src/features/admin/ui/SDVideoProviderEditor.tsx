@@ -85,6 +85,7 @@ export function SDVideoProviderEditor({
             className="sdvideo-model-row"
           >
             <legend>{model.name}</legend>
+            <small>调用通道：{model.upstream_provider || "由 SD-video 适配器管理"} · 素材必须注册在同一通道</small>
             <label>
               显示名称
               <input

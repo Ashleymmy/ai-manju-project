@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ai-manju/api/internal/auth"
+	"github.com/ai-manju/api/internal/providerhub"
 	"github.com/ai-manju/api/internal/response"
 	"github.com/ai-manju/api/internal/sdvideo"
 	"github.com/ai-manju/api/internal/service"
@@ -68,10 +69,11 @@ func (h *ModelProviderHandler) handleSDVideoGroup(c *gin.Context, operation stri
 		return
 	}
 	var req struct {
-		BaseURL string            `json:"base_url"`
-		APIKey  string            `json:"api_key"`
-		Secrets map[string]string `json:"secrets"`
-		Models  []struct {
+		ConfigDocument json.RawMessage   `json:"config_document"`
+		BaseURL        string            `json:"base_url"`
+		APIKey         string            `json:"api_key"`
+		Secrets        map[string]string `json:"secrets"`
+		Models         []struct {
 			Key         string `json:"key"`
 			Name        string `json:"name"`
 			ModelID     string `json:"model_id"`
@@ -83,6 +85,17 @@ func (h *ModelProviderHandler) handleSDVideoGroup(c *gin.Context, operation stri
 	if c.ShouldBindJSON(&req) != nil || req.BaseURL != "sd-video://managed" || req.APIKey != "" || len(req.Secrets) > 0 {
 		response.Error(c, 400, "视频凭证和上游地址由独立 SD-video 配置管理")
 		return
+	}
+	if len(req.ConfigDocument) > 0 {
+		doc, err := providerhub.Parse(req.ConfigDocument, "sdvideo")
+		if err != nil {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := json.Unmarshal(doc.Config, &req); err != nil {
+			response.Error(c, http.StatusBadRequest, "invalid config_document")
+			return
+		}
 	}
 	known := map[string]bool{}
 	for _, item := range items {

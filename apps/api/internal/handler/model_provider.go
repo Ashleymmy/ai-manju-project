@@ -13,6 +13,7 @@ import (
 	"github.com/ai-manju/api/internal/auth"
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/provider"
+	"github.com/ai-manju/api/internal/providerhub"
 	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/response"
 	"github.com/ai-manju/api/internal/sdvideo"
@@ -32,6 +33,7 @@ type ModelProviderHandler struct {
 }
 
 type modelProviderRequest struct {
+	ConfigDocument     json.RawMessage     `json:"config_document"`
 	ID                 *string             `json:"id"`
 	Name               *string             `json:"name"`
 	PresetID           *string             `json:"preset_id"`
@@ -566,6 +568,27 @@ func configFromPreset(presetID string) model.ModelProviderConfig {
 }
 
 func (h *ModelProviderHandler) applyRequestToConfig(config *model.ModelProviderConfig, req modelProviderRequest, clearEmptyKey bool) error {
+	if len(req.ConfigDocument) > 0 {
+		doc, err := providerhub.Parse(req.ConfigDocument, "studio")
+		if err != nil {
+			return err
+		}
+		var parsed modelProviderRequest
+		if err := json.Unmarshal(doc.Config, &parsed); err != nil {
+			return errors.New("invalid config_document")
+		}
+		parsed.APIKey, parsed.Secrets = req.APIKey, req.Secrets
+		// Legacy credential headers are excluded from portable documents. Preserve
+		// them until the administrator explicitly updates them in the credential UI.
+		if parsed.ExtraHeaders != nil {
+			for key, value := range jsonStringMapFromJSONB(config.ExtraHeaders) {
+				if providerhub.SensitiveKey(key) {
+					parsed.ExtraHeaders[key] = value
+				}
+			}
+		}
+		req = parsed
+	}
 	if req.Name != nil {
 		config.Name = strings.TrimSpace(*req.Name)
 	}
