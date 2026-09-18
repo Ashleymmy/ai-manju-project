@@ -35,7 +35,7 @@ type providerSecretSpec struct {
 func modelProviderPresets() []providerPreset {
 	openAICompatibleModels := map[string][]string{
 		model.ModelCapabilityText:  {"gpt-5.4"},
-		model.ModelCapabilityImage: {"gpt-image-2", "gpt-image-1"},
+		model.ModelCapabilityImage: {"gpt-image-2"},
 	}
 	return []providerPreset{
 		{

@@ -4,6 +4,7 @@ import {
   type VideoGenerationConfig,
   type VideoProvider,
 } from "@/features/video";
+import { isHiddenImageModel } from "@/shared/lib/modelSelection";
 import { normalizeCanvasAudioGenerationConfig } from "./audioConfig";
 import {
   canvasTextComposerValue,
@@ -188,7 +189,9 @@ export function videoSubModePlaceholder(mode: VideoSubMode) {
 }
 
 export function modelFromNode(node: CanvasNodeData, fallback: string) {
-  return stringValue(node.metadata?.model) || fallback;
+  const saved = stringValue(node.metadata?.model);
+  // 节点元数据里残留的下线图片模型视为未设置，回退到当前默认模型
+  return saved && !isHiddenImageModel(saved) ? saved : fallback;
 }
 
 export function defaultGenerationModeForKind(kind: CanvasNodeKind): CanvasGenerationMode {

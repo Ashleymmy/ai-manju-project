@@ -47,10 +47,10 @@ describe("image API", () => {
   });
 
   it.each([
-    { models: ["a::gpt-image-2", "b::gpt-image-2.5-flare", "a::gpt-image-2.5-sunburst"], apiDefault: "a::gpt-image-2", expected: "b::gpt-image-2.5-flare" },
-    { models: ["a::gpt-image-1", "b::gpt-image-2"], apiDefault: "b::gpt-image-2", expected: "b::gpt-image-2" },
-    { models: [], apiDefault: "", expected: "" },
-  ])("shares the real image default across both catalogs: $expected", async ({ models, apiDefault, expected }) => {
+    { models: ["a::gpt-image-2", "b::gpt-image-2.5-flare", "a::gpt-image-2.5-sunburst"], apiDefault: "a::gpt-image-2", expected: "b::gpt-image-2.5-flare", expectedModels: ["a::gpt-image-2", "b::gpt-image-2.5-flare", "a::gpt-image-2.5-sunburst"] },
+    { models: ["a::gpt-image-1", "a::gpt-image-1.5", "b::gpt-image-2"], apiDefault: "b::gpt-image-2", expected: "b::gpt-image-2", expectedModels: ["b::gpt-image-2"] },
+    { models: [], apiDefault: "", expected: "", expectedModels: [] },
+  ])("shares the real image default across both catalogs: $expected", async ({ models, apiDefault, expected, expectedModels }) => {
     vi.mocked(fetch).mockImplementation(async () => apiResponse({
       image_models: models,
       default_image_model: apiDefault,
@@ -61,8 +61,8 @@ describe("image API", () => {
     const [imageCatalog, allModels] = await Promise.all([fetchImageModels(), fetchAiModels()]);
     expect(imageCatalog.defaultModel).toBe(expected);
     expect(allModels.defaultImageModel).toBe(expected);
-    expect(imageCatalog.models).toEqual(models);
-    expect(allModels.imageModels).toEqual(models);
+    expect(imageCatalog.models).toEqual(expectedModels);
+    expect(allModels.imageModels).toEqual(expectedModels);
     expect(allModels.defaultTextModel).toBe("a::text-model");
   });
 
