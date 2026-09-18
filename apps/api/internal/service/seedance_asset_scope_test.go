@@ -61,3 +61,12 @@ func TestSeedanceAssetPublicSignedURLIsNotDoublePrefixed(t *testing.T) {
 		t.Fatalf("invalid signed URL: %v", err)
 	}
 }
+
+func TestSeedanceAssetObjectStorageReadinessWithoutLocalPublicBase(t *testing.T) {
+	svc, _ := newSeedanceAssetTestService(t, "https://unused.invalid", "test-key", nil)
+	svc.storage = &storage.SupabaseStorage{}
+	r := svc.Readiness()
+	if !r.ProviderConfigured || !r.UploadRegistrationAvailable || r.PublicAssetBaseURLConfigured {
+		t.Fatalf("object storage should provide its own signed URL: %#v", r)
+	}
+}

@@ -216,6 +216,12 @@ func (s *SeedanceAssetService) Readiness() SeedanceAssetReadiness {
 		PublicAssetBaseURLConfigured: s.publicAssetBaseURL != "",
 		UploadRegistrationAvailable:  s.publicAssetBaseURL != "",
 	}
+	// Object stores generate their own absolute signed URLs. Only local files
+	// need PUBLIC_ASSET_BASE_URL to turn relative paths into public URLs.
+	switch s.storage.(type) {
+	case *storage.SupabaseStorage, *storage.OSSStorage:
+		readiness.UploadRegistrationAvailable = true
+	}
 	assetProvider, err := s.loadSeedanceAssetProvider()
 	if err != nil {
 		readiness.ProviderError = err.Error()
