@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import type { CSSProperties, PointerEvent, RefObject } from "react";
 import { toast } from "sonner";
+import { VideoDurationInput } from "@/shared/ui/VideoDurationInput";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/CanvasResourceMentionTextarea";
 import { CanvasPopover as Popover, CanvasPopoverContent as PopoverContent, CanvasPopoverTrigger as PopoverTrigger } from "./CanvasPopover";
 import type { CanvasGroupData } from "@/features/canvas/domain/groups";
@@ -529,16 +530,9 @@ export function CanvasInspector({
                     </> : null}
                     {selectedVideoConfig ? <>
                       <div className="param-group"><span className="param-group-label">时长 <b>{selectedVideoConfig.seconds === "-1" ? "自动" : `${selectedVideoConfig.seconds} 秒`}</b></span>
-                        {(() => {
-                          const durations = selectedVideoDurations;
-                          const index = Math.max(0, durations.findIndex((item) => String(item) === String(selectedVideoConfig.seconds)));
-                          return (
-                            <>
-                              <input type="range" className="param-range" min={0} max={durations.length - 1} step={1} value={index} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), seconds: String(durations[Number(event.target.value)]) } })} />
-                              <div className="param-range-ticks">{durations.map((item) => <span key={String(item)}>{item === -1 ? "自动" : `${item}s`}</span>)}</div>
-                            </>
-                          );
-                        })()}
+                        <VideoDurationInput value={selectedVideoConfig.seconds} durations={selectedVideoDurations}
+                          continuous={selectedVideoSeedance}
+                          onChange={seconds => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), seconds } })} />
                       </div>
                       <div className="param-group"><span className="param-group-label">分辨率</span>
                         <div className="param-segments">

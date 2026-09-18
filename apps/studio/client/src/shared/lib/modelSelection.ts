@@ -7,6 +7,10 @@ export function modelName(model: string) {
 const SDVIDEO_MODEL_PREFIX = "sdvideo/";
 
 export function modelDisplayName(model: string, labels: Record<string, string> = {}) {
+  // Official endpoint IDs have no user-facing model identity; use their saved name.
+  if (modelName(model).startsWith("ep-")) {
+    return labels[model]?.trim() || modelName(model);
+  }
   if (model.startsWith(SDVIDEO_MODEL_PREFIX)) {
     return labels[model]?.trim() || model.slice(SDVIDEO_MODEL_PREFIX.length);
   }

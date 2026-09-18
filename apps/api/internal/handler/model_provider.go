@@ -903,6 +903,7 @@ func aggregateModelProviders(configs []model.ModelProviderConfig) gin.H {
 	defaults := make(map[string]string)
 	modelLabels := make(map[string]string)
 	modelProviderNames := make(map[string]string)
+	videoModelProtocols := make(map[string]string)
 	agentTextModels := make([]string, 0)
 	for _, config := range configs {
 		if !config.Enabled {
@@ -921,6 +922,9 @@ func aggregateModelProviders(configs []model.ModelProviderConfig) gin.H {
 					agentTextModels = append(agentTextModels, encoded)
 				}
 				modelProviderNames[encoded] = config.Name
+				if capability == model.ModelCapabilityVideo {
+					videoModelProtocols[encoded] = catalogVideoProtocol(config, modelID)
+				}
 				if alias := modelAliases[modelID]; alias != "" {
 					modelLabels[encoded] = alias
 				}
@@ -936,18 +940,19 @@ func aggregateModelProviders(configs []model.ModelProviderConfig) gin.H {
 		}
 	}
 	return gin.H{
-		"models":               uniqueStrings(all),
-		"text_models":          uniqueStrings(byCapability[model.ModelCapabilityText]),
-		"agent_text_models":    uniqueStrings(agentTextModels),
-		"image_models":         uniqueStrings(byCapability[model.ModelCapabilityImage]),
-		"video_models":         uniqueStrings(byCapability[model.ModelCapabilityVideo]),
-		"audio_models":         uniqueStrings(byCapability[model.ModelCapabilityAudio]),
-		"default_text_model":   defaults[model.ModelCapabilityText],
-		"default_image_model":  defaults[model.ModelCapabilityImage],
-		"default_video_model":  defaults[model.ModelCapabilityVideo],
-		"default_audio_model":  defaults[model.ModelCapabilityAudio],
-		"model_labels":         modelLabels,
-		"model_provider_names": modelProviderNames,
+		"models":                uniqueStrings(all),
+		"text_models":           uniqueStrings(byCapability[model.ModelCapabilityText]),
+		"agent_text_models":     uniqueStrings(agentTextModels),
+		"image_models":          uniqueStrings(byCapability[model.ModelCapabilityImage]),
+		"video_models":          uniqueStrings(byCapability[model.ModelCapabilityVideo]),
+		"audio_models":          uniqueStrings(byCapability[model.ModelCapabilityAudio]),
+		"default_text_model":    defaults[model.ModelCapabilityText],
+		"default_image_model":   defaults[model.ModelCapabilityImage],
+		"default_video_model":   defaults[model.ModelCapabilityVideo],
+		"default_audio_model":   defaults[model.ModelCapabilityAudio],
+		"model_labels":          modelLabels,
+		"model_provider_names":  modelProviderNames,
+		"video_model_protocols": videoModelProtocols,
 	}
 }
 

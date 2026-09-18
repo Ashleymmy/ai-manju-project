@@ -1,5 +1,6 @@
 import { modelDisplayName } from "@/shared/lib/modelSelection";
 import { request } from "@/shared/api/http";
+import { replaceVideoModelProtocols } from "./videoProtocol";
 
 import type {
   AiModelsResponse,
@@ -11,6 +12,7 @@ import type {
 
 export async function fetchModelCatalog(): Promise<ModelCatalog> {
   const data = await request<AiModelsResponse>("/api/ai/models");
+  replaceVideoModelProtocols(data.video_model_protocols);
   const models = normalizeModelList(data.models);
   const textModels = normalizeModelList(
     data.text_models ?? data.models

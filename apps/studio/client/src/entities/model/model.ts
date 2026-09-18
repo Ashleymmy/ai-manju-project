@@ -13,6 +13,7 @@ export type AiModelsResponse = {
   default_audio_model?: ModelDescriptor;
   model_labels?: Record<string, string>;
   model_provider_names?: Record<string, string>;
+  video_model_protocols?: Record<string, "seedance" | "openai">;
 };
 
 export type CapabilityModelCatalog = {

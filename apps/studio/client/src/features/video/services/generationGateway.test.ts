@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createVideoGenerationTask,
+  fetchVideoModelCatalog,
+  isSeedanceVideoModel,
   normalizeVideoGenerationConfig,
   pollVideoGenerationTask,
   videoGenerationResultToBlob,
@@ -48,9 +50,32 @@ describe("video API", () => {
     vi.stubGlobal("URL", TestURL);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    vi.mocked(fetch).mockReset().mockResolvedValueOnce(apiResponse({}));
+    await fetchVideoModelCatalog();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it.each([7, 23, 30])("routes configured Ark endpoints with registered references at %i seconds", async seconds => {
+    const model = "official::ep-test";
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(apiResponse({ video_models: [model], video_model_protocols: { [model]: "seedance", "other::ep-test": "openai" } }))
+      .mockResolvedValueOnce(apiResponse({ id: "job_official" }));
+    await fetchVideoModelCatalog();
+    expect(isSeedanceVideoModel(model)).toBe(true);
+    expect(isSeedanceVideoModel("other::ep-test")).toBe(false);
+    const task = await createVideoGenerationTask({ ...config, model, seconds: String(seconds), size: "16:9" }, "人物转身", {
+      images: [{ id: "person", kind: "image", url: "asset://person", name: "角色", mime: "image/png", bytes: 0, width: 0, height: 0 }],
+      videos: [], audios: [],
+    });
+    const [url, options] = vi.mocked(fetch).mock.calls[1];
+    expect(new URL(String(url)).pathname).toBe("/api/ai/contents/generations/tasks");
+    expect(JSON.parse(String(options?.body))).toMatchObject({
+      model, duration: seconds, ratio: "16:9",
+      content: expect.arrayContaining([{ type: "image_url", image_url: { url: "asset://person" }, role: "reference_image" }]),
+    });
+    expect(task).toMatchObject({ provider: "seedance", id: "job_official" });
   });
 
   it.each(["sdvideo/seedance-2.0", "sdvideo/vidu-q2"])("等待 %s 参考媒体上传超过 30 秒后返回原任务", async (model) => {

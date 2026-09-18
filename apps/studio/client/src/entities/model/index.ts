@@ -14,3 +14,4 @@ export type {
 } from "./model";
 export { modelQueryKeys } from "./queries";
 export { invalidateModelCatalog } from "./cache";
+export { videoModelProtocol } from "./videoProtocol";

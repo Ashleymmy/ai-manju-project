@@ -1,6 +1,6 @@
 import { getAssetContentObjectUrl } from "@/entities/asset";
 import { getJob, isTerminalJob, jobErrorMessage, type Job } from "@/entities/job";
-import { fetchModelCatalog } from "@/entities/model";
+import { fetchModelCatalog, videoModelProtocol } from "@/entities/model";
 import { API_BASE_URL, ApiError, getAuthToken, request } from "@/shared/api/http";
 import type { WorkspaceScope } from "@/shared/config";
 
@@ -154,7 +154,7 @@ export const videoReferenceLimits = {
 export const videoModelSettings = {
   seedanceResolutions,
   seedanceRatios,
-  /* Seedance 系模型时长档位统一放开到 30s（2.x 均支持长时长） */
+  // Studio permits each whole second through 30; the upstream validates model support.
   seedanceDurations: [-1, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30],
   seedanceLongDurations: [-1, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30],
   openAiSizes: ["1280x720", "720x1280", "1024x1024", "1792x1024", "1024x1792", "auto"],
@@ -169,6 +169,8 @@ export function modelOptionName(value: string) {
 }
 
 export function isSeedanceVideoModel(model: string) {
+  const protocol = videoModelProtocol(model);
+  if (protocol) return protocol === "seedance";
   const value = modelOptionName(model).toLowerCase();
   return value.includes("seedance") || value.includes("doubao-seedance") || value.includes("wan3");
 }
@@ -262,6 +264,10 @@ export async function createVideoGenerationTask(
   references: VideoGenerationReferences = emptyReferences,
   options: RequestOptions = {},
 ): Promise<VideoGenerationTask> {
+  // A saved canvas may submit before its initial catalog load has completed.
+  if (modelOptionName(config.model).startsWith("ep-") && !videoModelProtocol(config.model)) {
+    await fetchModelCatalog();
+  }
   const normalized = normalizeVideoGenerationConfig(config);
   const referenceSnapshot = normalizeReferences(references);
   if (!normalized.model) throw new Error("请先配置视频模型");

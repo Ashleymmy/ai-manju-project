@@ -1,5 +1,5 @@
 import { modelOptions } from "@/shared/lib/modelSelection";
-import { useMemo } from "react";
+import { VideoDurationInput } from "@/shared/ui/VideoDurationInput";
 
 import {
   isSeedanceFastVideoModel,
@@ -24,7 +24,7 @@ export function ParamsBar({
   onChange: (config: VideoGenerationConfig) => void;
   disabled: boolean;
 }) {
-  const normalized = useMemo(() => normalizeVideoGenerationConfig(config), [config]);
+  const normalized = normalizeVideoGenerationConfig(config);
   /* 未配置模型时也按 Seedance 展示（比例/30s 时长档位）；配上 OpenAI 兼容模型后自动切回尺寸/20s */
   const seedance = !normalized.model || isSeedanceVideoModel(normalized.model);
   const fastSeedance = isSeedanceFastVideoModel(normalized.model);
@@ -77,17 +77,8 @@ export function ParamsBar({
       </div>
       <div className="wb-param-group wb-param-duration">
         <span className="wb-param-label">时长</span>
-        <div className="wb-segments">
-          {durations.map((duration) => (
-            <button
-              key={duration}
-              type="button"
-              disabled={disabled}
-              className={normalized.seconds === String(duration) ? "active" : ""}
-              onClick={() => patch({ seconds: String(duration) })}
-            >{duration === -1 ? "智能" : `${duration}s`}</button>
-          ))}
-        </div>
+        <VideoDurationInput value={normalized.seconds} durations={durations} continuous={seedance}
+          disabled={disabled} onChange={seconds => patch({ seconds })} />
       </div>
       <div className="wb-param-group">
         <span className="wb-param-label">开关</span>

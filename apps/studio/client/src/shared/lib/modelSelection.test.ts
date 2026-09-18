@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { modelDisplayName, modelName, modelOptions, resolveModel } from "./modelSelection";
 
 describe("shared generation model selection", () => {
+  it("shows configured names for opaque endpoint IDs while preserving routing values", () => {
+    const models = ["official::ep-25", "official::ep-fast"];
+    const labels = { [models[0]]: "Seedance 2.5", [models[1]]: "Seedance 2.0 Fast" };
+    expect(modelOptions(models, models[1], labels)).toEqual(models.map(value => ({ value, label: labels[value] })));
+    expect(modelDisplayName(models[1], labels)).toBe("Seedance 2.0 Fast");
+  });
   it("uses managed model names without merging distinct SD-video routes", () => {
     const models = ["sdvideo/seedance-2.0", "sdvideo/seedance-2.0-ark", "sdvideo/vidu-q3"];
     const labels = { [models[0]]: "Seedance 2.0", [models[1]]: "Seedance 2.0 · 火山方舟官方", [models[2]]: "Vidu Q3" };
