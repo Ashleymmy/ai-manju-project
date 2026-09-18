@@ -28,14 +28,15 @@ func TestSDVideoCatalogAndSubmissionShareCreationPolicy(t *testing.T) {
 		want25Error                    error
 	}{
 		{name: "unrestricted", mode: "active", wantModels: []string{"sdvideo/seedance-2.5", "sdvideo/seedance-2.0"}},
-		{name: "2.0 only", mode: "active", models: []string{"seedance-2.0"}, wantModels: []string{"sdvideo/seedance-2.0"}, want25Error: sdvideo.ErrModelNotAllowed},
-		{name: "2.5 allowed with prefix", mode: "active", models: []string{"sdvideo/seedance-2.5"}, wantModels: []string{"sdvideo/seedance-2.5"}},
+		{name: "legacy 2.0 allowlist does not restrict catalog", mode: "active", models: []string{"seedance-2.0"}, wantModels: []string{"sdvideo/seedance-2.5", "sdvideo/seedance-2.0"}},
+		{name: "legacy prefixed allowlist does not restrict catalog", mode: "active", models: []string{"sdvideo/seedance-2.5"}, wantModels: []string{"sdvideo/seedance-2.5", "sdvideo/seedance-2.0"}},
 		{name: "workspace blocked", mode: "active", workspaces: []string{"team:default"}, wantModels: []string{}, want25Error: sdvideo.ErrWorkspaceNotAllowed},
 		{name: "team allowed", mode: "active", scope: "team", workspaces: []string{"team:default"}, wantModels: []string{"sdvideo/seedance-2.5", "sdvideo/seedance-2.0"}},
 		{name: "shadow", mode: "shadow", wantModels: []string{}, want25Error: sdvideo.ErrCreationDisabled},
 		{name: "disabled", mode: "disabled", wantModels: []string{}, want25Error: sdvideo.ErrCreationDisabled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SD_VIDEO_ALLOWED_MODELS", strings.Join(tc.models, ","))
 			t.Setenv("SD_VIDEO_JWT_PRIVATE_KEY_FILE", "")
 			t.Setenv("SD_VIDEO_CA_FILE", "")
 			_, private, err := ed25519.GenerateKey(rand.Reader)
@@ -55,7 +56,7 @@ func TestSDVideoCatalogAndSubmissionShareCreationPolicy(t *testing.T) {
 				}}})
 			}))
 			defer upstream.Close()
-			client := sdvideo.NewClient(config.Config{SDVideoBaseURL: upstream.URL, SDVideoJWTPrivateKey: base64.RawStdEncoding.EncodeToString(private), SDVideoMode: tc.mode, SDVideoAllowedModels: tc.models, SDVideoAllowedWorkspaces: tc.workspaces})
+			client := sdvideo.NewClient(config.Config{SDVideoBaseURL: upstream.URL, SDVideoJWTPrivateKey: base64.RawStdEncoding.EncodeToString(private), SDVideoMode: tc.mode, SDVideoAllowedWorkspaces: tc.workspaces})
 			providers := repository.NewMemoryModelProviderRepository()
 			_, err = providers.UpsertModelProvider(model.ModelProviderConfig{ID: "text", Name: "Text", Enabled: true, TextModel: "text-model", Capabilities: model.JSONB(`["text"]`)})
 			if err != nil {

@@ -74,10 +74,11 @@ export function useModelProvidersController(active: boolean) {
 
   useEffect(() => {
     if (!providersQuery.data) return;
-    setProviderDraft(current =>
-      providersQuery.data.find(item => item.id === current.id) ||
-      providersQuery.data[0] ||
-      emptyProvider
+    setProviderDraft(
+      current =>
+        providersQuery.data.find(item => item.id === current.id) ||
+        providersQuery.data[0] ||
+        emptyProvider
     );
     clearSensitiveInputs();
   }, [clearSensitiveInputs, providersQuery.data]);
@@ -134,7 +135,10 @@ export function useModelProvidersController(active: boolean) {
     clearSensitiveInputs();
   };
 
-  const saveProvider = async (draft = providerDraft, document?: ConfigDocument) => {
+  const saveProvider = async (
+    draft = providerDraft,
+    document?: ConfigDocument
+  ) => {
     if (!(draft.name || "").trim()) {
       toast.error("请填写 Provider 名称");
       return false;
@@ -150,8 +154,9 @@ export function useModelProvidersController(active: boolean) {
         secrets: providerSecrets,
       });
       if (document) payload.config_document = document;
-      const saved = activeProvider?.id
-        ? await updateModelProvider(activeProvider.id, payload)
+      const existing = providers.find(item => item.id === draft.id);
+      const saved = existing?.id
+        ? await updateModelProvider(existing.id, payload)
         : await createModelProvider(payload);
       clearSensitiveInputs();
       toast.success("Provider 已保存");
@@ -255,7 +260,9 @@ export function useModelProvidersController(active: boolean) {
       queryClient.setQueryData<ModelProviderConfig[]>(
         adminQueryKeys.providers(),
         items => {
-          const next = (items || []).filter(item => item.id !== deleteTarget.id);
+          const next = (items || []).filter(
+            item => item.id !== deleteTarget.id
+          );
           setProviderDraft(next[0] || emptyProvider);
           return next;
         }
@@ -275,10 +282,74 @@ export function useModelProvidersController(active: boolean) {
 
   const reload = useCallback(async () => {
     clearSensitiveInputs();
-    await Promise.allSettled([providersQuery.refetch(), presetsQuery.refetch()]);
+    await Promise.allSettled([
+      providersQuery.refetch(),
+      presetsQuery.refetch(),
+    ]);
   }, [clearSensitiveInputs, presetsQuery, providersQuery]);
 
+  // Card actions target their own record, without copying the editor's credentials.
+  const toggleProvider = async (provider: ModelProviderConfig) => {
+    if (!provider.id) return false;
+    setBusy("provider-toggle");
+    try {
+      const enabled = !provider.enabled;
+      const next = {
+        ...provider,
+        enabled,
+        ...(provider.sdvideo_models
+          ? {
+              sdvideo_models: provider.sdvideo_models.map(item => ({
+                ...item,
+                enabled,
+              })),
+            }
+          : {}),
+      };
+      const saved = await updateModelProvider(
+        provider.id,
+        buildModelProviderPayload(next, { apiKey: "", secrets: {} })
+      );
+      queryClient.setQueryData<ModelProviderConfig[]>(
+        adminQueryKeys.providers(),
+        items =>
+          (items || []).map(item => (item.id === saved.id ? saved : item))
+      );
+      toast.success(enabled ? "供应商已启用" : "供应商已停用");
+      return true;
+    } catch (error) {
+      toast.error(publicApiError(error, "更新供应商状态失败"));
+      return false;
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const removeProvider = async (provider: ModelProviderConfig) => {
+    if (!provider.id || provider.id === "default" || provider.sdvideo_models)
+      return false;
+    setBusy("provider-delete");
+    try {
+      await deleteModelProvider(provider.id);
+      queryClient.setQueryData<ModelProviderConfig[]>(
+        adminQueryKeys.providers(),
+        items => (items || []).filter(item => item.id !== provider.id)
+      );
+      clearSensitiveInputs();
+      toast.success("供应商已删除");
+      return true;
+    } catch (error) {
+      toast.error(publicApiError(error, "删除供应商失败"));
+      return false;
+    } finally {
+      setBusy("");
+    }
+  };
+
   return {
+    clearSensitiveInputs,
+    toggleProvider,
+    removeProvider,
     activeProvider,
     apiKey,
     busy,
@@ -292,7 +363,11 @@ export function useModelProvidersController(active: boolean) {
     deleteTarget,
     fetchModels,
     isPending: providersQuery.isPending || presetsQuery.isPending,
-    loadError: providersQuery.error ? publicApiError(providersQuery.error, "读取 Provider 失败") : presetsQuery.error ? publicApiError(presetsQuery.error, "读取预设失败") : "",
+    loadError: providersQuery.error
+      ? publicApiError(providersQuery.error, "读取 Provider 失败")
+      : presetsQuery.error
+        ? publicApiError(presetsQuery.error, "读取预设失败")
+        : "",
     openDeleteDialog,
     closeDeleteDialog,
     presets,

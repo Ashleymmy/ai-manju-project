@@ -103,11 +103,27 @@ function Demo() {
           setDraft(examples[0]);
         }}
         onSaveJSON={save}
+        onSaveForm={() => save(draft)}
+        onDraftChange={setDraft}
+        onToggle={(provider) =>
+          save({
+            ...provider,
+            enabled: !provider.enabled,
+            ...(provider.sdvideo_models
+              ? {
+                  sdvideo_models: provider.sdvideo_models.map((model) => ({
+                    ...model,
+                    enabled: !provider.enabled,
+                  })),
+                }
+              : {}),
+          })
+        }
         renderForm={() => (
           <ProviderConfigForm
             document={toConfigDocument(draft)}
+            provider={draft}
             onChange={(document) => setDraft({ ...draft, ...document.config })}
-            onSave={() => void save(draft)}
             presets={[
               {
                 id: "compatible",

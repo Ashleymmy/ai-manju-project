@@ -69,7 +69,6 @@ type Config struct {
 	SDVideoBaseURL             string
 	SDVideoMode                string
 	SDVideoAllowedWorkspaces   []string
-	SDVideoAllowedModels       []string
 	SDVideoJWTPrivateKey       string
 	SDVideoJWTKeyID            string
 	SDVideoJWTIssuer           string
@@ -132,7 +131,6 @@ func Load() Config {
 		AssetCDNAuthKey:            secretEnv("ASSET_CDN_AUTH_KEY"),
 		SDVideoMode:                normalizeSDVideoMode(os.Getenv("SD_VIDEO_MODE")),
 		SDVideoAllowedWorkspaces:   parseCommaSeparated(os.Getenv("SD_VIDEO_ALLOWED_WORKSPACES")),
-		SDVideoAllowedModels:       parseCommaSeparated(os.Getenv("SD_VIDEO_ALLOWED_MODELS")),
 		SDVideoJWTPrivateKey:       os.Getenv("SD_VIDEO_JWT_PRIVATE_KEY"),
 		SDVideoJWTKeyID:            getEnv("SD_VIDEO_JWT_KID", "studio-sdvideo-1"),
 		SDVideoJWTIssuer:           getEnv("SD_VIDEO_JWT_ISSUER", "ai-manju-studio"),

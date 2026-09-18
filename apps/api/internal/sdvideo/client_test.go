@@ -10,13 +10,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/ai-manju/api/internal/config"
 	"github.com/ai-manju/api/internal/model"
 )
 
-func TestCreationPolicyRetainsRolloutAndAllowlistRules(t *testing.T) {
+func TestCreationPolicyIgnoresLegacyModelAllowlistAndRetainsWorkspaceBoundary(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode, model  string
 		workspaces, models []string
@@ -26,14 +27,15 @@ func TestCreationPolicyRetainsRolloutAndAllowlistRules(t *testing.T) {
 		{name: "prefixed request", mode: "active", model: "sdvideo/seedance-2.5", models: []string{"seedance-2.5"}},
 		{name: "prefixed allowlist", mode: "active", model: "seedance-2.5", models: []string{"sdvideo/seedance-2.5"}},
 		{name: "workspace allowed", mode: "active", model: "seedance-2.5", workspaces: []string{"default:owner"}},
-		{name: "other model", mode: "active", model: "seedance-2.5", models: []string{"seedance-2.0"}, want: ErrModelNotAllowed},
-		{name: "upstream id is not logical key", mode: "active", model: "seedance-2.5", models: []string{"ep-upstream"}, want: ErrModelNotAllowed},
+		{name: "legacy model list cannot block configured models", mode: "active", model: "seedance-2.5", models: []string{"seedance-2.0"}},
+		{name: "legacy upstream id cannot block configured models", mode: "active", model: "seedance-2.5", models: []string{"ep-upstream"}},
 		{name: "other workspace", mode: "active", model: "seedance-2.5", workspaces: []string{"team:default"}, want: ErrWorkspaceNotAllowed},
 		{name: "shadow", mode: "shadow", model: "seedance-2.5", want: ErrCreationDisabled},
 		{name: "disabled", mode: "disabled", model: "seedance-2.5", want: ErrCreationDisabled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			client := &Client{cfg: config.Config{SDVideoMode: tc.mode, SDVideoAllowedModels: tc.models, SDVideoAllowedWorkspaces: tc.workspaces}}
+			t.Setenv("SD_VIDEO_ALLOWED_MODELS", strings.Join(tc.models, ","))
+			client := &Client{cfg: config.Config{SDVideoMode: tc.mode, SDVideoAllowedWorkspaces: tc.workspaces}}
 			if got := client.CreationError("default:owner", tc.model); got != tc.want {
 				t.Fatalf("creation error = %v, want %v", got, tc.want)
 			}

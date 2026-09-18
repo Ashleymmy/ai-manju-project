@@ -74,7 +74,8 @@
     "vaul": "^1.1.2",
     "wouter": "^3.3.5",
     "zod": "^4.1.12",
-    "zustand": "^5.0.12"
+    "zustand": "^5.0.12",
+    "@ai-manju/provider-hub": "workspace:*"
   },
   "devDependencies": {
     "@ai-manju/director-desk": "workspace:*",

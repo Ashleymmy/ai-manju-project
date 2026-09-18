@@ -1,23 +1,22 @@
-.provider-hub-page { min-height: 100vh; background: #f7f8fb; color: #202735; }
-.provider-hub-back { padding: 20px clamp(18px, 3vw, 42px) 0; font: 13px system-ui, sans-serif; color: #4258b5; }
-.provider-hub-page .provider-hub { max-width: 1600px; margin: 0 auto; }
-.provider-hub .provider-form { border: 0; background: transparent; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.provider-hub .provider-form label { color: #465269; font: 13px/1.5 system-ui, sans-serif; }
-.provider-hub .provider-form input:not([type=checkbox]), .provider-hub .provider-form select, .provider-hub .provider-form textarea { width: 100%; color: #202735; background: #fff; border: 1px solid #d9dde5; border-radius: 6px; padding: 9px 11px; font: 13px/1.5 system-ui, sans-serif; }
-.provider-hub .provider-form input:disabled { background: #f3f4f7; color: #626b7c; }
-.provider-hub .provider-form label.provider-switch-label { display: flex; align-items: center; gap: 12px; }
-.provider-hub .provider-switch-label { background: #f3f5fa; border-color: #d9dde5; border-radius: 6px; }
-.provider-hub .hub-editor-only { margin-top: 0; }
-.provider-hub .provider-section-head { align-items: flex-start; margin: 10px 0; }
-.provider-hub .provider-section-head b { color: #253147; font-size: 14px; }
-.provider-hub .provider-section-head small { display: block; color: #626b7c; font-size: 12px; line-height: 1.6; }
-.provider-hub .provider-chip-section { border-color: #d9dde5; }
-.provider-hub .provider-chip-section span { color: #465269; }
-.provider-hub .provider-chip-section button.active { color: #30469a; background: #e9edfc; border-color: #b6c0e9; }
-.provider-hub .provider-form-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.provider-hub .provider-form-actions button { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
-.provider-hub .provider-form-actions .vermilion-button { background: #4258b5; color: white; border-color: #4258b5; }
-.provider-hub .provider-test-result { background: #f4f6fc; color: #465269; border-color: #d9dde5; }
-.provider-hub .sdvideo-model-row { border-color: #d9dde5; background: #f9fafc; }
-.provider-hub .sdvideo-model-row legend { color: #253147; }
-@media (max-width: 600px) { .provider-hub .provider-form, .provider-hub .provider-capability-grid { grid-template-columns: 1fr; } }
+.provider-hub-page {
+  min-height: 100dvh;
+  background: #fff;
+  color: #18181b;
+}
+.provider-hub-page .hub-navigation {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #71717a;
+  font-size: 12px;
+  text-decoration: none;
+  margin-left: 12px;
+}
+.provider-hub-page .hub-navigation:hover {
+  color: #1688ff;
+}
+@media (max-width: 1100px) {
+  .provider-hub-page .hub-navigation span {
+    display: none;
+  }
+}

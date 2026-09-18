@@ -32,6 +32,7 @@ func TestSDVideoGroupKeepsModelsAndReadinessDistinct(t *testing.T) {
 }
 
 func TestSDVideoGroupUpdateUsesOneAtomicRequestAndPreservesLegacyRoute(t *testing.T) {
+	t.Setenv("SD_VIDEO_ALLOWED_MODELS", "seedance-2.0")
 	_, private, _ := ed25519.GenerateKey(rand.Reader)
 	writes := 0
 	items := []map[string]any{
@@ -59,7 +60,7 @@ func TestSDVideoGroupUpdateUsesOneAtomicRequestAndPreservesLegacyRoute(t *testin
 		_ = json.NewEncoder(w).Encode(gin.H{"success": true, "data": gin.H{"items": items}})
 	}))
 	defer server.Close()
-	h := &ModelProviderHandler{sdVideo: sdvideo.NewClient(config.Config{SDVideoBaseURL: server.URL, SDVideoMode: "active", SDVideoAllowedModels: []string{"seedance-2.0"}, SDVideoJWTPrivateKey: base64.RawStdEncoding.EncodeToString(private)})}
+	h := &ModelProviderHandler{sdVideo: sdvideo.NewClient(config.Config{SDVideoBaseURL: server.URL, SDVideoMode: "active", SDVideoJWTPrivateKey: base64.RawStdEncoding.EncodeToString(private)})}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(auth.ContextUserKey, model.User{ID: "admin", Role: model.UserRoleSuperAdmin})
@@ -79,8 +80,8 @@ func TestSDVideoGroupUpdateUsesOneAtomicRequestAndPreservesLegacyRoute(t *testin
 	}
 	if out := invoke("PUT", "/providers/sdvideo::all", body); out.Code != 200 || writes != 1 || !strings.Contains(out.Body.String(), `"name":"sdvideo"`) {
 		t.Fatalf("atomic group update failed: %d %s", out.Code, out.Body.String())
-	} else if !strings.Contains(out.Body.String(), "SD_VIDEO_ALLOWED_MODELS") {
-		t.Fatal("saving model settings lost the gateway restriction diagnostic")
+	} else if strings.Contains(out.Body.String(), "SD_VIDEO_ALLOWED_MODELS") {
+		t.Fatal("legacy model allowlist must not restrict managed model settings")
 	}
 	invalid := strings.Replace(body, `"key":"seedance-2.0-ark"`, `"key":"seedance-2.0"`, 1)
 	if out := invoke("PUT", "/providers/sdvideo::all", invalid); out.Code != 400 || writes != 1 {

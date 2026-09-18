@@ -3,5 +3,6 @@ packages:
   - "apps/canvas-agent"
   - "apps/director-desk"
   - "packages/canvas-agent-protocol"
+  - "packages/provider-hub"
 allowBuilds:
   sharp: true

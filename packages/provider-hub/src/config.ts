@@ -24,6 +24,11 @@ export type ProviderRecord = {
   capabilities?: Capability[];
   enabled: boolean;
   base_url: string;
+  models_by_capability?: Partial<Record<Capability, string[]>>;
+  text_model?: string;
+  image_model?: string;
+  video_model?: string;
+  audio_model?: string;
   sdvideo_models?: Array<{
     key: string;
     name: string;
@@ -32,6 +37,7 @@ export type ProviderRecord = {
     concurrency_limit: number;
     version: number;
     upstream_provider?: string;
+    credentials_configured?: boolean;
   }>;
 };
 export type ConfigDocument = {

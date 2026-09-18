@@ -8,12 +8,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const serviceMocks = vi.hoisted(() => ({
   listModelProviderPresets: vi.fn(),
   listModelProviders: vi.fn(),
+  updateModelProvider: vi.fn(),
+  createModelProvider: vi.fn(),
 }));
 
 vi.mock("../services/adminApi", async importOriginal => ({
   ...(await importOriginal<typeof import("../services/adminApi")>()),
   listModelProviderPresets: serviceMocks.listModelProviderPresets,
   listModelProviders: serviceMocks.listModelProviders,
+  updateModelProvider: serviceMocks.updateModelProvider,
+  createModelProvider: serviceMocks.createModelProvider,
 }));
 
 import {
@@ -48,6 +52,15 @@ describe("model provider controller secrets", () => {
       },
     ]);
     serviceMocks.listModelProviderPresets.mockReset().mockResolvedValue([]);
+    serviceMocks.updateModelProvider
+      .mockReset()
+      .mockImplementation(async (id, payload) => ({ ...payload, id }));
+    serviceMocks.createModelProvider
+      .mockReset()
+      .mockImplementation(async payload => ({
+        ...payload,
+        id: "new-provider",
+      }));
     queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false, refetchOnWindowFocus: false },
@@ -117,5 +130,49 @@ describe("model provider controller secrets", () => {
     expect(latest.apiKey).toBe("");
     expect(latest.providerSecrets).toEqual({});
     expect(latest.providerTestResult).toBeNull();
+  });
+  it("card toggles target their own provider and never send editor credentials", async () => {
+    await render(true);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    const first = latest.providers[0];
+    await act(async () => {
+      latest.setApiKey("unsaved-editor-key");
+      latest.setProviderSecrets({ asset_key: "unsaved-editor-secret" });
+    });
+    const second = {
+      ...first,
+      id: "provider-2",
+      name: "Second",
+      enabled: false,
+    };
+    await act(async () => {
+      expect(await latest.toggleProvider(second)).toBe(true);
+    });
+    expect(serviceMocks.updateModelProvider).toHaveBeenCalledWith(
+      "provider-2",
+      expect.objectContaining({ enabled: true })
+    );
+    const payload = serviceMocks.updateModelProvider.mock.calls[0][1];
+    expect(JSON.stringify(payload)).not.toContain("unsaved-editor");
+    expect(serviceMocks.createModelProvider).not.toHaveBeenCalled();
+  });
+
+  it("a copied provider saves as a new record even when another provider was selected", async () => {
+    await render(true);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    const original = latest.providers[0];
+    await act(async () => {
+      expect(
+        await latest.saveProvider({ ...original, id: "", name: "Copy" })
+      ).toBe(true);
+    });
+    expect(serviceMocks.createModelProvider).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Copy" })
+    );
+    expect(serviceMocks.updateModelProvider).not.toHaveBeenCalled();
   });
 });

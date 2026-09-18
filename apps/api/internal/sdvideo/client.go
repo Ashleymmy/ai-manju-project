@@ -30,7 +30,6 @@ var ErrDisabled = errors.New("sd-video gateway is disabled")
 var (
 	ErrCreationDisabled    = errors.New("视频提交入口未开启，请联系管理员检查 SD_VIDEO_MODE")
 	ErrWorkspaceNotAllowed = errors.New("当前工作区未获准提交视频，请联系管理员检查 SD_VIDEO_ALLOWED_WORKSPACES")
-	ErrModelNotAllowed     = errors.New("当前视频模型未获准提交，请联系管理员检查 SD_VIDEO_ALLOWED_MODELS")
 )
 
 const maxResultBytes = int64(512 * 1024 * 1024)
@@ -112,8 +111,9 @@ func (c *Client) AllowsCreation(workspace, modelID string) bool {
 	return c.CreationError(workspace, modelID) == nil
 }
 
-// CreationError is shared by discovery, admin diagnostics and submission checks.
-func (c *Client) CreationError(workspace, modelID string) error {
+// CreationError checks the service rollout and workspace boundary. Model enablement
+// belongs to the SD-video catalog; the former environment model allowlist is ignored.
+func (c *Client) CreationError(workspace, _ string) error {
 	allows := func(values []string, expected string) bool {
 		if len(values) == 0 {
 			return true
@@ -130,9 +130,6 @@ func (c *Client) CreationError(workspace, modelID string) error {
 	}
 	if !allows(c.cfg.SDVideoAllowedWorkspaces, workspace) {
 		return ErrWorkspaceNotAllowed
-	}
-	if !allows(c.cfg.SDVideoAllowedModels, strings.TrimPrefix(modelID, "sdvideo/")) {
-		return ErrModelNotAllowed
 	}
 	return nil
 }
