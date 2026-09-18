@@ -1085,10 +1085,46 @@ func (s *SeedanceAssetService) doOfficialVolcanoAssetJSON(ctx context.Context, a
 			return nil, fmt.Errorf("Volcengine official asset returned invalid JSON: %w", err)
 		}
 	}
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return sanitizeMaterialResponse(raw), fmt.Errorf("Volcengine official asset request failed with status %d: %s", res.StatusCode, sanitizeMaterialErrorText(materialErrorText(raw)))
+	if err := officialVolcanoAssetResponseError(raw, res.StatusCode, assetProvider); err != nil {
+		return sanitizeMaterialResponse(raw), err
 	}
-	return raw, materialBusinessError(raw)
+	return raw, nil
+}
+
+// Official OpenAPI errors live in ResponseMetadata.Error, unlike the proxy's
+// top-level Error/Message. Preserve the code while removing credential values.
+func officialVolcanoAssetResponseError(raw map[string]any, status int, assetProvider seedanceAssetProvider) error {
+	detail := mapFromAny(mapFromAny(raw["ResponseMetadata"])["Error"])
+	code := seedanceMaterialString(detail, "Code", "code")
+	message := seedanceMaterialString(detail, "Message", "message")
+	if message == "" {
+		message = materialErrorText(raw)
+	}
+	if status >= 200 && status < 300 && code == "" && message == "" {
+		return nil
+	}
+	switch code {
+	case "SignatureDoesNotMatch":
+		message = "AK/SK 签名校验失败，请在当前 Provider 中重新填写火山控制台同一组 Access Key ID（AK）和 Secret Access Key（SK）"
+	case "InvalidAccessKeyId", "InvalidAccessKeyID", "InvalidAccessKey":
+		message = "火山未识别当前 Access Key ID，请检查 AK 是否正确或已停用"
+	case "AccessDenied", "Forbidden":
+		message = "当前火山账号没有此素材接口的访问权限，请检查对应 IAM 授权"
+	}
+	if message == "" {
+		message = "官方接口未返回具体错误原因"
+	}
+	text := fmt.Sprintf("火山官方素材接口失败（HTTP %d", status)
+	if code != "" {
+		text += "，" + code
+	}
+	text += "）：" + message
+	for _, secret := range []string{assetProvider.accessKeyID, assetProvider.secretAccessKey, assetProvider.apiKey, assetProvider.securityToken} {
+		if secret != "" {
+			text = strings.ReplaceAll(text, secret, "[redacted]")
+		}
+	}
+	return errors.New(sanitizeMaterialErrorText(text))
 }
 
 func hmacSHA256(key []byte, value string) []byte {

@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/ai-manju/api/internal/model"
@@ -68,5 +70,34 @@ func TestSeedanceAssetObjectStorageReadinessWithoutLocalPublicBase(t *testing.T)
 	r := svc.Readiness()
 	if !r.ProviderConfigured || !r.UploadRegistrationAvailable || r.PublicAssetBaseURLConfigured {
 		t.Fatalf("object storage should provide its own signed URL: %#v", r)
+	}
+}
+
+func TestOfficialAssetErrorsReadResponseMetadata(t *testing.T) {
+	raw := map[string]any{"ResponseMetadata": map[string]any{"Error": map[string]any{
+		"Code": "SignatureDoesNotMatch", "Message": "signature mismatch",
+	}}}
+	for _, status := range []int{http.StatusUnauthorized, http.StatusOK} {
+		err := officialVolcanoAssetResponseError(raw, status, seedanceAssetProvider{})
+		if err == nil || !strings.Contains(err.Error(), "SignatureDoesNotMatch") || !strings.Contains(err.Error(), "同一组") {
+			t.Fatalf("official error was swallowed: status=%d err=%v", status, err)
+		}
+	}
+	if err := officialVolcanoAssetResponseError(map[string]any{"ResponseMetadata": map[string]any{"RequestId": "test"}, "Result": map[string]any{"Id": "asset"}}, http.StatusOK, seedanceAssetProvider{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOfficialAssetErrorRedactsCredentialsAndSignedURLs(t *testing.T) {
+	selected := seedanceAssetProvider{accessKeyID: "test-ak", secretAccessKey: "test-sk", apiKey: "test-api", securityToken: "test-session"}
+	raw := map[string]any{"ResponseMetadata": map[string]any{"Error": map[string]any{"Code": "InvalidParameter", "Message": "test-ak test-sk test-api test-session https://example.test/image?token=signature"}}}
+	err := officialVolcanoAssetResponseError(raw, http.StatusBadRequest, selected)
+	if err == nil {
+		t.Fatal("expected official error")
+	}
+	for _, secret := range []string{"test-ak", "test-sk", "test-api", "test-session", "signature", "https://"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatal("credential or signed URL leaked")
+		}
 	}
 }
