@@ -1179,6 +1179,13 @@ export class CanvasStageInteractionController {
     current: CanvasConnectionDraft,
   ) {
     const target = this.adapter.elementFromPoint(clientX, clientY);
+    const groupHandle = this.adapter.closest(target, ".canvas-group-connection-handle");
+    const groupNodeId = this.adapter.getAttribute(groupHandle, "data-connection-node-id");
+    if (groupNodeId && groupNodeId !== current.nodeId) {
+      const nodes = this.currentNodes();
+      const node = nodes.find(item => item.id === groupNodeId);
+      if (node && normalizeCanvasConnection(current.nodeId, node.id, nodes, current.handleType)) return node.id;
+    }
     const nodeElement = this.adapter.closest(target, ".real-canvas-node");
     const nodeId = this.adapter.getAttribute(nodeElement, "data-node-id");
     if (!nodeId || nodeId === current.nodeId) return "";
@@ -1649,7 +1656,11 @@ export class CanvasStageInteractionController {
         { nodeId: this.connectFrom, handleType: this.connectHandleType },
       );
       this.connectionPreviewPoint = previewPoint;
-      this.connectionTargetId = dropTarget.nodeId;
+      this.connectionTargetId = dropTarget.nodeId || this.getConnectionDomDropTargetId(
+        event.clientX,
+        event.clientY,
+        { nodeId: this.connectFrom, handleType: this.connectHandleType },
+      );
       this.scheduleConnectionFrame();
       return;
     }

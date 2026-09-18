@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { CanvasGroupData } from "./groups";
 
 import {
   addCanvasConnection,
@@ -7,6 +8,7 @@ import {
   canvasActiveConnectionPath,
   canvasClientPointToWorld,
   canvasConnectionCurvature,
+  canvasConnectionDisplayNode,
   connectableCanvasNodesToConfig,
   connectCanvasNodesToConfig,
   createConnectedCanvasGraph,
@@ -59,6 +61,43 @@ describe("canvas connection rules", () => {
     expect(canvasActiveConnectionPath(source, "target", { x: 420, y: 160 }, target)).toBe(
       "M 740 280 C 1060 280, -220 140, 100 140",
     );
+  });
+
+  it("anchors both preview directions to confirmed group frames without mutating members", () => {
+    const member = { id: "member", kind: "image", x: 100, y: 80, width: 200, height: 120 };
+    const group: CanvasGroupData = {
+      id: "group", title: "Group", color: "#fff", nodeIds: [member.id],
+      position: { x: 40, y: 20 }, width: 400, height: 400,
+    };
+    expect(canvasActiveConnectionPath(member, "source", { x: 600, y: 300 }, null, [group]))
+      .toBe("M 440 220 C 520 220, 520 300, 600 300");
+    expect(canvasActiveConnectionPath(member, "target", { x: -100, y: 300 }, null, [group]))
+      .toBe("M -100 300 C -30 300, -30 220, 40 220");
+    const moved = { ...group, position: { x: 60, y: 40 }, height: 600 };
+    expect(canvasActiveConnectionPath(member, "source", { x: 600, y: 300 }, null, [moved]))
+      .toBe("M 460 340 C 530 340, 530 300, 600 300");
+    expect(canvasConnectionDisplayNode(member, [{ ...group, pending: true }])).toBe(member);
+    expect(canvasConnectionDisplayNode(member, [])).toBe(member);
+    expect(member).toMatchObject({ x: 100, y: 80, width: 200, height: 120 });
+  });
+
+  it("snaps group-to-group previews to the same frames as finished connections", () => {
+    const source = { id: "source", kind: "image", x: 80, y: 80, width: 100, height: 100 };
+    const target = { id: "target", kind: "image", x: 900, y: 80, width: 100, height: 100 };
+    const groups: CanvasGroupData[] = [
+      { id: "a", title: "A", color: "#fff", nodeIds: [source.id], position: { x: 0, y: 0 }, width: 400, height: 400 },
+      { id: "b", title: "B", color: "#fff", nodeIds: [target.id], position: { x: 800, y: 100 }, width: 500, height: 600 },
+    ];
+    const path = "M 400 200 C 600 200, 600 400, 800 400";
+    expect(canvasActiveConnectionPath(source, "source", { x: 900, y: 80 }, target, groups)).toBe(path);
+    expect(canvasActiveConnectionPath(target, "target", { x: 80, y: 80 }, source, groups)).toBe(path);
+    const preview = { nodeId: source.id, handleType: "source" as const, targetNodeId: target.id };
+    const edges = [{ from: source.id, to: target.id }];
+    const projected = [source, target].map(node => canvasConnectionDisplayNode(node, groups));
+    expect(buildCanvasConnectionLayerBounds([source, target], edges, preview, groups))
+      .toEqual(buildCanvasConnectionLayerBounds(projected, edges, preview));
+    expect(canvasActiveConnectionPath(source, "source", { x: 900, y: 80 }, target, groups.map(group => ({ ...group, pending: true }))))
+      .toBe(canvasActiveConnectionPath(source, "source", { x: 900, y: 80 }, target));
   });
 
   it("rejects missing nodes, self links, and config-to-config links", () => {
