@@ -40,6 +40,7 @@ export {
 export {
   getSeedanceAssetReadiness,
   listUserSeedanceAssets,
+  getUserSeedanceAsset,
   uploadUserSeedanceAsset,
   seedanceAssetPreviewSource,
   getSeedanceAssetPreviewUrl,

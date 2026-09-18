@@ -1,10 +1,19 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getSeedanceAssetPreviewUrl, listUserSeedanceAssets, ensureSeedanceAssetsActive, uploadUserSeedanceAsset } from "./seedance-api";
+import { getUserSeedanceAsset, getSeedanceAssetPreviewUrl, listUserSeedanceAssets, ensureSeedanceAssetsActive, uploadUserSeedanceAsset } from "./seedance-api";
 
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); sessionStorage.clear(); });
 
 describe("用户拟真人素材接口", () => {
+  it("official upload, polling and activation preserve the selected provider", async () => {
+    const fetcher = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ success: true, data: {} })));
+    vi.stubGlobal("fetch", fetcher);
+    await uploadUserSeedanceAsset(new File(["image"], "hero.png", { type: "image/png" }), "personal", "official");
+    await getUserSeedanceAsset("local-id", "personal", "official");
+    await listUserSeedanceAssets({ provider_id: "official", scope: "personal" });
+    await ensureSeedanceAssetsActive(["remote-id"], "personal", "official");
+    for (const [target] of fetcher.mock.calls) expect(new URL(target).searchParams.get("provider_id")).toBe("official");
+  });
   it("上传、状态列表和激活检查使用用户路由并保留空间", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: true, data: {} }), { status: 200 }));
     vi.stubGlobal("fetch", fetcher);

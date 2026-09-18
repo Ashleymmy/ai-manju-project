@@ -15,6 +15,8 @@ var ErrSeedanceAssetNotFound = errors.New("seedance asset not found")
 var ErrSeedanceAssetTagNotFound = errors.New("seedance asset tag not found")
 
 type SeedanceAssetFilter struct {
+	ProviderID string
+	CreatedBy  string
 	Status     string
 	Type       string
 	TagID      string
@@ -548,6 +550,12 @@ func (r *GormSeedanceAssetRepository) SetAssetTags(assetID string, tagIDs []stri
 }
 
 func applySeedanceAssetGormFilter(query *gorm.DB, filter SeedanceAssetFilter) *gorm.DB {
+	if filter.ProviderID != "" {
+		query = query.Where("provider_id = ?", filter.ProviderID)
+	}
+	if filter.CreatedBy != "" {
+		query = query.Where("created_by = ?", filter.CreatedBy)
+	}
 	if filter.ActiveOnly {
 		query = query.Where("status = ?", model.SeedanceAssetStatusActive)
 	}
@@ -568,6 +576,12 @@ func applySeedanceAssetGormFilter(query *gorm.DB, filter SeedanceAssetFilter) *g
 }
 
 func seedanceAssetMatches(asset model.SeedanceAsset, filter SeedanceAssetFilter, bindings map[string]map[string]bool) bool {
+	if filter.ProviderID != "" && asset.ProviderID != filter.ProviderID {
+		return false
+	}
+	if filter.CreatedBy != "" && asset.CreatedBy != filter.CreatedBy {
+		return false
+	}
 	if filter.ActiveOnly && asset.Status != model.SeedanceAssetStatusActive {
 		return false
 	}

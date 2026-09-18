@@ -111,12 +111,31 @@ var (
 )
 
 type SeedanceAssetService struct {
+	// Request-scoped copies keep provider selection out of shared mutable state.
+	providerID         string
+	ownerID            string
 	providerRepo       repository.ModelProviderRepository
 	assetRepo          repository.SeedanceAssetRepository
 	secretBox          provider.SecretBox
 	storage            storage.Storage
 	publicAssetBaseURL string
 	client             *http.Client
+}
+
+func (s *SeedanceAssetService) ForProvider(providerID string) *SeedanceAssetService {
+	copy := *s
+	copy.providerID = strings.TrimSpace(providerID)
+	return &copy
+}
+
+func (s *SeedanceAssetService) ForOwner(ownerID string) *SeedanceAssetService {
+	copy := *s
+	copy.ownerID = strings.TrimSpace(ownerID)
+	return &copy
+}
+
+func (s *SeedanceAssetService) ownsAsset(asset model.SeedanceAsset) bool {
+	return (s.providerID == "" || asset.ProviderID == s.providerID) && (s.ownerID == "" || asset.CreatedBy == s.ownerID)
 }
 
 type SeedanceAssetListInput struct {
@@ -219,6 +238,8 @@ func (s *SeedanceAssetService) Readiness() SeedanceAssetReadiness {
 
 func (s *SeedanceAssetService) ListAssets(input SeedanceAssetListInput) (SeedanceAssetListResult, error) {
 	items, total, err := s.assetRepo.ListAssets(repository.SeedanceAssetFilter{
+		ProviderID: s.providerID,
+		CreatedBy:  s.ownerID,
 		Status:     input.Status,
 		Type:       input.Type,
 		TagID:      input.TagID,
@@ -238,10 +259,30 @@ func (s *SeedanceAssetService) GetAsset(id string) (model.SeedanceAsset, error) 
 	if err != nil {
 		return model.SeedanceAsset{}, err
 	}
+	if !s.ownsAsset(asset) {
+		return model.SeedanceAsset{}, repository.ErrSeedanceAssetNotFound
+	}
 	return sanitizeSeedanceAsset(asset), nil
 }
 
+// RefreshAsset only refreshes the requested record; it never creates another asset.
+func (s *SeedanceAssetService) RefreshAsset(ctx context.Context, id string) (model.SeedanceAsset, error) {
+	asset, err := s.assetRepo.GetAsset(strings.TrimSpace(id))
+	if err != nil || !s.ownsAsset(asset) {
+		return model.SeedanceAsset{}, repository.ErrSeedanceAssetNotFound
+	}
+	if asset.Status != model.SeedanceAssetStatusActive && asset.Status != model.SeedanceAssetStatusFailed {
+		if err := s.refreshAssetStatus(ctx, asset); err != nil {
+			return model.SeedanceAsset{}, err
+		}
+	}
+	return s.GetAsset(id)
+}
+
 func (s *SeedanceAssetService) RegisterAssetFromUpload(ctx context.Context, input SeedanceAssetUploadInput) (model.SeedanceAsset, error) {
+	if _, err := s.loadSeedanceAssetProvider(); err != nil {
+		return model.SeedanceAsset{}, err
+	}
 	assetType := normalizeSeedanceAssetType(input.AssetType, input.ContentType, input.FileName)
 	if assetType == "" {
 		return model.SeedanceAsset{}, errors.New("unsupported asset type")
@@ -362,6 +403,9 @@ func (s *SeedanceAssetService) UpdateAsset(id string, input SeedanceAssetUpdateI
 	if err != nil {
 		return model.SeedanceAsset{}, err
 	}
+	if !s.ownsAsset(asset) {
+		return model.SeedanceAsset{}, repository.ErrSeedanceAssetNotFound
+	}
 	if input.Name != nil {
 		name := strings.TrimSpace(*input.Name)
 		if name == "" {
@@ -388,7 +432,10 @@ func (s *SeedanceAssetService) DeleteAsset(ctx context.Context, id string) error
 	if err != nil {
 		return err
 	}
-	assetProvider, err := s.loadSeedanceAssetProvider()
+	if !s.ownsAsset(asset) {
+		return repository.ErrSeedanceAssetNotFound
+	}
+	assetProvider, err := s.ForProvider(asset.ProviderID).loadSeedanceAssetProvider()
 	if err != nil {
 		return err
 	}
@@ -489,11 +536,16 @@ func (s *SeedanceAssetService) PollPendingOnce(ctx context.Context) (int, error)
 func (s *SeedanceAssetService) EnsureAssetsActive(ctx context.Context, volcanoAssetIDs []string) error {
 	for _, assetID := range uniqueNonEmptyStrings(volcanoAssetIDs) {
 		asset, err := s.assetRepo.GetAssetByVolcanoID(assetID)
+		if s.providerID != "" && (err != nil || !s.ownsAsset(asset)) {
+			return fmt.Errorf("%w: 图片尚未在当前视频 Provider 注册，请在图片节点选择相同模型重新注册", ErrSeedanceAssetNotActive)
+		}
 		if err == nil && asset.Status == model.SeedanceAssetStatusActive {
 			continue
 		}
 		if err == nil && asset.Status != model.SeedanceAssetStatusActive {
-			_ = s.refreshAssetStatus(ctx, asset)
+			if refreshErr := s.refreshAssetStatus(ctx, asset); refreshErr != nil {
+				return refreshErr
+			}
 			asset, _ = s.assetRepo.GetAsset(asset.ID)
 		}
 		if err != nil || asset.Status != model.SeedanceAssetStatusActive {
@@ -689,7 +741,7 @@ func (s *SeedanceAssetService) syncRemoteAssets(ctx context.Context, config mode
 }
 
 func (s *SeedanceAssetService) refreshAssetStatus(ctx context.Context, asset model.SeedanceAsset) error {
-	assetProvider, err := s.loadSeedanceAssetProvider()
+	assetProvider, err := s.ForProvider(asset.ProviderID).loadSeedanceAssetProvider()
 	if err != nil {
 		return err
 	}
@@ -807,9 +859,15 @@ func (s *SeedanceAssetService) loadSeedanceAssetProvider() (seedanceAssetProvide
 	}
 	var fallback *seedanceAssetProvider
 	for i := range configs {
+		if s.providerID != "" && configs[i].ID != s.providerID {
+			continue
+		}
 		config, kind, ok := seedanceAssetProviderCandidate(configs[i])
 		if !ok {
 			continue
+		}
+		if s.providerID != "" {
+			return s.withSeedanceAssetCredentials(config, kind)
 		}
 		if fallback == nil {
 			current := seedanceAssetProvider{config: config, kind: kind}
@@ -1106,15 +1164,18 @@ func (s *SeedanceAssetService) publicURLForStorageObject(ctx context.Context, ob
 	if strings.HasPrefix(urlValue, "http://") || strings.HasPrefix(urlValue, "https://") {
 		return urlValue, nil
 	}
-	if s.publicAssetBaseURL == "" {
-		return "", ErrPublicAssetURLNotConfigured
-	}
 	if urlValue == "" {
 		var err error
 		urlValue, err = s.storage.URL(ctx, object.Key)
 		if err != nil {
 			return "", err
 		}
+	}
+	if strings.HasPrefix(urlValue, "http://") || strings.HasPrefix(urlValue, "https://") {
+		return urlValue, nil
+	}
+	if s.publicAssetBaseURL == "" {
+		return "", ErrPublicAssetURLNotConfigured
 	}
 	return strings.TrimRight(s.publicAssetBaseURL, "/") + "/" + strings.TrimLeft(urlValue, "/"), nil
 }

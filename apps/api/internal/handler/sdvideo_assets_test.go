@@ -21,6 +21,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func TestSDVideoAssetCompatibilityPreservesExplicitProvider(t *testing.T) {
+	client := sdvideo.NewClient(config.Config{SDVideoBaseURL: "http://unused.invalid", SDVideoMode: "active"})
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set(auth.ContextUserKey, model.User{ID: "owner"}) }, SDVideoAssetCompatibility(client))
+	for _, path := range []string{"/api/ai/seedance-assets/upload", "/api/ai/seedance-assets/ensure-active", "/api/admin/seedance-assets/upload"} {
+		router.POST(path, func(c *gin.Context) { c.Status(http.StatusNoContent) })
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest("POST", path+"?provider_id=official", nil))
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("explicit provider was intercepted: %s %d", path, w.Code)
+		}
+	}
+}
+
 func TestUserSDVideoAssetUploadUsesAuthenticatedOwnerAndWorkspace(t *testing.T) {
 	_, private, _ := ed25519.GenerateKey(rand.Reader)
 	paths := []string{}

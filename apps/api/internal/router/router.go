@@ -367,13 +367,20 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			ai.POST("/materials/ensure-active", materialHandler.EnsureActive)
 			ai.GET("/materials/:id", materialHandler.GetAsset)
 			ai.DELETE("/materials/:id", materialHandler.DeleteAsset)
-			// 用户素材注册仅由独立 SD-video 接管；未启用时不落回旧素材库。
-			assetUnavailable := func(c *gin.Context) {
-				response.Error(c, http.StatusServiceUnavailable, "SD-video 素材库尚未启用")
+			// No selection retains the SD-video route. Explicit providers use the native library.
+			selectedAssetProvider := func(next gin.HandlerFunc) gin.HandlerFunc {
+				return func(c *gin.Context) {
+					if strings.TrimSpace(c.Query("provider_id")) == "" {
+						response.Error(c, http.StatusServiceUnavailable, "SD-video 素材库尚未启用")
+						return
+					}
+					next(c)
+				}
 			}
-			ai.GET("/seedance-assets", assetUnavailable)
-			ai.GET("/seedance-assets/readiness", assetUnavailable)
-			ai.POST("/seedance-assets/upload", assetUnavailable)
+			ai.GET("/seedance-assets", selectedAssetProvider(seedanceAssetHandler.AdminList))
+			ai.GET("/seedance-assets/readiness", selectedAssetProvider(seedanceAssetHandler.AdminReadiness))
+			ai.POST("/seedance-assets/upload", selectedAssetProvider(seedanceAssetHandler.AdminUpload))
+			ai.GET("/seedance-assets/:id", selectedAssetProvider(seedanceAssetHandler.UserGet))
 			ai.GET("/seedance-assets/mentions", seedanceAssetHandler.Mentions)
 			ai.POST("/seedance-assets/ensure-active", seedanceAssetHandler.EnsureActive)
 		}

@@ -203,6 +203,7 @@ async function hydrateMediaInput(
   // 图片节点完成火山拟真人注册后，直接传递 asset:// 引用，避免再次上传原图。
   if (input.type === "image" && input.seedanceVolcanoAssets?.length) {
     const registered = input.seedanceVolcanoAssets.find((item) => item.volcanoAssetId.trim());
+    if (!registered) throw new Error("拟真人素材仍在处理中，请在图片节点更新注册状态后再生成");
     if (registered) {
       const volcanoAssetId = registered.volcanoAssetId.trim();
       return {

@@ -23,12 +23,29 @@ func NewSeedanceAssetHandler(assets *service.SeedanceAssetService, cfg config.Co
 	return &SeedanceAssetHandler{assets: assets, cfg: cfg}
 }
 
+func (h *SeedanceAssetHandler) assetsForRequest(c *gin.Context) *service.SeedanceAssetService {
+	scoped := h.assets.ForProvider(c.Query("provider_id"))
+	if strings.HasPrefix(c.FullPath(), "/api/ai/") && strings.TrimSpace(c.Query("provider_id")) != "" {
+		scoped = scoped.ForOwner(auth.MustCurrentUser(c).ID)
+	}
+	return scoped
+}
+
+func (h *SeedanceAssetHandler) UserGet(c *gin.Context) {
+	asset, err := h.assetsForRequest(c).RefreshAsset(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		writeSeedanceAssetError(c, err)
+		return
+	}
+	response.OK(c, asset)
+}
+
 func (h *SeedanceAssetHandler) AdminReadiness(c *gin.Context) {
-	response.OK(c, h.assets.Readiness())
+	response.OK(c, h.assetsForRequest(c).Readiness())
 }
 
 func (h *SeedanceAssetHandler) AdminList(c *gin.Context) {
-	result, err := h.assets.ListAssets(seedanceAssetListInputFromQuery(c, false))
+	result, err := h.assetsForRequest(c).ListAssets(seedanceAssetListInputFromQuery(c, false))
 	if err != nil {
 		writeSeedanceAssetError(c, err)
 		return
@@ -37,7 +54,7 @@ func (h *SeedanceAssetHandler) AdminList(c *gin.Context) {
 }
 
 func (h *SeedanceAssetHandler) Mentions(c *gin.Context) {
-	result, err := h.assets.ListAssets(seedanceAssetListInputFromQuery(c, true))
+	result, err := h.assetsForRequest(c).ListAssets(seedanceAssetListInputFromQuery(c, true))
 	if err != nil {
 		writeSeedanceAssetError(c, err)
 		return
@@ -46,7 +63,7 @@ func (h *SeedanceAssetHandler) Mentions(c *gin.Context) {
 }
 
 func (h *SeedanceAssetHandler) AdminGet(c *gin.Context) {
-	asset, err := h.assets.GetAsset(c.Param("id"))
+	asset, err := h.assetsForRequest(c).GetAsset(c.Param("id"))
 	if err != nil {
 		writeSeedanceAssetError(c, err)
 		return
@@ -63,7 +80,7 @@ func (h *SeedanceAssetHandler) AdminUpload(c *gin.Context) {
 		return
 	}
 	defer file.Close()
-	asset, err := h.assets.RegisterAssetFromUpload(c.Request.Context(), service.SeedanceAssetUploadInput{
+	asset, err := h.assetsForRequest(c).RegisterAssetFromUpload(c.Request.Context(), service.SeedanceAssetUploadInput{
 		Name:        strings.TrimSpace(c.PostForm("name")),
 		Description: strings.TrimSpace(c.PostForm("description")),
 		AssetType:   strings.TrimSpace(c.PostForm("asset_type")),
@@ -94,7 +111,7 @@ func (h *SeedanceAssetHandler) AdminRegisterURL(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	asset, err := h.assets.RegisterAssetFromURL(c.Request.Context(), service.SeedanceAssetRegisterURLInput{
+	asset, err := h.assetsForRequest(c).RegisterAssetFromURL(c.Request.Context(), service.SeedanceAssetRegisterURLInput{
 		Name:        req.Name,
 		Description: req.Description,
 		AssetType:   req.AssetType,
@@ -140,7 +157,7 @@ func (h *SeedanceAssetHandler) AdminUpdate(c *gin.Context) {
 	if req.HasTagIDs {
 		tagIDs = &req.TagIDs
 	}
-	asset, err := h.assets.UpdateAsset(c.Param("id"), service.SeedanceAssetUpdateInput{
+	asset, err := h.assetsForRequest(c).UpdateAsset(c.Param("id"), service.SeedanceAssetUpdateInput{
 		Name:        req.Name,
 		Description: req.Description,
 		TagIDs:      tagIDs,
@@ -153,7 +170,7 @@ func (h *SeedanceAssetHandler) AdminUpdate(c *gin.Context) {
 }
 
 func (h *SeedanceAssetHandler) AdminDelete(c *gin.Context) {
-	if err := h.assets.DeleteAsset(c.Request.Context(), c.Param("id")); err != nil {
+	if err := h.assetsForRequest(c).DeleteAsset(c.Request.Context(), c.Param("id")); err != nil {
 		writeSeedanceAssetError(c, err)
 		return
 	}
@@ -161,7 +178,7 @@ func (h *SeedanceAssetHandler) AdminDelete(c *gin.Context) {
 }
 
 func (h *SeedanceAssetHandler) AdminSync(c *gin.Context) {
-	count, err := h.assets.SyncAssets(c.Request.Context())
+	count, err := h.assetsForRequest(c).SyncAssets(c.Request.Context())
 	if err != nil {
 		writeSeedanceAssetError(c, err)
 		return
@@ -170,7 +187,7 @@ func (h *SeedanceAssetHandler) AdminSync(c *gin.Context) {
 }
 
 func (h *SeedanceAssetHandler) AdminPoll(c *gin.Context) {
-	count, err := h.assets.PollPendingOnce(c.Request.Context())
+	count, err := h.assetsForRequest(c).PollPendingOnce(c.Request.Context())
 	if err != nil {
 		writeSeedanceAssetError(c, err)
 		return
@@ -195,7 +212,7 @@ func (h *SeedanceAssetHandler) EnsureActive(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "asset_id is required")
 		return
 	}
-	if err := h.assets.EnsureAssetsActive(c.Request.Context(), assetIDs); err != nil {
+	if err := h.assetsForRequest(c).EnsureAssetsActive(c.Request.Context(), assetIDs); err != nil {
 		writeSeedanceAssetError(c, err)
 		return
 	}
@@ -203,7 +220,7 @@ func (h *SeedanceAssetHandler) EnsureActive(c *gin.Context) {
 }
 
 func (h *SeedanceAssetHandler) ListTags(c *gin.Context) {
-	tags, err := h.assets.ListTags()
+	tags, err := h.assetsForRequest(c).ListTags()
 	if err != nil {
 		writeSeedanceAssetError(c, err)
 		return
@@ -221,7 +238,7 @@ func (h *SeedanceAssetHandler) UpsertTag(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	tag, err := h.assets.UpsertTag(service.SeedanceAssetTagInput{Name: req.Name, Color: req.Color, CreatedBy: user.ID})
+	tag, err := h.assetsForRequest(c).UpsertTag(service.SeedanceAssetTagInput{Name: req.Name, Color: req.Color, CreatedBy: user.ID})
 	if err != nil {
 		writeSeedanceAssetError(c, err)
 		return
@@ -230,7 +247,7 @@ func (h *SeedanceAssetHandler) UpsertTag(c *gin.Context) {
 }
 
 func (h *SeedanceAssetHandler) DeleteTag(c *gin.Context) {
-	if err := h.assets.DeleteTag(c.Param("id")); err != nil {
+	if err := h.assetsForRequest(c).DeleteTag(c.Param("id")); err != nil {
 		writeSeedanceAssetError(c, err)
 		return
 	}
@@ -238,7 +255,7 @@ func (h *SeedanceAssetHandler) DeleteTag(c *gin.Context) {
 }
 
 func (h *SeedanceAssetHandler) AddTag(c *gin.Context) {
-	if err := h.assets.AddTag(c.Param("id"), c.Param("tag_id")); err != nil {
+	if err := h.assetsForRequest(c).AddTag(c.Param("id"), c.Param("tag_id")); err != nil {
 		writeSeedanceAssetError(c, err)
 		return
 	}
@@ -246,7 +263,7 @@ func (h *SeedanceAssetHandler) AddTag(c *gin.Context) {
 }
 
 func (h *SeedanceAssetHandler) RemoveTag(c *gin.Context) {
-	if err := h.assets.RemoveTag(c.Param("id"), c.Param("tag_id")); err != nil {
+	if err := h.assetsForRequest(c).RemoveTag(c.Param("id"), c.Param("tag_id")); err != nil {
 		writeSeedanceAssetError(c, err)
 		return
 	}

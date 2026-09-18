@@ -66,6 +66,10 @@ func SDVideoThumbnail(client *sdvideo.Client, kind string) gin.HandlerFunc {
 func SDVideoAssetCompatibility(client *sdvideo.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.FullPath()
+		// Explicit Studio providers use the native handler after Studio authentication.
+		if strings.TrimSpace(c.Query("provider_id")) != "" {
+			return
+		}
 		// 普通用户入口复用同一套注册实现，身份及空间始终由 Studio 鉴权生成。
 		if strings.HasPrefix(path, "/api/ai/seedance-assets") && !strings.HasSuffix(path, "/mentions") && !strings.HasSuffix(path, "/ensure-active") {
 			path = strings.Replace(path, "/api/ai/", "/api/admin/", 1)

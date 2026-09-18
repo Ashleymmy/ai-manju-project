@@ -12,13 +12,19 @@ export function listUserSeedanceAssets(params: SeedanceAssetListParams = {}) {
   return request<SeedanceAssetList>("/api/ai/seedance-assets", { query: params });
 }
 
-export function uploadUserSeedanceAsset(file: File, scope: WorkspaceScope) {
+export function getUserSeedanceAsset(id: string, scope: WorkspaceScope, providerId?: string) {
+  return request<SeedanceAsset>(`/api/ai/seedance-assets/${encodeURIComponent(id)}`, {
+    query: { scope, provider_id: providerId }, timeoutMs: 120_000,
+  });
+}
+
+export function uploadUserSeedanceAsset(file: File, scope: WorkspaceScope, providerId?: string) {
   const body = new FormData();
   body.append("file", file);
   body.append("name", file.name);
   body.append("asset_type", file.type.startsWith("video/") ? "Video" : "Image");
   return request<SeedanceAsset>("/api/ai/seedance-assets/upload", {
-    method: "POST", body, query: { scope }, timeoutMs: 120_000,
+    method: "POST", body, query: { scope, provider_id: providerId }, timeoutMs: 120_000,
   });
 }
 
@@ -64,11 +70,11 @@ export function listSeedanceAssetMentions(
   });
 }
 
-export function ensureSeedanceAssetsActive(assetIds: string[], scope: WorkspaceScope = "personal") {
+export function ensureSeedanceAssetsActive(assetIds: string[], scope: WorkspaceScope = "personal", providerId?: string) {
   return request<{ active: boolean }>("/api/ai/seedance-assets/ensure-active", {
     method: "POST",
     body: { asset_ids: assetIds },
-    query: { scope },
+    query: { scope, provider_id: providerId },
   });
 }
 

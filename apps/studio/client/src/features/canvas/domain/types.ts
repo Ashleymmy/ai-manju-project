@@ -121,6 +121,7 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
     raw?: Record<string, unknown>;
   }>;
   seedanceVolcanoAssets?: Array<{
+    providerId?: string;
     id: string;
     volcanoAssetId: string;
     name?: string;

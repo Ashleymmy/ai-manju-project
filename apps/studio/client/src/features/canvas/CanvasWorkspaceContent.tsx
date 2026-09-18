@@ -1,3 +1,4 @@
+import { registerCanvasImageAsset, registrationProviderId } from "./services/seedanceRegistration";
 import { resolveModel } from "@/shared/lib/modelSelection";
 import {
   Archive,
@@ -82,8 +83,6 @@ import {
   updateAssetMetadata,
   updateAssetUserState,
   uploadAsset,
-  listUserSeedanceAssets,
-  uploadUserSeedanceAsset,
   type Asset,
   type AssetCategory,
   type AssetSourceType,
@@ -551,6 +550,10 @@ export default function CanvasWorkspaceViewContent() {
   const [textModel, setTextModel] = useState("");
   const [videoModels, setVideoModels] = useState<string[]>([]);
   const [videoModel, setVideoModel] = useState("");
+  const [registrationTarget, setRegistrationTarget] = useState<{ nodeId: string; model: string; projectKey: string } | null>(null);
+  const [registrationBusy, setRegistrationBusy] = useState(false);
+  const registrationBusyRef = useRef(false);
+  const [registrationError, setRegistrationError] = useState("");
   const [audioModels, setAudioModels] = useState<string[]>([]);
   const [audioModel, setAudioModel] = useState("");
   const [textModelLabels, setTextModelLabels] = useState<Record<string, string>>({});
@@ -1983,62 +1986,68 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const registerImageAsSeedanceAsset = async (node: CanvasNodeData) => {
-    if (node.kind !== "image") return;
-    const scope = projectSessionController.canonicalScope;
+    if (node.kind !== "image" || registrationBusyRef.current) return;
     const projectKey = projectSessionController.canonicalKey;
-    if (!scope || !projectKey) {
-      toast.warning("正在确认项目工作区，请稍后再试");
-      return;
-    }
-    if (node.metadata?.seedanceVolcanoAssets?.some((item) => item && typeof item === "object" && typeof (item as { volcanoAssetId?: unknown }).volcanoAssetId === "string" && Boolean((item as { volcanoAssetId: string }).volcanoAssetId.trim()))) {
-      toast.info("该图片已经注册过拟真人素材");
-      return;
-    }
+    if (!projectKey || projectSessionController.switching) return;
+    const linked = edgesRef.current.filter((edge) => edge.from === node.id)
+      .map((edge) => nodesRef.current.find((item) => item.id === edge.to))
+      .find((item) => item?.kind === "video");
+    const preferred = linked ? modelFromNode(linked, videoModel) : videoModel;
+    const candidates = videoModels.filter(isSeedanceVideoModel);
+    setRegistrationTarget({ nodeId: node.id, model: candidates.includes(preferred) ? preferred : candidates[0] || "", projectKey });
+    setRegistrationError("");
+  };
+
+  const submitImageRegistration = async () => {
+    if (!registrationTarget || registrationBusyRef.current) return;
+    const { nodeId, model: selectedModel, projectKey } = registrationTarget;
+    const scope = projectSessionController.canonicalScope;
+    const isCurrent = () => !projectSessionController.switching && projectSessionController.canonicalKey === projectKey;
+    const node = nodesRef.current.find((item) => item.id === nodeId);
+    if (!scope || !node || !isCurrent() || !selectedModel) return;
+    const providerId = registrationProviderId(selectedModel);
+    registrationBusyRef.current = true;
+    setRegistrationBusy(true);
+    setRegistrationError("");
     let source: Awaited<ReturnType<typeof imageSourceForNode>> | null = null;
     try {
-      source = await imageSourceForNode(node);
-      const response = await fetch(source.url);
-      if (!response.ok) throw new Error(`读取图片失败（${response.status}）`);
-      const blob = await response.blob();
-      const contentType = blob.type.startsWith("image/") ? blob.type : "image/png";
-      const file = new File([blob], imageFileName(node.title || "拟真人素材", contentType), { type: contentType });
-      let asset = await uploadUserSeedanceAsset(file, scope);
-      // 火山注册通常异步完成：上传接口可能先返回 Processing 和空 volcano_asset_id。
-      // 轮询同一资产记录，拿到真实 ID 后再写入画布节点，避免生成时退回原图上传。
-      if (!asset.volcano_asset_id) {
-        for (let attempt = 0; attempt < 15 && !asset.volcano_asset_id; attempt += 1) {
-          await new Promise((resolve) => window.setTimeout(resolve, 2_000));
-          const listed = await listUserSeedanceAssets({ scope, limit: 50, search: asset.name || file.name });
-          const refreshed = listed.items.find((item) => item.id === asset.id)
-            || listed.items.find((item) => item.name === asset.name && item.volcano_asset_id);
-          if (refreshed?.volcano_asset_id) asset = refreshed;
-        }
+      const asset = await registerCanvasImageAsset({
+        scope, providerId, isCurrent,
+        existing: node.metadata?.seedanceVolcanoAssets?.find((item) => (item.providerId || "") === (providerId || "")),
+        loadFile: async () => {
+          source = await imageSourceForNode(node);
+          const response = await fetch(source.url);
+          if (!response.ok) throw new Error(`读取图片失败（${response.status}）`);
+          const blob = await response.blob();
+          const contentType = blob.type.startsWith("image/") ? blob.type : "image/png";
+          return new File([blob], imageFileName(node.title || "拟真人素材", contentType), { type: contentType });
+        },
+        onUpdate: async (asset) => {
+          if (!isCurrent()) return;
+          const selected = { id: asset.id, providerId, volcanoAssetId: asset.volcano_asset_id || "", name: asset.name || node.title, status: asset.status, assetType: asset.asset_type || "Image" };
+          const nextNodes = nodesRef.current.map((item) => item.id === node.id
+            ? { ...item, metadata: { ...item.metadata, seedanceVolcanoAssets: [selected] } }
+            : item);
+          nodesRef.current = nextNodes;
+          setNodes(nextNodes);
+          await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+        },
+      });
+      if (!isCurrent()) return;
+      if (asset.status.toLowerCase() === "active" && asset.volcano_asset_id) {
+        toast.success("素材注册成功，可以连接使用同一 Provider 的视频节点生成");
+      } else {
+        toast.info("素材已提交，仍在处理中；再次点击注册会查询原记录的进度");
       }
-      if (!asset.volcano_asset_id) {
-        toast.info("拟真人素材已提交，火山仍在处理中；完成后请重新点击注册或刷新资产库");
-        return;
-      }
-      if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) return;
-      const selected = {
-        id: asset.id,
-        volcanoAssetId: asset.volcano_asset_id,
-        name: asset.name || file.name,
-        status: asset.status || "Active",
-        assetType: asset.asset_type || "Image",
-      };
-      const current = nodesRef.current.find((item) => item.id === node.id);
-      if (!current) return;
-      const nextNodes = nodesRef.current.map((item) => item.id === node.id
-        ? { ...item, metadata: { ...item.metadata, seedanceVolcanoAssets: [selected] } }
-        : item);
-      nodesRef.current = nextNodes;
-      setNodes(nextNodes);
-      await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      toast.success(asset.status && asset.status.toLowerCase() !== "active" ? "拟真人素材已提交，审核通过后可生成视频" : "拟真人素材注册成功，现在可以连接视频节点生成");
+      setRegistrationTarget(null);
     } catch (error) {
-      toast.error(publicApiError(error, "拟真人素材注册失败"));
+      const message = publicApiError(error, "拟真人素材注册失败");
+      setRegistrationError(message);
+      toast.error(message);
     } finally {
-      source?.cleanup();
+      (source as Awaited<ReturnType<typeof imageSourceForNode>> | null)?.cleanup();
+      registrationBusyRef.current = false;
+      setRegistrationBusy(false);
     }
   };
 
@@ -4259,6 +4268,27 @@ export default function CanvasWorkspaceViewContent() {
 
   return (
     <div className="canvas-page real-canvas-page">
+      <Dialog open={Boolean(registrationTarget)} onOpenChange={(open) => { if (!open && !registrationBusy) setRegistrationTarget(null); }}>
+        <DialogContent showCloseButton={!registrationBusy}>
+          <DialogHeader>
+            <DialogTitle>注册拟真人素材</DialogTitle>
+            <DialogDescription>选择这张图片将要使用的视频模型。素材会注册到对应 Provider，之后请使用同一 Provider 生成视频。</DialogDescription>
+          </DialogHeader>
+          <label className="grid gap-2 text-sm">
+            <span>目标视频模型</span>
+            <select aria-label="目标视频模型" className="h-10 rounded-md border border-input bg-background px-3" disabled={registrationBusy}
+              value={registrationTarget?.model || ""} onChange={(event) => { setRegistrationTarget((current) => current ? { ...current, model: event.target.value } : null); setRegistrationError(""); }}>
+              {!videoModels.some(isSeedanceVideoModel) && <option value="">暂无支持素材注册的视频模型</option>}
+              {videoModels.filter(isSeedanceVideoModel).map((model) => <option key={model} value={model}>{canvasModelName(model, textModelLabels)}{model.startsWith("sdvideo/") ? " · SD-video" : " · 独立 Provider"}</option>)}
+            </select>
+          </label>
+          {registrationError && <p role="alert" className="text-sm text-destructive">{registrationError}</p>}
+          <DialogFooter>
+            <button className="outline-button small" disabled={registrationBusy} onClick={() => setRegistrationTarget(null)}>取消</button>
+            <button className="vermilion-button" disabled={registrationBusy || !registrationTarget?.model} onClick={() => void submitImageRegistration()}>{registrationBusy ? "正在注册并查询状态…" : "注册 / 更新状态"}</button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* 步骤2：聊天台跳转过来的加载覆盖层 —— 从首屏接管覆盖，直到项目快照加载完成（步骤3-5就绪后撤下） */}
       {bootstrapActive && (
         <div

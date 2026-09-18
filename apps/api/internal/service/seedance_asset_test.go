@@ -333,6 +333,8 @@ func TestSeedanceAssetServiceOfficialProviderSignsAssetRequestsWithAKSK(t *testi
 		switch queryAction {
 		case "CreateAssetGroup":
 			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{"Id": "official-group"}})
+		case "GetAsset":
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{"Id": "official-asset", "Status": "Active"}})
 		case "CreateAsset":
 			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{"Id": "official-asset", "Status": "Processing"}})
 		default:
@@ -379,7 +381,7 @@ func TestSeedanceAssetServiceOfficialProviderSignsAssetRequestsWithAKSK(t *testi
 	svc := NewSeedanceAssetService(providerRepo, assetRepo, secretBox, nil, "")
 	// The test server uses a self-signed certificate; keep production transport unchanged.
 	svc.client = server.Client()
-	asset, err := svc.RegisterAssetFromURL(context.Background(), SeedanceAssetRegisterURLInput{
+	asset, err := svc.ForProvider("official-seedance").RegisterAssetFromURL(context.Background(), SeedanceAssetRegisterURLInput{
 		Name:      "official digital human",
 		AssetType: model.SeedanceAssetTypeImage,
 		SourceURL: "https://assets.example.test/person.png",
@@ -397,6 +399,11 @@ func TestSeedanceAssetServiceOfficialProviderSignsAssetRequestsWithAKSK(t *testi
 	if body["ProjectName"] != "default" {
 		t.Fatalf("official request missing project name: %#v", body)
 	}
+	refreshed, err := svc.ForProvider("official-seedance").ForOwner("admin").RefreshAsset(context.Background(), asset.ID)
+	if err != nil || refreshed.Status != "Active" || queryAction != "GetAsset" {
+		t.Fatalf("official refresh: %v %s", err, refreshed.Status)
+	}
+
 }
 
 func newSeedanceAssetTestService(t *testing.T, baseURL string, apiKey string, secrets map[string]string) (*SeedanceAssetService, *repository.MemorySeedanceAssetRepository) {

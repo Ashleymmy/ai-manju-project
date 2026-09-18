@@ -571,7 +571,6 @@ function inputFromNode(
       Boolean(item)
       && typeof item === "object"
       && typeof (item as { volcanoAssetId?: unknown }).volcanoAssetId === "string"
-      && Boolean((item as { volcanoAssetId: string }).volcanoAssetId.trim())
     ))
     : undefined;
   return content || assetId || seedanceVolcanoAssets?.length

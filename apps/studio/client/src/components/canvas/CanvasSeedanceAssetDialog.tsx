@@ -12,6 +12,7 @@ import {
 } from "@/entities/asset";
 
 export type SelectedSeedanceVolcanoAsset = {
+  providerId?: string;
   id: string;
   volcanoAssetId: string;
   name?: string;

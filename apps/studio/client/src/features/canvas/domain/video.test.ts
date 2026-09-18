@@ -98,6 +98,12 @@ describe("canvas video references", () => {
     expect(refs.resolveNodeBlob).not.toHaveBeenCalled();
   });
 
+  it("does not upload the original image while its registration is still pending", async () => {
+    const refs = hydrators();
+    await expect(hydrateCanvasVideoReferences([{ nodeId: "pending-image", type: "image", title: "角色", assetId: "original", seedanceVolcanoAssets: [{ id: "pending", volcanoAssetId: "", status: "Processing" }] }], refs)).rejects.toThrow("仍在处理中");
+    expect(refs.resolveAssetBlob).not.toHaveBeenCalled();
+  });
+
   it("preserves typed input order and removes repeated node or asset references", async () => {
     const inputs: CanvasGenerationInput[] = [
       { nodeId: "text-1", type: "text", title: "动作", text: "缓慢推近" },

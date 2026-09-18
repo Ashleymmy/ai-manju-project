@@ -235,6 +235,7 @@ export type SeedanceAssetReadiness = {
 };
 
 export type SeedanceAssetListParams = {
+  provider_id?: string;
   scope?: WorkspaceScope;
   status?: string;
   type?: string;
