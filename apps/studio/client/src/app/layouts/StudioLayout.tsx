@@ -4,13 +4,16 @@ import {
   CircleDashed,
   Clapperboard,
   Compass,
+  Crown,
   FileText,
   Film,
   FolderKanban,
+  Gift,
   Grid2X2,
   Home,
   Image as ImageIcon,
   Library,
+  LogOut,
   MoreHorizontal,
   PanelRight,
   Plus,
@@ -22,6 +25,7 @@ import {
   Tag,
   Terminal,
   Video,
+  Wallet,
   WandSparkles,
 } from "lucide-react";
 import {
@@ -37,7 +41,10 @@ import { Link, useLocation } from "wouter";
 
 import ReleaseNotesDialog from "@/components/ReleaseNotesDialog";
 import { useAuth } from "@/contexts/AuthContext";
+import { isAdminTierRole } from "@/entities/auth";
 import AnnouncementBanner from "@/features/announcements";
+import { daysUntil, formatCredits, useMemberOverviewQuery } from "@/features/member";
+import { useOutsidePress } from "@/shared/lib/useOutsidePress";
 import {
   useWorkspaceDashboardData,
   type WorkspaceData,
@@ -85,6 +92,7 @@ const libraryNav: NavItem[] = [
 
 const systemNav: NavItem[] = [
   { label: "个人主页", href: "/profile", icon: PanelRight },
+  { label: "会员中心", href: "/member", icon: Crown },
   { label: "渲染队列", href: "/queue", icon: RadioTower },
   { label: "偏好设置", href: "/settings", icon: Settings2 },
 ];
@@ -174,6 +182,11 @@ export const studioPageTitles: Record<
     title: "偏好设置",
     subtitle: "调整默认模型、图像规格和画布操作方式，让工作台更像你的习惯。",
   },
+  "/member": {
+    code: "MEMBER / CREDITS",
+    title: "会员中心",
+    subtitle: "会员状态、双余额、消耗明细、套餐购买与邀请有礼。",
+  },
   "/admin": {
     code: "SYSTEM / SUPER ADMIN",
     title: "管理后台",
@@ -185,6 +198,8 @@ function normalizeShellPath(locationPath: string) {
   if (locationPath.startsWith("/canvas/")) return "/canvas";
   if (locationPath === "/admin" || locationPath.startsWith("/admin/"))
     return "/admin";
+  if (locationPath === "/member" || locationPath.startsWith("/member/"))
+    return "/member";
   return locationPath;
 }
 
@@ -392,8 +407,9 @@ function SideRail({
   collapsed: boolean;
 }) {
   const { user } = useAuth();
-  const systemItems =
-    user?.role === "super_admin" ? [...systemNav, adminNavItem] : systemNav;
+  const systemItems = isAdminTierRole(user?.role)
+    ? [...systemNav, adminNavItem]
+    : systemNav;
   const groups = [
     { id: "creation", title: "制作桌", items: creationNav },
     { id: "library", title: "素材与语言", items: libraryNav },
@@ -406,12 +422,61 @@ function SideRail({
   );
 }
 
+/** 账号区角色文案（后台三级权限 + 普通成员）。 */
+function sideRoleLabel(role?: string) {
+  switch (role) {
+    case "super_admin":
+      return "超级管理员";
+    case "ops_admin":
+      return "运营管理员";
+    case "auditor":
+      return "只读审计";
+    default:
+      return "创作成员";
+  }
+}
+
 function SideFootCard({ data }: { data: WorkspaceData }) {
   const [, navigate] = useLocation();
   const { user, logout } = useAuth();
   const projectCount = data.projects.total ?? 0;
   const assetCount = data.assets.total ?? 0;
   const runningCount = data.jobs.total ?? 0;
+
+  /* ---- 账号 popover（会员徽标 + 双余额 + 会员入口；数据 GET /api/member/overview） ---- */
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const overviewQuery = useMemberOverviewQuery(popoverOpen);
+  const overview = overviewQuery.data;
+  const membership = overview?.membership ?? null;
+  const expiryDays = daysUntil(overview?.next_expiry_at);
+
+  useOutsidePress(
+    popoverOpen,
+    event => Boolean(popoverRef.current?.contains(event.target as Node)),
+    () => setPopoverOpen(false)
+  );
+
+  useEffect(() => {
+    if (!popoverOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPopoverOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [popoverOpen]);
+
+  const goMember = (path: string) => {
+    setPopoverOpen(false);
+    navigate(path);
+  };
+
+  /** 登出行为与改版前一致：logout() 后回登录页。 */
+  const handleLogout = () => {
+    setPopoverOpen(false);
+    void logout().then(() => navigate("/login"));
+  };
+
   return (
     <div className="side-foot side-foot-float">
       <div className="side-meter">
@@ -433,23 +498,82 @@ function SideFootCard({ data }: { data: WorkspaceData }) {
           {projectCount} 项目 · {assetCount} 资产 · {runningCount} 运行中
         </small>
       </div>
-      <button
-        className="user-card"
-        onClick={() => logout().then(() => navigate("/login"))}
-      >
-        <span className="avatar">
-          {(user?.display_name ?? user?.username ?? "?")
-            .at(0)
-            ?.toUpperCase() ?? "?"}
-        </span>
-        <span className="user-meta">
-          <b>{user?.display_name ?? user?.username ?? "—"}</b>
-          <small>
-            {user?.role === "super_admin" ? "超级管理员" : "创作成员"}
-          </small>
-        </span>
-        <MoreHorizontal size={16} />
-      </button>
+      <div className="user-card-anchor" ref={popoverRef}>
+        {popoverOpen ? (
+          <div className="user-pop" role="dialog" aria-label="账号与余额">
+            <div className="user-pop-head">
+              <span className="avatar">
+                {(user?.display_name ?? user?.username ?? "?")
+                  .at(0)
+                  ?.toUpperCase() ?? "?"}
+              </span>
+              <div className="user-pop-head-meta">
+                <b>{user?.display_name ?? user?.username ?? "—"}</b>
+                <span className={`user-pop-badge ${membership ? "is-member" : ""}`}>
+                  <Crown size={11} />
+                  {membership ? membership.plan_name : "免费版"}
+                </span>
+              </div>
+            </div>
+            <div className="user-pop-balances">
+              {overviewQuery.isPending ? (
+                <p className="user-pop-state">正在读取余额…</p>
+              ) : overviewQuery.isError ? (
+                <p className="user-pop-state">余额加载失败，请稍后重试</p>
+              ) : (
+                <>
+                  <div className="user-pop-balance-row">
+                    <span>限时积分</span>
+                    <b>{formatCredits(overview?.limited_available)}</b>
+                    <small>
+                      {overview?.next_expiry_at
+                        ? `${expiryDays} 天后清零`
+                        : "暂无将到期积分"}
+                    </small>
+                  </div>
+                  <div className="user-pop-balance-row">
+                    <span>永久积分</span>
+                    <b>{formatCredits(overview?.permanent_available)}</b>
+                    <small>永久有效</small>
+                  </div>
+                </>
+              )}
+            </div>
+            <nav className="user-pop-links">
+              <button type="button" onClick={() => goMember("/member")}>
+                <Crown size={13} /> 会员中心
+              </button>
+              <button type="button" onClick={() => goMember("/member/plans")}>
+                <Wallet size={13} /> 套餐购买
+              </button>
+              <button type="button" onClick={() => goMember("/member/invite")}>
+                <Gift size={13} /> 邀请有礼
+              </button>
+            </nav>
+            <button type="button" className="user-pop-logout" onClick={handleLogout}>
+              <LogOut size={13} /> 登出
+            </button>
+          </div>
+        ) : null}
+        <button
+          className="user-card"
+          onClick={() => setPopoverOpen(open => !open)}
+          aria-expanded={popoverOpen}
+          aria-haspopup="dialog"
+          title="账号与余额"
+        >
+          <span className="avatar">
+            {(user?.display_name ?? user?.username ?? "?")
+              .at(0)
+              ?.toUpperCase() ?? "?"}
+          </span>
+          <span className="user-meta">
+            <b>{user?.display_name ?? user?.username ?? "—"}</b>
+            <small>{sideRoleLabel(user?.role)}</small>
+          </span>
+          <MoreHorizontal size={16} />
+        </button>
+      </div>
     </div>
   );
 }

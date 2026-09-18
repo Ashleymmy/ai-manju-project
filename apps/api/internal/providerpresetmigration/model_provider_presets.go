@@ -226,6 +226,15 @@ func isSeedanceProvider(config model.ModelProviderConfig) bool {
 }
 
 func seedanceMigrationEndpointOverrides(config model.ModelProviderConfig) map[string]string {
+	if strings.TrimSpace(config.PresetID) == service.VolcanoOfficialProviderPresetID {
+		overrides := make(map[string]string, len(service.DefaultVolcanoOfficialAssetEndpointOverrides)+2)
+		overrides["video_create"] = "/contents/generations/tasks"
+		overrides["video_get"] = "/contents/generations/tasks/{id}"
+		for key, value := range service.DefaultVolcanoOfficialAssetEndpointOverrides {
+			overrides[key] = value
+		}
+		return overrides
+	}
 	overrides := map[string]string{
 		"video_create":      "/contents/generations/tasks",
 		"video_get":         "/contents/generations/tasks/{id}",

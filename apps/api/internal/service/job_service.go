@@ -24,10 +24,19 @@ type JobService struct {
 	assetUsage  interface {
 		RecordGenerationUse(workspaceID string, userID string, jobID string, assetIDs []string) error
 	}
+	// billing is nil when BILLING_ENABLED is off: every billing call site must
+	// nil-check so disabled deployments keep the exact pre-billing behavior.
+	billing JobBillingHooks
 }
 
 func (s *JobService) SetJobInputService(jobInputs *JobInputService) {
 	s.jobInputs = jobInputs
+}
+
+// SetBillingHooks wires credit reservation/settlement. Called only when
+// cfg.BillingEnabled is true.
+func (s *JobService) SetBillingHooks(hooks JobBillingHooks) {
+	s.billing = hooks
 }
 
 func (s *JobService) SetAssetUsageRecorder(recorder interface {
@@ -91,14 +100,26 @@ func (s *JobService) CreateExternal(input ExternalJobInput) (EnqueueJobResult, e
 	if existing, err := s.repo.GetByIdempotencyKey(idempotencyKey); err == nil {
 		return EnqueueJobResult{Job: existing, Created: false}, nil
 	}
+	jobID := "job_" + randomHex(12)
+	payload := NormalizeJSON(&input.Payload)
+	if s.billing != nil {
+		normalized, err := s.billing.NormalizePayloadForJob(input.UserID, input.Type, payload)
+		if err != nil {
+			return EnqueueJobResult{}, err
+		}
+		payload = normalized
+		if err := s.billing.ReserveForJob(input.UserID, input.Type, jobID, payload); err != nil {
+			return EnqueueJobResult{}, err
+		}
+	}
 	job := model.Job{
-		ID:               "job_" + randomHex(12),
+		ID:               jobID,
 		IdempotencyKey:   idempotencyKey,
 		UserID:           input.UserID,
 		WorkspaceID:      workspaceID,
 		Type:             input.Type,
 		Status:           model.JobStatusQueued,
-		Payload:          NormalizeJSON(&input.Payload),
+		Payload:          payload,
 		Result:           model.JSONB("{}"),
 		Error:            model.JSONB("{}"),
 		MaxAttempts:      s.maxAttempts,
@@ -110,7 +131,13 @@ func (s *JobService) CreateExternal(input ExternalJobInput) (EnqueueJobResult, e
 	}
 	created, err := s.repo.Create(job)
 	if err != nil {
+		if s.billing != nil {
+			s.billing.ReleaseForJob(jobID)
+		}
 		return EnqueueJobResult{}, err
+	}
+	if created.ID != job.ID && s.billing != nil {
+		s.billing.ReleaseForJob(jobID)
 	}
 	return EnqueueJobResult{Job: created, Created: created.ID == job.ID}, nil
 }
@@ -197,8 +224,22 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 	if candidates, ok := input.TaskKwargs["provider_candidates"].([]map[string]any); ok && len(candidates) > 0 {
 		maxAttempts = model.GenerationAttemptsPerProvider * len(candidates)
 	}
+	jobID := "job_" + randomHex(12)
+	// 计费（WP-M3/M6）：先按会员权益归一化载荷（非会员视频强制水印），
+	// 再并发准入 + 冻结。冻结失败（如余额不足/超并发）时不创建任务；
+	// 建单/发布失败立即释放冻结，孤儿冻结由对账消费者兜底回收。
+	if s.billing != nil {
+		normalized, err := s.billing.NormalizePayloadForJob(input.UserID, input.Type, payload)
+		if err != nil {
+			return EnqueueJobResult{}, err
+		}
+		payload = normalized
+		if err := s.billing.ReserveForJob(input.UserID, input.Type, jobID, payload); err != nil {
+			return EnqueueJobResult{}, err
+		}
+	}
 	job := model.Job{
-		ID:             "job_" + randomHex(12),
+		ID:             jobID,
 		IdempotencyKey: idempotencyKey,
 		UserID:         input.UserID,
 		WorkspaceID:    workspaceID,
@@ -212,15 +253,25 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 	}
 	created, err := s.repo.Create(job)
 	if err != nil {
+		if s.billing != nil {
+			s.billing.ReleaseForJob(jobID)
+		}
 		return EnqueueJobResult{}, err
 	}
 	if created.ID != job.ID {
+		// 并发下同幂等键已存在任务：冻结挂在未创建的幻影 job 上，立即释放。
+		if s.billing != nil {
+			s.billing.ReleaseForJob(jobID)
+		}
 		return EnqueueJobResult{Job: created, Created: false}, nil
 	}
 
 	if s.producer == nil {
 		if failed, setErr := s.repo.SetError(created.ID, errorJSON("queue producer is not configured")); setErr == nil {
 			created = failed
+		}
+		if s.billing != nil {
+			s.billing.ReleaseForJob(created.ID)
 		}
 		s.cleanupJobInputs(context.WithoutCancel(ctx), created)
 		return EnqueueJobResult{Job: created, Created: true}, queue.ErrBrokerNotConfigured
@@ -234,6 +285,9 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 	}); err != nil {
 		if failed, setErr := s.repo.SetError(created.ID, errorJSON(err.Error())); setErr == nil {
 			created = failed
+		}
+		if s.billing != nil {
+			s.billing.ReleaseForJob(created.ID)
 		}
 		s.cleanupJobInputs(context.WithoutCancel(ctx), created)
 		return EnqueueJobResult{Job: created, Created: true}, err
@@ -283,6 +337,10 @@ func (s *JobService) CancelForUser(id string, userID string) (model.Job, error) 
 			}
 			return err
 		})
+		// 用户主动取消不扣费：已冻结的积分立即退回（对账消费者幂等兜底）。
+		if err == nil && s.billing != nil && canceled.Status == model.JobStatusCanceled {
+			s.billing.ReleaseForJob(id)
+		}
 		return canceled, err
 	}
 	if job.Status == model.JobStatusSucceeded || job.Status == model.JobStatusFailed || job.Status == model.JobStatusCanceled {
@@ -292,6 +350,9 @@ func (s *JobService) CancelForUser(id string, userID string) (model.Job, error) 
 	canceled, err := s.repo.UpdateStatus(id, model.JobStatusCanceled)
 	if err != nil {
 		return model.Job{}, err
+	}
+	if s.billing != nil {
+		s.billing.ReleaseForJob(id)
 	}
 	s.cleanupJobInputs(context.Background(), canceled)
 	return canceled, nil

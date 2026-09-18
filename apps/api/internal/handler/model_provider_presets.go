@@ -109,6 +109,31 @@ func modelProviderPresets() []providerPreset {
 			},
 		},
 		{
+			ID:           service.VolcanoOfficialProviderPresetID,
+			Name:         "火山方舟官方 Seedance",
+			Description:  "火山方舟官方 Seedance 视频与 AIGC 素材注册。素材接口使用 AK/SK 签名，与 sdvideo Provider 独立。",
+			ProviderType: model.ModelProviderTypeVolcengineArk,
+			Mode:         model.ModelProviderModeOpenAICompatible,
+			BaseURL:      "https://ark.cn-beijing.volces.com/api/v3",
+			AuthType:     model.ModelProviderAuthTypeBearer,
+			Capabilities: []string{model.ModelCapabilityVideo},
+			ModelsByCapability: map[string][]string{
+				model.ModelCapabilityVideo: {"doubao-seedance-2-0-260128", "doubao-seedance-2-5-260628"},
+			},
+			Defaults:          map[string]string{model.ModelCapabilityVideo: "doubao-seedance-2-0-260128"},
+			EndpointOverrides: officialSeedancePresetEndpointOverrides(),
+			Secrets: []providerSecretSpec{
+				{Key: service.VolcanoOfficialAccessKeyIDSecret, Label: "火山 Access Key ID（AK）", Required: true, Placeholder: "用于官方素材签名"},
+				{Key: service.VolcanoOfficialSecretAccessKeySecret, Label: "火山 Secret Access Key（SK）", Required: true, Placeholder: "用于官方素材签名"},
+				{Key: service.VolcanoOfficialSecurityTokenSecret, Label: "Security Token（可选）", Required: false, Placeholder: "使用临时凭证时填写"},
+			},
+			Notes: []string{
+				"视频推理使用上方 API Key；AIGC 素材注册使用 AK/SK 的 HMAC-SHA256 签名。",
+				"此 Provider 与已存在的 sdvideo Provider 独立，不会修改或读取 sdvideo 的运行时凭据。",
+				"首次使用前需在火山方舟控制台完成素材授权，并确保图片公网 URL 可被官方访问。",
+			},
+		},
+		{
 			ID:           "gemini_media",
 			Name:         "Gemini Nano Banana / Omni / Veo",
 			Description:  "Google Gemini 原生媒体接口，覆盖 Nano Banana 图片、Gemini Omni 和 Veo 视频。",
@@ -252,6 +277,17 @@ func seedancePresetEndpointOverrides() map[string]string {
 		"material_delete_asset":                   "?Action=DeleteAsset",
 	}
 	for key, value := range service.DefaultVolcanoAssetEndpointOverrides {
+		overrides[key] = value
+	}
+	return overrides
+}
+
+func officialSeedancePresetEndpointOverrides() map[string]string {
+	overrides := map[string]string{
+		"video_create": "/contents/generations/tasks",
+		"video_get":    "/contents/generations/tasks/{id}",
+	}
+	for key, value := range service.DefaultVolcanoOfficialAssetEndpointOverrides {
 		overrides[key] = value
 	}
 	return overrides

@@ -317,6 +317,88 @@ func TestDefaultSeedanceAssetEndpointOverridesDoesNotInferProjectSpecificTokenSp
 	}
 }
 
+func TestSeedanceAssetServiceOfficialProviderSignsAssetRequestsWithAKSK(t *testing.T) {
+	var authorization string
+	var queryAction string
+	var body map[string]any
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		queryAction = r.URL.Query().Get("Action")
+		if r.Method != http.MethodPost || r.URL.Query().Get("Version") != "2024-01-01" {
+			t.Fatalf("unexpected official request %s %s", r.Method, r.URL.String())
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode official body: %v", err)
+		}
+		switch queryAction {
+		case "CreateAssetGroup":
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{"Id": "official-group"}})
+		case "CreateAsset":
+			_ = json.NewEncoder(w).Encode(map[string]any{"Result": map[string]any{"Id": "official-asset", "Status": "Processing"}})
+		default:
+			t.Fatalf("unexpected official action %q", queryAction)
+		}
+	}))
+	defer server.Close()
+
+	secretBox := provider.NewSecretBox("unit-test-secret")
+	encryptedAPIKey, _ := secretBox.Encrypt("video-api-key")
+	encryptedAK, _ := secretBox.Encrypt("test-access-key")
+	encryptedSK, _ := secretBox.Encrypt("test-secret-key")
+	providerRepo := repository.NewMemoryModelProviderRepository()
+	if _, err := providerRepo.UpsertModelProvider(model.ModelProviderConfig{
+		ID:               "official-seedance",
+		Name:             "Official Seedance",
+		PresetID:         VolcanoOfficialProviderPresetID,
+		ProviderType:     model.ModelProviderTypeVolcengineArk,
+		Mode:             model.ModelProviderModeOpenAICompatible,
+		BaseURL:          "https://ark.cn-beijing.volces.com/api/v3",
+		AuthType:         model.ModelProviderAuthTypeBearer,
+		APIKeyEncrypted:  encryptedAPIKey,
+		VideoModel:       "doubao-seedance-2-0-260128",
+		Capabilities:     testJSONB(t, []string{model.ModelCapabilityVideo}),
+		DefaultFor:       testJSONB(t, []string{model.ModelCapabilityVideo}),
+		SecretsEncrypted: testJSONB(t, map[string]string{VolcanoOfficialAccessKeyIDSecret: encryptedAK, VolcanoOfficialSecretAccessKeySecret: encryptedSK}),
+		EndpointOverrides: testJSONB(t, map[string]string{
+			VolcanoOfficialAssetProtocolKey: VolcanoOfficialAssetProtocol,
+			VolcanoOfficialAssetBaseURL:     server.URL,
+			VolcanoOfficialAssetRegion:      "cn-beijing",
+			VolcanoOfficialAssetProject:     "default",
+			VolcanoOfficialAssetVersion:     "2024-01-01",
+			VolcanoOfficialAssetCreateGroup: "CreateAssetGroup",
+			VolcanoOfficialAssetCreate:      "CreateAsset",
+			VolcanoOfficialAssetGet:         "GetAsset",
+			VolcanoOfficialAssetDelete:      "DeleteAsset",
+		}),
+		TimeoutMS: model.ModelProviderDefaultTimeoutMilli,
+		Enabled:   true,
+	}); err != nil {
+		t.Fatalf("upsert official provider: %v", err)
+	}
+	assetRepo := repository.NewMemorySeedanceAssetRepository()
+	svc := NewSeedanceAssetService(providerRepo, assetRepo, secretBox, nil, "")
+	// The test server uses a self-signed certificate; keep production transport unchanged.
+	svc.client = server.Client()
+	asset, err := svc.RegisterAssetFromURL(context.Background(), SeedanceAssetRegisterURLInput{
+		Name:      "official digital human",
+		AssetType: model.SeedanceAssetTypeImage,
+		SourceURL: "https://assets.example.test/person.png",
+		CreatedBy: "admin",
+	})
+	if err != nil {
+		t.Fatalf("official RegisterAssetFromURL error: %v", err)
+	}
+	if asset.VolcanoAssetID != "official-asset" || asset.ProviderID != "official-seedance" {
+		t.Fatalf("official asset = %#v", asset)
+	}
+	if !strings.HasPrefix(authorization, "HMAC-SHA256 Credential=test-access-key/") || !strings.Contains(authorization, "SignedHeaders=") {
+		t.Fatalf("official authorization header missing HMAC credential: %q", authorization)
+	}
+	if body["ProjectName"] != "default" {
+		t.Fatalf("official request missing project name: %#v", body)
+	}
+}
+
 func newSeedanceAssetTestService(t *testing.T, baseURL string, apiKey string, secrets map[string]string) (*SeedanceAssetService, *repository.MemorySeedanceAssetRepository) {
 	t.Helper()
 	secretBox := provider.NewSecretBox("unit-test-secret")

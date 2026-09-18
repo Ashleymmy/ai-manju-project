@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"log"
 	"strings"
 	"time"
 
@@ -94,6 +95,13 @@ func (s *Service) Login(username string, password string, rememberValues ...bool
 	})
 	if err != nil {
 		return model.User{}, "", err
+	}
+
+	// 后台用户列表需要最后登录时间；写失败不影响登录本身（不卡死）。
+	lastLogin := s.now()
+	user.LastLoginAt = &lastLogin
+	if _, err := s.repo.UpdateUser(user); err != nil {
+		log.Printf("event=last_login_update_failed user_id=%s reason=%q", user.ID, err.Error())
 	}
 
 	return user, rawToken, nil

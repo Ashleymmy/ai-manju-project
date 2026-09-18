@@ -83,9 +83,54 @@ func openPostgres(dsn string, pool *PoolConfig) (*gorm.DB, error) {
 		&model.ComicAssetAnalysisRevision{},
 		&model.ComicAssetGenerationBatch{},
 		&model.ComicAssetGenerationItem{},
+		// WP-M1: membership & credit ledger models.
+		&model.MembershipPlan{},
+		&model.UserMembership{},
+		&model.CreditAccount{},
+		&model.CreditGrant{},
+		&model.CreditLedgerEntry{},
+		&model.TaskConsumption{},
+		&model.CreditPackage{},
+		&model.Order{},
+		&model.InviteProfile{},
+		&model.InviteRecord{},
+		&model.AdminAuditLog{},
+		&model.BillingConfig{},
+		&model.RedemptionCode{},
+		&model.RedemptionRecord{},
 	); err != nil {
 		return nil, err
 	}
 
+	if err := applyMembershipLedgerConstraints(db); err != nil {
+		return nil, err
+	}
+
 	return db, nil
+}
+
+// applyMembershipLedgerConstraints executes the two constraints AutoMigrate
+// cannot express:
+//
+//  1. Partial unique index — a user may hold at most one ACTIVE membership
+//     row (Postgres-only feature; the Memory repository enforces the same
+//     rule in its Upsert path).
+//  2. Append-only enforcement — REVOKE UPDATE/DELETE on the credit ledger and
+//     the admin audit log from PUBLIC. Note: the app connects as the table
+//     owner, which keeps full privileges, so the primary guarantee remains the
+//     application layer exposing no mutation path; full enforcement requires a
+//     dedicated non-owner DB role at deployment time.
+func applyMembershipLedgerConstraints(db *gorm.DB) error {
+	statements := []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_memberships_one_active
+			ON user_memberships (user_id) WHERE status = 'active'`,
+		`REVOKE UPDATE, DELETE ON TABLE credit_ledger_entries FROM PUBLIC`,
+		`REVOKE UPDATE, DELETE ON TABLE admin_audit_logs FROM PUBLIC`,
+	}
+	for _, stmt := range statements {
+		if err := db.Exec(stmt).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }

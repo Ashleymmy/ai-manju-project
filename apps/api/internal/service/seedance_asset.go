@@ -3,6 +3,9 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,6 +25,25 @@ import (
 )
 
 const (
+	// VolcanoOfficialProviderPresetID identifies the direct official Ark
+	// provider. It is intentionally separate from the managed sdvideo entry.
+	VolcanoOfficialProviderPresetID = "volcengine_ark_official"
+	VolcanoOfficialAssetProtocolKey = "volcano_asset_protocol"
+	VolcanoOfficialAssetProtocol    = "ark_hmac"
+	VolcanoOfficialAssetBaseURL     = "volcano_official_asset_base_url"
+	VolcanoOfficialAssetRegion      = "volcano_official_asset_region"
+	VolcanoOfficialAssetProject     = "volcano_official_asset_project"
+	VolcanoOfficialAssetVersion     = "volcano_official_asset_version"
+	VolcanoOfficialAssetCreateGroup = "volcano_official_asset_create_group"
+	VolcanoOfficialAssetCreate      = "volcano_official_asset_create"
+	VolcanoOfficialAssetGet         = "volcano_official_asset_get"
+	VolcanoOfficialAssetDelete      = "volcano_official_asset_delete"
+
+	// These keys are encrypted in ModelProviderConfig.SecretsEncrypted.
+	VolcanoOfficialAccessKeyIDSecret     = "volcengine_access_key_id"
+	VolcanoOfficialSecretAccessKeySecret = "volcengine_secret_access_key"
+	VolcanoOfficialSecurityTokenSecret   = "volcengine_security_token"
+
 	VolcanoAssetEndpointBaseURL     = "volcano_asset_base_url"
 	VolcanoAssetEndpointListGroups  = "volcano_asset_list_groups"
 	VolcanoAssetEndpointCreateGroup = "volcano_asset_create_group"
@@ -34,10 +57,12 @@ const (
 type seedanceAssetProviderKind string
 
 const (
+	seedanceAssetProviderOfficial seedanceAssetProviderKind = "official"
 	seedanceAssetProviderVolcano  seedanceAssetProviderKind = "volcano"
 	seedanceAssetProviderMaterial seedanceAssetProviderKind = "material"
 
 	// Readiness protocol values identify which upstream asset-library contract is active.
+	SeedanceAssetProviderProtocolOfficial = "volcengine_ark_official_asset"
 	SeedanceAssetProviderProtocolVolcano  = "volcano_asset"
 	SeedanceAssetProviderProtocolMaterial = "tokenspace_material"
 	// SeedanceMaterialInitializationURL is the TokenSpace terminal-user setup page documented for first use.
@@ -45,9 +70,14 @@ const (
 )
 
 type seedanceAssetProvider struct {
-	config model.ModelProviderConfig
-	apiKey string
-	kind   seedanceAssetProviderKind
+	config          model.ModelProviderConfig
+	apiKey          string
+	accessKeyID     string
+	secretAccessKey string
+	securityToken   string
+	region          string
+	projectName     string
+	kind            seedanceAssetProviderKind
 }
 
 var DefaultVolcanoAssetEndpointOverrides = map[string]string{
@@ -57,6 +87,21 @@ var DefaultVolcanoAssetEndpointOverrides = map[string]string{
 	VolcanoAssetEndpointCreate:      "/v1/create/asset",
 	VolcanoAssetEndpointList:        "/v1/asset/list",
 	VolcanoAssetEndpointDelete:      "/v1/delete/asset",
+}
+
+// DefaultVolcanoOfficialAssetEndpointOverrides contains the first-party Ark
+// AIGC asset API contract. Its requests are signed with AK/SK and must not be
+// sent through the legacy bearer-token asset endpoints above.
+var DefaultVolcanoOfficialAssetEndpointOverrides = map[string]string{
+	VolcanoOfficialAssetProtocolKey: VolcanoOfficialAssetProtocol,
+	VolcanoOfficialAssetBaseURL:     "https://ark.cn-beijing.volcengineapi.com",
+	VolcanoOfficialAssetRegion:      "cn-beijing",
+	VolcanoOfficialAssetProject:     "default",
+	VolcanoOfficialAssetVersion:     "2024-01-01",
+	VolcanoOfficialAssetCreateGroup: "CreateAssetGroup",
+	VolcanoOfficialAssetCreate:      "CreateAsset",
+	VolcanoOfficialAssetGet:         "GetAsset",
+	VolcanoOfficialAssetDelete:      "DeleteAsset",
 }
 
 var (
@@ -161,6 +206,8 @@ func (s *SeedanceAssetService) Readiness() SeedanceAssetReadiness {
 	readiness.ProviderConfigured = true
 	readiness.ProviderID = assetProvider.config.ID
 	switch assetProvider.kind {
+	case seedanceAssetProviderOfficial:
+		readiness.ProviderProtocol = SeedanceAssetProviderProtocolOfficial
 	case seedanceAssetProviderMaterial:
 		readiness.ProviderProtocol = SeedanceAssetProviderProtocolMaterial
 		readiness.MaterialInitializationURL = SeedanceMaterialInitializationURL
@@ -302,6 +349,9 @@ func (s *SeedanceAssetService) createRemoteAssetRecord(ctx context.Context, asse
 	if assetProvider.kind == seedanceAssetProviderMaterial {
 		return s.doMaterialAssetJSON(ctx, assetProvider.config, assetProvider.apiKey, SeedanceMaterialActionCreateAsset, payload)
 	}
+	if assetProvider.kind == seedanceAssetProviderOfficial {
+		return s.doOfficialVolcanoAssetJSON(ctx, assetProvider, VolcanoOfficialAssetCreate, payload)
+	}
 	payload["PollInterval"] = 3
 	payload["PollTimeout"] = 120
 	return s.doVolcanoAssetJSON(ctx, assetProvider.config, assetProvider.apiKey, http.MethodPost, VolcanoAssetEndpointCreate, payload)
@@ -346,7 +396,10 @@ func (s *SeedanceAssetService) DeleteAsset(ctx context.Context, id string) error
 		"Id":          asset.VolcanoAssetID,
 		"ProjectName": model.SeedanceAssetProjectDefault,
 	}
-	if assetProvider.kind == seedanceAssetProviderMaterial {
+	if assetProvider.kind == seedanceAssetProviderOfficial {
+		deletePayload = map[string]any{"Id": asset.VolcanoAssetID}
+		_, err = s.doOfficialVolcanoAssetJSON(ctx, assetProvider, VolcanoOfficialAssetDelete, deletePayload)
+	} else if assetProvider.kind == seedanceAssetProviderMaterial {
 		deletePayload = map[string]any{"Id": asset.VolcanoAssetID}
 		_, err = s.doMaterialAssetJSON(ctx, assetProvider.config, assetProvider.apiKey, SeedanceMaterialActionDeleteAsset, deletePayload)
 	} else {
@@ -368,6 +421,9 @@ func (s *SeedanceAssetService) SyncAssets(ctx context.Context) (int, error) {
 	assetProvider, err := s.loadSeedanceAssetProvider()
 	if err != nil {
 		return 0, err
+	}
+	if assetProvider.kind == seedanceAssetProviderOfficial {
+		return s.syncOfficialLocalAssets(ctx, assetProvider)
 	}
 	if assetProvider.kind == seedanceAssetProviderMaterial {
 		return s.syncMaterialLocalAssets(ctx, assetProvider)
@@ -391,6 +447,19 @@ func (s *SeedanceAssetService) PollPendingOnce(ctx context.Context) (int, error)
 	assetProvider, err := s.loadSeedanceAssetProvider()
 	if err != nil {
 		return 0, err
+	}
+	if assetProvider.kind == seedanceAssetProviderOfficial {
+		count := 0
+		for _, asset := range pending {
+			if asset.ProviderID != "" && asset.ProviderID != assetProvider.config.ID {
+				continue
+			}
+			if err := s.refreshOfficialAssetStatus(ctx, assetProvider, asset); err != nil {
+				return count, err
+			}
+			count++
+		}
+		return count, nil
 	}
 	if assetProvider.kind == seedanceAssetProviderMaterial {
 		count := 0
@@ -478,6 +547,28 @@ func (s *SeedanceAssetService) getOrCreateAssetGroup(ctx context.Context, assetP
 	}
 	if assetProvider.kind == seedanceAssetProviderMaterial {
 		return s.createMaterialAssetGroup(ctx, assetProvider)
+	}
+	if assetProvider.kind == seedanceAssetProviderOfficial {
+		raw, err := s.doOfficialVolcanoAssetJSON(ctx, assetProvider, VolcanoOfficialAssetCreateGroup, map[string]any{
+			"Name":        model.SeedanceAssetGroupDefaultName,
+			"Description": "拟真人素材资产库",
+			"GroupType":   model.SeedanceAssetGroupTypeAIGC,
+		})
+		if err != nil {
+			return model.SeedanceAssetGroup{}, err
+		}
+		groupID := firstNonEmptyString(seedanceMaterialString(raw, "group_id", "GroupID", "GroupId", "Id", "id"), seedanceMaterialString(mapFromAny(raw["Result"]), "group_id", "GroupID", "GroupId", "Id", "id"))
+		if groupID == "" {
+			return model.SeedanceAssetGroup{}, errors.New("Seedance official asset group response missing group id")
+		}
+		return s.assetRepo.UpsertGroup(model.SeedanceAssetGroup{
+			ID:             "sag_" + randomHex(8),
+			ProviderID:     assetProvider.config.ID,
+			VolcanoGroupID: groupID,
+			Name:           model.SeedanceAssetGroupDefaultName,
+			GroupType:      model.SeedanceAssetGroupTypeAIGC,
+			ProjectName:    assetProvider.projectName,
+		})
 	}
 	raw, err := s.doVolcanoAssetJSON(ctx, assetProvider.config, assetProvider.apiKey, http.MethodGet, VolcanoAssetEndpointListGroups, nil)
 	if err != nil {
@@ -602,6 +693,9 @@ func (s *SeedanceAssetService) refreshAssetStatus(ctx context.Context, asset mod
 	if err != nil {
 		return err
 	}
+	if assetProvider.kind == seedanceAssetProviderOfficial {
+		return s.refreshOfficialAssetStatus(ctx, assetProvider, asset)
+	}
 	if assetProvider.kind == seedanceAssetProviderMaterial {
 		return s.refreshMaterialAssetStatus(ctx, assetProvider, asset)
 	}
@@ -628,6 +722,50 @@ func (s *SeedanceAssetService) syncMaterialLocalAssets(ctx context.Context, asse
 		count++
 	}
 	return count, nil
+}
+
+func (s *SeedanceAssetService) syncOfficialLocalAssets(ctx context.Context, assetProvider seedanceAssetProvider) (int, error) {
+	assets, _, err := s.assetRepo.ListAssets(repository.SeedanceAssetFilter{})
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, asset := range assets {
+		if asset.ProviderID != "" && asset.ProviderID != assetProvider.config.ID {
+			continue
+		}
+		if strings.TrimSpace(asset.VolcanoAssetID) == "" {
+			continue
+		}
+		if err := s.refreshOfficialAssetStatus(ctx, assetProvider, asset); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, nil
+}
+
+func (s *SeedanceAssetService) refreshOfficialAssetStatus(ctx context.Context, assetProvider seedanceAssetProvider, asset model.SeedanceAsset) error {
+	raw, err := s.doOfficialVolcanoAssetJSON(ctx, assetProvider, VolcanoOfficialAssetGet, map[string]any{"Id": asset.VolcanoAssetID})
+	if err != nil {
+		return err
+	}
+	record := mapFromAny(firstNonNil(raw["Result"], raw["result"]))
+	if record == nil {
+		record = raw
+	}
+	now := time.Now().UTC()
+	asset.ProviderID = firstNonEmptyString(asset.ProviderID, assetProvider.config.ID)
+	asset.VolcanoAssetID = firstNonEmptyString(seedanceMaterialString(record, "Id", "id", "AssetID", "AssetId", "asset_id"), asset.VolcanoAssetID)
+	asset.VolcanoGroupID = firstNonEmptyString(seedanceMaterialString(record, "GroupId", "GroupID", "group_id"), asset.VolcanoGroupID)
+	asset.Name = firstNonEmptyString(seedanceMaterialString(record, "Name", "name"), asset.Name, asset.VolcanoAssetID)
+	asset.AssetType = firstNonEmptyString(seedanceMaterialString(record, "AssetType", "asset_type"), asset.AssetType, model.SeedanceAssetTypeImage)
+	asset.SourceURL = firstNonEmptyString(seedanceMaterialString(record, "URL", "Url", "url"), asset.SourceURL)
+	asset.Status = normalizeSeedanceAssetStatus(firstNonEmptyString(seedanceMaterialString(record, "Status", "status"), asset.Status, model.SeedanceAssetStatusProcessing))
+	asset.LastSyncAt = &now
+	asset.ErrorMessage = sanitizeMaterialErrorText(firstNonEmptyString(seedanceMaterialString(record, "Error", "error", "Message", "message"), asset.ErrorMessage))
+	_, err = s.assetRepo.UpsertAsset(asset)
+	return err
 }
 
 func (s *SeedanceAssetService) refreshMaterialAssetStatus(ctx context.Context, assetProvider seedanceAssetProvider, asset model.SeedanceAsset) error {
@@ -678,17 +816,20 @@ func (s *SeedanceAssetService) loadSeedanceAssetProvider() (seedanceAssetProvide
 			fallback = &current
 		}
 		if supportsDefaultVideo(config) {
-			return s.withSeedanceAssetAPIKey(config, kind)
+			return s.withSeedanceAssetCredentials(config, kind)
 		}
 	}
 	if fallback != nil {
-		return s.withSeedanceAssetAPIKey(fallback.config, fallback.kind)
+		return s.withSeedanceAssetCredentials(fallback.config, fallback.kind)
 	}
 	return seedanceAssetProvider{}, ErrSeedanceAssetProviderNotConfigured
 }
 
 func seedanceAssetProviderCandidate(config model.ModelProviderConfig) (model.ModelProviderConfig, seedanceAssetProviderKind, bool) {
 	config = withDefaultSeedanceAssetEndpoints(config)
+	if isOfficialVolcengineArkProvider(config) {
+		return config, seedanceAssetProviderOfficial, true
+	}
 	if hasVolcanoAssetEndpoint(config) {
 		return config, seedanceAssetProviderVolcano, true
 	}
@@ -698,11 +839,28 @@ func seedanceAssetProviderCandidate(config model.ModelProviderConfig) (model.Mod
 	return model.ModelProviderConfig{}, "", false
 }
 
-func (s *SeedanceAssetService) withSeedanceAssetAPIKey(config model.ModelProviderConfig, kind seedanceAssetProviderKind) (seedanceAssetProvider, error) {
+func (s *SeedanceAssetService) withSeedanceAssetCredentials(config model.ModelProviderConfig, kind seedanceAssetProviderKind) (seedanceAssetProvider, error) {
 	if !config.Enabled {
 		return seedanceAssetProvider{}, provider.ErrProviderDisabled
 	}
 	secrets := stringMapFromJSONB(config.SecretsEncrypted)
+	result := seedanceAssetProvider{config: config, kind: kind, projectName: model.SeedanceAssetProjectDefault}
+	if kind == seedanceAssetProviderOfficial {
+		result.region, result.projectName = officialAssetSetting(config, VolcanoOfficialAssetRegion, "cn-beijing"), officialAssetSetting(config, VolcanoOfficialAssetProject, "default")
+		var err error
+		if result.securityToken, err = decryptFirstSecret(s.secretBox, secrets, []string{VolcanoOfficialSecurityTokenSecret, "security_token"}); err != nil {
+			return seedanceAssetProvider{}, err
+		}
+		if result.accessKeyID, err = decryptFirstSecret(s.secretBox, secrets, []string{VolcanoOfficialAccessKeyIDSecret, "access_key_id"}); err != nil {
+			return seedanceAssetProvider{}, err
+		}
+		if result.secretAccessKey, err = decryptFirstSecret(s.secretBox, secrets, []string{VolcanoOfficialSecretAccessKeySecret, "secret_access_key"}); err != nil {
+			return seedanceAssetProvider{}, err
+		}
+		if result.accessKeyID == "" || result.secretAccessKey == "" {
+			return seedanceAssetProvider{}, provider.ErrProviderNotConfigured
+		}
+	}
 	secretKeys := []string{VolcanoAssetSecretKey, "volcano_api_key", "api_key"}
 	if kind == seedanceAssetProviderMaterial {
 		secretKeys = []string{SeedanceMaterialSecretKey, "token_space_api_key", "material_api_key", VolcanoAssetSecretKey, "api_key"}
@@ -710,17 +868,37 @@ func (s *SeedanceAssetService) withSeedanceAssetAPIKey(config model.ModelProvide
 	for _, key := range secretKeys {
 		if encrypted := strings.TrimSpace(secrets[key]); encrypted != "" {
 			apiKey, err := s.secretBox.Decrypt(encrypted)
-			return seedanceAssetProvider{config: config, apiKey: apiKey, kind: kind}, err
+			result.apiKey = apiKey
+			return result, err
 		}
 	}
 	if strings.TrimSpace(config.APIKeyEncrypted) == "" {
 		if config.AuthType == model.ModelProviderAuthTypeNone {
-			return seedanceAssetProvider{config: config, kind: kind}, nil
+			return result, nil
 		}
 		return seedanceAssetProvider{}, provider.ErrProviderNotConfigured
 	}
 	apiKey, err := s.secretBox.Decrypt(config.APIKeyEncrypted)
-	return seedanceAssetProvider{config: config, apiKey: apiKey, kind: kind}, err
+	result.apiKey = apiKey
+	return result, err
+}
+
+func decryptFirstSecret(secretBox provider.SecretBox, secrets map[string]string, keys []string) (string, error) {
+	for _, key := range keys {
+		if encrypted := strings.TrimSpace(secrets[key]); encrypted != "" {
+			value, err := secretBox.Decrypt(encrypted)
+			return strings.TrimSpace(value), err
+		}
+	}
+	return "", nil
+}
+
+func officialAssetSetting(config model.ModelProviderConfig, key string, fallback string) string {
+	value := strings.TrimSpace(stringMapFromJSONB(config.EndpointOverrides)[key])
+	if value == "" {
+		value = fallback
+	}
+	return value
 }
 
 func (s *SeedanceAssetService) doVolcanoAssetJSON(ctx context.Context, config model.ModelProviderConfig, apiKey string, method string, action string, payload map[string]any) (map[string]any, error) {
@@ -763,6 +941,126 @@ func (s *SeedanceAssetService) doVolcanoAssetJSON(ctx context.Context, config mo
 		return sanitizeMaterialResponse(raw), fmt.Errorf("Volcengine asset request failed with status %d: %s", res.StatusCode, sanitizeMaterialErrorText(materialErrorText(raw)))
 	}
 	return raw, materialBusinessError(raw)
+}
+
+func (s *SeedanceAssetService) doOfficialVolcanoAssetJSON(ctx context.Context, assetProvider seedanceAssetProvider, actionKey string, payload map[string]any) (map[string]any, error) {
+	overrides := stringMapFromJSONB(assetProvider.config.EndpointOverrides)
+	baseURL := strings.TrimRight(strings.TrimSpace(overrides[VolcanoOfficialAssetBaseURL]), "/")
+	if baseURL == "" || assetProvider.accessKeyID == "" || assetProvider.secretAccessKey == "" {
+		return nil, provider.ErrProviderNotConfigured
+	}
+	action := strings.TrimSpace(overrides[actionKey])
+	if action == "" {
+		return nil, ErrSeedanceAssetProviderNotConfigured
+	}
+	version := officialAssetSetting(assetProvider.config, VolcanoOfficialAssetVersion, "2024-01-01")
+	query := map[string]string{"Action": action, "Version": version}
+	endpoint, err := url.Parse(baseURL + "/")
+	if err != nil || endpoint.Scheme != "https" || endpoint.Host == "" {
+		return nil, ErrSeedanceAssetProviderNotConfigured
+	}
+	bodyPayload := make(map[string]any, len(payload)+1)
+	for key, value := range payload {
+		bodyPayload[key] = value
+	}
+	bodyPayload["ProjectName"] = assetProvider.projectName
+	rawBody, err := json.Marshal(bodyPayload)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	queryString := canonicalOfficialQuery(query)
+	bodyHash := sha256.Sum256(rawBody)
+	bodyHashHex := hex.EncodeToString(bodyHash[:])
+	host := endpoint.Hostname()
+	if endpoint.Port() != "" && endpoint.Port() != "443" {
+		host = endpoint.Host
+	}
+	date := now.Format("20060102T150405Z")
+	headers := map[string]string{
+		"content-type":     "application/json",
+		"host":             host,
+		"x-content-sha256": bodyHashHex,
+		"x-date":           date,
+	}
+	if assetProvider.securityToken != "" {
+		headers["x-security-token"] = assetProvider.securityToken
+	}
+	signedHeaders := sortedOfficialHeaderNames(headers)
+	canonicalHeaders := canonicalOfficialHeaders(headers, signedHeaders)
+	canonicalRequest := strings.Join([]string{"POST", "/", queryString, canonicalHeaders, strings.Join(signedHeaders, ";"), bodyHashHex}, "\n")
+	scope := date[:8] + "/" + assetProvider.region + "/ark/request"
+	requestHash := sha256.Sum256([]byte(canonicalRequest))
+	stringToSign := "HMAC-SHA256\n" + date + "\n" + scope + "\n" + hex.EncodeToString(requestHash[:])
+	signingKey := hmacSHA256([]byte(assetProvider.secretAccessKey), date[:8])
+	signingKey = hmacSHA256(signingKey, assetProvider.region)
+	signingKey = hmacSHA256(signingKey, "ark")
+	signingKey = hmacSHA256(signingKey, "request")
+	signature := hex.EncodeToString(hmacSHA256(signingKey, stringToSign))
+	authorization := "HMAC-SHA256 Credential=" + assetProvider.accessKeyID + "/" + scope + ", SignedHeaders=" + strings.Join(signedHeaders, ";") + ", Signature=" + signature
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String()+"?"+queryString, bytes.NewReader(rawBody))
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	req.Header.Set("Authorization", authorization)
+	res, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	responseBody, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
+	if err != nil {
+		return nil, err
+	}
+	raw := map[string]any{}
+	if len(bytes.TrimSpace(responseBody)) > 0 {
+		if err := json.Unmarshal(responseBody, &raw); err != nil {
+			return nil, fmt.Errorf("Volcengine official asset returned invalid JSON: %w", err)
+		}
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return sanitizeMaterialResponse(raw), fmt.Errorf("Volcengine official asset request failed with status %d: %s", res.StatusCode, sanitizeMaterialErrorText(materialErrorText(raw)))
+	}
+	return raw, materialBusinessError(raw)
+}
+
+func hmacSHA256(key []byte, value string) []byte {
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte(value))
+	return mac.Sum(nil)
+}
+
+func canonicalOfficialQuery(query map[string]string) string {
+	keys := make([]string, 0, len(query))
+	for key := range query {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, url.QueryEscape(key)+"="+url.QueryEscape(query[key]))
+	}
+	return strings.Join(parts, "&")
+}
+
+func sortedOfficialHeaderNames(headers map[string]string) []string {
+	keys := make([]string, 0, len(headers))
+	for key := range headers {
+		keys = append(keys, strings.ToLower(strings.TrimSpace(key)))
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func canonicalOfficialHeaders(headers map[string]string, names []string) string {
+	lines := make([]string, 0, len(names))
+	for _, name := range names {
+		lines = append(lines, name+":"+strings.TrimSpace(headers[name])+"\n")
+	}
+	return strings.Join(lines, "")
 }
 
 func (s *SeedanceAssetService) doMaterialAssetJSON(ctx context.Context, config model.ModelProviderConfig, apiKey string, action string, payload map[string]any) (map[string]any, error) {
@@ -857,6 +1155,15 @@ func withDefaultSeedanceAssetEndpoints(config model.ModelProviderConfig) model.M
 		return config
 	}
 	overrides := stringMapFromJSONB(config.EndpointOverrides)
+	if isOfficialVolcengineArkProvider(config) {
+		for key, value := range DefaultVolcanoOfficialAssetEndpointOverrides {
+			if strings.TrimSpace(overrides[key]) == "" {
+				overrides[key] = value
+			}
+		}
+		config.EndpointOverrides = mustJSONB(overrides)
+		return config
+	}
 	defaults := DefaultSeedanceAssetEndpointOverrides(config)
 	for key, value := range defaults {
 		current := strings.TrimSpace(overrides[key])
@@ -891,6 +1198,14 @@ func isOfficialVolcengineAssetProvider(config model.ModelProviderConfig) bool {
 	return strings.Contains(host, "volces.com") ||
 		strings.Contains(host, "volcengine.com") ||
 		strings.Contains(host, "byteplus.com")
+}
+
+func isOfficialVolcengineArkProvider(config model.ModelProviderConfig) bool {
+	if strings.TrimSpace(config.PresetID) == VolcanoOfficialProviderPresetID {
+		return true
+	}
+	overrides := stringMapFromJSONB(config.EndpointOverrides)
+	return strings.TrimSpace(overrides[VolcanoOfficialAssetProtocolKey]) == VolcanoOfficialAssetProtocol
 }
 
 func shouldReplaceDefaultVolcanoAssetOverride(config model.ModelProviderConfig, key string, current string) bool {

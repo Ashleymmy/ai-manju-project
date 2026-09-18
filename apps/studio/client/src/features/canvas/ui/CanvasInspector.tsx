@@ -584,7 +584,7 @@ export function CanvasInspector({
                           <button key={count} type="button" className={imageCountFromNode(selectedNode) === count ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), count } })}>×{count}</button>
                         ))}
                       </div>
-                      <p className="node-pop-hint">当前暂定所有类型生成积分消耗与数量 1:1</p>
+                      <p className="node-pop-hint">积分按类型与规格计费，成功才扣费。<a href="/member/pricing" style={{ color: "#44a5c7" }}>查看定价规则</a></p>
                     </PopoverContent>
                   </Popover>
                   {selectedNode.kind === "director" ? (

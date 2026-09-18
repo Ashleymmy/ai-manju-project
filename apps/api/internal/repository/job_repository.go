@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -32,6 +33,9 @@ type JobRepository interface {
 	SetResult(id string, result model.JSONB) (model.Job, error)
 	SetError(id string, errorPayload model.JSONB) (model.Job, error)
 	ListByUser(userID string) ([]model.Job, error)
+	// CountActiveByUserAndTypes 统计用户处于排队/运行中的指定类型任务数
+	// （会员权益门禁的并发准入）。active = queued / running。
+	CountActiveByUserAndTypes(userID string, types []string) (int64, error)
 }
 
 type MemoryJobRepository struct {
@@ -269,6 +273,25 @@ func (r *MemoryJobRepository) ListByUser(userID string) ([]model.Job, error) {
 	return jobs, nil
 }
 
+func (r *MemoryJobRepository) CountActiveByUserAndTypes(userID string, types []string) (int64, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var count int64
+	for _, job := range r.jobs {
+		if job.UserID != userID {
+			continue
+		}
+		if job.Status != model.JobStatusQueued && job.Status != model.JobStatusRunning {
+			continue
+		}
+		if len(types) > 0 && !slices.Contains(types, job.Type) {
+			continue
+		}
+		count++
+	}
+	return count, nil
+}
+
 type GormJobRepository struct {
 	db *gorm.DB
 }
@@ -461,6 +484,17 @@ func (r *GormJobRepository) ListByUser(userID string) ([]model.Job, error) {
 		return nil, err
 	}
 	return jobs, nil
+}
+
+func (r *GormJobRepository) CountActiveByUserAndTypes(userID string, types []string) (int64, error) {
+	var count int64
+	query := r.db.Model(&model.Job{}).
+		Where("user_id = ? AND status IN ?", userID, []string{model.JobStatusQueued, model.JobStatusRunning})
+	if len(types) > 0 {
+		query = query.Where("type IN ?", types)
+	}
+	err := query.Count(&count).Error
+	return count, err
 }
 
 func mapJobGormError(err error) error {

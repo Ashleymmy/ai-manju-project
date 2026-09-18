@@ -47,6 +47,12 @@ const primaryRoutes: AppRoute[] = [
   defineAppRoute({ id: "profile", path: "/profile", loader: () => import("@/features/profile"), permission: "authenticated", layout: "studio" }),
   defineAppRoute({ id: "queue", path: "/queue", loader: () => import("@/features/queue"), permission: "authenticated", layout: "studio" }),
   defineAppRoute({ id: "settings", path: "/settings", loader: () => import("@/features/settings"), permission: "authenticated", layout: "studio" }),
+  defineAppRoute({ id: "member", path: "/member", loader: () => import("@/features/member"), permission: "authenticated", layout: "studio" }),
+  defineAppRoute({ id: "member-plans", path: "/member/plans", loader: () => import("@/features/member"), permission: "authenticated", layout: "studio" }),
+  defineAppRoute({ id: "member-usage", path: "/member/usage", loader: () => import("@/features/member"), permission: "authenticated", layout: "studio" }),
+  defineAppRoute({ id: "member-invite", path: "/member/invite", loader: () => import("@/features/member"), permission: "authenticated", layout: "studio" }),
+  defineAppRoute({ id: "member-gifts", path: "/member/gifts", loader: () => import("@/features/member"), permission: "authenticated", layout: "studio" }),
+  defineAppRoute({ id: "member-pricing", path: "/member/pricing", loader: () => import("@/features/member"), permission: "authenticated", layout: "studio" }),
 ];
 
 const legacyRoutes = legacyStudioRoutePaths.map((path, index) =>
@@ -64,6 +70,15 @@ const adminRoutes = [
   "/admin/model-provider",
   "/admin/announcements",
   "/admin/seedance-assets",
+  // WP-M7 会员系统后台 8 模块（features/admin/model/routes.ts 同步维护）
+  "/admin/member-users",
+  "/admin/credit-ledger",
+  "/admin/orders",
+  "/admin/consumptions",
+  "/admin/plans-config",
+  "/admin/dashboard",
+  "/admin/invites",
+  "/admin/audit-logs",
   "/admin",
 ].map((path, index) =>
   defineAppRoute({

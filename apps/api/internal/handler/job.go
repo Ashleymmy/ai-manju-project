@@ -111,6 +111,14 @@ func (h *JobHandler) Create(c *gin.Context) {
 		IdempotencyKey: c.GetHeader("Idempotency-Key"),
 	})
 	if err != nil {
+		if errors.Is(err, repository.ErrInsufficientCredits) {
+			response.Error(c, http.StatusPaymentRequired, "积分余额不足，请充值后重试")
+			return
+		}
+		if errors.Is(err, service.ErrConcurrencyLimitExceeded) {
+			response.Error(c, http.StatusTooManyRequests, "当前任务并发已达上限，请稍后重试或升级会员")
+			return
+		}
 		response.ErrorWithData(c, http.StatusBadGateway, "failed to enqueue job", gin.H{
 			"job":   jobResponse(result.Job),
 			"error": err.Error(),

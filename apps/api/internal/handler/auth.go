@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -18,10 +20,37 @@ type AuthHandler struct {
 	authService *auth.Service
 	userRepo    repository.UserRepository
 	cfg         config.Config
+	// registerBonus grants the new-user credit bonus (WP-M3). Nil when billing
+	// is disabled. Bonus failures must never fail registration (不卡死).
+	registerBonus func(userID string)
+	// auditRepo records admin-tier logins (WP-M5). Nil disables the hook.
+	auditRepo repository.AuditRepository
+	// inviteValidate / inviteBind wire 邀请有礼 (WP-M9). Nil when billing is
+	// disabled; a provided invite_code is then silently ignored.
+	inviteValidate func(code string) error
+	inviteBind     func(inviteeID string, code string) error
 }
 
 func NewAuthHandler(authService *auth.Service, userRepo repository.UserRepository, cfg config.Config) *AuthHandler {
 	return &AuthHandler{authService: authService, userRepo: userRepo, cfg: cfg}
+}
+
+// SetRegisterBonusHook wires the credit engine's register bonus. Router sets
+// this only when cfg.BillingEnabled is true.
+func (h *AuthHandler) SetRegisterBonusHook(hook func(userID string)) {
+	h.registerBonus = hook
+}
+
+// SetAuditRepository wires the append-only admin audit log (WP-M5). Admin-tier
+// logins are recorded per the document's 模块8（登录留痕）; nil disables it.
+func (h *AuthHandler) SetAuditRepository(auditRepo repository.AuditRepository) {
+	h.auditRepo = auditRepo
+}
+
+// SetInviteHooks wires invite-code validation and binding (WP-M9).
+func (h *AuthHandler) SetInviteHooks(validate func(code string) error, bind func(inviteeID string, code string) error) {
+	h.inviteValidate = validate
+	h.inviteBind = bind
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -55,6 +84,22 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	// 管理员登录留痕（文档模块8：登录、修改积分、退款、改套餐全部留痕）。
+	if h.auditRepo != nil && model.IsAdminRole(user.Role) {
+		detail, _ := json.Marshal(map[string]any{"account": user.Username, "role": user.Role})
+		if _, auditErr := h.auditRepo.Append(model.AdminAuditLog{
+			AdminID:    user.ID,
+			Action:     model.AuditActionLogin,
+			TargetType: "session",
+			TargetID:   user.ID,
+			Detail:     model.JSONB(detail),
+			IP:         c.ClientIP(),
+			CreatedAt:  time.Now().UTC(),
+		}); auditErr != nil {
+			log.Printf("event=admin_login_audit_failed admin_id=%s reason=%q", user.ID, auditErr.Error())
+		}
+	}
+
 	setSessionCookie(c, token, h.cfg, auth.SessionTTL(req.Remember))
 	response.OK(c, gin.H{
 		"token": token,
@@ -74,6 +119,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		Password    string `json:"password" binding:"required"`
 		DisplayName string `json:"display_name"`
 		Remember    bool   `json:"remember"`
+		InviteCode  string `json:"invite_code"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
@@ -98,6 +144,14 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "password must be at least 8 characters")
 		return
 	}
+	// 邀请码前置校验（WP-M9）：码不合规直接 400，不创建账号。
+	inviteCode := strings.TrimSpace(req.InviteCode)
+	if inviteCode != "" && h.inviteValidate != nil {
+		if err := h.inviteValidate(inviteCode); err != nil {
+			response.Error(c, http.StatusBadRequest, "invite code is invalid")
+			return
+		}
+	}
 	if _, err := h.userRepo.GetUserByUsername(account); err == nil {
 		response.Error(c, http.StatusConflict, "username already exists")
 		return
@@ -119,16 +173,28 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		displayName = account
 	}
 
-	if _, err := h.userRepo.CreateUser(model.User{
+	createdUser, err := h.userRepo.CreateUser(model.User{
 		ID:           "user_" + randomHex(8),
 		Username:     account,
 		PasswordHash: passwordHash,
 		DisplayName:  displayName,
 		Role:         model.UserRoleMember,
 		Status:       model.UserStatusActive,
-	}); err != nil {
+	})
+	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	// 注册赠送体验积分（WP-M3）。赠送失败不阻断注册，由对账/后台补发。
+	if h.registerBonus != nil {
+		h.registerBonus(createdUser.ID)
+	}
+	// 邀请绑定（WP-M9）：已通过前置校验，绑定失败只记录不阻断。
+	if inviteCode != "" && h.inviteBind != nil {
+		if err := h.inviteBind(createdUser.ID, inviteCode); err != nil {
+			log.Printf("event=invite_bind_failed user_id=%s reason=%q", createdUser.ID, err.Error())
+		}
 	}
 
 	user, token, err := h.authService.Login(account, password, req.Remember)
@@ -377,6 +443,10 @@ func normalizeRole(role string) string {
 	switch strings.TrimSpace(role) {
 	case model.UserRoleSuperAdmin:
 		return model.UserRoleSuperAdmin
+	case model.UserRoleOpsAdmin:
+		return model.UserRoleOpsAdmin
+	case model.UserRoleAuditor:
+		return model.UserRoleAuditor
 	default:
 		return model.UserRoleMember
 	}

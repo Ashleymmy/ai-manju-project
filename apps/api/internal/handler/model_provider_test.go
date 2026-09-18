@@ -208,14 +208,27 @@ func TestYikeTaskResponseExposesUpstreamFailureMessage(t *testing.T) {
 
 func TestVideoProviderPresetsIncludeNewModels(t *testing.T) {
 	modelsByPreset := make(map[string][]string)
+	secretsByPreset := make(map[string]map[string]bool)
 	for _, preset := range modelProviderPresets() {
 		modelsByPreset[preset.ID] = preset.ModelsByCapability[model.ModelCapabilityVideo]
+		secretsByPreset[preset.ID] = make(map[string]bool)
+		for _, secret := range preset.Secrets {
+			secretsByPreset[preset.ID][secret.Key] = true
+		}
 	}
 	if !containsString(modelsByPreset["volcengine_seedance"], "doubao-seedance-2-5-260628") {
 		t.Fatalf("Seedance preset models = %#v", modelsByPreset["volcengine_seedance"])
 	}
 	if !containsString(modelsByPreset["aliyun_yike_wan"], "wan3.0-video") {
 		t.Fatalf("Yike preset models = %#v", modelsByPreset["aliyun_yike_wan"])
+	}
+	if !containsString(modelsByPreset[service.VolcanoOfficialProviderPresetID], "doubao-seedance-2-0-260128") {
+		t.Fatalf("official Seedance preset models = %#v", modelsByPreset[service.VolcanoOfficialProviderPresetID])
+	}
+	for _, key := range []string{service.VolcanoOfficialAccessKeyIDSecret, service.VolcanoOfficialSecretAccessKeySecret} {
+		if !secretsByPreset[service.VolcanoOfficialProviderPresetID][key] {
+			t.Fatalf("official Seedance preset missing secret field %q", key)
+		}
 	}
 }
 

@@ -39,6 +39,43 @@ func RequireSuperAdmin(authService *auth.Service) gin.HandlerFunc {
 	}
 }
 
+// RequireAdmin admits any admin tier (super_admin / ops_admin / auditor) per
+// the document's 三级权限. Auditors are read-only: mutating verbs get 403
+// (只读审计账号仅查看数据不能修改数据). Write access for ops vs super is
+// enforced per-route by WP-M7 handlers; destructive routes should keep
+// RequireSuperAdmin.
+func RequireAdmin(authService *auth.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !authenticateRequest(c, authService) {
+			c.Abort()
+			return
+		}
+
+		user, ok := auth.CurrentUser(c)
+		if !ok || !model.IsAdminRole(user.Role) {
+			response.Error(c, 403, "admin required")
+			c.Abort()
+			return
+		}
+		if model.IsReadOnlyAdminRole(user.Role) && !isReadOnlyMethod(c.Request.Method) {
+			response.Error(c, 403, "auditor account is read-only")
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func isReadOnlyMethod(method string) bool {
+	switch method {
+	case "GET", "HEAD", "OPTIONS":
+		return true
+	default:
+		return false
+	}
+}
+
 func authenticateRequest(c *gin.Context, authService *auth.Service) bool {
 	token := bearerToken(c.GetHeader("Authorization"))
 	if token == "" {

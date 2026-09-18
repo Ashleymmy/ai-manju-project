@@ -26,6 +26,17 @@ SEEDANCE_ASSET_PROVIDER=ark_official
 
 独立官方项不回退使用 `ARK_API_KEY`、`SEEDANCE20_KEY` 或 `TOKENSPACE_API_KEY`。只有 API Key 时可生成视频，但素材注册 readiness 会提示缺少 AK/SK。后台可修改模型 ID（也支持官方推理接入点 ID）、名称、并发和启停；凭证只由 SD-video 管理。
 
+## Studio 直连官方 Provider
+
+Provider Hub 另有一个独立的 **“火山方舟官方 Seedance”** 预设，ID 为 `volcengine_ark_official`。它不修改截图中的 `sdvideo` Provider，也不读取 SD-video 的运行时凭据。选择该预设后，表单会显示：
+
+- API Key：视频推理；
+- Access Key ID（AK）：官方素材接口签名；
+- Secret Access Key（SK）：官方素材接口签名；
+- Security Token：使用临时凭证时可选。
+
+该直连 Provider 的 AK/SK 会使用 Studio 的加密 Provider 密钥存储，并由 Studio API 直接调用官方 AIGC 素材接口。它与 `sdvideo::seedance-2.0-ark` 是两条独立链路，不能混用已注册资产。若继续使用截图中的 `sdvideo` Provider，仍按本文前面的 ECS secret 文件方式配置。
+
 方舟控制台生成的单个 API Key（不要求固定前缀）用于视频推理，不能替代素材接口要求的 Access Key ID / Secret Access Key。默认配置只涵盖上游地址、北京区域、`default` 项目、模型和官方注册路由，不能提供或推导凭证。因此只配置一个 API Key 并重建应用，可手动验证视频生成；官方素材注册仍需在同账号下配置 AK/SK，并完成火山要求的授权。
 
 `SEEDANCE_ASSET_PROVIDER` 未设置或为空时均使用 `ark_official`。需要继续向 TokenSpace/旧代理注册新素材的部署，应显式设为 `tokenspace` / `legacy_proxy`。已注册素材的查询、删除仍使用各自记录的 Provider。

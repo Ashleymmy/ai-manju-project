@@ -39,3 +39,66 @@
 .sdvideo-missing { color: #e5c58b; }
 @media (max-width: 1100px) { .sdvideo-model-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 @media (max-width: 640px) { .sdvideo-model-row { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---- WP-M7 会员系统后台 8 模块（TapNow 深色口径；状态胶囊/统计数字复用 member 样式） ---- */
+.admin-member-user-row { grid-template-columns: minmax(140px, 1.5fr) 86px 118px 74px 76px 76px 118px 118px 88px 64px; }
+.admin-ledger-row { grid-template-columns: 118px minmax(90px, 1fr) 96px 90px 76px 96px minmax(110px, 1fr); }
+.admin-order-row { grid-template-columns: minmax(140px, 1.4fr) minmax(90px, 1fr) 88px 84px 72px 84px 118px 40px; }
+.admin-consumption-row { grid-template-columns: 118px minmax(90px, 1fr) 110px minmax(100px, 1fr) 110px 110px; }
+.admin-plan-row { grid-template-columns: minmax(130px, 1.3fr) 84px 84px 88px 96px 88px 74px 40px; }
+.admin-package-row { grid-template-columns: minmax(140px, 1.4fr) 90px 84px 56px 74px 40px; }
+.admin-config-row { grid-template-columns: minmax(140px, 1.2fr) minmax(160px, 1.6fr) 96px 40px; }
+.admin-invite-row { grid-template-columns: minmax(90px, 1fr) minmax(90px, 1fr) 84px 92px 76px 104px 118px; }
+.admin-audit-row { grid-template-columns: 118px minmax(90px, .9fr) 96px minmax(90px, .9fr) minmax(160px, 1.6fr) 100px; }
+.admin-table .admin-table-head.admin-member-user-row,
+.admin-table .admin-table-row.admin-member-user-row,
+.admin-table .admin-table-head.admin-ledger-row,
+.admin-table .admin-table-row.admin-ledger-row,
+.admin-table .admin-table-head.admin-order-row,
+.admin-table .admin-table-row.admin-order-row,
+.admin-table .admin-table-head.admin-consumption-row,
+.admin-table .admin-table-row.admin-consumption-row,
+.admin-table .admin-table-head.admin-plan-row,
+.admin-table .admin-table-row.admin-plan-row,
+.admin-table .admin-table-head.admin-package-row,
+.admin-table .admin-table-row.admin-package-row,
+.admin-table .admin-table-head.admin-config-row,
+.admin-table .admin-table-row.admin-config-row,
+.admin-table .admin-table-head.admin-invite-row,
+.admin-table .admin-table-row.admin-invite-row,
+.admin-table .admin-table-head.admin-audit-row,
+.admin-table .admin-table-row.admin-audit-row { display: grid; align-items: center; gap: 8px; padding: 0 13px; }
+.admin-table .admin-table-row.admin-member-user-row > span:first-child,
+.admin-table .admin-table-row.admin-order-row > span:first-child,
+.admin-table .admin-table-row.admin-plan-row > span:first-child,
+.admin-table .admin-table-row.admin-package-row > span:first-child,
+.admin-table .admin-table-row.admin-config-row > span:first-child { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.admin-cell-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.admin-cell-main b { overflow: hidden; color: #e6e4db; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-cell-main small { overflow: hidden; color: #8f8f8f; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-cell-ellipsis { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
+.admin-row-actions { display: flex; align-items: center; gap: 4px; }
+.admin-row-actions button { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: #b3b3b3; cursor: pointer; }
+.admin-row-actions button:hover:not(:disabled) { background: rgba(255, 255, 255, .08); color: #eee; }
+.admin-row-actions button:disabled { cursor: not-allowed; opacity: .4; }
+.admin-filter-bar { margin-top: 14px; align-items: center; }
+.admin-filter-bar input { max-width: 260px; height: 32px; font-size: 11px; }
+.admin-stat-grid { grid-template-columns: repeat(auto-fill, minmax(min(170px, 100%), 1fr)); margin-top: 16px; }
+.admin-stat-grid > div b.member-cell-num { margin: 8px 0; }
+.admin-config-block { margin-top: 26px; }
+.admin-config-value { font: 10px "IBM Plex Mono", monospace; color: #acacac; }
+.admin-invite-rules { margin-top: 0; margin-bottom: 16px; }
+.admin-invite-rules .eyebrow { display: flex; align-items: center; gap: 6px; }
+.admin-panel .member-pagination { margin-top: 12px; }
+.admin-panel .member-state { border: 1px dashed var(--line); border-radius: 10px; }
+@media (max-width: 760px) {
+  .admin-table .admin-member-user-row,
+  .admin-table .admin-ledger-row,
+  .admin-table .admin-order-row,
+  .admin-table .admin-consumption-row,
+  .admin-table .admin-plan-row,
+  .admin-table .admin-package-row,
+  .admin-table .admin-config-row,
+  .admin-table .admin-invite-row,
+  .admin-table .admin-audit-row { min-width: 900px; }
+}

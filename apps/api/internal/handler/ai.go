@@ -62,6 +62,8 @@ type AIHandler struct {
 	assets           *service.AssetService
 	sdVideo          *sdvideo.Client
 	projects         *service.ProjectService
+	// entitlements Agent 模式门禁（WP-M6）：nil = 不启用（billing 关闭时）。
+	entitlements *service.EntitlementGate
 }
 
 func NewAIHandler(providerHandler *ModelProviderHandler, jobService *service.JobService, monitoringRepo ...repository.MonitoringRepository) *AIHandler {
@@ -93,6 +95,10 @@ func (h *AIHandler) SetAssetService(assets *service.AssetService) {
 }
 
 func (h *AIHandler) SetProjectService(projects *service.ProjectService) { h.projects = projects }
+
+// SetEntitlementGate wires the membership gate (WP-M6). Only called when
+// billing is enabled; nil keeps agent mode open (pre-billing behavior).
+func (h *AIHandler) SetEntitlementGate(gate *service.EntitlementGate) { h.entitlements = gate }
 
 // SetSDVideoClient configures the optional private SD-video Gateway. The
 // browser-facing API remains unchanged when the gateway is disabled.
@@ -151,6 +157,18 @@ func (h *AIHandler) Text(c *gin.Context) {
 	if req.ParallelToolCalls != nil && *req.ParallelToolCalls {
 		response.Error(c, http.StatusBadRequest, "parallel_tool_calls must be false")
 		return
+	}
+	// Agent 模式门禁（WP-M6）：携带工具的调用视为 Agent 模式，仅会员可用。
+	if h.entitlements != nil && len(req.Tools) > 0 {
+		user := auth.MustCurrentUser(c)
+		if err := h.entitlements.AgentAccess(user.ID); err != nil {
+			if errors.Is(err, service.ErrAgentRequiresMember) {
+				response.Error(c, http.StatusForbidden, "Agent 模式需要会员，请先订阅")
+				return
+			}
+			response.Error(c, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	req.Prompt = prompt
 	parallelToolCalls := false
@@ -461,6 +479,14 @@ func (h *AIHandler) enqueueAIJob(c *gin.Context, jobType string, payload model.J
 		IdempotencyKey:     c.GetHeader("Idempotency-Key"),
 	})
 	if err != nil {
+		if errors.Is(err, repository.ErrInsufficientCredits) {
+			response.Error(c, http.StatusPaymentRequired, "积分余额不足，请充值后重试")
+			return result, err
+		}
+		if errors.Is(err, service.ErrConcurrencyLimitExceeded) {
+			response.Error(c, http.StatusTooManyRequests, "当前任务并发已达上限，请稍后重试或升级会员")
+			return result, err
+		}
 		response.ErrorWithData(c, http.StatusBadGateway, "failed to enqueue job", gin.H{
 			"job":   aiJobResponse(result.Job),
 			"error": err.Error(),

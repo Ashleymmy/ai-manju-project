@@ -15,6 +15,8 @@ var ErrSessionNotFound = errors.New("session not found")
 
 type UserRepository interface {
 	ListUsers() ([]model.User, error)
+	// CountUsers 返回用户总数（后台统计卡用）。
+	CountUsers() (int64, error)
 	GetUser(id string) (model.User, error)
 	GetUserByUsername(username string) (model.User, error)
 	CountUsersByRole(role string) (int64, error)
@@ -51,6 +53,14 @@ func (r *MemoryUserRepository) ListUsers() ([]model.User, error) {
 	})
 
 	return users, nil
+}
+
+// CountUsers：Memory 直接取 map 长度。
+func (r *MemoryUserRepository) CountUsers() (int64, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return int64(len(r.users)), nil
 }
 
 func (r *MemoryUserRepository) GetUser(id string) (model.User, error) {
@@ -176,6 +186,15 @@ func (r *GormUserRepository) ListUsers() ([]model.User, error) {
 	}
 
 	return users, nil
+}
+
+func (r *GormUserRepository) CountUsers() (int64, error) {
+	var count int64
+	if err := r.db.Model(&model.User{}).Count(&count).Error; err != nil {
+		return 0, err
+	}
+
+	return count, nil
 }
 
 func (r *GormUserRepository) GetUser(id string) (model.User, error) {

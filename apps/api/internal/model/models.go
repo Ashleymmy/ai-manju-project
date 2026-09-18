@@ -60,26 +60,48 @@ func (j *JSONB) Scan(value any) error {
 
 // User 用户模型
 type User struct {
-	ID           string    `json:"id" gorm:"primaryKey"`
-	Username     string    `json:"username" gorm:"uniqueIndex;not null"`
-	PasswordHash string    `json:"-" gorm:"not null"`
-	DisplayName  string    `json:"display_name"`
-	Role         string    `json:"role" gorm:"not null;index"`
-	Status       string    `json:"status" gorm:"not null;index"`
-	Email        string    `json:"email"`
-	Name         string    `json:"name"`
-	Avatar       string    `json:"avatar"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           string `json:"id" gorm:"primaryKey"`
+	Username     string `json:"username" gorm:"uniqueIndex;not null"`
+	PasswordHash string `json:"-" gorm:"not null"`
+	DisplayName  string `json:"display_name"`
+	Role         string `json:"role" gorm:"not null;index"`
+	Status       string `json:"status" gorm:"not null;index"`
+	Email        string `json:"email"`
+	Name         string `json:"name"`
+	Avatar       string `json:"avatar"`
+	// LastLoginAt 最后登录时间（后台模块1 用户列表字段）。
+	LastLoginAt *time.Time `json:"last_login_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 const (
 	UserRoleSuperAdmin = "super_admin"
 	UserRoleMember     = "member"
+	// UserRoleOpsAdmin: 运营管理员——后台读写，但不可删除账号（文档三级权限）。
+	UserRoleOpsAdmin = "ops_admin"
+	// UserRoleAuditor: 只读审计——仅查看数据，不能修改数据。
+	UserRoleAuditor = "auditor"
 
 	UserStatusActive   = "active"
 	UserStatusDisabled = "disabled"
 )
+
+// IsAdminRole reports whether the role may enter the admin console at all.
+func IsAdminRole(role string) bool {
+	switch role {
+	case UserRoleSuperAdmin, UserRoleOpsAdmin, UserRoleAuditor:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsReadOnlyAdminRole reports whether the role is restricted to read
+// operations (auditor: 仅查看数据不能修改数据).
+func IsReadOnlyAdminRole(role string) bool {
+	return role == UserRoleAuditor
+}
 
 // Session stores a hashed opaque session token. The raw token only lives in the
 // HttpOnly browser cookie.

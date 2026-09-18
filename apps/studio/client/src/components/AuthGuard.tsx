@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { useLocation } from "wouter";
 
 import { useAuth } from "@/contexts/AuthContext";
-import type { AuthUser } from "@/entities/auth";
+import { isAdminTierRole, type AuthUser } from "@/entities/auth";
 
 type AuthGuardProps = {
   children: ReactNode;
@@ -26,7 +26,8 @@ export function routeLocationWithSearch(location: string, search = "") {
 }
 
 export function defaultAuthPathForRole(role: AuthUser["role"]) {
-  return role === "super_admin" ? "/admin" : "/canvas";
+  // 后台三级角色（super/ops/auditor）登录后都落到管理后台；auditor 只读由面板控制。
+  return isAdminTierRole(role) ? "/admin" : "/canvas";
 }
 
 export function authGuardRedirectTarget(params: {
@@ -38,7 +39,12 @@ export function authGuardRedirectTarget(params: {
 }) {
   if (params.loading) return null;
   if (!params.user) return loginRedirectForLocation(params.location, params.hash || "");
-  if (params.requiredRole && params.user.role !== params.requiredRole) return "/canvas?auth=forbidden";
+  if (params.requiredRole && params.user.role !== params.requiredRole) {
+    // WP-M7：标 "super_admin" 的后台路由对整个管理三级角色开放（auditor 只读），
+    // 写操作由后端 RequireAdmin 403 兜底，前端面板隐藏写按钮。
+    if (params.requiredRole === "super_admin" && isAdminTierRole(params.user.role)) return null;
+    return "/canvas?auth=forbidden";
+  }
   return null;
 }
 

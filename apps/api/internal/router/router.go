@@ -65,6 +65,10 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	if err := authService.SeedSuperAdmin(cfg); err != nil {
 		log.Printf("super admin seed failed: %v", err)
 	}
+	// WP-M1 会员/积分种子数据：两个付费档 + 直购包 + 计费配置默认值（幂等）。
+	if err := service.SeedMembershipDefaults(repos.membershipRepo, repos.billingRepo); err != nil {
+		log.Printf("membership defaults seed failed: %v", err)
+	}
 
 	projectService := service.NewProjectService(repos.projectRepo)
 	projectService.SetAssetReferenceRepository(repos.assetReferenceRepo)
@@ -83,6 +87,23 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 
 	projectHandler := handler.NewProjectHandlerWithService(projectService)
 	authHandler := handler.NewAuthHandler(authService, repos.userRepo, cfg)
+	authHandler.SetAuditRepository(repos.auditRepo)
+
+	// 账本引擎与后台聚合服务无条件装配：后台调账/退款/套餐配置在计费开关
+	// 关闭时也必须可用（运营先行配置）。BILLING_ENABLED 只管用户侧扣费链路。
+	creditEngine := service.NewCreditLedgerService(repos.creditRepo, repos.membershipRepo, repos.billingRepo)
+	adminMemberService := service.NewAdminMemberService(repos.userRepo, repos.membershipRepo, repos.creditRepo, repos.billingRepo)
+	adminMemberHandler := handler.NewAdminMemberHandler(adminMemberService, creditEngine, repos.inviteRepo)
+	adminBillingHandler := handler.NewAdminBillingHandler(creditEngine, repos.creditRepo, repos.billingRepo, repos.membershipRepo, repos.inviteRepo, repos.auditRepo, adminMemberService)
+	// WP-M8 收银台：mock 渠道仅非生产环境开放；支付宝/微信待商户凭证部署期接入。
+	inviteService := service.NewInviteService(repos.inviteRepo, creditEngine, repos.billingRepo)
+	paymentService := service.NewPaymentService(repos.billingRepo, repos.membershipRepo, creditEngine, inviteService, cfg.AppEnv != "production")
+	billingHandler := handler.NewBillingHandler(paymentService, repos.billingRepo, repos.membershipRepo, cfg.AppEnv != "production")
+	// WP-M10 用户端会员中心。
+	memberHandler := handler.NewMemberHandler(creditEngine, repos.creditRepo, repos.membershipRepo, repos.billingRepo, inviteService, cfg)
+	// WP-M14 兑换码中心。
+	redemptionService := service.NewRedemptionService(repos.redemptionRepo, repos.membershipRepo, creditEngine)
+	redemptionHandler := handler.NewRedemptionHandler(repos.redemptionRepo, redemptionService)
 	secretBox := provider.NewSecretBox(cfg.AppSecret)
 	assetService := service.NewAssetService(repos.assetRepo, assetStore)
 	assetService.SetReferenceRepository(repos.assetReferenceRepo)
@@ -152,6 +173,35 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	aiHandler.SetAssetFolderService(assetFolderService)
 	aiHandler.SetSeedanceMaterialService(materialService)
 	aiHandler.SetSeedanceAssetService(seedanceAssetService)
+
+	// WP-M3/M4/M6/M9 计费接线：BILLING_ENABLED 开启时才装配定价器钩子、
+	// 权益门禁、对账消费者与调度器。关闭时 JobService.billing 保持 nil，
+	// 行为与上线前完全一致。
+	if cfg.BillingEnabled {
+		pricer := service.NewCreditPricer(repos.billingRepo)
+		// WP-M6 会员权益门禁：并发准入（Enqueue 前）+ 水印 + Agent 解锁。
+		entitlementGate := service.NewEntitlementGate(repos.membershipRepo, repos.jobRepo)
+		jobService.SetBillingHooks(service.NewBillingHooks(pricer, creditEngine, entitlementGate))
+		aiHandler.SetEntitlementGate(entitlementGate)
+		reconciler := service.NewCreditReconciler(repos.creditRepo, repos.jobRepo, creditEngine, time.Duration(cfg.BillingReconcileIntervalSec)*time.Second)
+		reconciler.Start(context.Background())
+		// WP-M4：月发 + 会员到期 + 积分过期清扫。
+		scheduler := service.NewCreditScheduler(creditEngine, repos.creditRepo, repos.membershipRepo, time.Duration(cfg.BillingSchedulerIntervalSec)*time.Second)
+		scheduler.Start(context.Background())
+		authHandler.SetRegisterBonusHook(func(userID string) {
+			if _, err := creditEngine.GrantRegisterBonus(userID); err != nil {
+				log.Printf("event=register_bonus_failed user_id=%s reason=%q", userID, err.Error())
+			}
+		})
+		// WP-M9：邀请有礼（注册绑定 + 首充触发已在 WP-M8 履约链路接入）。
+		authHandler.SetInviteHooks(inviteService.ValidateInviteCode, func(inviteeID string, code string) error {
+			if err := inviteService.BindInviteCode(inviteeID, code); err != nil {
+				return err
+			}
+			return nil
+		})
+	}
+
 	materialHandler := handler.NewSeedanceMaterialHandler(materialService)
 	seedanceAssetHandler := handler.NewSeedanceAssetHandler(seedanceAssetService, cfg)
 	jobHandler := handler.NewJobHandler(jobService)
@@ -207,12 +257,57 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			userRoutes.PUT("/preferences", userPreferenceHandler.Put)
 		}
 
-		admin := api.Group("/admin", middleware.RequireSuperAdmin(authService), handler.SDVideoAssetCompatibility(sdVideoClient))
+		// WP-M8 收银台（用户侧）：套餐浏览 / 下单 / 我的订单 / 取消 / mock 支付。
+		billingRoutes := api.Group("/billing", middleware.RequireAuth(authService))
+		{
+			billingRoutes.GET("/plans", billingHandler.ListPlans)
+			billingRoutes.GET("/packages", billingHandler.ListPackages)
+			billingRoutes.POST("/orders", billingHandler.CreateOrder)
+			billingRoutes.GET("/orders", billingHandler.ListMyOrders)
+			billingRoutes.GET("/orders/:id", billingHandler.GetMyOrder)
+			billingRoutes.POST("/orders/:id/cancel", billingHandler.CancelMyOrder)
+			billingRoutes.POST("/orders/:id/mock-pay", billingHandler.MockPay)
+		}
+
+		// WP-M10 用户端会员中心。
+		memberRoutes := api.Group("/member", middleware.RequireAuth(authService))
+		{
+			memberRoutes.GET("/overview", memberHandler.Overview)
+			memberRoutes.GET("/ledger", memberHandler.ListMyLedger)
+			memberRoutes.GET("/consumptions", memberHandler.ListMyConsumptions)
+			memberRoutes.GET("/invite", memberHandler.InviteOverview)
+			memberRoutes.GET("/pricing", memberHandler.PricingRules)
+			memberRoutes.GET("/gifts", memberHandler.GiftPacks)
+			memberRoutes.POST("/redeem", redemptionHandler.Redeem)
+		}
+
+		// WP-M5：三级权限（super/ops/auditor，auditor 只读）+ 审计中间件留痕。
+		admin := api.Group("/admin", middleware.RequireAdmin(authService), middleware.AdminAudit(repos.auditRepo), handler.SDVideoAssetCompatibility(sdVideoClient))
 		{
 			handler.RegisterSDVideoReconciliation(admin, jobService, sdVideoClient)
 			admin.GET("/users", authHandler.ListUsers)
 			admin.POST("/users", authHandler.CreateUser)
 			admin.PUT("/users/:id", authHandler.UpdateUser)
+
+			// WP-M7 会员系统后台 8 模块（契约：docs/MEMBERSHIP-SYSTEM-WP-M7-API-CONTRACT.md）
+			admin.GET("/member-users", adminMemberHandler.ListMemberUsers)
+			admin.POST("/member-users/:id/credits/adjust", adminMemberHandler.AdjustCredits)
+			admin.POST("/member-users/:id/invite/reset", adminMemberHandler.ResetInviteCode)
+			admin.GET("/billing/ledger", adminBillingHandler.ListLedger)
+			admin.GET("/billing/orders", adminBillingHandler.ListOrders)
+			admin.POST("/billing/orders/:id/refund", adminBillingHandler.RefundOrder)
+			admin.GET("/billing/consumptions", adminBillingHandler.ListConsumptions)
+			admin.GET("/billing/plans", adminBillingHandler.ListPlans)
+			admin.PUT("/billing/plans/:id", adminBillingHandler.UpsertPlan)
+			admin.GET("/billing/packages", adminBillingHandler.ListPackages)
+			admin.PUT("/billing/packages/:id", adminBillingHandler.UpsertPackage)
+			admin.GET("/billing/configs", adminBillingHandler.ListConfigs)
+			admin.PUT("/billing/configs/:key", adminBillingHandler.UpsertConfig)
+			admin.GET("/billing/dashboard", adminBillingHandler.Dashboard)
+			admin.GET("/invites", adminBillingHandler.ListInvites)
+			admin.GET("/audit-logs", adminBillingHandler.ListAuditLogs)
+			admin.POST("/billing/redemption-codes", redemptionHandler.CreateCode)
+			admin.GET("/billing/redemption-codes", redemptionHandler.ListCodes)
 			admin.GET("/model-provider-presets", modelProviderHandler.Presets)
 			admin.GET("/model-provider", modelProviderHandler.Get)
 			admin.PUT("/model-provider", modelProviderHandler.Put)
@@ -439,6 +534,13 @@ type repositories struct {
 	jobRepo            repository.JobRepository
 	seedanceAssetRepo  repository.SeedanceAssetRepository
 	comicAssetRepo     repository.ComicAssetRepository
+	// WP-M1 会员/积分仓储
+	creditRepo     repository.CreditRepository
+	membershipRepo repository.MembershipRepository
+	billingRepo    repository.BillingRepository
+	inviteRepo     repository.InviteRepository
+	auditRepo      repository.AuditRepository
+	redemptionRepo repository.RedemptionRepository
 }
 
 func newRepositories(cfg config.Config) (repositories, string, string) {
@@ -481,6 +583,12 @@ func newRepositories(cfg config.Config) (repositories, string, string) {
 		jobRepo:            repository.NewGormJobRepository(db),
 		seedanceAssetRepo:  repository.NewGormSeedanceAssetRepository(db),
 		comicAssetRepo:     repository.NewGormComicAssetRepository(db),
+		creditRepo:         repository.NewGormCreditRepository(db),
+		membershipRepo:     repository.NewGormMembershipRepository(db),
+		billingRepo:        repository.NewGormBillingRepository(db),
+		inviteRepo:         repository.NewGormInviteRepository(db),
+		auditRepo:          repository.NewGormAuditRepository(db),
+		redemptionRepo:     repository.NewGormRedemptionRepository(db),
 	}, "postgres", "ok"
 }
 
@@ -503,5 +611,11 @@ func newMemoryRepositories() repositories {
 		jobRepo:            repository.NewMemoryJobRepository(),
 		seedanceAssetRepo:  repository.NewMemorySeedanceAssetRepository(),
 		comicAssetRepo:     repository.NewMemoryComicAssetRepository(),
+		creditRepo:         repository.NewMemoryCreditRepository(),
+		membershipRepo:     repository.NewMemoryMembershipRepository(),
+		billingRepo:        repository.NewMemoryBillingRepository(),
+		inviteRepo:         repository.NewMemoryInviteRepository(),
+		auditRepo:          repository.NewMemoryAuditRepository(),
+		redemptionRepo:     repository.NewMemoryRedemptionRepository(),
 	}
 }
