@@ -23,19 +23,12 @@ import {
   projectToCard,
   useProjectCoverUrls,
 } from "@/features/projects";
-import { PageIntro } from "@/shared/ui";
 
 import {
   useWorkspaceDashboardData,
   type WorkspaceData,
 } from "./useWorkspaceDashboardData";
 import "./styles.css";
-
-const dashboardIntro = {
-  code: "DESK / 01",
-  title: "今日片场",
-  subtitle: "在同一张工作桌上收拢灵感、镜头和等待落地的任务。",
-};
 
 /** 积分消耗面板展示的最近消耗条数（与积分明细页共用第 1 页缓存，渲染层再截断）。 */
 const CONSUMPTION_PANEL_ROWS = 5;
@@ -209,17 +202,14 @@ export default function DashboardPage() {
     <div className="page-content dashboard-page">
       {/* 创作对话框（原聊天台主页核心交互，现嵌在工作台顶部） */}
       <ChatComposer />
-      <PageIntro
-        copy={dashboardIntro}
-        action={
-          <button
-            className="outline-button"
-            onClick={() => navigate("/projects")}
-          >
-            打开项目归档 <ArrowUpRight size={16} />
-          </button>
-        }
-      />
+      <div className="dashboard-project-actions">
+        <button
+          className="outline-button"
+          onClick={() => navigate("/projects")}
+        >
+          打开项目归档 <ArrowUpRight size={16} />
+        </button>
+      </div>
       <StatStrip data={data} />
       <div className="desk-layout">
         <AdSlot />
