@@ -1,14 +1,15 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import { Route, Switch } from "wouter";
+import { Route, Switch, useLocation } from "wouter";
 
 import AuthGuard from "@/components/AuthGuard";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
 import { appRoutes, type AppRoute, type RouteLayout } from "./routes";
+import { loadRouteModule } from "./loadRouteModule";
 
-const StudioLayout = lazy(() => import("../layouts/StudioLayout"));
-const CanvasLayout = lazy(() => import("../layouts/CanvasLayout"));
-const NotFoundRoute = lazy(() => import("./NotFoundRoute"));
+const StudioLayout = lazy(() => loadRouteModule(() => import("../layouts/StudioLayout")));
+const CanvasLayout = lazy(() => loadRouteModule(() => import("../layouts/CanvasLayout")));
+const NotFoundRoute = lazy(() => loadRouteModule(() => import("./NotFoundRoute")));
 
 function RouteLoading() {
   return (
@@ -35,10 +36,11 @@ function ProtectedRoute({ route, children }: { route: AppRoute; children: ReactN
 }
 
 function AppRouteElement({ route }: { route: AppRoute }) {
+  const [location] = useLocation();
   const Page = route.Component;
   return (
     <ProtectedRoute route={route}>
-      <ErrorBoundary>
+      <ErrorBoundary resetKey={`${route.id}:${location}`}>
         <Suspense fallback={<RouteLoading />}>
           <RouteLayoutBoundary layout={route.layout}>
             <Page />

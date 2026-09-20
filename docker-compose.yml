@@ -433,6 +433,8 @@ services:
         condition: service_healthy
     ports:
       - "${WEB_HOST_PORT:-3100}:3100"
+    volumes:
+      - ai-manju-web-assets:/var/cache/studio-assets
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/ >/dev/null 2>&1"]
       interval: 10s
@@ -440,6 +442,7 @@ services:
       retries: 20
 
 volumes:
+  ai-manju-web-assets:
   ai-manju-postgres-data:
   ai-manju-assets:
   ai-manju-sdvideo-postgres-data:

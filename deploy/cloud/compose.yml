@@ -187,7 +187,9 @@ services:
     networks: [studio-private]
     depends_on:
       api: {condition: service_healthy}
-    volumes: [./web.nginx.conf:/etc/nginx/conf.d/default.conf:ro]
+    volumes:
+      - ./web.nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - studio-web-assets:/var/cache/studio-assets
     mem_limit: 256m
     healthcheck:
       test: [CMD-SHELL, "wget -qO- http://127.0.0.1:3100/ >/dev/null"]
@@ -220,6 +222,7 @@ networks:
   service-link: {internal: true}
   egress: {}
 volumes:
+  studio-web-assets: {}
   studio-db: {}
   sdvideo-db: {}
   studio-queue: {}

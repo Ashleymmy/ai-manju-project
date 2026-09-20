@@ -1,6 +1,7 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from "react";
 
 import { legacyStudioRoutePaths } from "@/lib/studio-route-aliases";
+import { loadRouteModule } from "./loadRouteModule";
 
 export type RoutePermission = "public" | "authenticated" | "super_admin";
 export type RouteLayout = "none" | "studio" | "canvas";
@@ -16,7 +17,7 @@ export type AppRoute = {
 };
 
 function defineAppRoute(route: Omit<AppRoute, "Component">): AppRoute {
-  return { ...route, Component: lazy(route.loader) };
+  return { ...route, Component: lazy(() => loadRouteModule(route.loader)) };
 }
 
 const authLoader = () => import("@/features/auth");

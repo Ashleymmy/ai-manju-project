@@ -33,6 +33,14 @@ This checklist is for the AI-Manju `0.3.0-beta.0` iteration release. It assumes 
 
 ## Release Steps
 
+### Web Bundle Continuity
+
+- Keep the web volume mounted at `/var/cache/studio-assets` across upgrades and rollbacks (`ai-manju-web-assets` in the base Compose file, `studio-web-assets` in cloud Compose). The image startup hook archives `assets/` and `director-desk/assets/`; inactive files expire after 30 days, configurable with `STUDIO_ASSET_RETENTION_DAYS`.
+- On the first rollout of this mechanism, archive the currently serving image's two asset directories into the volume before replacing that container. Files already removed by older deployments cannot be recovered from the new image. Subsequent releases archive their own bundles automatically.
+- Ship the image, volume mount, and matching Nginx config together, including the NAS-media config when that overlay is enabled. Verify `nginx -t` in the target container. Entry HTML must return `Cache-Control: no-store` (or `private, no-store`); hashed bundles are immutable, and missing bundles must return 404, never the SPA HTML.
+- Run `node --test apps/studio/docker/retain-assets.test.mjs` (requires a POSIX shell). Keep a browser tab open from release A while deploying release B, then open a previously unvisited page in that tab. It must load release A's retained bundles; a new tab must receive release B's entry HTML.
+- The client permits one automatic route-module recovery per tab in five minutes and retains the current URL. This is a fallback for interrupted downloads or tabs older than the retention window, not a replacement for keeping bundles. Editor dialog imports never trigger this automatic reload.
+
 1. Pull or check out the release revision.
 2. Export the target environment variables or provide a matching `.env`.
 3. Run `docker compose config` and inspect the rendered ports, volumes, and public API URL.
