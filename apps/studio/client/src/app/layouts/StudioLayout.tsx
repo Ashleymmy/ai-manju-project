@@ -15,6 +15,7 @@ import {
   LogOut,
   MoreHorizontal,
   PanelRight,
+  Pencil,
   Puzzle,
   RadioTower,
   Settings2,
@@ -34,23 +35,32 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useLocation } from "wouter";
+import { toast } from "sonner";
 
 import ReleaseNotesDialog from "@/components/ReleaseNotesDialog";
 import StudioAgentFab from "@/components/StudioAgentFab";
 import { useAuth } from "@/contexts/AuthContext";
-import { isAdminTierRole } from "@/entities/auth";
+import { isAdminTierRole, updateMyDisplayName } from "@/entities/auth";
 import AnnouncementBanner from "@/features/announcements";
-import { daysUntil, formatCredits, useMemberOverviewQuery } from "@/features/member";
+import {
+  daysUntil,
+  formatCredits,
+  useMemberOverviewQuery,
+} from "@/features/member";
 import { useOutsidePress } from "@/shared/lib/useOutsidePress";
 import {
   useWorkspaceDashboardData,
   type WorkspaceData,
 } from "@/features/dashboard";
 
-import { clampSidebarEffect, nextSidebarEffect, SIDEBAR_POINTER_RADIUS_PX } from "./sidebarMotion";
+import {
+  clampSidebarEffect,
+  nextSidebarEffect,
+  SIDEBAR_POINTER_RADIUS_PX,
+} from "./sidebarMotion";
 import "../styles/shell.css";
 /* [暂时隐藏] 顶栏检索入口/命令面板/通知按钮/新建画布 —— 代码保留，恢复时连同 TopBar 中被注释的 JSX 一起还原：
-import { toast } from "sonner";
+import { toast } from "sonner";（注意：toast 已因账号 popover 的"修改昵称"正式引入，恢复时跳过本行）
 import { CircleDashed, Plus, Search } from "lucide-react";
 import { StudioCommandPalette } from "./StudioCommandPalette";
 import { createAndOpenProject } from "@/features/projects";
@@ -60,12 +70,24 @@ const logoUrl = "/logo.png";
 const railGroupsStorageKey = "ai-manju:rail-open-groups";
 
 type Icon = typeof Grid2X2;
-type NavItem = { label: string; href: string; icon: Icon; shortcut?: string; disabled?: boolean };
+type NavItem = {
+  label: string;
+  href: string;
+  icon: Icon;
+  shortcut?: string;
+  disabled?: boolean;
+};
 
 const creationNav: NavItem[] = [
   { label: "工作台", href: "/dashboard", icon: Grid2X2, shortcut: "G D" },
   // 剧本创作：目标路由待定，暂且保留入口但点击无反应（disabled 渲染为纯文本行，不跳转）
-  { label: "剧本创作", href: "/chat", icon: FileText, shortcut: "G S", disabled: true },
+  {
+    label: "剧本创作",
+    href: "/chat",
+    icon: FileText,
+    shortcut: "G S",
+    disabled: true,
+  },
   { label: "全部项目", href: "/projects", icon: FolderKanban, shortcut: "G P" },
   { label: "画布工坊", href: "/canvas", icon: Compass, shortcut: "G C" },
   { label: "3D 导演台", href: "/director", icon: Box },
@@ -257,7 +279,11 @@ export function LineNav({
         clampSidebarEffect(targetsRef.current[index] || 0),
         element.dataset.active === "1" ? 1 : 0
       );
-      const value = nextSidebarEffect(currentsRef.current[index] || 0, target, elapsedMs);
+      const value = nextSidebarEffect(
+        currentsRef.current[index] || 0,
+        target,
+        elapsedMs
+      );
       currentsRef.current[index] = value;
       element.style.setProperty("--effect", value.toFixed(4));
       if (value !== target) moving = true;
@@ -331,10 +357,11 @@ export function LineNav({
       const rect = element.getBoundingClientRect();
       const center = rect.top + rect.height / 2;
       const distance = Math.abs(event.clientY - center);
-      const proximity = rect.height > 0
-        ? clampSidebarEffect(1 - distance / SIDEBAR_POINTER_RADIUS_PX) : 0;
-      targetsRef.current[index] =
-        proximity * proximity * (3 - 2 * proximity);
+      const proximity =
+        rect.height > 0
+          ? clampSidebarEffect(1 - distance / SIDEBAR_POINTER_RADIUS_PX)
+          : 0;
+      targetsRef.current[index] = proximity * proximity * (3 - 2 * proximity);
     });
     startLoop();
   };
@@ -367,7 +394,7 @@ export function LineNav({
       onPointerLeave={handlePointerLeave}
       onScroll={resetMotion}
     >
-      {groups.map((group) => {
+      {groups.map(group => {
         const open = openGroups.includes(group.id);
         const parentRow = ++rowCounter;
         return (
@@ -408,7 +435,9 @@ export function LineNav({
                         aria-disabled="true"
                       >
                         <span className="ln-marker" aria-hidden="true" />
-                        <span className="ln-index">{String(itemIndex + 1).padStart(2, "0")}</span>
+                        <span className="ln-index">
+                          {String(itemIndex + 1).padStart(2, "0")}
+                        </span>
                         <span className="ln-label">{item.label}</span>
                         {item.shortcut ? <kbd>{item.shortcut}</kbd> : null}
                       </span>
@@ -427,7 +456,9 @@ export function LineNav({
                       aria-current={active ? "page" : undefined}
                     >
                       <span className="ln-marker" aria-hidden="true" />
-                      <span className="ln-index">{String(itemIndex + 1).padStart(2, "0")}</span>
+                      <span className="ln-index">
+                        {String(itemIndex + 1).padStart(2, "0")}
+                      </span>
                       <span className="ln-label">{item.label}</span>
                       {item.shortcut ? <kbd>{item.shortcut}</kbd> : null}
                     </Link>
@@ -480,45 +511,9 @@ function sideRoleLabel(role?: string) {
 }
 
 function SideFootCard({ data }: { data: WorkspaceData }) {
-  const [, navigate] = useLocation();
-  const { user, logout } = useAuth();
   const projectCount = data.projects.total ?? 0;
   const assetCount = data.assets.total ?? 0;
   const runningCount = data.jobs.total ?? 0;
-
-  /* ---- 账号 popover（会员徽标 + 双余额 + 会员入口；数据 GET /api/member/overview） ---- */
-  const [popoverOpen, setPopoverOpen] = useState(false);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-  const overviewQuery = useMemberOverviewQuery(popoverOpen);
-  const overview = overviewQuery.data;
-  const membership = overview?.membership ?? null;
-  const expiryDays = daysUntil(overview?.next_expiry_at);
-
-  useOutsidePress(
-    popoverOpen,
-    event => Boolean(popoverRef.current?.contains(event.target as Node)),
-    () => setPopoverOpen(false)
-  );
-
-  useEffect(() => {
-    if (!popoverOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setPopoverOpen(false);
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [popoverOpen]);
-
-  const goMember = (path: string) => {
-    setPopoverOpen(false);
-    navigate(path);
-  };
-
-  /** 登出行为与改版前一致：logout() 后回登录页。 */
-  const handleLogout = () => {
-    setPopoverOpen(false);
-    void logout().then(() => navigate("/login"));
-  };
 
   return (
     <div className="side-foot side-foot-float">
@@ -541,82 +536,237 @@ function SideFootCard({ data }: { data: WorkspaceData }) {
           {projectCount} 项目 · {assetCount} 资产 · {runningCount} 运行中
         </small>
       </div>
-      <div className="user-card-anchor" ref={popoverRef}>
-        {popoverOpen ? (
-          <div className="user-pop" role="dialog" aria-label="账号与余额">
-            <div className="user-pop-head">
-              <span className="avatar">
-                {(user?.display_name ?? user?.username ?? "?")
-                  .at(0)
-                  ?.toUpperCase() ?? "?"}
+    </div>
+  );
+}
+
+/** 顶栏右上角账号卡（从侧栏底部迁入）：头像 + 姓名/角色，点击展开会员与余额 popover。 */
+function TopUserCard() {
+  const [, navigate] = useLocation();
+  const { user, logout, refreshUser } = useAuth();
+
+  /* ---- 账号 popover（会员徽标 + 双余额 + 会员入口；数据 GET /api/member/overview） ---- */
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const overviewQuery = useMemberOverviewQuery(popoverOpen);
+  const overview = overviewQuery.data;
+  const membership = overview?.membership ?? null;
+  const expiryDays = daysUntil(overview?.next_expiry_at);
+
+  /* ---- 修改昵称（内联编辑：PATCH /api/auth/me 落库后 refreshUser 刷新全局用户态） ---- */
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [renameError, setRenameError] = useState("");
+
+  // popover 关闭即退出改名状态，下次打开回到默认视图。
+  useEffect(() => {
+    if (popoverOpen) return;
+    setRenaming(false);
+    setRenameError("");
+  }, [popoverOpen]);
+
+  useOutsidePress(
+    popoverOpen,
+    event => Boolean(popoverRef.current?.contains(event.target as Node)),
+    () => setPopoverOpen(false)
+  );
+
+  useEffect(() => {
+    if (!popoverOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPopoverOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [popoverOpen]);
+
+  const goMember = (path: string) => {
+    setPopoverOpen(false);
+    navigate(path);
+  };
+
+  const startRename = () => {
+    setNameDraft(user?.display_name ?? user?.username ?? "");
+    setRenameError("");
+    setRenaming(true);
+  };
+
+  const cancelRename = () => {
+    setRenaming(false);
+    setRenameError("");
+  };
+
+  const submitRename = async () => {
+    const nextName = nameDraft.trim();
+    if (!nextName) {
+      setRenameError("昵称不能为空");
+      return;
+    }
+    // 与后端 maxDisplayNameRunes 对齐：按字符数（而非 UTF-16 码元）计，中文/emoji 均按 1 字。
+    if (Array.from(nextName).length > 32) {
+      setRenameError("昵称最长 32 个字符");
+      return;
+    }
+    if (nextName === (user?.display_name ?? "")) {
+      setRenaming(false);
+      return;
+    }
+    setRenameSaving(true);
+    setRenameError("");
+    try {
+      await updateMyDisplayName(nextName);
+      await refreshUser();
+      setRenaming(false);
+      toast.success("昵称已更新");
+    } catch (error) {
+      setRenameError(
+        error instanceof Error ? error.message : "改名失败，请稍后重试"
+      );
+    } finally {
+      setRenameSaving(false);
+    }
+  };
+
+  /** 登出行为与改版前一致：logout() 后回登录页。 */
+  const handleLogout = () => {
+    setPopoverOpen(false);
+    void logout().then(() => navigate("/login"));
+  };
+
+  return (
+    <div className="user-card-anchor user-card-topbar" ref={popoverRef}>
+      {popoverOpen ? (
+        <div className="user-pop" role="dialog" aria-label="账号与余额">
+          <div className="user-pop-head">
+            <span className="avatar">
+              {(user?.display_name ?? user?.username ?? "?")
+                .at(0)
+                ?.toUpperCase() ?? "?"}
+            </span>
+            <div className="user-pop-head-meta">
+              <b>{user?.display_name ?? user?.username ?? "—"}</b>
+              <span
+                className={`user-pop-badge ${membership ? "is-member" : ""}`}
+              >
+                <Crown size={11} />
+                {membership ? membership.plan_name : "免费版"}
               </span>
-              <div className="user-pop-head-meta">
-                <b>{user?.display_name ?? user?.username ?? "—"}</b>
-                <span className={`user-pop-badge ${membership ? "is-member" : ""}`}>
-                  <Crown size={11} />
-                  {membership ? membership.plan_name : "免费版"}
-                </span>
-              </div>
             </div>
-            <div className="user-pop-balances">
-              {overviewQuery.isPending ? (
-                <p className="user-pop-state">正在读取余额…</p>
-              ) : overviewQuery.isError ? (
-                <p className="user-pop-state">余额加载失败，请稍后重试</p>
-              ) : (
-                <>
-                  <div className="user-pop-balance-row">
-                    <span>限时积分</span>
-                    <b>{formatCredits(overview?.limited_available)}</b>
-                    <small>
-                      {overview?.next_expiry_at
-                        ? `${expiryDays} 天后清零`
-                        : "暂无将到期积分"}
-                    </small>
-                  </div>
-                  <div className="user-pop-balance-row">
-                    <span>永久积分</span>
-                    <b>{formatCredits(overview?.permanent_available)}</b>
-                    <small>永久有效</small>
-                  </div>
-                </>
-              )}
-            </div>
-            <nav className="user-pop-links">
-              <button type="button" onClick={() => goMember("/member")}>
-                <Crown size={13} /> 会员中心
-              </button>
-              <button type="button" onClick={() => goMember("/member/plans")}>
-                <Wallet size={13} /> 套餐购买
-              </button>
-              <button type="button" onClick={() => goMember("/member/invite")}>
-                <Gift size={13} /> 邀请有礼
-              </button>
-            </nav>
-            <button type="button" className="user-pop-logout" onClick={handleLogout}>
-              <LogOut size={13} /> 登出
-            </button>
           </div>
-        ) : null}
-        <button
-          className="user-card"
-          onClick={() => setPopoverOpen(open => !open)}
-          aria-expanded={popoverOpen}
-          aria-haspopup="dialog"
-          title="账号与余额"
-        >
-          <span className="avatar">
-            {(user?.display_name ?? user?.username ?? "?")
-              .at(0)
-              ?.toUpperCase() ?? "?"}
-          </span>
-          <span className="user-meta">
-            <b>{user?.display_name ?? user?.username ?? "—"}</b>
-            <small>{sideRoleLabel(user?.role)}</small>
-          </span>
-          <MoreHorizontal size={16} />
-        </button>
-      </div>
+          {renaming ? (
+            <form
+              className="user-pop-rename"
+              onSubmit={event => {
+                event.preventDefault();
+                void submitRename();
+              }}
+            >
+              <label htmlFor="user-rename-input">新昵称</label>
+              <input
+                id="user-rename-input"
+                value={nameDraft}
+                onChange={event => setNameDraft(event.target.value)}
+                onKeyDown={event => {
+                  // Esc 只退出改名，不把整个 popover 一起关掉。
+                  if (event.key === "Escape") {
+                    event.stopPropagation();
+                    cancelRename();
+                  }
+                }}
+                placeholder="输入新昵称"
+                autoFocus
+                disabled={renameSaving}
+              />
+              {renameError ? (
+                <p className="user-pop-rename-error">{renameError}</p>
+              ) : null}
+              <div className="user-pop-rename-actions">
+                <button
+                  type="submit"
+                  className="user-pop-rename-save"
+                  disabled={renameSaving}
+                >
+                  {renameSaving ? "保存中…" : "保存"}
+                </button>
+                <button
+                  type="button"
+                  className="user-pop-rename-cancel"
+                  onClick={cancelRename}
+                  disabled={renameSaving}
+                >
+                  取消
+                </button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <div className="user-pop-balances">
+                {overviewQuery.isPending ? (
+                  <p className="user-pop-state">正在读取余额…</p>
+                ) : overviewQuery.isError ? (
+                  <p className="user-pop-state">余额加载失败，请稍后重试</p>
+                ) : (
+                  <>
+                    <div className="user-pop-balance-row">
+                      <span>限时积分</span>
+                      <b>{formatCredits(overview?.limited_available)}</b>
+                      <small>
+                        {overview?.next_expiry_at
+                          ? `${expiryDays} 天后清零`
+                          : "暂无将到期积分"}
+                      </small>
+                    </div>
+                    <div className="user-pop-balance-row">
+                      <span>永久积分</span>
+                      <b>{formatCredits(overview?.permanent_available)}</b>
+                      <small>永久有效</small>
+                    </div>
+                  </>
+                )}
+              </div>
+              <nav className="user-pop-links">
+                <button type="button" onClick={startRename}>
+                  <Pencil size={13} /> 修改昵称
+                </button>
+                <button type="button" onClick={() => goMember("/member")}>
+                  <Crown size={13} /> 会员中心
+                </button>
+                <button type="button" onClick={() => goMember("/member/plans")}>
+                  <Wallet size={13} /> 套餐购买
+                </button>
+                <button type="button" onClick={() => goMember("/member/invite")}>
+                  <Gift size={13} /> 邀请有礼
+                </button>
+              </nav>
+              <button
+                type="button"
+                className="user-pop-logout"
+                onClick={handleLogout}
+              >
+                <LogOut size={13} /> 登出
+              </button>
+            </>
+          )}
+        </div>
+      ) : null}
+      <button
+        className="user-card"
+        onClick={() => setPopoverOpen(open => !open)}
+        aria-expanded={popoverOpen}
+        aria-haspopup="dialog"
+        title="账号与余额"
+      >
+        <span className="avatar">
+          {(user?.display_name ?? user?.username ?? "?").at(0)?.toUpperCase() ??
+            "?"}
+        </span>
+        <span className="user-meta">
+          <b>{user?.display_name ?? user?.username ?? "—"}</b>
+          <small>{sideRoleLabel(user?.role)}</small>
+        </span>
+        <MoreHorizontal size={16} />
+      </button>
     </div>
   );
 }
@@ -686,6 +836,7 @@ function TopBar({ path }: { path: string; runningJobs?: number }) {
           <Plus size={17} /> 新建画布
         </button>
         */}
+        <TopUserCard />
       </div>
     </header>
   );

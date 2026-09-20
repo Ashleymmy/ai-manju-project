@@ -5,6 +5,7 @@ export {
   login,
   register,
   getCurrentUser,
+  updateMyDisplayName,
   clearStoredAuthSession,
   logout,
 } from "./api";

@@ -60,6 +60,14 @@ export function getCurrentUser(options: { signal?: AbortSignal } = {}) {
   });
 }
 
+/** 修改本人昵称（PATCH /api/auth/me），返回更新后的用户资料。 */
+export function updateMyDisplayName(displayName: string) {
+  return request<AuthUser>("/api/auth/me", {
+    method: "PATCH",
+    body: { display_name: displayName.trim() },
+  });
+}
+
 export function clearStoredAuthSession() {
   clearAuthToken();
 }

@@ -551,6 +551,96 @@
   color: #e8e6de;
 }
 
+/* ---- 账号 popover 内联改名表单（替换余额块显示，保存走 PATCH /api/auth/me） ---- */
+.user-pop-rename {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.user-pop-rename label {
+  color: #9c9c9c;
+  font-size: 10px;
+}
+.user-pop-rename input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f0eee7;
+  font-size: 12px;
+}
+.user-pop-rename input:focus {
+  border-color: rgba(31, 162, 220, 0.55);
+}
+.user-pop-rename-error {
+  margin: 0;
+  color: #e8938a;
+  font-size: 10px;
+}
+.user-pop-rename-actions {
+  display: flex;
+  gap: 8px;
+}
+.user-pop-rename-actions button {
+  flex: 1;
+  padding: 7px 8px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.user-pop-rename-actions button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.user-pop-rename-save {
+  border: 0;
+  background: rgba(31, 162, 220, 0.85);
+  color: #fff;
+}
+.user-pop-rename-save:hover:not(:disabled) {
+  background: rgb(31, 162, 220);
+}
+.user-pop-rename-cancel {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  color: #b3b3b3;
+}
+.user-pop-rename-cancel:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8e6de;
+}
+
+/* ---- 账号卡迁入顶栏右上角：紧凑排列，popover 改为向下展开、右对齐 ---- */
+.user-card-topbar .user-card {
+  width: auto;
+  flex-shrink: 0;
+}
+.top-actions .user-pop {
+  top: calc(100% + 12px);
+  right: 0;
+  bottom: auto;
+  left: auto;
+  width: 264px;
+}
+@media (max-width: 760px) {
+  .user-card-topbar .user-meta,
+  .user-card-topbar .user-card > svg {
+    display: none;
+  }
+  .user-card-topbar .user-card {
+    padding: 6px;
+    background: transparent;
+  }
+}
+
+/* 账号卡迁出后，左下悬浮卡只剩同步表，去掉原为用户卡预留的底部留白 */
+.side-foot-float .side-meter {
+  padding-bottom: 4px;
+}
+
 /* ---- 侧边栏禁用项（如“剧本创作”，路由待定）：保留位置但点击无反应 ---- */
 .ln-row.is-disabled {
   opacity: 0.45;

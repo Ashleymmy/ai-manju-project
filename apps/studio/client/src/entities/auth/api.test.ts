@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAuthToken } from "@/shared/api/http";
-import { getStoredAuthAccount, login, register } from "./api";
+import { getStoredAuthAccount, login, register, updateMyDisplayName } from "./api";
 
 function response(data: unknown, status = 200) {
   return new Response(JSON.stringify(status < 400 ? { success: true, data } : { success: false, error: data }), { status, headers: { "Content-Type": "application/json" } });
@@ -44,5 +44,28 @@ describe("registration session contract", () => {
     await expect(register({ username: "artist01", password: "strong-password" })).rejects.toThrow("username already exists");
     expect(getAuthToken()).toBeNull();
     expect(getStoredAuthAccount()).toBe("");
+  });
+});
+
+describe("updateMyDisplayName", () => {
+  beforeEach(() => {
+    localStorage.clear(); sessionStorage.clear();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("sends PATCH /api/auth/me with the trimmed display name and unwraps the envelope", async () => {
+    const renamed = { ...member, display_name: "新昵称" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(renamed)));
+    const result = await updateMyDisplayName("  新昵称  ");
+    const [url, options] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(new URL(url).pathname).toBe("/api/auth/me");
+    expect(options.method).toBe("PATCH");
+    expect(JSON.parse(String(options.body))).toEqual({ display_name: "新昵称" });
+    expect(result.display_name).toBe("新昵称");
+  });
+
+  it("surfaces the backend error message on failure", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response("display name is required", 400)));
+    await expect(updateMyDisplayName("")).rejects.toThrow("display name is required");
   });
 });
