@@ -3,7 +3,8 @@ import { useMemo, useState } from "react";
 
 import { memberQueryKeys } from "../model/queryKeys";
 import type { ConsumptionItem } from "../model/types";
-import { fetchMemberConsumptions, fetchMemberLedger } from "../services/memberApi";
+import { fetchMemberLedger } from "../services/memberApi";
+import { useMemberConsumptionsQuery } from "./useMemberConsumptions";
 
 export type UsageBoardTab = "consumptions" | "ledger";
 
@@ -21,12 +22,11 @@ export function useUsageController(active = true) {
   const [ledgerType, setLedgerType] = useState("");
   const [page, setPage] = useState(1);
 
-  const consumptionsQuery = useQuery({
-    queryKey: memberQueryKeys.consumptions(status, page),
-    queryFn: () => fetchMemberConsumptions(status, page),
-    placeholderData: previous => previous,
-    enabled: active && boardTab === "consumptions",
-  });
+  const consumptionsQuery = useMemberConsumptionsQuery(
+    status,
+    page,
+    active && boardTab === "consumptions"
+  );
   const ledgerQuery = useQuery({
     queryKey: memberQueryKeys.ledger(ledgerType, page),
     queryFn: () => fetchMemberLedger(ledgerType, page),

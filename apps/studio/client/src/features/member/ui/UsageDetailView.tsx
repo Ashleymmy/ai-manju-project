@@ -7,17 +7,10 @@ import {
   TASK_TYPE_OPTIONS,
   TIME_RANGE_OPTIONS,
 } from "../model/constants";
-import { formatCredits, formatDateTime } from "../model/format";
+import { formatCredits, formatDateTime, taskTypeLabel } from "../model/format";
 import type { ConsumptionItem, LedgerEntry } from "../model/types";
 import type { UsageController } from "../controllers/useUsageController";
 import { EmptyBlock, ErrorBlock, LoadingBlock, StatusPill } from "./components/memberBits";
-
-const TASK_TYPE_LABELS: Record<string, string> = {
-  image: "图片生成",
-  video_fast: "视频 Fast 渲染",
-  video_standard: "视频标准版渲染",
-  agent_skill: "Agent 调用",
-};
 
 const LEDGER_TYPE_LABELS: Record<string, string> = {
   recharge: "充值购买",
@@ -29,10 +22,6 @@ const LEDGER_TYPE_LABELS: Record<string, string> = {
   activity_bonus: "活动赠送",
   refund_rollback: "退款回滚",
 };
-
-function taskTypeLabel(value: string) {
-  return TASK_TYPE_LABELS[value] || value || "—";
-}
 
 function ledgerTypeLabel(value: string) {
   return LEDGER_TYPE_LABELS[value] || value || "—";

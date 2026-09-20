@@ -1,4 +1,8 @@
-import { CREDITS_PER_YUAN_FALLBACK, DISCOUNT_BPS_FULL } from "./constants";
+import {
+  CREDITS_PER_YUAN_FALLBACK,
+  DISCOUNT_BPS_FULL,
+  TASK_TYPE_OPTIONS,
+} from "./constants";
 
 /**
  * 会员中心格式化工具。金额一律 cents → ¥xx.xx；积分千分位；时间本地化。
@@ -16,6 +20,14 @@ export function formatCredits(credits: number | null | undefined) {
   const value = Number(credits);
   if (!Number.isFinite(value)) return "0";
   return Math.round(value).toLocaleString("zh-CN");
+}
+
+/** 消耗任务类型 → 展示文案（由 TASK_TYPE_OPTIONS 派生；未收录的值原样透出，空值为 —）。 */
+export function taskTypeLabel(value: string) {
+  const hit = TASK_TYPE_OPTIONS.find(
+    option => option.value !== "" && option.value === value
+  );
+  return hit?.label || value || "—";
 }
 
 /** RFC3339 → 本地日期时间（2026.07.01 12:00）。 */
