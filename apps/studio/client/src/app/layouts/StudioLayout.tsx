@@ -89,7 +89,7 @@ const creationNav: NavItem[] = [
     disabled: true,
   },
   { label: "全部项目", href: "/projects", icon: FolderKanban, shortcut: "G P" },
-  { label: "画布工坊", href: "/canvas", icon: Compass, shortcut: "G C" },
+  { label: "画布工坊", href: "/canvas?resume=recent", icon: Compass, shortcut: "G C" },
   { label: "3D 导演台", href: "/director", icon: Box },
   { label: "资产助手", href: "/comic-assets", icon: Clapperboard },
 ];
@@ -334,7 +334,7 @@ export function LineNav({
 
   useEffect(() => {
     const owner = groups.find(group =>
-      group.items.some(item => item.href === currentPath)
+      group.items.some(item => item.href.split("?")[0] === currentPath)
     );
     if (owner && !openGroups.includes(owner.id)) {
       setOpenGroups(current => {
@@ -419,7 +419,7 @@ export function LineNav({
             <div className={`ln-children ${open ? "open" : ""}`}>
               <div className="ln-children-inner">
                 {group.items.map((item, itemIndex) => {
-                  const active = item.href === currentPath;
+                  const active = item.href.split("?")[0] === currentPath;
                   const itemRow = ++rowCounter;
                   // 禁用项（路由待定）渲染为纯文本行：保留位置与编号，点击无反应
                   if (item.disabled) {

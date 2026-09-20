@@ -356,6 +356,24 @@ describe("cloneCanvasNodeFromGenerationHistory", () => {
 });
 
 describe("appendCanvasGenerationRevision", () => {
+  it("restores image settings with their revision instead of inheriting a newer request", () => {
+    const original = node("original", { imageAssetId: "old", metadata: {
+      imageResolution: "2K", quality: "high", requestedImageSize: "2720x1536",
+    } });
+    const [revision] = appendCanvasGenerationRevision(original, "rev");
+    const host = node("latest", { metadata: { imageResolution: "4K", quality: "low", requestedImageSize: "3840x2160" } });
+    const restored = cloneCanvasNodeFromGenerationRevision(host, revision, { id: "restored", x: 0, y: 0 });
+    expect(restored.metadata).toMatchObject({ imageResolution: "2K", quality: "high", requestedImageSize: "2720x1536" });
+    const legacy = cloneCanvasNodeFromGenerationRevision(host, { id: "legacy", assetId: "old" }, { id: "restored", x: 0, y: 0 });
+    expect(legacy.metadata?.requestedImageSize).toBeUndefined();
+  });
+
+  it.each(["image", "video"] as const)("only archives real media, not empty %s prompt text", kind => {
+    expect(appendCanvasGenerationRevision(node("empty", { kind, metadata: { content: "a prompt", prompt: "a prompt" } }), "rev")).toEqual([]);
+    const revisions = appendCanvasGenerationRevision(node("media", { kind, imageSrc: "https://media.example.test/result", metadata: { prompt: "a prompt" } }), "rev");
+    expect(revisions).toEqual([expect.objectContaining({ kind, imageSrc: "https://media.example.test/result" })]);
+  });
+
   it("把当前图片归档进版本栈且不去重失败", () => {
     const revisions = appendCanvasGenerationRevision(node("live", {
       title: "圣诞",

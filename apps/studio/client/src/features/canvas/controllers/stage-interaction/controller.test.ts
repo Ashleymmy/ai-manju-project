@@ -46,6 +46,7 @@ class FakeStageAdapter implements CanvasStageInteractionAdapter {
   isInlineNodeEditor = () => false;
   blurActiveInlineEditorExcept = () => undefined;
   focusInlineEditor = () => undefined;
+  focusStage = vi.fn();
   capturePointer = (element: Element, pointerId: number) => {
     this.captures.push({ element, pointerId });
   };
@@ -124,7 +125,7 @@ function pointer(
   };
 }
 
-function createHarness(initialNodes: CanvasNodeData[] = [node("a"), node("b", 300)], initialGroups: CanvasGroupData[] = []) {
+function createHarness(initialNodes: CanvasNodeData[] = [node("a"), node("b", 300)], initialGroups: CanvasGroupData[] = [], overrides: Partial<CanvasStageInteractionBindings> = {}) {
   const adapter = new FakeStageAdapter();
   let nodes = initialNodes;
   let edges: CanvasEdgeData[] = [];
@@ -183,6 +184,7 @@ function createHarness(initialNodes: CanvasNodeData[] = [node("a"), node("b", 30
     setContextMenu: vi.fn(),
     copySelectedNodes: vi.fn(),
     pasteCopiedNodes: vi.fn(),
+    pasteClipboardData: vi.fn(() => true),
     undoCanvas: vi.fn(),
     redoCanvas: vi.fn(),
     runSelectedGeneration: vi.fn(),
@@ -190,6 +192,7 @@ function createHarness(initialNodes: CanvasNodeData[] = [node("a"), node("b", 30
     removeEdge: vi.fn(),
     onInfo: info,
     onWarning: vi.fn(),
+    ...overrides,
   });
   const stage = {} as Element;
   controller.mount(stage);
@@ -208,6 +211,61 @@ function createHarness(initialNodes: CanvasNodeData[] = [node("a"), node("b", 30
 }
 
 describe("CanvasStageInteractionController", () => {
+  it.each([0, 1])("returns keyboard focus to the canvas for background pointer button %s", button => {
+    const harness = createHarness();
+    harness.controller.handleStagePointerDown(pointer(harness.stage, { button }) as CanvasStagePointerEvent<HTMLElement>);
+    expect(harness.adapter.focusStage).toHaveBeenCalledWith(harness.stage);
+  });
+
+  it("does not steal focus from editors or controls on pointer down", () => {
+    const harness = createHarness();
+    harness.adapter.isHotkeyEditingTarget = () => true;
+    harness.controller.handleStagePointerDown(pointer(harness.stage) as CanvasStagePointerEvent<HTMLElement>);
+    expect(harness.adapter.focusStage).not.toHaveBeenCalled();
+  });
+
+  it.each(["ctrlKey", "metaKey"])("lets %s+V deliver the actual clipboard event exactly once", modifier => {
+    const paste = vi.fn(() => true);
+    const menuPaste = vi.fn();
+    const harness = createHarness([], [], { pasteClipboardData: paste, pasteCopiedNodes: menuPaste });
+    const preventDefault = vi.fn();
+    harness.adapter.emit("keydown", { key: "v", [modifier]: true, preventDefault });
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(menuPaste).not.toHaveBeenCalled();
+    const clipboardData = {} as DataTransfer;
+    harness.adapter.emit("paste", { clipboardData, preventDefault });
+    expect(paste).toHaveBeenCalledTimes(1);
+    expect(paste).toHaveBeenCalledWith(clipboardData);
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    harness.controller.dispose();
+    harness.adapter.emit("paste", { clipboardData, preventDefault });
+    expect(paste).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes custom paste shortcuts to the system clipboard reader", () => {
+    const paste = vi.fn();
+    const harness = createHarness([], [], { pasteCopiedNodes: paste, getShortcuts: () => ({ ...DEFAULT_CANVAS_SHORTCUTS, paste: ["Ctrl+P"] }) });
+    const preventDefault = vi.fn();
+    harness.adapter.emit("keydown", { key: "p", ctrlKey: true, preventDefault });
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(paste).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["editing", "dialog", "blocked", "disabled", "handled"])("ignores %s paste without changing the clipboard", reason => {
+    const paste = vi.fn(() => true);
+    const harness = createHarness([], [], {
+      pasteClipboardData: paste,
+      isInteractionBlocked: () => reason === "blocked",
+      isProjectActionDisabled: () => reason === "disabled",
+    });
+    harness.adapter.isHotkeyEditingTarget = () => reason === "editing";
+    if (reason === "dialog") vi.spyOn(harness.adapter, "closest").mockReturnValue({} as never);
+    const preventDefault = vi.fn();
+    harness.adapter.emit("paste", { clipboardData: {}, defaultPrevented: reason === "handled", preventDefault });
+    expect(paste).not.toHaveBeenCalled();
+    expect(preventDefault).not.toHaveBeenCalled();
+  });
+
   it.each(["member", "background"])("moves the complete confirmed group from its %s at any zoom", entry => {
     const nodes = [node("a"), { ...node("b", 300), y: 80, width: 220, height: 170 }, node("outside", 1400)];
     const group = createCanvasGroup(nodes, ["a", "b"], "group")!;

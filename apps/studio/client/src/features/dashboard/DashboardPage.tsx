@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 
 import { getProjects, type CanvasProject } from "@/entities/project";
+import { ProjectCoverPickerDialog } from "@/components/ProjectCoverPickerDialog";
 import { ChatComposer } from "@/features/chat";
 import {
   formatCredits,
@@ -20,7 +21,9 @@ import {
 import {
   createAndOpenProject,
   ProjectCard,
+  ProjectCardTools,
   projectToCard,
+  useProjectActions,
   useProjectCoverUrls,
 } from "@/features/projects";
 
@@ -184,16 +187,30 @@ function CreditConsumptionPanel() {
 
 export default function DashboardPage() {
   const [, navigate] = useLocation();
-  const { data } = useWorkspaceDashboardData();
+  const { data, refresh: refreshWorkspace } = useWorkspaceDashboardData();
   const [recentProjects, setRecentProjects] = useState<CanvasProject[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { coverProject, setCoverProject, renameProject, saveCover, deleteProjects } =
+    useProjectActions("personal", () => {
+      setRefreshKey(value => value + 1);
+      void refreshWorkspace();
+    });
 
   useEffect(() => {
+    let disposed = false;
     getProjects("personal")
-      .then(result =>
-        setRecentProjects(Array.isArray(result) ? result : result.items || [])
-      )
-      .catch(() => setRecentProjects([]));
-  }, []);
+      .then(result => {
+        if (!disposed) {
+          setRecentProjects(Array.isArray(result) ? result : result.items || []);
+        }
+      })
+      .catch(() => {
+        if (!disposed) setRecentProjects([]);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [refreshKey]);
 
   const recentCoverUrls = useProjectCoverUrls(recentProjects, "personal");
   const recentCards = recentProjects.slice(0, 3).map(projectToCard);
@@ -226,8 +243,18 @@ export default function DashboardPage() {
       </section>
       <div className="project-row">
         {recentCards.length ? (
-          recentCards.map(project => (
-            <ProjectCard key={project.id} {...project} image={(project.id && recentCoverUrls[project.id]) || project.image} />
+          recentCards.map((project, index) => (
+            <div className="project-card-wrap" key={project.id}>
+              <ProjectCardTools
+                onCover={() => setCoverProject(recentProjects[index])}
+                onRename={() => void renameProject(recentProjects[index])}
+                onDelete={() => project.id && void deleteProjects([project.id])}
+              />
+              <ProjectCard
+                {...project}
+                image={(project.id && recentCoverUrls[project.id]) || project.image}
+              />
+            </div>
           ))
         ) : (
           <button
@@ -244,6 +271,13 @@ export default function DashboardPage() {
           </button>
         )}
       </div>
+      <ProjectCoverPickerDialog
+        open={Boolean(coverProject)}
+        scope="personal"
+        currentCoverAssetId={coverProject?.cover_asset_id}
+        onClose={() => setCoverProject(null)}
+        onSelect={assetId => void saveCover(assetId)}
+      />
     </div>
   );
 }

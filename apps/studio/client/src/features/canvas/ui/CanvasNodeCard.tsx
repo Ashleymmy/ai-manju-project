@@ -343,7 +343,7 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
           }}
         />
       </> : null}
-      <div className="node-float-label" data-node-title-editor onPointerDown={(event) => { if (isTitleEditing) event.stopPropagation(); }}>
+      <div className="node-float-label" data-node-title-editor onPointerDown={(event) => event.stopPropagation()}>
         <span className="node-float-kind">{nodeKindBadge(node.kind)}</span>
         {isTitleEditing ? (
           <input

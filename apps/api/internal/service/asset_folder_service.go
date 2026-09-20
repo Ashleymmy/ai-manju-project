@@ -29,6 +29,7 @@ var (
 	ErrAssetFolderDepth        = errors.New("asset folder maximum depth exceeded")
 	ErrAssetFolderCycle        = errors.New("asset folder cannot be moved below itself")
 	ErrAssetFolderParent       = errors.New("asset folder parent is invalid")
+	ErrAssetFolderCanvasExists = errors.New("linked canvas still exists")
 	ErrAssetCategory           = errors.New("asset category is invalid")
 	ErrAssetSourceType         = errors.New("asset source type is invalid")
 )
@@ -40,6 +41,7 @@ type ActiveAssetFolderReferenceChecker interface {
 type AssetFolderService struct {
 	folders       repository.AssetFolderRepository
 	assets        repository.AssetRepository
+	projects      repository.ProjectRepository
 	activeChecker ActiveAssetFolderReferenceChecker
 	archiveZone   *time.Location
 }
@@ -107,6 +109,11 @@ func (s *AssetFolderService) SetArchiveTimezone(name string) error {
 
 func (s *AssetFolderService) SetActiveReferenceChecker(checker ActiveAssetFolderReferenceChecker) {
 	s.activeChecker = checker
+}
+
+// SetProjectRepository enables workspace-scoped checks before deleting a canvas archive.
+func (s *AssetFolderService) SetProjectRepository(projects repository.ProjectRepository) {
+	s.projects = projects
 }
 
 func (s *AssetFolderService) EnsureDefaults(userID string, scope string) (AssetDefaultFolders, error) {
@@ -295,8 +302,20 @@ func (s *AssetFolderService) Delete(id string, userID string, scope string) (int
 	if err != nil {
 		return 0, err
 	}
-	if folder.Kind != model.AssetFolderKindUser {
+	// Linked archives may only be removed after their canvas is deleted. Match
+	// the stable project ID, since different canvases can have identical titles.
+	if folder.Kind != model.AssetFolderKindUser && folder.SystemKey != model.AssetFolderSystemKeyCanvasProject {
 		return 0, repository.ErrAssetFolderProtected
+	}
+	if folder.SystemKey == model.AssetFolderSystemKeyCanvasProject {
+		if s.projects == nil || strings.TrimSpace(folder.SourceRefID) == "" {
+			return 0, repository.ErrAssetFolderProtected
+		}
+		if _, err := s.projects.GetByWorkspace(folder.SourceRefID, workspaceID); err == nil {
+			return 0, ErrAssetFolderCanvasExists
+		} else if !errors.Is(err, repository.ErrNotFound) {
+			return 0, err
+		}
 	}
 	folders, err := s.folders.ListByWorkspace(workspaceID)
 	if err != nil {

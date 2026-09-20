@@ -454,3 +454,33 @@
 .asset-bulk-tags-dialog small { color: #aaa69e; }
 
 .asset-bulk-tag-list .asset-tag-coverage { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Keep long names and intrinsic media sizes within the fixed detail column. */
+.library-workspace > * { min-width: 0; }
+.asset-detail { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.asset-detail .detail-head { gap: 10px; }
+.asset-detail .detail-head > div { flex: 1; min-width: 0; }
+.asset-detail .detail-head h3 { overflow-wrap: anywhere; line-height: 1.5; }
+.asset-detail .detail-head > button,
+.asset-detail .detail-head > svg { flex-shrink: 0; }
+.asset-detail .detail-image { width: 100%; max-width: 100%; min-width: 0; height: auto; object-fit: contain; background: #121718; }
+.asset-detail .asset-meta-edit input,
+.asset-detail .asset-meta-edit select,
+.asset-detail textarea,
+.asset-detail audio,
+.asset-detail .asset-send-panel select { min-width: 0; max-width: 100%; }
+.asset-detail .asset-metadata b { min-width: 0; overflow-wrap: anywhere; }
+.asset-detail .asset-detail-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.asset-detail .asset-detail-actions button { min-width: 0; overflow-wrap: anywhere; }
+.asset-bulk-details { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.asset-bulk-preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.asset-bulk-preview > div { position: relative; display: grid; place-items: center; aspect-ratio: 1; min-width: 0; overflow: hidden; border: 1px solid var(--line); background: #121718; color: #aaa69e; font-size: 12px; }
+.asset-bulk-preview img { position: absolute; inset: 0; width: 100%; height: 100%; min-width: 0; object-fit: contain; }
+.asset-bulk-help { margin: 0; color: #aaa69e; font-size: 12px; line-height: 1.6; }
+.asset-bulk-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; border-top: 1px solid var(--line); padding-top: 16px; font-size: 12px; }
+.asset-bulk-field select { width: 100%; min-width: 0; min-height: 34px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: #262626; color: #e0ded5; }
+.asset-bulk-field button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: normal; min-width: 0; }
+.asset-bulk-field button:disabled { opacity: .5; cursor: default; }
+.asset-bulk-field small { color: #aaa69e; line-height: 1.6; }
+.asset-bulk-feedback { margin: 0; color: #c7d9bc; font-size: 12px; line-height: 1.6; }
+.asset-bulk-feedback.error { color: #f5b1a7; }

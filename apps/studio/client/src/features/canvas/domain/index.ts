@@ -1,10 +1,5 @@
-export {
-  applyAssetNameToLinkedNodes,
-  collectLinkedAssetRefs,
-  looksLikeGeneratedAssetName,
-  reconcileLinkedAssetNames,
-} from "./assetNameSync";
-export type { AssetNamePush } from "./assetNameSync";
+export { renameCanvasNode } from "./nodeTitles";
+export { looksLikeGeneratedAssetName } from "./imageTitles";
 export {
   assetIdFromNode,
   canvasAgentNodeFromCanvas,

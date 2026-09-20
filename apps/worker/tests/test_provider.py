@@ -44,6 +44,45 @@ def test_settings(tmp: str) -> Settings:
 
 
 class ProviderTest(unittest.TestCase):
+    def test_image_quality_and_pixels_reach_the_provider_for_generation_and_edit(self) -> None:
+        captured: list[dict[str, Any]] = []
+        original_post = provider_module.requests.post
+
+        def fake_post(url: str, **kwargs: Any) -> FakeProviderResponse:
+            captured.append(kwargs)
+            return FakeProviderResponse()
+
+        provider_module.requests.post = fake_post
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                for quality in ("low", "medium", "high"):
+                    with self.subTest(quality=quality):
+                        payload = {
+                            "prompt": "detailed character hair",
+                            "size": "3840x2160", "quality": quality,
+                            "output_format": "png", "response_format": "b64_json",
+                            "asset_registration": {"source_type": "canvas"},
+                            "provider": {"base_url": "https://provider.example/v1", "model": "gpt-image-2.5-flare", "auth_type": "none"},
+                        }
+                        generate_image(f"job_quality_{quality}", payload, test_settings(tmp), lambda _: None)
+                        body = captured[-1]["json"]
+                        self.assertEqual(body["size"], "3840x2160")
+                        self.assertEqual(body["quality"], quality)
+                        self.assertEqual(body["output_format"], "png")
+                        self.assertNotIn("asset_registration", body)
+                        self.assertNotIn("provider", body)
+                        payload["files"] = [{"filename": "ref.png", "content_type": "image/png", "b64_json": base64.b64encode(b"ref").decode("ascii")}]
+                        edit_image(f"job_edit_quality_{quality}", payload, test_settings(tmp), lambda _: None)
+                        self.assertEqual(captured[-1]["data"]["size"], "3840x2160")
+                        self.assertEqual(captured[-1]["data"]["quality"], quality)
+        finally:
+            provider_module.requests.post = original_post
+
+    def test_unspecified_quality_does_not_override_provider_defaults(self) -> None:
+        for quality in (None, "", "auto"):
+            body = provider_module.image_generation_body({"prompt": "image", "quality": quality}, {"model": "gpt-image-2"})
+            self.assertNotIn("quality", body)
+
     def test_mock_image_generation_writes_png(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = test_settings(tmp)

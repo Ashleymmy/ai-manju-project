@@ -216,7 +216,7 @@ export function sizeFromNode(node: CanvasNodeData): string {
 }
 
 export function toImageSizeValue(size: string): ImageSizeValue {
-  return size === "1:1" || size === "16:9" || size === "9:16" || size === "2:1" || size === "auto" ? size : CANVAS_IMAGE_DEFAULT_SIZE;
+  return size === "auto" || size === "panorama" || /^\d+[:x]\d+$/.test(size) ? size as ImageSizeValue : CANVAS_IMAGE_DEFAULT_SIZE;
 }
 
 export function imageResolutionFromNode(node: CanvasNodeData): CanvasImageResolution {

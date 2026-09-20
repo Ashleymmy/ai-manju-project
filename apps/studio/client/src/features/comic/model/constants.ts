@@ -1,4 +1,8 @@
-import type { ComicAssetClass } from "@/entities/comic";
+import type {
+  ComicAssetClass,
+  ComicBatchStatus,
+  ComicBatchItemStatus,
+} from "@/entities/comic";
 import type { WorkspaceScope } from "@/shared/config";
 
 export const COMIC_DEFAULT_INSTRUCTION =
@@ -27,6 +31,34 @@ export const COMIC_CLASS_LABELS: Record<ComicAssetClass, string> = {
 };
 
 export const COMIC_BATCH_POLL_INTERVAL_MS = 3_000;
+/** 批次和单项状态统一显示为用户可读的生成阶段。 */
+export const COMIC_BATCH_STATUS_LABELS: Record<ComicBatchStatus, string> = {
+  queued: "等待调度",
+  running: "生成中",
+  paused: "已暂停",
+  stopping: "正在停止",
+  succeeded: "全部完成",
+  partial_failed: "存在失败项",
+  canceled: "已停止",
+};
+export const COMIC_BATCH_ITEM_STATUS_LABELS: Record<
+  ComicBatchItemStatus,
+  string
+> = {
+  pending: "等待调度",
+  queued: "排队中",
+  running: "生成中",
+  succeeded: "已完成",
+  failed: "生成失败",
+  canceled: "已取消",
+};
+/** 列表使用小图，查看时再按需读取原图。 */
+export const COMIC_OUTPUT_THUMBNAIL_SIZE = 320;
+/** 生成服务的排队阶段，区分首次等待与供应商自动重试。 */
+export const COMIC_QUEUE_PHASE_LABELS: Record<string, string> = {
+  waiting_provider_slot: "等待可用生成通道",
+  provider_retry_backoff: "生成服务繁忙，等待自动重试",
+};
 export const COMIC_REFERENCE_LIMIT = 6;
 
 /** Prefer Luna only when its actual model ID is returned by the text catalog. */

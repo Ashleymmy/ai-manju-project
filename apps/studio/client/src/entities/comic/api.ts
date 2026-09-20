@@ -344,11 +344,12 @@ export function createComicBatch(
 
 export function getComicBatch(
   batchId: string,
-  scope: WorkspaceScope = "personal"
+  scope: WorkspaceScope = "personal",
+  signal?: AbortSignal
 ) {
   return request<ComicBatchDetail>(
     `/api/comic-asset-generation-batches/${encodeURIComponent(batchId)}`,
-    { query: { scope } }
+    { query: { scope }, signal }
   );
 }
 

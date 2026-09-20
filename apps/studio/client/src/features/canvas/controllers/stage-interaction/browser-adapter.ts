@@ -41,6 +41,12 @@ export function createBrowserCanvasStageInteractionAdapter(): CanvasStageInterac
       editor?.focus();
       editor?.setSelectionRange(editor.value.length, editor.value.length);
     },
+    focusStage: stage => {
+      if (!(stage instanceof HTMLElement)) return;
+      stage.focus({ preventScroll: true });
+      // Chrome can send paste to the old DOM selection even after focus moves.
+      window.getSelection()?.removeAllRanges();
+    },
     capturePointer: (element, pointerId) => {
       try {
         element.setPointerCapture(pointerId);

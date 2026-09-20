@@ -1,5 +1,6 @@
 import { registerCanvasImageAsset, registrationProviderId, savedSeedanceRegistration, seedanceRegistrationKey, seedanceRegistrationPhase, seedanceRegistrationSource, type SeedanceRegistrationState } from "./services/seedanceRegistration";
 import { pickDefaultImageModel, resolveModel } from "@/shared/lib/modelSelection";
+import { canvasImageGenerationSettings } from "./domain/imageGenerationSettings";
 import {
   Archive,
   Check,
@@ -60,8 +61,12 @@ import {
 import { ApiError, publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 import { useCanvasOriginalImage } from "./controllers/useCanvasOriginalImage";
+import { useInspectorResize } from "./controllers/useInspectorResize";
+import { INSPECTOR_SIZE, inspectorSizeLimits, savedInspectorHeight } from "./domain/inspectorSize";
 import { downloadCanvasOriginalMedia } from "./services/originalMedia";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
+import { readCanvasClipboardData, readSystemCanvasClipboard, type CanvasClipboardContent } from "./adapters/clipboard";
+import { CANVAS_CLIPBOARD_TOKEN_PREFIX } from "./domain/clipboard";
 import {
   createProject,
   deleteProject,
@@ -81,8 +86,6 @@ import {
   getAssetExport,
   getAssetLibrary,
   invalidateAssetRecord,
-  publishAssetNameChange,
-  subscribeAssetNameChanges,
   updateAssetMetadata,
   updateAssetUserState,
   uploadAsset,
@@ -168,6 +171,7 @@ import { loadSkills, type CanvasSkill } from "@/lib/skill-library";
 import type { StoryboardScene } from "@/components/StoryboardEditorDialog";
 import {
   createCanvasClipboard,
+  duplicateCanvasNode,
   pasteCanvasClipboard,
   type CanvasClipboardPayload,
 } from "@/features/canvas/domain/clipboard";
@@ -256,12 +260,7 @@ import {
   buildCanvasSnapshot,
   canvasAgentSnapshotFromCanvas,
 } from "@/features/canvas/domain/snapshotCodec";
-import {
-  applyAssetNameToLinkedNodes,
-  applySyncedAssetNameToLinkedNodes,
-  collectLinkedAssetRefs,
-  reconcileLinkedAssetNames,
-} from "@/features/canvas/domain/assetNameSync";
+import { renameCanvasNode } from "@/features/canvas/domain/nodeTitles";
 import {
   assetIdFromNode,
   imageSrcFromNode,
@@ -324,9 +323,7 @@ import {
   modelFromNode,
   nodeEditorTextFromNode,
   promptTextFromNode,
-  qualityFromNode,
   sizeFromNode,
-  toImageSizeValue,
   videoConfigFromNode,
   videoFileName,
   videoProviderFromNode,
@@ -463,7 +460,6 @@ export default function CanvasWorkspaceViewContent() {
   const canvasCommands = useCanvasCommands();
   const canvasStore = useCanvasStoreApi();
   const queryClient = useQueryClient();
-  const assetNameSyncGeneration = useRef(0);
   const scope = useCanvasStore((state) => state.session.scope);
   const setScope = canvasCommands.session.setScope;
   const [projects, setProjects] = useState<CanvasProject[]>([]);
@@ -537,6 +533,7 @@ export default function CanvasWorkspaceViewContent() {
   const setConnectSelectionOpen = canvasCommands.ui.setConnectSelectionOpen;
   const agentOpen = useCanvasStore((state) => state.ui.agentOpen);
   const setAgentOpen = canvasCommands.ui.setAgentOpen;
+  const [agentReferenceSelection, setAgentReferenceSelection] = useState<{ projectId: string; nodeIds: string[] }>();
   // 聊天台引导流程：覆盖层从首屏接管（步骤2），用户输入原文在加载完成后交接给 Agent 面板（步骤5）
   const [bootstrapActive, setBootstrapActive] = useState(() => Boolean(projectId && peekCanvasBootstrap(projectId)));
   const [initialPrompt, setInitialPrompt] = useState("");
@@ -613,7 +610,6 @@ export default function CanvasWorkspaceViewContent() {
   const setMinimapOpen = canvasCommands.ui.setMinimapOpen;
   const [imageToolDialog, setImageToolDialog] = useState<{ nodeId: string; mode: CanvasImageToolMode } | null>(null);
   const [imageToolDraft, setImageToolDraft] = useState<CanvasImageToolDraft>(defaultCanvasImageToolDraft);
-  const [imageCropLocked, setImageCropLocked] = useState(false);
   const [imageToolBusy, setImageToolBusy] = useState(false);
   const [seedanceRegistrationStates, setSeedanceRegistrationStates] = useState<Record<string, SeedanceRegistrationState>>({});
   const seedanceRegistrationInFlight = useRef(new Set<string>());
@@ -669,6 +665,7 @@ export default function CanvasWorkspaceViewContent() {
     stopGenerationByNodeId,
   } = generationController;
   const uploadingRef = useRef(false);
+  const workspaceMountedRef = useRef(false);
   const stageRef = useRef<HTMLElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const stageInteraction = useCanvasStageInteraction(
@@ -713,6 +710,7 @@ export default function CanvasWorkspaceViewContent() {
     set current(value: Set<string>) { canvasCommands.graph.setSelectedNodeIds(value); },
   }), [canvasCommands, canvasStore]);
   const clipboardRef = useRef<CanvasClipboardPayload<CanvasNodeData, CanvasEdgeData> | null>(null);
+  const clipboardTokenRef = useRef("");
 
   const applyNodeSelection = useCallback((ids: Iterable<string>, primaryId = "", openInspector = false) => {
     const next = new Set(ids);
@@ -984,13 +982,15 @@ export default function CanvasWorkspaceViewContent() {
     const nodeBottom = nodeTop + selectedNode.height * scale;
     if (nodeRight < 0 || nodeBottom < CANVAS_STAGE_OFFSET || nodeLeft > stageBounds.width || nodeTop > stageBounds.height) return undefined;
     // 面板做成长矩形（宽于节点约 200px，收敛在 560–720），chips/操作行单行不折行；用户拖宽过则以拖宽值为准。
+    const limits = inspectorSizeLimits(stageBounds.width, stageBounds.height - CANVAS_STAGE_OFFSET);
     const savedWidth = numberValue(selectedNode.metadata?.promptPanelWidth);
+    const savedHeight = savedInspectorHeight(selectedNode.metadata?.promptPanelHeight);
+    const height = savedHeight ? Math.min(limits.maxHeight, Math.max(limits.minHeight, savedHeight)) : undefined;
     const computedWidth = Math.round(selectedNode.width * scale) + 200;
-    let width = savedWidth ? Math.min(720, Math.max(340, savedWidth)) : Math.min(720, Math.max(560, computedWidth));
-    width = Math.min(width, Math.max(340, stageBounds.width - 24));
+    const width = Math.min(limits.maxWidth, Math.max(limits.minWidth, savedWidth || Math.max(INSPECTOR_SIZE.defaultWidth, computedWidth)));
     const nodeCenterX = panX + (selectedNode.x + selectedNode.width / 2) * scale;
     // 实测面板高度做钳制，避免估算偏差把面板顶回盖住节点；始终锚在节点正下方。
-    const measuredHeight = Math.max(160, panelHeight);
+    const measuredHeight = height ?? Math.max(160, panelHeight);
     const minPanelHeight = 140;
     let top = nodeBottom + 12;
     const maxTop = Math.max(CANVAS_STAGE_OFFSET + 8, stageBounds.height - measuredHeight - 12);
@@ -999,7 +999,7 @@ export default function CanvasWorkspaceViewContent() {
     top = Math.max(CANVAS_STAGE_OFFSET + 8, top);
     const availableHeight = Math.max(minPanelHeight, stageBounds.height - top - 12);
     const left = Math.min(Math.max(12, nodeCenterX - width / 2), Math.max(12, stageBounds.width - width - 12));
-    return { left: Math.round(left), top: Math.round(top), width, maxHeight: Math.round(availableHeight) };
+    return { left: Math.round(left), top: Math.round(top), width, height, maxHeight: Math.round(availableHeight) };
   }, [panX, panY, panelHeight, selectedNode, stageBounds.height, stageBounds.width, zoom]);
   const selectedGroupPanelStyle = useMemo<CSSProperties | undefined>(() => {
     if (!selectedGroup) return undefined;
@@ -1195,7 +1195,12 @@ export default function CanvasWorkspaceViewContent() {
     );
     if (!clipboard) return false;
     clipboardRef.current = clipboard;
-    toast.success(`已复制 ${clipboard.nodes.length} 个画布节点`);
+    const token = `${CANVAS_CLIPBOARD_TOKEN_PREFIX}${crypto.randomUUID()}`;
+    clipboardTokenRef.current = token;
+    void copyTextToClipboard(token).then(result => {
+      if (result === "copied") toast.success(`已复制 ${clipboard.nodes.length} 个画布节点`);
+      else toast.warning("无法写入剪贴板，请允许剪贴板访问后重试");
+    });
     return true;
   }, []);
 
@@ -1355,49 +1360,6 @@ export default function CanvasWorkspaceViewContent() {
       abortAllGenerationRequests();
     };
   }, [abortAllGenerationRequests, projectId, projectSessionController, scope]);
-
-  useEffect(() => {
-    if (loading || switching || !projectId) return;
-    const activeScope = projectSessionController.canonicalScope;
-    if (!activeScope) return;
-    const generation = ++assetNameSyncGeneration.current;
-    const nodes = nodesRef.current;
-    const refs = collectLinkedAssetRefs(nodes, activeScope);
-    if (!refs.length) return;
-    let disposed = false;
-    void Promise.all(refs.map(async item => {
-      try {
-        const asset = await getAsset(item.assetId, item.scope);
-        return [item.assetId, asset.name] as const;
-      } catch {
-        return [item.assetId, ""] as const;
-      }
-    })).then(entries => {
-      if (disposed || generation !== assetNameSyncGeneration.current) return;
-      const names = Object.fromEntries(entries.filter(([, name]) => name.trim()));
-      const result = reconcileLinkedAssetNames(nodesRef.current, names, activeScope);
-      if (result.nodes !== nodesRef.current) {
-        nodesRef.current = result.nodes;
-        setNodes(result.nodes);
-      }
-      for (const push of result.pushes) {
-        void updateAssetMetadata(push.assetId, { name: push.name }, push.scope)
-          .then(() => {
-            publishAssetNameChange(push);
-            void invalidateAssetRecord(queryClient, push.scope, push.assetId);
-          })
-          .catch(() => undefined);
-      }
-    });
-    return () => { disposed = true; };
-  }, [canonicalProjectScope, loading, projectId, queryClient, switching]);
-
-  useEffect(() => subscribeAssetNameChanges(message => {
-    const nextNodes = applySyncedAssetNameToLinkedNodes(nodesRef.current, message.assetId, message.name);
-    if (nextNodes === nodesRef.current) return;
-    nodesRef.current = nextNodes;
-    setNodes(nextNodes);
-  }), []);
 
   useEffect(() => {
     uploadingRef.current = uploading;
@@ -1624,10 +1586,14 @@ export default function CanvasWorkspaceViewContent() {
     navigate: href => navigate(href),
   });
 
-  useEffect(() => () => {
-    generationController.dispose();
-    stageInteractionController.dispose();
-    void projectSessionController.dispose();
+  useEffect(() => {
+    workspaceMountedRef.current = true;
+    return () => {
+      workspaceMountedRef.current = false;
+      generationController.dispose();
+      stageInteractionController.dispose();
+      void projectSessionController.dispose();
+    };
   }, [generationController, projectSessionController, stageInteractionController]);
 
   const switchCanvasProject = useCallback(async (targetProjectId: string) => {
@@ -1947,7 +1913,6 @@ export default function CanvasWorkspaceViewContent() {
   const openImageToolDialog = (nodeId: string, mode: CanvasImageToolMode = "crop") => {
     setImageToolDialog({ nodeId, mode });
     setImageToolDraft({ ...defaultCanvasImageToolDraft });
-    setImageCropLocked(false);
     setImageToolError("");
     applyNodeSelection([nodeId], nodeId, true);
   };
@@ -1971,7 +1936,7 @@ export default function CanvasWorkspaceViewContent() {
       const dy = (pointer.clientY - start.clientY) / box.height;
       const crop = mode === "move"
         ? moveImageCropRect(start.crop, dx, dy)
-        : resizeImageCropRect(start.crop, dx, dy, handle, imageCropLocked, box);
+        : resizeImageCropRect(start.crop, dx, dy, handle, imageToolDraft.cropRatio !== null, box, imageToolDraft.cropRatio ?? 1);
       setImageToolDraft((draft) => ({ ...draft, ...imageToolDraftFromCropRect(crop) }));
     };
     const finish = () => {
@@ -2434,6 +2399,7 @@ export default function CanvasWorkspaceViewContent() {
     if (!activeScope || !projectKey || projectSessionController.switching) throw new Error("正在确认项目工作区，暂不能编辑图片");
     const model = modelFromNode(sourceNode, imageModel);
     if (!model) throw new Error("当前没有可用图片模型");
+    const imageSettings = canvasImageGenerationSettings(sourceNode, options.size);
     let source: Awaited<ReturnType<typeof imageSourceForNode>> | null = null;
     try {
       const sourceDataUrl = options.sourceDataUrl || (source = await imageSourceForNode(sourceNode)).url;
@@ -2459,8 +2425,10 @@ export default function CanvasWorkspaceViewContent() {
           generationType: "edit",
           sourceNodeId: sourceNode.id,
           model,
-          size: options.size || toImageSizeValue(sizeFromNode(sourceNode)),
-          quality: qualityFromNode(sourceNode),
+          size: options.size || sizeFromNode(sourceNode),
+          quality: imageSettings.quality,
+          imageResolution: imageSettings.imageResolution,
+          requestedImageSize: imageSettings.size,
           editRelation: options.relation,
           referenceInputs: assetIdFromNode(sourceNode) ? [{
             nodeId: sourceNode.id,
@@ -2488,8 +2456,7 @@ export default function CanvasWorkspaceViewContent() {
         scope: activeScope,
         prompt,
         model,
-        size: options.size || toImageSizeValue(sizeFromNode(sourceNode)),
-        quality: qualityFromNode(sourceNode),
+        ...imageSettings,
         referenceFiles: [referenceFile],
         maskFile,
       });
@@ -3148,12 +3115,17 @@ export default function CanvasWorkspaceViewContent() {
     },
     setInspectorOpen,
     setEditingInlineNodeId,
-    applyNodeSelection,
+    applyNodeSelection: (ids, primaryId, openInspector) => {
+      const nodeIds = [...ids];
+      applyNodeSelection(nodeIds, primaryId, openInspector);
+      if (agentOpen && nodeIds.length) setAgentReferenceSelection({ projectId, nodeIds });
+    },
     pauseHistory: pauseCanvasHistory,
     resumeHistory: resumeCanvasHistory,
     setContextMenu,
     copySelectedNodes,
-    pasteCopiedNodes,
+    pasteCopiedNodes: () => { void pasteSystemClipboard(); },
+    pasteClipboardData: data => pasteClipboardContent(readCanvasClipboardData(data)),
     undoCanvas,
     redoCanvas,
     runSelectedGeneration: () => { void runSelectedGenerationRef.current(); },
@@ -3163,56 +3135,41 @@ export default function CanvasWorkspaceViewContent() {
     onWarning: message => toast.warning(message),
   });
 
-  const syncLinkedAssetTitle = (node: CanvasNodeData, nextTitle: string) => {
-    const title = nextTitle.trim();
-    if (!title) return;
-    const assetId = assetIdFromNode(node);
-    const nextNodes = applyAssetNameToLinkedNodes(nodesRef.current, assetId, title, node.id);
+  const renameNodeTitle = (node: CanvasNodeData, nextTitle: string) => {
+    const nextNodes = renameCanvasNode(nodesRef.current, node.id, nextTitle);
     if (nextNodes !== nodesRef.current) {
       nodesRef.current = nextNodes;
       setNodes(nextNodes);
     }
-    if (!assetId) return;
-    const assetScope = workspaceScopeValue(node.metadata?.assetScope) || projectSessionController.canonicalScope;
-    if (!assetScope) return;
-    void updateAssetMetadata(assetId, { name: title }, assetScope)
-      .then(() => {
-        publishAssetNameChange({ assetId, name: title, scope: assetScope });
-        void invalidateAssetRecord(queryClient, assetScope, assetId);
-      })
-      .catch(() => toast.warning("画布名称已改，但资产库同步失败"));
   };
 
   const commitNodeTitle = (node: CanvasNodeData) => {
     const nextTitle = titleDraft.trim();
     setTitleEditingNodeId("");
     if (!nextTitle || nextTitle === node.title) return;
-    syncLinkedAssetTitle(node, nextTitle);
+    renameNodeTitle(node, nextTitle);
   };
 
-  const commitLinkedAssetTitle = (node: CanvasNodeData) => {
+  const commitInspectorNodeTitle = (node: CanvasNodeData) => {
     const current = nodesRef.current.find(item => item.id === node.id) || node;
-    syncLinkedAssetTitle(current, current.title);
+    renameNodeTitle(current, current.title);
   };
 
-  const startPanelWidthResize = (event: PointerEvent, node: CanvasNodeData) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const startX = event.clientX;
-    const startWidth = panelRef.current?.getBoundingClientRect().width || 340;
-    const move = (moveEvent: globalThis.PointerEvent) => {
-      const width = Math.min(560, Math.max(340, Math.round(startWidth + moveEvent.clientX - startX)));
-      updateNode(node.id, { metadata: { ...(node.metadata || {}), promptPanelWidth: width } });
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-  };
+  const startPanelResize = useInspectorResize({
+    panelRef,
+    nodeId: inspectorOpen && !selectedGroup && !projectActionDisabled ? selectedNode?.id : undefined,
+    limits: inspectorSizeLimits(stageBounds.width, stageBounds.height - CANVAS_STAGE_OFFSET),
+    onResize: (nodeId, size, mode) => {
+      // Generation and prompt edits can finish during a drag; merge into the latest metadata.
+      const node = nodesRef.current.find(item => item.id === nodeId);
+      if (!node) return;
+      updateNode(nodeId, { metadata: {
+        ...node.metadata,
+        ...(mode !== "height" ? { promptPanelWidth: size.width } : {}),
+        ...(mode !== "width" ? { promptPanelHeight: size.height } : {}),
+      } });
+    },
+  });
 
   const adjustNodeFontSize = (node: CanvasNodeData, delta: number) => {
     const current = numberValue(node.metadata?.fontSize) || 14;
@@ -3574,10 +3531,16 @@ export default function CanvasWorkspaceViewContent() {
     return { ok: true, message: `已将 ${addedNodes.length} 个资产添加到画布。`, data: { nodeIds: addedNodes.map((node) => node.id), assetIds } };
   };
 
-  const uploadFilesAsNodes = async (files: FileList | File[], dropPosition?: { x: number; y: number }) => {
+  const uploadFilesAsNodes = async (files: FileList | File[], dropPosition?: { x: number; y: number }, ingestion = "drag_or_upload") => {
     const list = Array.from(files).filter((file) => assetKindFromFile(file) !== null);
-    if (!list.length || uploadingRef.current || projectSessionController.switching) return;
+    if (!list.length || projectSessionController.switching || projectSessionController.loading) return;
+    if (uploadingRef.current) {
+      toast.info("素材正在导入，请完成后再粘贴或上传");
+      return;
+    }
     const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
+    const isCurrentProject = () => workspaceMountedRef.current && !projectSessionController.switching && projectSessionController.canonicalKey === projectKey;
     if (!activeScope) {
       toast.warning("正在确认项目工作区，暂不能上传画布素材");
       return;
@@ -3586,41 +3549,53 @@ export default function CanvasWorkspaceViewContent() {
     setUploading(true);
     try {
       const createdNodes: CanvasNodeData[] = [];
+      let failed = 0;
       for (const file of list) {
+        if (!isCurrentProject()) return;
         const kind = assetKindFromFile(file);
         if (!kind) continue;
-        const asset = await uploadAsset(file, {
-          type: kind,
-          name: file.name,
-          category: "reference",
-          source_type: "canvas",
-          source_project_id: projectId,
-          source_project_name: projectTitle,
-          source_metadata: JSON.stringify({ canvas_node_ingestion: "drag_or_upload" }),
-        }, activeScope);
-        createdNodes.push({
-          id: crypto.randomUUID(),
-          kind,
-          title: asset.name || file.name,
-          content: `从画布拖入 / 上传形成的${kind === "image" ? "图片" : kind === "video" ? "视频" : "音频"}素材节点。`,
-          x: 140 + (nodes.length + createdNodes.length) * 34,
-          y: 120 + (nodes.length + createdNodes.length) * 26,
-          width: kind === "video" ? 420 : 320,
-          height: kind === "audio" ? 120 : kind === "video" ? 260 : 238,
-          imageAssetId: kind === "image" ? asset.id : undefined,
-          metadata: {
-            assetId: asset.id,
-            assetScope: activeScope,
+        try {
+          const asset = await uploadAsset(file, {
+            type: kind,
+            name: file.name,
+            category: "reference",
+            source_type: "canvas",
+            source_project_id: projectId,
+            source_project_name: projectTitle,
+            source_metadata: JSON.stringify({ canvas_node_ingestion: ingestion }),
+          }, activeScope);
+          if (!isCurrentProject()) {
+            toast.info("画布已切换，已上传素材保留在原工作区资产库");
+            return;
+          }
+          createdNodes.push({
+            id: crypto.randomUUID(),
+            kind,
+            title: asset.name || file.name,
             content: "",
-            prompt: "",
-            status: "success",
-            generationMode: defaultGenerationModeForKind(kind),
-            mimeType: asset.content_type || file.type,
-            bytes: asset.size || file.size,
-            canvasOrigin: "imported",
-          },
-        });
+            x: 140 + (nodes.length + createdNodes.length) * 34,
+            y: 120 + (nodes.length + createdNodes.length) * 26,
+            width: kind === "video" ? 420 : 320,
+            height: kind === "audio" ? 120 : kind === "video" ? 260 : 238,
+            imageAssetId: kind === "image" ? asset.id : undefined,
+            metadata: {
+              assetId: asset.id,
+              assetScope: activeScope,
+              content: "",
+              prompt: "",
+              status: "success",
+              generationMode: defaultGenerationModeForKind(kind),
+              mimeType: asset.content_type || file.type,
+              bytes: asset.size || file.size,
+              canvasOrigin: "imported",
+            },
+          });
+        } catch (error) {
+          failed += 1;
+          if (isCurrentProject()) toast.error(`${file.name}：${publicApiError(error, "导入素材失败")}`);
+        }
       }
+      if (!createdNodes.length || !isCurrentProject()) return;
       const baseNodes = nodesRef.current;
       const anchor = dropPosition || getCanvasCenter();
       const columns = Math.min(2, Math.max(1, createdNodes.length));
@@ -3645,13 +3620,63 @@ export default function CanvasWorkspaceViewContent() {
       setNodes(nextNodes);
       const nextSelectedId = createdNodes.at(-1)?.id || selectedId;
       applyNodeSelection(nextSelectedId ? [nextSelectedId] : [], nextSelectedId, Boolean(nextSelectedId));
-      await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom);
-      toast.success(`已添加 ${createdNodes.length} 个媒体节点`);
+      const saved = await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom);
+      if (saved && isCurrentProject()) {
+        if (failed) toast.warning(`已添加 ${createdNodes.length} 个媒体节点，${failed} 个导入失败`);
+        else toast.success(`已添加 ${createdNodes.length} 个媒体节点`);
+      }
     } catch (error) {
-      toast.error(publicApiError(error, "上传媒体到画布失败"));
+      if (isCurrentProject()) toast.error(publicApiError(error, "上传媒体到画布失败"));
     } finally {
       uploadingRef.current = false;
-      setUploading(false);
+      if (workspaceMountedRef.current) setUploading(false);
+    }
+  };
+
+  const pasteClipboardContent = ({ files, text }: CanvasClipboardContent): boolean => {
+    if (projectActionDisabled) return false;
+    if (files.length) {
+      const media = files.filter(file => file.size > 0 && assetKindFromFile(file));
+      if (!media.length) toast.warning("剪贴板中没有可导入的图片、视频或音频文件");
+      else {
+        if (media.length !== files.length) toast.warning("不支持的文件已跳过");
+        void uploadFilesAsNodes(media, getCanvasCenter(), "paste");
+      }
+      return true;
+    }
+    if (text.startsWith(CANVAS_CLIPBOARD_TOKEN_PREFIX)) {
+      if (text === clipboardTokenRef.current) pasteCopiedNodes();
+      else toast.warning("复制的节点已失效，请在当前画布重新复制");
+      return true;
+    }
+    if (!text.trim()) return false;
+    const created = buildCanvasNodeCandidate("text");
+    const nextNode = {
+      ...created, title: "粘贴文本", content: text,
+      metadata: { ...created.metadata, content: text, prompt: text, composerContent: text },
+    };
+    const nextNodes = [...nodesRef.current, nextNode];
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    applyNodeSelection([created.id], created.id, true);
+    stageInteractionController.resetConnectionAndPending();
+    setContextMenu(null);
+    void persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom);
+    toast.success("已粘贴文本节点");
+    return true;
+  };
+
+  const pasteSystemClipboard = async () => {
+    if (projectActionDisabled) return;
+    const projectKey = projectSessionController.canonicalKey;
+    try {
+      const content = await readSystemCanvasClipboard();
+      if (!workspaceMountedRef.current || projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) return;
+      if (!pasteClipboardContent(content)) toast.info("剪贴板中没有可粘贴的内容");
+    } catch {
+      if (workspaceMountedRef.current && projectSessionController.canonicalKey === projectKey) {
+        toast.warning("无法读取剪贴板，请在画布空白处按 Ctrl+V / Cmd+V 粘贴，或允许剪贴板访问");
+      }
     }
   };
 
@@ -3659,28 +3684,13 @@ export default function CanvasWorkspaceViewContent() {
     const source = targetId ? nodesRef.current.find((node) => node.id === targetId) : selectedNode ? nodesRef.current.find((node) => node.id === selectedNode.id) : null;
     if (!source) return;
     const createdId = crypto.randomUUID();
-    const duplicate: CanvasNodeData = {
-      ...source,
-      id: createdId,
-      title: `${source.title} 副本`,
-      x: source.x + 36,
-      y: source.y + 36,
-      metadata: { ...source.metadata },
-    };
-    const currentEdges = edgesRef.current;
-    const incomingEdges = currentEdges
-      .filter((edge) => edge.to === source.id)
-      .map((edge) => ({ id: `${edge.from}:${createdId}`, from: edge.from, to: createdId }))
-      .filter((edge, index, all) => all.findIndex((item) => item.id === edge.id) === index && !currentEdges.some((existing) => existing.from === edge.from && existing.to === edge.to));
+    const duplicate = duplicateCanvasNode(source, createdId);
     const nextNodes = [...nodesRef.current, duplicate];
-    const nextEdges = [...currentEdges, ...incomingEdges];
     nodesRef.current = nextNodes;
-    edgesRef.current = nextEdges;
     setNodes(nextNodes);
-    setEdges(nextEdges);
     applyNodeSelection([createdId], createdId, true);
-    await persistSnapshot(nextNodes, nextEdges, viewportRef.current.zoom);
-    toast.success("节点已复制：仅保留左侧入边，右侧出边不会继承");
+    await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom);
+    toast.success("节点已复制为独立节点，不继承连线");
   };
 
   const imageAssetIds = () => nodesRef.current.map((node) => assetIdFromNode(node)).filter(Boolean) as string[];
@@ -4613,7 +4623,7 @@ export default function CanvasWorkspaceViewContent() {
             renderCanvasSubmenu,
             copyCanvasImagePrompt,
             addNode,
-            pasteCopiedNodes,
+            pasteCopiedNodes: () => { void pasteSystemClipboard(); },
             createNodeFromConnectionDraft,
             cancelPendingConnectionCreate,
             dismissPendingGroup,
@@ -4675,7 +4685,7 @@ export default function CanvasWorkspaceViewContent() {
             runCanvasGroupGeneration,
             ungroupCanvasGroup,
             updateNode,
-            commitLinkedAssetTitle,
+            commitInspectorNodeTitle,
             generateFromNode,
             openAssetPicker,
             selectGenerationModel: (value) => {
@@ -4695,12 +4705,14 @@ export default function CanvasWorkspaceViewContent() {
             setSkillLibraryOpen,
             setSeedanceAssetNodeId,
             downloadSelectedMedia,
-            startPanelWidthResize,
+            startPanelResize,
           }}
         />
         <CanvasWorkspaceDialogHost
           agent={{
             projectId,
+            referenceSelection: agentReferenceSelection,
+            assetScope: projectSessionController.canonicalScope || scope,
             open: agentOpen && !projectActionDisabled,
             onClose: () => setAgentOpen(false),
             snapshot: agentSnapshot,
@@ -4755,7 +4767,6 @@ export default function CanvasWorkspaceViewContent() {
         imageTool={{
           dialog: imageToolDialog, busy: imageToolBusy, error: imageToolError, preview: imageToolPreview,
           node: imageToolNode, crop: imageToolCrop, cropStageRef: imageCropStageRef, draft: imageToolDraft,
-          cropLocked: imageCropLocked,
           onOpenChange: (open) => {
             if (!open && imageToolBusy) return;
             if (!open) { setImageToolDialog(null); setImageToolError(""); }
@@ -4763,7 +4774,6 @@ export default function CanvasWorkspaceViewContent() {
           onStartCropPointer: startImageCropPointer,
           onSelectMode: (mode) => setImageToolDialog((current) => current ? { ...current, mode } : current),
           onDraftChange: setImageToolDraft,
-          onToggleCropLock: () => setImageCropLocked((locked) => !locked),
           onCancel: () => { setImageToolDialog(null); setImageToolError(""); },
           onRun: () => void runCanvasImageTool(),
         }}

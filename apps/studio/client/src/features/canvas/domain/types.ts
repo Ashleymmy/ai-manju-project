@@ -15,6 +15,9 @@ export type CanvasNodeGenerationRevision = {
   imageSrc?: string;
   seed?: string | number;
   size?: string;
+  imageResolution?: string;
+  quality?: string;
+  requestedImageSize?: string;
   seconds?: string;
   width?: number;
   height?: number;
@@ -40,7 +43,7 @@ export type CanvasNodeKind =
 export type CanvasGenerationMode = "text" | "image" | "video" | "audio";
 export type CanvasNodeStatus = "idle" | "loading" | "success" | "error";
 export type CanvasBackgroundMode = "dots" | "lines" | "blank";
-export type ImageSizeValue = "auto" | "1:1" | "16:9" | "9:16" | "2:1";
+export type ImageSizeValue = "auto" | "panorama" | `${number}:${number}` | `${number}x${number}`;
 export type ImageQualityValue = "auto" | "low" | "medium" | "high";
 
 export type CanvasImageReferenceSnapshot = {
@@ -53,6 +56,8 @@ export type CanvasImageReferenceSnapshot = {
 };
 
 export type CanvasNodeMetadata = Record<string, unknown> & {
+  /** Preserve an explicitly edited node title across snapshot normalization. */
+  titleEdited?: boolean;
   content?: string;
   prompt?: string;
   /** Original editable prompt, including @ tokens, separate from the resolved model request. */
@@ -70,6 +75,8 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   videoSubMode?: string;
   storyboardScenes?: Array<Record<string, unknown>>;
   imageResolution?: string;
+  /** Pixel dimensions submitted for the current image generation. */
+  requestedImageSize?: string;
   generateAudio?: boolean;
   watermark?: boolean;
   quality?: string;
@@ -83,6 +90,8 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   naturalWidth?: number;
   naturalHeight?: number;
   promptPanelWidth?: number;
+  /** User-selected inspector height in screen pixels; absent means content-sized. */
+  promptPanelHeight?: number;
   promptEditorHeight?: number;
   generationType?: "generation" | "edit";
   sourceNodeId?: string;

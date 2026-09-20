@@ -202,6 +202,9 @@ export function snapshotCanvasGenerationRevision(
     imageSrc: assetId ? undefined : imageSrc,
     seed: historySeed(node),
     size: historySizeLabel(node),
+    imageResolution: stringValue(node.metadata?.imageResolution) || undefined,
+    quality: stringValue(node.metadata?.quality) || undefined,
+    requestedImageSize: stringValue(node.metadata?.requestedImageSize) || undefined,
     seconds: stringValue(node.metadata?.seconds),
     width: node.width,
     height: node.height,
@@ -216,8 +219,8 @@ export function snapshotCanvasGenerationRevision(
 }
 
 function looksLikeStoredImageSrc(node: CanvasNodeData) {
-  const candidate = node.imageSrc || stringValue(node.metadata?.content);
-  return candidate && !assetIdFromNode(node) ? candidate : "";
+  // Empty/failed media nodes also store prompt text in metadata.content.
+  return assetIdFromNode(node) ? "" : imageSrcFromNode(node, {});
 }
 
 export function appendCanvasGenerationRevision(
@@ -386,6 +389,9 @@ export function cloneCanvasNodeFromGenerationRevision(
   metadata.generatedAt = stringValue(revision.generatedAt) || metadata.generatedAt;
   metadata.seed = stringValue(revision.seed) || revision.seed || metadata.seed;
   metadata.size = stringValue(revision.size) || metadata.size;
+  metadata.imageResolution = revision.imageResolution;
+  metadata.quality = revision.quality;
+  metadata.requestedImageSize = revision.requestedImageSize;
   metadata.seconds = stringValue(revision.seconds) || metadata.seconds;
   metadata.mimeType = stringValue(revision.mimeType) || metadata.mimeType;
   metadata.bytes = numberValue(revision.bytes) ?? metadata.bytes;

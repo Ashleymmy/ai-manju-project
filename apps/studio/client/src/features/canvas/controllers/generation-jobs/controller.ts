@@ -24,6 +24,7 @@ import {
   randomImageGenerationSeed,
 } from "@/features/canvas/domain/imageBatchDiversity";
 import { appendCanvasGenerationRevision } from "@/features/canvas/domain/generationHistory";
+import { canvasImageGenerationSettings } from "@/features/canvas/domain/imageGenerationSettings";
 import { buildCanvasGenerationInputs, isHiddenCanvasBatchChild } from "@/features/canvas/domain/connections";
 import {
   completeGeneratedAudioTarget,
@@ -55,9 +56,7 @@ import {
   generationModeFromNode,
   modelFromNode,
   promptTextFromNode,
-  qualityFromNode,
   sizeFromNode,
-  toImageSizeValue,
   videoConfigFromNode,
   videoFileName,
   videoProviderFromNode,
@@ -254,6 +253,7 @@ export class CanvasGenerationJobsController {
                 jobId,
                 status: "loading",
                 errorDetails: undefined,
+                requestedImageSize: input.size,
                 ...(input.seed !== undefined ? { seed: input.seed } : {}),
               },
             } : node));
@@ -606,8 +606,7 @@ export class CanvasGenerationJobsController {
           requestPrompt: diversifyCanvasBatchImagePrompt(prompt, slot.index, slot.count, seed),
           seed,
           model: modelFromNode(target, this.bindings.getImageModel()),
-          size: toImageSizeValue(sizeFromNode(target)),
-          quality: qualityFromNode(target),
+          ...canvasImageGenerationSettings(target),
           referenceFiles: files,
         });
       } finally {
@@ -784,6 +783,8 @@ export class CanvasGenerationJobsController {
         imageSrc: undefined,
         metadata: {
           ...item.metadata,
+          generationRevisions: appendCanvasGenerationRevision(item, this.services.createId()),
+          appliedFromHistory: undefined,
           assetId: undefined,
           generationMode: "video" as const,
           videoProvider: isSeedanceVideoModel(config.model) ? "seedance" : "openai",
@@ -1044,8 +1045,7 @@ export class CanvasGenerationJobsController {
       ? Array.from({ length: count - 1 }, () => this.services.createId())
       : [];
     const targetIds = [rootId, ...childIds];
-    const size = toImageSizeValue(sizeFromNode(sourceNode));
-    const quality = qualityFromNode(sourceNode);
+    const { size, quality, imageResolution } = canvasImageGenerationSettings(sourceNode);
     const generationRevisions = reuseSourceNode
       ? appendCanvasGenerationRevision(sourceNode, this.services.createId())
       : sourceNode.metadata?.generationRevisions;
@@ -1055,8 +1055,10 @@ export class CanvasGenerationJobsController {
       prompt,
       status: "loading",
       model,
-      size,
+      size: sizeFromNode(sourceNode),
       quality,
+      imageResolution,
+      requestedImageSize: size,
       sourceNodeId: sourceNode.id,
       generationType: prepared.files.length ? "edit" : "generation",
       referenceInputs: prepared.snapshots,
@@ -1206,6 +1208,9 @@ export class CanvasGenerationJobsController {
     const reuseSourceNode = sourceNode.kind === "video" && sourceNode.metadata?.canvasOrigin !== "imported";
     const hasExistingMedia = reuseSourceNode && Boolean(assetIdFromNode(sourceNode));
     const targetNodeId = reuseSourceNode ? sourceNode.id : this.services.createId();
+    const generationRevisions = reuseSourceNode
+      ? appendCanvasGenerationRevision(sourceNode, this.services.createId())
+      : undefined;
     const targetNode: CanvasNodeData = {
       id: targetNodeId,
       kind: "video",
@@ -1217,6 +1222,8 @@ export class CanvasGenerationJobsController {
       height: reuseSourceNode ? sourceNode.height : 260,
       metadata: {
         ...(reuseSourceNode ? sourceNode.metadata : {}),
+        generationRevisions,
+        appliedFromHistory: undefined,
         // Keep the previous media attached while regenerating so the node keeps
         // showing the old video during generation and after a failed attempt,
         // matching the image-node behavior.
@@ -1905,8 +1912,7 @@ export class CanvasGenerationJobsController {
           scope,
           prompt: stringValue(node.metadata?.prompt) || node.content,
           model: modelFromNode(node, this.bindings.getImageModel()),
-          size: toImageSizeValue(sizeFromNode(node)),
-          quality: qualityFromNode(node),
+          ...canvasImageGenerationSettings(node),
           referenceFiles: [],
           existingJobId: jobId,
         });

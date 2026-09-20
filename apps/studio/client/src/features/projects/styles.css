@@ -8,10 +8,11 @@
 }
 .project-card-wrap {
   position: relative;
+  min-width: 0;
 }
 /* 复选框（左上 10px/24px 宽）与卡片状态缎带（state-ribbon 默认 left:12px）同位冲突：
    在带选择框的卡片里把缎带整体右移让位 */
-.project-card-wrap .state-ribbon {
+.project-check ~ .project-card .state-ribbon {
   left: 42px;
 }
 .project-card-wrap .project-card {
@@ -39,7 +40,8 @@
   opacity: 0;
   transition: opacity 0.15s ease;
 }
-.project-card-wrap:hover .project-card-tools {
+.project-card-wrap:hover .project-card-tools,
+.project-card-wrap:focus-within .project-card-tools {
   opacity: 1;
 }
 .project-card-tools button {
@@ -51,4 +53,7 @@
   background: rgba(12, 15, 16, 0.78);
   color: #dfded5;
   cursor: pointer;
+}
+@media (hover: none) {
+  .project-card-tools { opacity: 1; }
 }

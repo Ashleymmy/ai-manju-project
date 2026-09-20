@@ -62,6 +62,13 @@ describe("canvas image preview resolution", () => {
     expect(labels.indexOf("分辨率")).toBe(labels.indexOf("文件大小") - 1);
   });
 
+  it("keeps requested pixels separate from a provider's actual lower resolution", async () => {
+    await render({ ...node, metadata: { ...node.metadata, requestedImageSize: "3840x2160" } });
+    await load(image(), 1024, 1024);
+    expect(resolution()).toBe("1024 × 1024 px");
+    expect(document.querySelector(".preview-detail-rows")?.textContent).toContain("请求尺寸3840 × 2160 px");
+  });
+
   it("shows the original image and its byte size while the sibling strip stays thumbnail-sized", async () => {
     await act(async () => root.render(<CanvasImagePreviewDialog
       node={node} source="blob:original" originalBytes={2097152}

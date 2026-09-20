@@ -138,6 +138,8 @@ function imagePayload(node: CanvasNodeData) {
       referenceInputs: node.metadata?.referenceInputs,
       size: node.metadata?.size,
       quality: node.metadata?.quality,
+      imageResolution: node.metadata?.imageResolution,
+      requestedImageSize: node.metadata?.requestedImageSize,
     },
   };
 }

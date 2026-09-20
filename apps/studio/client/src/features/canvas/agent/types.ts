@@ -1,4 +1,5 @@
 import type { ResponseInputMessage } from "@/services/api/ai";
+import type { AgentReference } from "./references";
 import type {
   CanvasAgentExecutionResult,
   CanvasAgentOp,
@@ -10,6 +11,7 @@ export type AgentMessage = {
   id: string;
   role: "user" | "assistant" | "error" | "tool";
   text: string;
+  references?: AgentReference[];
 };
 
 export type AgentConversation = {
@@ -43,6 +45,7 @@ export type OnlineToolContext = {
   messages: ResponseInputMessage[];
   step: number;
   assistantId: string;
+  references?: AgentReference[];
 };
 
 export type PendingAgentTool =

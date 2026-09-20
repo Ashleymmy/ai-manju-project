@@ -131,6 +131,7 @@ export type CanvasStageInteractionBindings = {
   setContextMenu(menu: CanvasContextMenuState | null): void;
   copySelectedNodes(): unknown;
   pasteCopiedNodes(): unknown;
+  pasteClipboardData(data: DataTransfer): boolean;
   undoCanvas(): void;
   redoCanvas(): void;
   runSelectedGeneration(): void;
@@ -155,6 +156,7 @@ export type CanvasStageInteractionAdapter = {
   isInlineNodeEditor(target: EventTarget | null): boolean;
   blurActiveInlineEditorExcept(nodeId: string): void;
   focusInlineEditor(stage: Element | null, nodeId: string): void;
+  focusStage(stage: Element | null): void;
   capturePointer(element: Element, pointerId: number): void;
   releasePointer(element: Element, pointerId: number): void;
   setPanCursor(active: boolean): void;

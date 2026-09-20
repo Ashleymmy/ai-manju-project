@@ -29,8 +29,8 @@ function permutations<T>(items: T[]): T[][] {
 describe("image batch primary", () => {
   it("swaps the primary payload with the selected child without duplicating either image", () => {
     const nodes = [
-      imageNode("root", { metadata: { isBatchRoot: true, batchChildIds: ["child"] } }),
-      imageNode("child", { metadata: { batchRootId: "root" } }),
+      imageNode("root", { metadata: { isBatchRoot: true, batchChildIds: ["child"], imageResolution: "1K", quality: "low", requestedImageSize: "1024x1024" } }),
+      imageNode("child", { metadata: { batchRootId: "root", imageResolution: "4K", quality: "high", requestedImageSize: "3840x2160" } }),
     ];
 
     const next = swapImageBatchPrimary(nodes, "root", "child");
@@ -40,6 +40,8 @@ describe("image batch primary", () => {
     expect(child.imageAssetId).toBe("asset-root");
     expect(root.metadata?.ownAssetId).toBe("asset-child");
     expect(root.metadata?.primaryImageId).toBeUndefined();
+    expect(root.metadata).toMatchObject({ imageResolution: "4K", quality: "high", requestedImageSize: "3840x2160" });
+    expect(child.metadata).toMatchObject({ imageResolution: "1K", quality: "low", requestedImageSize: "1024x1024" });
   });
 
   it.each(permutations(["root", "a", "b", "c"]).map(order => ({ order })))

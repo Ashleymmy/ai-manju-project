@@ -65,11 +65,11 @@ import {
 import {
   activeComicRevision,
   comicAssetDraft,
-  comicBatchProgress,
   filterComicAssets,
   type ComicAssetDraft,
 } from "../model/workflow";
 import { ComicCreateDialog } from "./ComicCreateDialog";
+import { ComicBatchPanel } from "./ComicBatchPanel";
 
 function SurfaceTitle({ eyebrow, title, description, actions }: { eyebrow: string; title: string; description: string; actions?: React.ReactNode }) {
   return <div className="feature-title"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>{actions}</div>;
@@ -77,7 +77,6 @@ function SurfaceTitle({ eyebrow, title, description, actions }: { eyebrow: strin
 
 export function ComicAssetsView() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const appliedBatchUpdateRef = useRef(0);
   const [scope, setScope] = useState<WorkspaceScope>("personal");
   const [stage, setStage] = useState(1);
   const [projectDetail, setProjectDetail] = useState<ComicProjectDetail | null>(null);
@@ -112,7 +111,8 @@ export function ComicAssetsView() {
   const [referencePickerOpen, setReferencePickerOpen] = useState(false);
   const [referenceKeyword, setReferenceKeyword] = useState("");
   const [optimizeDirection, setOptimizeDirection] = useState(COMIC_OPTIMIZE_DIRECTION);
-  const [batchDetail, setBatchDetail] = useState<ComicBatchDetail | null>(null);
+  // 仅保存加载/操作返回的快照；轮询结果直接读取缓存，避免双向同步覆盖新状态。
+  const [batchSnapshot, setBatchDetail] = useState<ComicBatchDetail | null>(null);
   const [promptBusy, setPromptBusy] = useState("");
   const [busy, setBusy] = useState(false);
   const [assetFilterClass, setAssetFilterClass] = useState<ComicAssetClass | "">("");
@@ -131,9 +131,10 @@ export function ComicAssetsView() {
   );
   const batchQuery = useComicBatchQuery(
     scope,
-    batchDetail?.batch.id || "",
-    batchDetail
+    batchSnapshot?.batch.id || "",
+    batchSnapshot
   );
+  const batchDetail = batchQuery.data || batchSnapshot;
   const projects = projectsQuery.data || [];
   const models: CapabilityModelCatalog | null = textModelsQuery.data || null;
   const imageModels: CapabilityModelCatalog | null =
@@ -379,22 +380,13 @@ export function ComicAssetsView() {
   }, [loadLatestBatch, projectDetail?.project.id]);
 
   useEffect(() => {
-    if (
-      !batchQuery.data ||
-      !batchQuery.dataUpdatedAt ||
-      batchQuery.dataUpdatedAt <= appliedBatchUpdateRef.current
-    )
-      return;
-    appliedBatchUpdateRef.current = batchQuery.dataUpdatedAt;
-    if (batchQuery.data === batchDetail) return;
-    setBatchDetail(batchQuery.data);
-    if (projectDetail?.project.id)
+    if (batchDetail?.batch.succeeded && batchDetail.batch.project_id === projectDetail?.project.id)
       void refreshProjectDetail(projectDetail.project.id).catch(
         () => undefined
       );
   }, [
-    batchQuery.data,
-    batchQuery.dataUpdatedAt,
+    batchDetail?.batch.id,
+    batchDetail?.batch.succeeded,
     projectDetail?.project.id,
     refreshProjectDetail,
   ]);
@@ -895,17 +887,11 @@ export function ComicAssetsView() {
             {referenceAssets.length > 0 && <div className="comic-reference-chips">{referenceAssets.map((asset) => <span key={asset.id}>{asset.name}<button onClick={() => toggleReferenceAsset(asset)}><X size={11} /></button></span>)}</div>}
             {referencePickerOpen && <div className="reference-asset-picker"><div className="tag-search"><Search size={13} /><input value={referenceKeyword} onChange={(event) => setReferenceKeyword(event.target.value)} placeholder="搜索资产库图片" /></div><div className="comic-reference-candidates">{referenceCandidates.map((asset) => <button key={asset.id} className={referenceAssets.some((item) => item.id === asset.id) ? "selected" : ""} onClick={() => toggleReferenceAsset(asset)}>{asset.name}</button>)}{!referenceCandidates.length && <small>没有匹配的图片资产</small>}</div></div>}
           </div>
-          <button className="vermilion-button" onClick={() => void createGenerationBatch()} disabled={promptBusy === "batch-create"}>创建批量生成</button>
-          {batchDetail && <div className="comic-batch-card">
-            <div><span className={`status-chip ${batchDetail.batch.status}`}>{batchDetail.batch.status}</span><b>{batchDetail.batch.succeeded}/{batchDetail.batch.total}</b></div>
-            <div className="job-progress"><i style={{ width: `${comicBatchProgress(batchDetail.batch)}%` }} /></div>
-            <div className="comic-batch-controls">
-              <button onClick={() => void controlBatch(batchDetail.batch.status === "paused" ? "resume" : "pause")}>{batchDetail.batch.status === "paused" ? "恢复" : "暂停"}</button>
-              <button onClick={() => void controlBatch("stop")}>停止</button>
-              <button onClick={() => void retryFailedBatch()}>重试失败</button>
-            </div>
-            <div className="comic-batch-items">{batchDetail.items.map((item) => <div key={item.id}><span>{item.asset_name}</span><b>{item.status}</b><small>{item.job_id ? item.job_id.slice(-8) : item.error?.message || "pending"}</small>{item.status === "failed" && <button className="comic-item-retry" disabled={promptBusy === "batch-retry-item"} onClick={() => void retryBatchItem(item.id)}>重试</button>}</div>)}</div>
-          </div>}
+          <button className="vermilion-button" onClick={() => void createGenerationBatch()} disabled={Boolean(promptBusy)}>{promptBusy === "batch-create" ? "正在创建批次…" : "创建批量生成"}</button>
+          {batchDetail && <ComicBatchPanel detail={batchDetail} scope={scope}
+            busy={Boolean(promptBusy)} error={batchQuery.error} refreshing={batchQuery.isFetching}
+            onRefresh={() => void batchQuery.refetch()} onControl={action => void controlBatch(action)}
+            onRetryFailed={() => void retryFailedBatch()} onRetryItem={id => void retryBatchItem(id)} />}
         </aside>
       </div>
     </section>}

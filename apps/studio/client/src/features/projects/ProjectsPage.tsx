@@ -1,8 +1,6 @@
 import {
   ArrowDownToLine,
   FolderKanban,
-  Image as ImageIcon,
-  Pencil,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -11,10 +9,8 @@ import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 import {
-  deleteProject,
   getProjects,
   getProjectSnapshot,
-  updateProject,
   type CanvasProject,
 } from "@/entities/project";
 import { createZip } from "@/lib/zip";
@@ -27,6 +23,8 @@ import { createAndOpenProject } from "./commands";
 import { useProjectCoverUrls } from "./covers";
 import { projectToCard, type ProjectCardData } from "./model";
 import { ProjectCard } from "./ProjectCard";
+import { ProjectCardTools } from "./ProjectCardTools";
+import { useProjectActions } from "./useProjectActions";
 import "./styles.css";
 
 const projectsIntro = {
@@ -43,7 +41,6 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [coverProject, setCoverProject] = useState<CanvasProject | null>(null);
   const coverUrls = useProjectCoverUrls(apiProjects, scope);
 
   useEffect(() => {
@@ -64,52 +61,20 @@ export default function ProjectsPage() {
   }, [refreshKey, scope]);
 
   const refresh = () => setRefreshKey(value => value + 1);
+  const {
+    coverProject,
+    setCoverProject,
+    renameProject,
+    saveCover,
+    deleteProjects: removeProjects,
+  } = useProjectActions(scope, refresh);
   const toggleSelected = (id: string) =>
     setSelectedIds(ids =>
       ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id]
     );
 
-  const renameProject = async (project: CanvasProject) => {
-    const title = window.prompt("项目名称", project.title)?.trim();
-    if (!title || title === project.title) return;
-    try {
-      await updateProject(project.id, { title, scope });
-      toast.success("项目已重命名");
-      refresh();
-    } catch (error) {
-      toast.error(publicApiError(error, "重命名项目失败"));
-    }
-  };
-
-  const saveCover = async (assetId: string) => {
-    if (!coverProject) return;
-    try {
-      await updateProject(coverProject.id, { cover_asset_id: assetId, scope });
-      toast.success(assetId ? "封面已更新" : "已恢复默认封面");
-      setCoverProject(null);
-      refresh();
-    } catch (error) {
-      toast.error(publicApiError(error, "设置封面失败"));
-    }
-  };
-
   const deleteProjects = async (ids: string[]) => {
-    if (!ids.length) return;
-    if (!window.confirm(`删除 ${ids.length} 个画布项目及其快照？此操作不可恢复。`))
-      return;
-    let failed = 0;
-    for (const id of ids) {
-      try {
-        await deleteProject(id, scope);
-      } catch {
-        failed += 1;
-      }
-    }
-    setSelectedIds([]);
-    toast[failed ? "warning" : "success"](
-      failed ? `删除完成，${failed} 个失败` : `已删除 ${ids.length} 个项目`
-    );
-    refresh();
+    if (await removeProjects(ids)) setSelectedIds([]);
   };
 
   const exportProjects = async (ids: string[]) => {
@@ -230,38 +195,11 @@ export default function ProjectsPage() {
                   onChange={() => project.id && toggleSelected(project.id)}
                 />
               </label>
-              <div className="project-card-tools">
-                <button
-                  title="设置封面"
-                  onClick={() => {
-                    const source = apiProjects.find(
-                      item => item.id === project.id
-                    );
-                    if (source) setCoverProject(source);
-                  }}
-                >
-                  <ImageIcon size={13} />
-                </button>
-                <button
-                  title="重命名"
-                  onClick={() => {
-                    const source = apiProjects.find(
-                      item => item.id === project.id
-                    );
-                    if (source) void renameProject(source);
-                  }}
-                >
-                  <Pencil size={13} />
-                </button>
-                <button
-                  title="删除"
-                  onClick={() =>
-                    project.id && void deleteProjects([project.id])
-                  }
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
+              <ProjectCardTools
+                onCover={() => setCoverProject(apiProjects[index])}
+                onRename={() => void renameProject(apiProjects[index])}
+                onDelete={() => project.id && void deleteProjects([project.id])}
+              />
               <ProjectCard {...project} image={(project.id && coverUrls[project.id]) || project.image} scope={scope} />
             </div>
           ))

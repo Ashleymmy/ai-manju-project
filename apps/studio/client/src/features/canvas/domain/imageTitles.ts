@@ -54,6 +54,7 @@ export function generatedImageTitle(
 export function normalizeGeneratedImageTitle(node: CanvasNodeData): string {
   if (
     node.kind !== "image" ||
+    node.metadata?.titleEdited ||
     node.metadata?.canvasOrigin === "imported" ||
     node.metadata?.isBatchRoot ||
     node.metadata?.status === "loading" ||

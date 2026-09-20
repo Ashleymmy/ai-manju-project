@@ -109,7 +109,7 @@ export function completeGeneratedVideoTarget(
       jobProgress: undefined,
       mimeType: persistentResult.mimeType || asset.content_type || "video/mp4",
       bytes: persistentResult.bytes || asset.size,
-      generatedAt: stringValue(node.metadata?.generatedAt) || new Date().toISOString(),
+      generatedAt: new Date().toISOString(),
     },
   } : node);
 }

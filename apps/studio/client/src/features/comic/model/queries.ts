@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   assetQueryKeys,
@@ -11,6 +12,7 @@ import {
   listComicProjects,
   type ComicBatchDetail,
 } from "@/entities/comic";
+import { getJob, isTerminalJob, jobQueryKeys } from "@/entities/job";
 import {
   fetchImageModelCatalog,
   fetchTextModelCatalog,
@@ -89,14 +91,42 @@ export function useComicBatchQuery(
   batchId: string,
   initialData: ComicBatchDetail | null
 ) {
+  const queryClient = useQueryClient();
+  // 控制和重试返回的是新状态，initialData 不会更新已有缓存；必须同步才能重新启动轮询。
+  useEffect(() => {
+    if (batchId && initialData?.batch.id === batchId) {
+      const queryKey = comicQueryKeys.batch(scope, batchId);
+      if (queryClient.getQueryData(queryKey) === initialData) return;
+      // 先取消旧轮询，避免控制/重试前的响应覆盖新状态。
+      void queryClient.cancelQueries({ queryKey, exact: true });
+      queryClient.setQueryData(queryKey, initialData);
+      void queryClient.invalidateQueries({ queryKey, exact: true });
+    }
+  }, [queryClient, scope, batchId, initialData]);
   return useQuery({
     enabled: Boolean(batchId),
     queryKey: comicQueryKeys.batch(scope, batchId),
-    queryFn: () => getComicBatch(batchId, scope),
+    queryFn: ({ signal }) => getComicBatch(batchId, scope, signal),
     initialData: initialData || undefined,
-    refetchOnMount: false,
+    refetchOnMount: "always",
+    refetchIntervalInBackground: true,
     refetchInterval: query =>
-      isComicBatchActive(query.state.data?.batch.status)
+      !query.state.data || isComicBatchActive(query.state.data.batch.status)
+        ? COMIC_BATCH_POLL_INTERVAL_MS
+        : false,
+  });
+}
+
+/** 批次记录只保存最终结果；进行中的任务从任务接口读取真实进度。 */
+export function useComicBatchItemJobQuery(jobId: string, active: boolean) {
+  return useQuery({
+    queryKey: jobQueryKeys.detail(jobId),
+    queryFn: ({ signal }) => getJob(jobId, signal),
+    enabled: Boolean(jobId) && active,
+    refetchOnMount: "always",
+    refetchIntervalInBackground: true,
+    refetchInterval: query =>
+      active && (!query.state.data || !isTerminalJob(query.state.data))
         ? COMIC_BATCH_POLL_INTERVAL_MS
         : false,
   });

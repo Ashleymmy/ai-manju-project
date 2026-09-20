@@ -1,0 +1,122 @@
+.comic-batch-progress-panel {
+  min-width: 0;
+  grid-column: 1 / -1;
+}
+.comic-batch-progress-panel progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  accent-color: #79cdaa;
+}
+.comic-batch-heading,
+.comic-batch-item-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 10px;
+}
+.comic-batch-heading {
+  font-size: 12px;
+}
+.comic-batch-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  color: #ddd;
+  font-size: 11px;
+}
+.comic-batch-progress-panel .comic-batch-controls {
+  flex-wrap: wrap;
+}
+.comic-batch-progress-panel button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.comic-batch-result-list {
+  display: grid;
+  gap: 8px;
+  max-height: 440px;
+  overflow-y: auto;
+}
+.comic-batch-item {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+}
+.comic-batch-item-heading b {
+  min-width: 0;
+  color: #eee;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.comic-batch-item-heading span {
+  flex-shrink: 0;
+  color: #ccc;
+  font-size: 11px;
+}
+.comic-batch-item.failed {
+  border-color: #b95d50;
+}
+.comic-batch-item.failed .comic-batch-item-heading span,
+.comic-batch-error {
+  color: #ffada0;
+}
+.comic-batch-error,
+.comic-batch-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.comic-batch-hint,
+.comic-batch-item small {
+  color: #bbb;
+  font-size: 11px;
+}
+.comic-batch-job-id {
+  opacity: 0.7;
+}
+.comic-batch-item .comic-item-retry {
+  justify-self: start;
+  min-height: 28px;
+}
+.comic-output-preview {
+  display: grid;
+  gap: 6px;
+  justify-self: start;
+  padding: 6px;
+  border: 1px solid var(--line);
+  background: #181818;
+  color: #ddd;
+  cursor: pointer;
+  font-size: 11px;
+}
+.comic-output-preview img {
+  width: 120px;
+  height: 100px;
+  object-fit: contain;
+}
+.comic-output-dialog {
+  width: min(92vw, 1000px);
+  max-width: 1000px;
+}
+.comic-output-original {
+  display: block;
+  width: 100%;
+  max-height: 75vh;
+  object-fit: contain;
+}
+.comic-output-error {
+  display: grid;
+  gap: 6px;
+  color: #ffada0;
+  font-size: 11px;
+}
+.comic-output-error button {
+  justify-self: start;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+}

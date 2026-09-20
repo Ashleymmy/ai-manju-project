@@ -1,4 +1,5 @@
 import { Image as ImageIcon, Plus } from "lucide-react";
+import { RetryImage } from "@/shared/ui/RetryImage";
 
 import { incomingCanvasMediaSources } from "@/features/canvas/domain/connections";
 import { imageSrcFromNode } from "@/features/canvas/domain/nodes";
@@ -34,7 +35,7 @@ export function CanvasIncomingMediaStrip({
             title={source.node.title || "参考图"}
             onClick={() => onPreview(source.node.id)}
           >
-            {preview ? <img src={preview} alt="" /> : <ImageIcon size={14} />}
+            {preview ? <RetryImage src={preview} alt="" fallback={<ImageIcon size={14} />} /> : <ImageIcon size={14} />}
           </button>
         );
       })}

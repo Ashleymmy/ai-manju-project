@@ -8,6 +8,8 @@ import {
 } from "./image";
 import { fetchAiModels } from "./ai";
 import type { Job } from "./jobs";
+import { canvasImageGenerationSettings } from "@/features/canvas/domain/imageGenerationSettings";
+import type { CanvasNodeData } from "@/features/canvas/domain/types";
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>();
@@ -135,6 +137,18 @@ describe("image API", () => {
       source_project_id: "project-2",
       source_node_id: "node-2",
     });
+  });
+
+  it.each(["low", "medium", "high"])("sends the same 4K pixels with %s detail in JSON and reference edits", async quality => {
+    vi.mocked(fetch).mockImplementation(async () => apiResponse({ job_id: "job-settings", status: "queued" }));
+    const settings = canvasImageGenerationSettings({ metadata: { size: "16:9", imageResolution: "4K", quality } } as CanvasNodeData);
+    await submitImageGeneration({ prompt: "人物", ...settings, sourceType: "canvas" });
+    const json = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body));
+    expect(json).toMatchObject({ size: "3840x2160", quality, output_format: "png" });
+    await submitImageEdit({ prompt: "人物", ...settings, sourceType: "canvas", referenceFiles: [new File(["image"], "reference.png")] });
+    const form = vi.mocked(fetch).mock.calls[1][1]?.body as FormData;
+    expect(form.get("size")).toBe("3840x2160");
+    expect(form.get("quality")).toBe(quality);
   });
 
   it("reports accepted and progress before surfacing a terminal error", async () => {

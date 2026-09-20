@@ -30,7 +30,7 @@ import {
   panCanvasViewport,
   zoomCanvasViewportAtPoint,
 } from "@/features/canvas/domain/history";
-import { eventMatchesShortcut } from "@/features/canvas/domain/hotkeys";
+import { DEFAULT_CANVAS_SHORTCUTS, eventMatchesShortcut } from "@/features/canvas/domain/hotkeys";
 import { canvasMinimapWorldPoint } from "@/features/canvas/domain/minimap";
 import {
   canvasNodesInSelectionRect,
@@ -191,6 +191,7 @@ const emptyBindings: CanvasStageInteractionBindings = {
   setContextMenu: () => undefined,
   copySelectedNodes: () => undefined,
   pasteCopiedNodes: () => undefined,
+  pasteClipboardData: () => false,
   undoCanvas: () => undefined,
   redoCanvas: () => undefined,
   runSelectedGeneration: () => undefined,
@@ -294,8 +295,11 @@ export class CanvasStageInteractionController {
       this.adapter.addWindowListener("pointerup", this.handleWindowPointerUp),
       this.adapter.addWindowListener("pointercancel", this.handleWindowPointerCancel),
       this.adapter.addWindowListener("keydown", this.handleWindowKeyDown),
+      this.adapter.addWindowListener("paste", this.handleWindowPaste),
       this.adapter.addWindowListener("keyup", this.handleWindowKeyUp),
       this.adapter.addWindowListener("blur", this.handleWindowBlur),
+      // 面板和 portal 弹窗不一定属于 stage；提前拦截浏览器缩放，保留后续画布处理。
+      this.adapter.addWindowListener("wheel", this.handleWindowWheel, { capture: true, passive: false }),
       this.adapter.addWheelListener(stage, this.handleWheel),
       this.adapter.observeStage(stage, stageBounds => this.patchView({ stageBounds })),
     ];
@@ -1332,6 +1336,8 @@ export class CanvasStageInteractionController {
       )
     ) return false;
     event.preventDefault();
+    // Pointer capture prevents the browser from moving focus off the previous control.
+    this.adapter.focusStage(this.stage);
     this.capturePointer("stage", event.currentTarget, event.pointerId);
     const point = this.screenToCanvasPoint(event.clientX, event.clientY);
     this.selectionBox = {
@@ -1370,6 +1376,7 @@ export class CanvasStageInteractionController {
     const shouldPan = event.button === 1 || (event.button === 0 && this.isSpacePressed);
     if (!shouldPan) return false;
     event.preventDefault();
+    this.adapter.focusStage(this.stage);
     this.capturePointer("stage", event.currentTarget, event.pointerId);
     if (event.button === 1 && this.pan.mode === "locked-pan") {
       this.stopPanInteraction();
@@ -1726,6 +1733,11 @@ export class CanvasStageInteractionController {
     this.stopPanInteraction();
   };
 
+  private readonly handleWindowWheel = (rawEvent: Event) => {
+    const event = rawEvent as WheelEvent;
+    if (event.ctrlKey || event.metaKey) event.preventDefault();
+  };
+
   private readonly handleWheel = (event: WheelEvent) => {
     if (this.bindings.isInteractionBlocked()) {
       event.preventDefault();
@@ -1764,6 +1776,16 @@ export class CanvasStageInteractionController {
       event.deltaX,
       event.deltaY,
     ));
+  };
+
+  private readonly handleWindowPaste = (rawEvent: Event) => {
+    const event = rawEvent as ClipboardEvent;
+    if (event.defaultPrevented || !event.clipboardData
+      || this.adapter.isHotkeyEditingTarget(event.target)
+      || this.adapter.closest(event.target, '[role="dialog"],[role="alertdialog"]')
+      || this.bindings.isInteractionBlocked()
+      || this.bindings.isProjectActionDisabled()) return;
+    if (this.bindings.pasteClipboardData(event.clipboardData)) event.preventDefault();
   };
 
   private readonly handleWindowKeyDown = (rawEvent: Event) => {
@@ -1810,6 +1832,8 @@ export class CanvasStageInteractionController {
       return;
     }
     if (eventMatchesShortcut(event, shortcuts.paste)) {
+      // Preventing Ctrl/Cmd+V suppresses the native event containing external files.
+      if (eventMatchesShortcut(event, DEFAULT_CANVAS_SHORTCUTS.paste)) return;
       event.preventDefault();
       this.bindings.pasteCopiedNodes();
       return;

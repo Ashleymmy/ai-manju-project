@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 
-import { act, useState } from "react";
+import { act, createRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildCanvasMentionEditorModel, type CanvasMentionReference } from "@/features/canvas/domain/mentions";
-import { CanvasResourceMentionTextarea } from "./CanvasResourceMentionTextarea";
+import { CanvasResourceMentionTextarea, type CanvasMentionEditorHandle } from "./CanvasResourceMentionTextarea";
 import { emptyCanvasMentionLibrary, type CanvasMentionLibraryState, type CanvasMentionLibraryTarget } from "@/features/canvas/domain/mentionLibrary";
 import type { AssetFolder } from "@/entities/asset";
 
@@ -20,6 +20,7 @@ describe("canvas image mention caret", () => {
   let changed: ReturnType<typeof vi.fn>;
   let preview: ReturnType<typeof vi.fn>;
   let submit: ReturnType<typeof vi.fn>;
+  const editorRef = createRef<CanvasMentionEditorHandle>();
   const imageReferences: CanvasMentionReference[] = ["a", "b"].map(id => ({
     id, key: `node:${id}`, source: "node", group: "canvas-node", targetId: id, nodeId: id,
     kind: "image", label: `图片${id}`, title: id, searchText: id, active: true, upstreamDistance: 1,
@@ -27,7 +28,7 @@ describe("canvas image mention caret", () => {
   const original = "@[node:a] @[node:b] 生成企鹅";
   function Harness({ initial = original }: { initial?: string }) {
     const [value, setValue] = useState(initial);
-    return <CanvasResourceMentionTextarea value={value} references={imageReferences}
+    return <CanvasResourceMentionTextarea value={value} references={imageReferences} editorRef={editorRef}
       onChange={next => { changed(next); setValue(next); }} onPreviewReference={preview} onSubmit={submit} />;
   }
   const textarea = () => container.querySelector("textarea")!;
@@ -201,6 +202,68 @@ describe("canvas image mention caret", () => {
     expect(textarea().selectionStart).toBe(textarea().value.length);
     expect(document.activeElement).toBe(textarea());
     expect(document.querySelector(".canvas-mention-menu")).toBeNull();
+  });
+
+  it("appends a thumbnail reference before the editor has been focused and then focuses it", async () => {
+    await act(async () => root.render(<Harness key="external" initial="保持光照" />));
+    await act(async () => editorRef.current!.insertReference(imageReferences[0]));
+    expect(changed.mock.lastCall?.[0]).toBe("保持光照@[node:a]");
+    expect(document.activeElement).toBe(textarea());
+    expect(textarea().selectionStart).toBe(textarea().value.length);
+    expect(preview).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it.each([0, 1, 2])("inserts at boundary %s among identical thumbnail spacers without moving the other references", async index => {
+    const initial = "前@[node:a]@[node:b]后";
+    await act(async () => root.render(<Harness key={`external-${index}`} initial={initial} />));
+    const { segments } = buildCanvasMentionEditorModel(initial, imageReferences);
+    const cursor = [segments[0].start, segments[0].end, segments[1].end][index];
+    await act(async () => { textarea().focus(); textarea().setSelectionRange(cursor, cursor); });
+    await act(async () => editorRef.current!.insertReference(imageReferences[1]));
+    expect(changed.mock.lastCall?.[0]).toBe([
+      "前@[node:b]@[node:a]@[node:b]后",
+      "前@[node:a]@[node:b]@[node:b]后",
+      "前@[node:a]@[node:b]@[node:b]后",
+    ][index]);
+    expect(textarea().selectionStart).toBe(cursor + segments[0].end - segments[0].start);
+  });
+
+  it("replaces the selected thumbnail by its identity even when its display text is identical", async () => {
+    const { segments: [first] } = buildCanvasMentionEditorModel(original, imageReferences);
+    textarea().setSelectionRange(first.start, first.end);
+    await act(async () => editorRef.current!.insertReference(imageReferences[1]));
+    expect(changed.mock.lastCall?.[0]).toBe("@[node:b] @[node:b] 生成企鹅");
+    expect(textarea().selectionStart).toBe(first.end);
+  });
+
+  it("preserves surrounding multiline text and uses the latest caret for consecutive insertions", async () => {
+    await act(async () => root.render(<Harness key="multiline" initial={"前文\n后文"} />));
+    await act(async () => { textarea().focus(); textarea().setSelectionRange(3, 3); });
+    await act(async () => editorRef.current!.insertReference(imageReferences[0]));
+    await act(async () => editorRef.current!.insertReference(imageReferences[1]));
+    expect(changed.mock.lastCall?.[0]).toBe("前文\n@[node:a]@[node:b]后文");
+    expect(document.activeElement).toBe(textarea());
+    expect(preview).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("replaces an active @ query when inserting from a connected thumbnail", async () => {
+    await act(async () => root.render(<Harness key="trigger" initial="" />));
+    await act(async () => {
+      textarea().focus();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea(), "前文 @");
+      textarea().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => editorRef.current!.insertReference(imageReferences[1]));
+    expect(changed.mock.lastCall?.[0]).toBe("前文 @[node:b]");
+    expect(document.querySelector(".canvas-mention-menu")).toBeNull();
+  });
+
+  it("does not insert into an unfinished IME composition", async () => {
+    await act(async () => textarea().dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true })));
+    await act(async () => editorRef.current!.insertReference(imageReferences[1]));
+    expect(changed).not.toHaveBeenCalled();
   });
 });
 

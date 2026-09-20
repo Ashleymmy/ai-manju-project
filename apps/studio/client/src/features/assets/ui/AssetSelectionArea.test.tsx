@@ -74,4 +74,11 @@ describe("asset drag selection", () => {
     expect(selection()).toBe("c");
     toolbar.remove();
   });
+  it("keeps the selection when clicking a marked detail-panel control", async () => {
+    const detail = document.createElement("aside"); detail.dataset.keepAssetSelection = "true";
+    const control = document.createElement("select"); detail.append(control); document.body.append(detail);
+    await act(async () => control.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })));
+    expect(selection()).toBe("c");
+    detail.remove();
+  });
 });

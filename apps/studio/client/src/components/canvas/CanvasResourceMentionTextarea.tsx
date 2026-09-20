@@ -15,16 +15,19 @@ import {
   forwardRef,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ComponentProps,
+  type Ref,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
 import { getAssetContentObjectUrl } from "@/entities/asset";
+import { RetryImage } from "@/shared/ui/RetryImage";
 import { useOutsidePress } from "@/shared/lib/useOutsidePress";
 import { offsetFromOverlayPoint, useMentionCaret } from "./useMentionCaret";
 import { buildCanvasMentionLibraryMenu, emptyCanvasMentionLibrary, mentionLibraryTargetLabel, type CanvasMentionLibraryItem, type CanvasMentionLibraryState, type CanvasMentionLibraryTarget } from "@/features/canvas/domain/mentionLibrary";
@@ -42,10 +45,16 @@ import {
   type CanvasMentionReference,
 } from "@/features/canvas/domain/mentions";
 
+export type CanvasMentionEditorHandle = {
+  insertReference: (reference: CanvasMentionReference) => void;
+};
+
 type Props = Omit<ComponentProps<"textarea">, "onChange" | "value"> & {
   value: string;
   references: CanvasMentionReference[];
   onChange: (value: string) => void;
+  /** Insert from adjacent reference thumbnails without losing the editor selection. */
+  editorRef?: Ref<CanvasMentionEditorHandle>;
   onMentionQueryChange?: (query: string, target?: CanvasMentionLibraryTarget, loadMore?: boolean) => void;
   mentionLibrary?: CanvasMentionLibraryState;
   onSubmit?: () => void;
@@ -81,6 +90,7 @@ export const CanvasResourceMentionTextarea = forwardRef<
     value,
     references,
     onChange,
+    editorRef,
     onMentionQueryChange,
     mentionLibrary = emptyCanvasMentionLibrary(),
     containerClassName,
@@ -100,6 +110,7 @@ export const CanvasResourceMentionTextarea = forwardRef<
     [references, value]
   );
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const hasFocusedRef = useRef(false);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const composingRef = useRef(false);
   const [isComposing, setIsComposing] = useState(false);
@@ -361,20 +372,34 @@ export const CanvasResourceMentionTextarea = forwardRef<
     );
   };
 
-  const insertReference = (reference: CanvasMentionReference) => {
-    if (!mention) return;
-    const end = textareaRef.current?.selectionStart ?? editorValueRef.current.length;
+  const replaceWithReference = (reference: CanvasMentionReference, start: number, end: number) => {
+    if (props.disabled || props.readOnly || composingRef.current) return;
+    // Thumbnails use identical display spacers, so shift by the actual selection
+    // rather than diffing strings (which can mistake one image for another).
+    const overlapping = editorSegmentsRef.current.filter(segment =>
+      start === end
+        ? start > segment.start && start < segment.end
+        : start < segment.end && end > segment.start
+    );
+    if (start === end && overlapping.length) {
+      const segment = overlapping[0];
+      start = end = start - segment.start <= segment.end - start ? segment.start : segment.end;
+    } else if (overlapping.length) {
+      start = Math.min(start, ...overlapping.map(segment => segment.start));
+      end = Math.max(end, ...overlapping.map(segment => segment.end));
+    }
     const displayReference = canvasMentionEditorDisplayText(reference);
     const insert = `${displayReference}${canvasMentionEditorGap(reference.kind)}`;
-    const nextDisplay = `${editorValueRef.current.slice(0, mention.start)}${insert}${editorValueRef.current.slice(end)}`;
-    const nextSegments = applyCanvasMentionEditorEdit(
-      editorValueRef.current,
-      nextDisplay,
-      editorSegmentsRef.current
-    );
+    const nextDisplay = `${editorValueRef.current.slice(0, start)}${insert}${editorValueRef.current.slice(end)}`;
+    const delta = insert.length - (end - start);
+    const nextSegments = editorSegmentsRef.current
+      .filter(segment => segment.end <= start || segment.start >= end)
+      .map(segment => segment.start >= end
+        ? { ...segment, start: segment.start + delta, end: segment.end + delta }
+        : segment);
     nextSegments.push({
-      start: mention.start,
-      end: mention.start + displayReference.length,
+      start,
+      end: start + displayReference.length,
       key: reference.key,
       label: reference.label,
       token: canvasMentionToken(reference.source, reference.targetId),
@@ -383,13 +408,28 @@ export const CanvasResourceMentionTextarea = forwardRef<
     const next = serializeCanvasMentionEditorValue(nextDisplay, nextSegments);
     editorValueRef.current = nextDisplay;
     editorSegmentsRef.current = nextSegments;
-    pendingCaretRef.current = { start: mention.start + insert.length, end: mention.start + insert.length };
+    pendingCaretRef.current = { start: start + insert.length, end: start + insert.length };
     setEditorSegments(nextSegments);
     emittedValueRef.current = next;
     setEditorValue(nextDisplay);
     onChange(next);
     closeMention();
   };
+
+  const insertReference = (reference: CanvasMentionReference) => {
+    if (!mention) return;
+    replaceWithReference(reference, mention.start, textareaRef.current?.selectionStart ?? editorValueRef.current.length);
+  };
+
+  useImperativeHandle(editorRef, () => ({
+    insertReference(reference) {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      const start = hasFocusedRef.current ? textarea.selectionStart : editorValueRef.current.length;
+      const end = hasFocusedRef.current ? textarea.selectionEnd : start;
+      replaceWithReference(reference, mention?.start ?? start, end);
+    },
+  }));
 
   const activateMenuItem = (item: CanvasMentionLibraryItem) => {
     if (item.kind === "folder") {
@@ -595,6 +635,7 @@ export const CanvasResourceMentionTextarea = forwardRef<
         className={className}
         value={editorValue}
         onFocus={event => {
+          hasFocusedRef.current = true;
           props.onFocus?.(event);
         }}
         onClick={event => {
@@ -861,15 +902,6 @@ function MentionItemThumb({
     reference.kind,
   ]);
   const src = reference.kind === "image" ? direct || fetched : "";
-  if (src)
-    return (
-      <img
-        className={className}
-        src={src}
-        alt=""
-        draggable={false}
-      />
-    );
   const Icon =
     reference.kind === "image"
       ? ImageIcon
@@ -878,11 +910,13 @@ function MentionItemThumb({
         : reference.kind === "audio"
           ? Music2
           : FileText;
-  return (
+  const fallback = (
     <span className={`${className} canvas-mention-thumb-icon`}>
       <Icon size={iconSize} />
     </span>
   );
+  // Keep the same fixed-size slot through recovery so editor geometry never changes.
+  return src ? <RetryImage className={className} src={src} alt="" draggable={false} fallback={fallback} /> : fallback;
 }
 
 function MentionMenu({

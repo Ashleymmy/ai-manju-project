@@ -510,6 +510,12 @@ def image_generation_body(payload: dict[str, Any], provider: dict[str, Any]) -> 
         "size": size or "1024x1024",
         "n": int(payload.get("n") or 1),
     }
+    # Forward detail quality independently of pixel size; otherwise high/low
+    # selections disappear between the queued job and the actual model request.
+    for key in ("quality", "style", "response_format", "output_format"):
+        value = payload.get(key)
+        if value not in (None, "", "auto"):
+            body[key] = value
     seed = image_payload_seed(payload, protocol="openai_images", model=str(model or ""))
     if seed is not None:
         body["seed"] = seed

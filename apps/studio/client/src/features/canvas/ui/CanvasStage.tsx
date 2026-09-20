@@ -309,6 +309,8 @@ export function CanvasStage({
   return (
         <section
           ref={stageRef}
+          tabIndex={-1}
+          aria-label="画布"
           className={`canvas-stage real-canvas-stage canvas-background-${backgroundMode}`}
           style={{ "--canvas-grid-size": `${40 * zoom / 100}px`, "--canvas-grid-x": `${panX}px`, "--canvas-grid-y": `${panY}px`, "--canvas-zoom": String(zoom) } as CSSProperties}
           onPointerDown={handleStagePointerDown}
@@ -615,7 +617,7 @@ export function CanvasStage({
                     <button className="full-outline" onClick={() => { addNode("audio", { x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}><Music2 size={14} /> 新建音频</button>
                     <button className="full-outline" onClick={() => { addNode("config", { x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}><SlidersHorizontal size={14} /> 新建配置</button>
                     <hr className="canvas-menu-divider" />
-                    <button className="full-outline" onClick={() => { pasteCopiedNodes(); setContextMenu(null); }}><ClipboardPaste size={14} /> 粘贴节点</button>
+                    <button className="full-outline" onClick={() => { pasteCopiedNodes(); setContextMenu(null); }}><ClipboardPaste size={14} /> 粘贴</button>
                   </>
                 )}
               </div>
