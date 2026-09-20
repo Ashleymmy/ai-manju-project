@@ -99,6 +99,8 @@ export async function request<T>(
 
   try {
     const response = await fetch(apiUrl(path, query), {
+      // Local Studio/API use different ports; login cookies also authenticate native media.
+      credentials: "include",
       ...init,
       body:
         body === undefined

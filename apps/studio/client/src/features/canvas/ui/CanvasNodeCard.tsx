@@ -489,6 +489,7 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
           src={preview}
           alt={node.title}
           draggable={false}
+          showRetryButton
           onLoad={(event) => {
             const image = event.currentTarget;
             fitCanvasImageNodeFrame(node.id, image.naturalWidth, image.naturalHeight);

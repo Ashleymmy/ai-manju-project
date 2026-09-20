@@ -114,11 +114,20 @@ describe("API request contract", () => {
     expect(parsedUrl.searchParams.get("page")).toBe("2");
     expect(parsedUrl.searchParams.has("skipped")).toBe(false);
     expect(options.body).toBe(JSON.stringify({ title: "测试" }));
+    expect(options.credentials).toBe("include");
     expect(options.headers).toMatchObject({
       Accept: "application/json",
       Authorization: "Bearer token-value",
       "Content-Type": "application/json",
     });
+  });
+
+  it("accepts cross-origin login cookies while retaining explicit credentials overrides", async () => {
+    vi.mocked(fetch).mockImplementation(async () => successfulResponse());
+    await request("/api/auth/login", { method: "POST", body: { username: "test", password: "test" } });
+    expect(vi.mocked(fetch).mock.calls[0][1]?.credentials).toBe("include");
+    await request("/api/public", { credentials: "omit" });
+    expect(vi.mocked(fetch).mock.calls[1][1]?.credentials).toBe("omit");
   });
 
   it("preserves ApiError status, requestId and envelope details", async () => {
