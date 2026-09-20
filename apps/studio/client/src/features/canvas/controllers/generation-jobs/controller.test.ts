@@ -580,6 +580,8 @@ describe("CanvasGenerationJobsController", () => {
     });
     expect(harness.runningIds.has("video-1")).toBe(false);
     expect(harness.onSuccess).toHaveBeenCalledWith("视频生成完成，节点结果已更新");
+    expect(createVideoGenerationTask).toHaveBeenCalledWith(expect.anything(), expect.any(String), expect.anything(),
+      expect.objectContaining({ projectId: "project-1", nodeId: "video-1", scope: "personal" }));
     expect(harness.onError).not.toHaveBeenCalled();
   });
 

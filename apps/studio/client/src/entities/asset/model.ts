@@ -65,6 +65,8 @@ export type Asset = {
   source_type?: AssetSourceType;
   source_project_id?: string;
   source_project_name?: string;
+  source_job_id?: string;
+  source_metadata?: Record<string, unknown>;
   usage_stats?: {
     generation_use_count?: number;
     active_reference_count?: number;

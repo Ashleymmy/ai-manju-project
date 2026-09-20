@@ -25,13 +25,18 @@ func (h *AIHandler) enqueueNativeVideo(c *gin.Context, body map[string]any) {
 		return
 	}
 	removeGenerationPrivateFields(body)
+	body["studio_model"] = requested
+	if err := h.prepareVideoAssetRegistration(c, body); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	body["model"] = candidates[0].Model
 	kwargs := h.generationJobKwargs(candidates, "native_video")
 	for i, config := range kwargs["provider_candidates"].([]map[string]any) {
 		candidate := candidates[i]
 		config["video_protocol"] = "seedance"
 		// Preserve native API options without forwarding worker bookkeeping.
-		config["video_request_body"] = body
+		config["video_request_body"] = nativeVideoProviderBody(body)
 		if candidate.Config.ProviderType == model.ModelProviderTypeAliyunYike {
 			converted, err := yikeVideoRequest(body, candidate.Model)
 			if err != nil {

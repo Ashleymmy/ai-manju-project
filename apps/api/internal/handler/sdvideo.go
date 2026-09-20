@@ -105,6 +105,7 @@ func (h *AIHandler) createSDVideoTask(c *gin.Context, body map[string]any) {
 	payload := map[string]any{
 		"idempotency_key": c.GetHeader("Idempotency-Key"),
 		"model":           modelID,
+		"studio_model":    modelName,
 		"prompt":          stringFromAny(body["prompt"]),
 		"ratio":           stringFromAny(body["ratio"]),
 		"duration":        body["duration"],
