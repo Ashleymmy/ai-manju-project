@@ -75,7 +75,7 @@ describe("video reference engine contracts", () => {
     const result = planWorkbenchReferenceBatch(
       emptyWorkbenchReferences(),
       candidates,
-      "provider::doubao-seedance-2-5-pro",
+      "provider::doubao-seedance-2-0-260128",
     );
 
     expect(result.accepted.map((item) => item.id)).toEqual(
@@ -84,5 +84,22 @@ describe("video reference engine contracts", () => {
     expect(result.rejected).toMatchObject([
       { name: "image-10.png", reason: "参考图片最多 9 张" },
     ]);
+  });
+
+  it("2.5 selects thirty images and ten audio clips using the submission policy", () => {
+    const images = Array.from({ length: 31 }, (_, index) => imageReference(`image-${index + 1}`));
+    const result = planWorkbenchReferenceBatch(emptyWorkbenchReferences(), images, "sdvideo/seedance-2.5");
+    expect(result.accepted).toHaveLength(30);
+    expect(result.rejected).toMatchObject([{ name: "image-31.png", reason: "参考图片最多 30 张" }]);
+    const audios = Array.from({ length: 11 }, (_, index) => {
+      const file = new File(["audio"], `audio-${index + 1}.mp3`, { type: "audio/mpeg" });
+      return {
+        id: file.name, kind: "audio" as const, source: "local" as const, role: "reference" as const,
+        name: file.name, mime: file.type, bytes: file.size, file, durationMs: 3000, previewUrl: `blob:${file.name}`,
+      };
+    });
+    const audioResult = planWorkbenchReferenceBatch(emptyWorkbenchReferences(), audios, "sdvideo/seedance-2.5");
+    expect(audioResult.accepted).toHaveLength(10);
+    expect(audioResult.rejected).toMatchObject([{ name: "audio-11.mp3", reason: "参考音频最多 10 个" }]);
   });
 });

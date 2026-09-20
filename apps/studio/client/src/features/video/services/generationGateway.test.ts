@@ -104,6 +104,35 @@ describe("video API", () => {
     expect(task).toMatchObject({ provider: "seedance", id: "job_official" });
   });
 
+  it.each(["official::ep-seedance25", "sdvideo/seedance-2.5"])("submits every 2.5 reference through %s without truncation", async model => {
+    const opaque = model.includes("::ep-");
+    if (opaque) vi.mocked(fetch).mockResolvedValueOnce(apiResponse({
+      video_models: [model], video_model_protocols: { [model]: "seedance" }, model_labels: { [model]: "seedance 2.5" },
+    }));
+    vi.mocked(fetch).mockResolvedValueOnce(apiResponse({ id: "job_full_refs" }));
+    const image = { id: "image", kind: "image" as const, name: "image", mime: "image/png", bytes: 0, width: 0, height: 0 };
+    const references = {
+      images: Array.from({ length: 30 }, (_, i) => ({ ...image, url: `asset://image-${i}` })),
+      videos: Array.from({ length: 10 }, (_, i) => ({ ...image, kind: "video" as const, mime: "video/mp4", durationMs: 0, url: `asset://video-${i}` })),
+      audios: Array.from({ length: 10 }, (_, i) => ({ ...image, kind: "audio" as const, mime: "audio/mpeg", durationMs: 0, url: `asset://audio-${i}` })),
+    };
+    // Cold endpoint lookup must populate both the protocol and the version label.
+    await createVideoGenerationTask({ ...config, model }, "参考全部素材", references);
+    const call = vi.mocked(fetch).mock.calls[opaque ? 1 : 0];
+    const body = JSON.parse(String(call[1]?.body));
+    expect(new URL(String(call[0])).pathname).toBe("/api/ai/contents/generations/tasks");
+    for (const [kind, count] of [["image", 30], ["video", 10], ["audio", 10]] as const) {
+      const items = body.content.filter((item: { type: string }) => item.type === `${kind}_url`);
+      expect(items).toHaveLength(count);
+      expect(items[count - 1][`${kind}_url`].url).toBe(`asset://${kind}-${count - 1}`);
+      expect(items[count - 1].role).toBe(`reference_${kind}`);
+    }
+    references.images.push(references.images[0]);
+    const callsBeforeInvalid = vi.mocked(fetch).mock.calls.length;
+    await expect(createVideoGenerationTask({ ...config, model }, "超限", references)).rejects.toThrow("参考图片最多 30 张");
+    expect(fetch).toHaveBeenCalledTimes(callsBeforeInvalid);
+  });
+
   it.each(["sdvideo/seedance-2.0", "sdvideo/vidu-q2"])("等待 %s 参考媒体上传超过 30 秒后返回原任务", async (model) => {
     vi.useFakeTimers();
     let finish!: (response: Response) => void;

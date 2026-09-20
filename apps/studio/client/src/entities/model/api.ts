@@ -12,7 +12,8 @@ import type {
 
 export async function fetchModelCatalog(): Promise<ModelCatalog> {
   const data = await request<AiModelsResponse>("/api/ai/models");
-  replaceVideoModelProtocols(data.video_model_protocols);
+  const modelLabels = normalizeStringRecord(data.model_labels);
+  replaceVideoModelProtocols(data.video_model_protocols, modelLabels);
   const models = normalizeModelList(data.models);
   const textModels = normalizeModelList(
     data.text_models ?? data.models
@@ -48,7 +49,7 @@ export async function fetchModelCatalog(): Promise<ModelCatalog> {
     defaultImageModel: pickDefaultImageModel(imageModels, defaultImageModel),
     defaultVideoModel: preferredModel(defaultVideoModel, videoModels),
     defaultAudioModel: preferredModel(defaultAudioModel, audioModels),
-    modelLabels: normalizeStringRecord(data.model_labels),
+    modelLabels,
     modelProviderNames: normalizeStringRecord(data.model_provider_names),
   };
 }
