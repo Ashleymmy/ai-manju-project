@@ -1,6 +1,6 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { WorkspaceScope } from "@/shared/config";
-import type { CanvasGroupData } from "@/features/canvas/domain/groups";
+import { fitCanvasGroupsToNodes, type CanvasGroupData } from "@/features/canvas/domain/groups";
 import type {
   CanvasBackgroundMode,
   CanvasEdgeData,
@@ -160,12 +160,19 @@ function resolveCanvasStateUpdate<T>(update: CanvasStateUpdate<T>, current: T): 
 
 function mergeInitialState(initialState: CanvasStoreInitialState): CanvasStoreSlices {
   return {
-    graph: { ...defaultGraphSlice(), ...initialState.graph },
+    graph: fitCanvasGraph({ ...defaultGraphSlice(), ...initialState.graph }),
     viewport: { ...defaultViewportSlice(), ...initialState.viewport },
     session: { ...defaultSessionSlice(), ...initialState.session },
     generation: { ...defaultGenerationSlice(), ...initialState.generation },
     ui: { ...defaultUiSlice(), ...initialState.ui },
   };
+}
+
+// Apply geometry in the same transaction as node edits, generation, hydration
+// and undo/redo, so frames and their saved snapshots cannot lag behind members.
+function fitCanvasGraph(graph: CanvasGraphSlice): CanvasGraphSlice {
+  const groups = fitCanvasGroupsToNodes(graph.groups, graph.nodes);
+  return groups === graph.groups ? graph : { ...graph, groups };
 }
 
 export function createCanvasStore(initialState: CanvasStoreInitialState = {}): CanvasStoreApi {
@@ -179,6 +186,9 @@ export function createCanvasStore(initialState: CanvasStoreInitialState = {}): C
           const current = state[slice][field];
           const next = resolveCanvasStateUpdate(update, current);
           if (Object.is(current, next)) return state;
+          if (slice === "graph" && (field === "nodes" || field === "groups")) {
+            return { ...state, graph: fitCanvasGraph({ ...state.graph, [field]: next }) };
+          }
           return {
             ...state,
             [slice]: {
@@ -195,7 +205,7 @@ export function createCanvasStore(initialState: CanvasStoreInitialState = {}): C
             : transaction;
           return {
             ...state,
-            graph: patch.graph ? { ...state.graph, ...patch.graph } : state.graph,
+            graph: patch.graph ? fitCanvasGraph({ ...state.graph, ...patch.graph }) : state.graph,
             viewport: patch.viewport ? { ...state.viewport, ...patch.viewport } : state.viewport,
             session: patch.session ? { ...state.session, ...patch.session } : state.session,
             generation: patch.generation ? { ...state.generation, ...patch.generation } : state.generation,

@@ -1,8 +1,9 @@
 import { videoPosterUrl } from "@/shared/ui/VideoThumbnail";
+import { CanvasSeedanceRegistrationButton } from "./CanvasSeedanceRegistrationButton";
+import type { SeedanceRegistrationState } from "../services/seedanceRegistration";
 import {
   Archive,
   ArrowRight,
-  BadgeCheck,
   Camera,
   ChevronRight,
   Copy,
@@ -137,6 +138,7 @@ export type CanvasNodeCardActions = {
 };
 
 export type CanvasNodeCardProps = {
+  seedanceRegistrationState?: SeedanceRegistrationState;
   mentionLibrary?: CanvasMentionLibraryState;
   node: CanvasNodeData;
   previews: Record<string, string>;
@@ -144,6 +146,8 @@ export type CanvasNodeCardProps = {
   isSelectedSingle: boolean;
   isHovered: boolean;
   isConnectionTarget: boolean;
+  /** Group members connect through the group frame instead of their own handles. */
+  isGrouped: boolean;
   isConnecting: boolean;
   connectActiveTarget: boolean;
   connectActiveSource: boolean;
@@ -160,6 +164,7 @@ export type CanvasNodeCardProps = {
 };
 
 export type CanvasImageToolGridProps = {
+  seedanceRegistrationState?: SeedanceRegistrationState;
   node: CanvasNodeData;
   imageToolBusy: boolean;
   storyboardBusy: boolean;
@@ -179,6 +184,7 @@ export type CanvasImageToolGridProps = {
 };
 
 export function CanvasImageToolGrid({
+  seedanceRegistrationState,
   node,
   imageToolBusy,
   storyboardBusy,
@@ -212,7 +218,7 @@ export function CanvasImageToolGrid({
           ))}
         </div>
       </div>
-      <button title="上传并注册火山拟真人素材" onClick={() => void registerImageAsSeedanceAsset(node)} disabled={imageToolBusy}><BadgeCheck size={14} /> 注册拟真人素材</button>
+      <CanvasSeedanceRegistrationButton node={node} state={seedanceRegistrationState} onRegister={registerImageAsSeedanceAsset} disabled={imageToolBusy} showLabel />
       <div className="tool-list-divider" />
       <button title="裁剪图片" onClick={() => openImageToolDialog(node.id, "crop")} disabled={imageToolBusy}><Crop size={14} /> 裁剪</button>
       <button title="提取图片局部区域" onClick={() => openImageToolDialog(node.id, "focus")} disabled={imageToolBusy}><Eye size={14} /> 聚焦</button>
@@ -241,7 +247,11 @@ function nodeKindCenterIcon(kind: CanvasNodeKind) {
   return <ImageIcon {...props} />;
 }
 
-function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHovered, isConnectionTarget, isConnecting, connectActiveTarget, connectActiveSource, isTitleEditing, titleDraft, isInlineEditing, isRunning, progress, captureBusy, isCapturingFrame, imageToolBusy, storyboardBusy, actions, mentionLibrary }: CanvasNodeCardProps) {
+// Percent values from generation updates must not extend beyond the progress track.
+const GENERATION_PROGRESS_MAX = 100;
+
+function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelected, isSelectedSingle, isHovered, isConnectionTarget, isGrouped, isConnecting, connectActiveTarget, connectActiveSource, isTitleEditing, titleDraft, isInlineEditing, isRunning, progress, captureBusy, isCapturingFrame, imageToolBusy, storyboardBusy, actions, mentionLibrary }: CanvasNodeCardProps) {
+  const displayProgress = Number.isFinite(progress) ? Math.round(Math.max(0, Math.min(GENERATION_PROGRESS_MAX, progress))) : 0;
   const preview = imageSrcFromNode(node, previews);
   const previewKind = mediaKindFromNode(node);
   const nodeText = nodeEditorTextFromNode(node);
@@ -306,31 +316,33 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
     >
-      <button
-        ref={(element) => registerConnectionHandle(node.id, "target", element)}
-        type="button"
-        className={`canvas-connection-handle target canvas-node-handle ${connectActiveTarget ? "active" : ""}`}
-        aria-label="连接到此节点"
-        title="拖到另一节点，或单击后再点目标节点"
-        onClick={(event) => event.stopPropagation()}
-        onPointerDown={(event) => {
-          event.stopPropagation();
-          beginConnection(event, node.id, "target");
-        }}
-      />
-      <button
-        ref={(element) => registerConnectionHandle(node.id, "source", element)}
-        type="button"
-        className={`canvas-connection-handle source canvas-node-handle ${connectActiveSource ? "active" : ""}`}
-        aria-label="从此节点连接"
-        title="拖到另一节点，或单击后再点目标节点"
-        onClick={(event) => event.stopPropagation()}
-        onPointerDown={(event) => {
-          event.stopPropagation();
-          beginConnection(event, node.id, "source");
-        }}
-      />
-      <div className="node-float-label" data-node-title-editor onPointerDown={(event) => event.stopPropagation()}>
+      {!isGrouped ? <>
+        <button
+          ref={(element) => registerConnectionHandle(node.id, "target", element)}
+          type="button"
+          className={`canvas-connection-handle target canvas-node-handle ${connectActiveTarget ? "active" : ""}`}
+          aria-label="连接到此节点"
+          title="拖到另一节点，或单击后再点目标节点"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            beginConnection(event, node.id, "target");
+          }}
+        />
+        <button
+          ref={(element) => registerConnectionHandle(node.id, "source", element)}
+          type="button"
+          className={`canvas-connection-handle source canvas-node-handle ${connectActiveSource ? "active" : ""}`}
+          aria-label="从此节点连接"
+          title="拖到另一节点，或单击后再点目标节点"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            beginConnection(event, node.id, "source");
+          }}
+        />
+      </> : null}
+      <div className="node-float-label" data-node-title-editor onPointerDown={(event) => { if (isTitleEditing) event.stopPropagation(); }}>
         <span className="node-float-kind">{nodeKindBadge(node.kind)}</span>
         {isTitleEditing ? (
           <input
@@ -565,9 +577,20 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
         </div>
       ) : null}
       {(isSelected || isHovered) && <button className="node-resize-handle" title="调整尺寸" onPointerDown={(event) => startResize(event, node)} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} />}
-      {isRunning && <div className="node-running"><i style={{ width: `${progress}%` }} /></div>}
-      {isRunning ? <div className="node-loading-overlay is-pixel"><PixelLoadingOverlay /></div> : null}
-      {isRunning ? <span className="node-progress-badge">{progress > 0 ? `${progress}%` : "…"}</span> : null}
+      {isRunning ? (
+        <div className="node-loading-overlay is-pixel">
+          <PixelLoadingOverlay />
+          <div className="node-generation-status" role="progressbar" aria-label="生成进度" aria-valuemin={0} aria-valuemax={GENERATION_PROGRESS_MAX} aria-valuenow={displayProgress > 0 ? displayProgress : undefined} aria-valuetext={displayProgress > 0 ? `生成中 ${displayProgress}%` : "正在准备生成"}>
+            <div className="node-generation-status-label">
+              <span>{displayProgress > 0 ? "生成中" : "正在准备生成"}</span>
+              <span className="node-generation-percent">{displayProgress > 0 ? `${displayProgress}%` : "…"}</span>
+            </div>
+            <div className={`node-running${displayProgress > 0 ? "" : " is-indeterminate"}`} aria-hidden="true">
+              <i style={displayProgress > 0 ? { width: `${displayProgress}%` } : undefined} />
+            </div>
+          </div>
+        </div>
+      ) : null}
       {pinColor ? <span className="node-pin-marker" style={{ backgroundColor: pinColor }} aria-hidden /> : null}
       {isSelectedSingle && !isEmptyMediaNode && (
         <div className="node-toolbar-wrap" data-canvas-ui data-canvas-no-zoom>
@@ -640,14 +663,14 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
                     </PopoverTrigger>
                     <PopoverContent className="node-pop-card node-pop-wide" align="center" side="top" sideOffset={10}>
                       <p className="eyebrow">图片工具</p>
-                      <CanvasImageToolGrid node={node} imageToolBusy={imageToolBusy} storyboardBusy={storyboardBusy} openImageToolDialog={openImageToolDialog} setImageAnnotationNodeId={setImageAnnotationNodeId} setImageMaskNodeId={setImageMaskNodeId} setImageToolError={setImageToolError} flipCanvasImageNode={flipCanvasImageNode} generatePanoramaCanvasImage={generatePanoramaCanvasImage} generateStoryboard={(target) => setStoryboardNodeId(target.id)} createImageReversePromptNodes={createImageReversePromptNodes} setImagePreviewNodeId={setImagePreviewNodeId} setReplaceImageNodeId={setReplaceImageNodeId} replaceImageInputRef={replaceImageInputRef} archiveCanvasMediaNode={archiveCanvasMediaNode} registerImageAsSeedanceAsset={registerImageAsSeedanceAsset} />
+                      <CanvasImageToolGrid seedanceRegistrationState={seedanceRegistrationState} node={node} imageToolBusy={imageToolBusy} storyboardBusy={storyboardBusy} openImageToolDialog={openImageToolDialog} setImageAnnotationNodeId={setImageAnnotationNodeId} setImageMaskNodeId={setImageMaskNodeId} setImageToolError={setImageToolError} flipCanvasImageNode={flipCanvasImageNode} generatePanoramaCanvasImage={generatePanoramaCanvasImage} generateStoryboard={(target) => setStoryboardNodeId(target.id)} createImageReversePromptNodes={createImageReversePromptNodes} setImagePreviewNodeId={setImagePreviewNodeId} setReplaceImageNodeId={setReplaceImageNodeId} replaceImageInputRef={replaceImageInputRef} archiveCanvasMediaNode={archiveCanvasMediaNode} registerImageAsSeedanceAsset={registerImageAsSeedanceAsset} />
                     </PopoverContent>
                   </Popover>
                 ) : null}
                 {node.kind === "image" && !preview ? <button title="上传图片" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}><Upload size={13} /></button> : null}
                 {node.kind === "video" && preview ? <button title="从当前播放帧创建图片节点" disabled={captureBusy} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void captureVideoFrameNode(node); }}><Camera size={13} /></button> : null}
                 {node.kind === "video" && preview ? <button title="AI 超分（依赖管理员配置的模型服务）" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); toast.info("视频超分依赖管理员配置的模型服务，本地暂未实现"); }}><Sparkles size={13} /></button> : null}
-                {node.kind === "image" && preview ? <button title="注册拟真人素材" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void registerImageAsSeedanceAsset(node); }}><BadgeCheck size={13} /></button> : null}
+                {node.kind === "image" && preview ? <CanvasSeedanceRegistrationButton node={node} state={seedanceRegistrationState} onRegister={registerImageAsSeedanceAsset} /> : null}
                 {node.kind === "video" && preview ? <button title="全屏播放" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); document.querySelector<HTMLVideoElement>(`.real-canvas-node[data-node-id="${node.id}"] video`)?.requestFullscreen?.(); }}><Maximize2 size={13} /></button> : null}
                 {preview || node.kind === "text" ? <button title="加入素材库" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void (node.kind === "text" ? archiveCanvasTextNode(node) : archiveCanvasMediaNode(node)); }}><FolderOpen size={13} /></button> : null}
                 {preview ? <button title="下载" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void downloadNodeMedia(node); }}><Download size={13} /></button> : null}
@@ -673,12 +696,14 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
 export function canvasNodeCardPropsEqual(prev: CanvasNodeCardProps, next: CanvasNodeCardProps) {
   return (
     prev.node === next.node
+    && prev.seedanceRegistrationState === next.seedanceRegistrationState
     && prev.mentionLibrary === next.mentionLibrary
     && prev.previews === next.previews
     && prev.isSelected === next.isSelected
     && prev.isSelectedSingle === next.isSelectedSingle
     && prev.isHovered === next.isHovered
     && prev.isConnectionTarget === next.isConnectionTarget
+    && prev.isGrouped === next.isGrouped
     && prev.isConnecting === next.isConnecting
     && prev.connectActiveTarget === next.connectActiveTarget
     && prev.connectActiveSource === next.connectActiveSource

@@ -1,7 +1,9 @@
 import { publicApiError } from "@/shared/api/errors";
 import type { Asset, AssetFolder } from "@/entities/asset";
 import { CANVAS_MENTION_PAGE_SIZE, CANVAS_MENTION_SEARCH_DELAY_MS, emptyCanvasMentionLibrary, mentionLibraryFolderId, type CanvasMentionLibraryTarget } from "@/features/canvas/domain/mentionLibrary";
-import { flattenFolderTree, folderPathLabel } from "@/features/assets";
+import { canvasCategoryFolder, isCanvasDateArchiveFolder, visibleCanvasAssetFolders } from "@/features/canvas/domain/assetFolders";
+import { collectFolderSubtreeIds, flattenFolderTree, folderPathLabel } from "@/features/assets";
+import type { CanvasTextAsset } from "@/features/canvas/repositories/textAssetsRepository";
 import {
   buildCanvasMentionReferences,
   type CanvasMentionAsset,
@@ -25,6 +27,10 @@ import type {
 } from "./types";
 
 const PICKER_THUMBNAIL_WIDTH = 320 as const;
+// Canvas nodes only need a lightweight preview; full-size files load in the detail dialog.
+const CANVAS_THUMBNAIL_WIDTH = 320 as const;
+// Local text references must never collide with server media IDs.
+const LOCAL_TEXT_MENTION_PREFIX = "local-text:";
 
 const directExecutor: CanvasAssetsMentionsBindings["executeAssets"] = operation => operation();
 
@@ -138,18 +144,40 @@ export class CanvasAssetsMentionsController {
       if (folderId !== undefined && !folders.some(folder => folder.id === folderId)) {
         throw new Error("此文件夹已不存在，请返回上一级重新选择");
       }
-      const result = await this.assets(() => this.services.getAssetLibrary(targetScope, {
+      // Query the whole folder in one paginated request so hidden date buckets
+      // remain accessible, ordered consistently and searchable from their parent.
+      const includeDescendants = Boolean(folderId && (keyword.trim()
+        || (folders.some(folder => folder.parent_id === folderId && isCanvasDateArchiveFolder(folder))
+          && !folders.some(folder => folder.parent_id === folderId && folder.system_key === "canvas_category" && folder.source_ref_id?.endsWith(":other")))));
+      const [result, storedTextAssets] = await Promise.all([this.assets(() => this.services.getAssetLibrary(targetScope, {
         keyword: keyword.trim() || undefined,
         folderId,
-        includeDescendants: folderId && keyword.trim() ? true : undefined,
+        includeDescendants: includeDescendants || undefined,
         smartView: target === "favorites" ? "favorite" : undefined,
         page,
         pageSize: CANVAS_MENTION_PAGE_SIZE,
         sort: "created_at_desc",
-      }, controller.signal));
+      }, controller.signal)), this.bindings.getUserId()
+        ? this.assets(() => this.services.listCanvasTextAssets(this.bindings.getUserId(), targetScope)).catch((error): CanvasTextAsset[] => {
+          // A browser storage failure must not hide the server's media library
+          // or discard text references already loaded during this session.
+          this.services.warn("读取本地文本素材失败", error);
+          return this.snapshot.assets.filter(asset => asset.type === "text" && asset.scope === targetScope).map(asset => ({
+            id: asset.id.slice(LOCAL_TEXT_MENTION_PREFIX.length), title: asset.name, content: asset.text || "",
+            scope: targetScope, folderId: asset.folder_id, createdAt: asset.created_at || "", updatedAt: "",
+          }));
+        })
+        : Promise.resolve([])]);
       if (!current()) return;
+      const textAssets = resolveTextAssetFolders(storedTextAssets, folders);
       this.mergeAssets(result.items || [], targetScope);
-      const assetIds = [...new Set([...(append ? previous.assetIds : []), ...(result.items || []).map(asset => asset.id)])];
+      this.patch({ assets: [
+        ...this.snapshot.assets.filter(asset => asset.scope !== targetScope || asset.type !== "text"),
+        ...textAssets.map(asset => ({ id: LOCAL_TEXT_MENTION_PREFIX + asset.id, name: asset.title, type: "text" as const,
+          text: asset.content, folder_id: asset.folderId, category: asset.category, scope: targetScope, created_at: asset.createdAt })),
+      ] });
+      const matchingText = target === "favorites" ? [] : filterTextAssets(textAssets, keyword, folderId || "", folders, includeDescendants);
+      const assetIds = [...new Set([...(append ? previous.assetIds : []), ...matchingText.map(asset => LOCAL_TEXT_MENTION_PREFIX + asset.id), ...(result.items || []).map(asset => asset.id)])];
       this.patch({ mentionLibrary: { ...this.snapshot.mentionLibrary, assetIds, page, hasMore: page * (result.page_size || CANVAS_MENTION_PAGE_SIZE) < result.total } });
     } catch (error) {
       if (current()) {
@@ -384,7 +412,7 @@ export class CanvasAssetsMentionsController {
         const url = await this.assets(() => this.services.getAssetContentObjectUrl(
           descriptor.id,
           descriptor.scope,
-          descriptor.kind === "image" ? 640 : undefined,
+          descriptor.kind === "image" ? CANVAS_THUMBNAIL_WIDTH : undefined,
         ));
         return [key, descriptor.id, url] as const;
       } catch {
@@ -426,7 +454,7 @@ export class CanvasAssetsMentionsController {
     const controller = new AbortController();
     this.pickerAbort = controller;
     this.patchPicker({ loading: true, error: "" });
-    const includeLocalText = (kind === "all" || kind === "text") && !folderId;
+    const includeLocalText = kind === "all" || kind === "text";
     const mediaKind = kind === "image" || kind === "video" || kind === "audio" ? kind : undefined;
     try {
       const [serverResult, textResult, foldersResult] = await Promise.allSettled([
@@ -450,7 +478,7 @@ export class CanvasAssetsMentionsController {
       if (controller.signal.aborted) return;
       const query = keyword.trim().toLowerCase();
       const serverAssets = serverResult.status === "fulfilled" ? serverResult.value.items || [] : [];
-      const textAssets = textResult.status === "fulfilled" ? textResult.value : [];
+      const textAssets = resolveTextAssetFolders(textResult.status === "fulfilled" ? textResult.value : [], foldersResult.status === "fulfilled" ? foldersResult.value : []);
       const folderPatch = foldersResult.status === "fulfilled"
         ? { folders: pickerFolderOptions(foldersResult.value) }
         : this.snapshot.picker.folders.length
@@ -470,8 +498,7 @@ export class CanvasAssetsMentionsController {
           contentType: asset.content_type,
         }));
       const localTextItems: CanvasAssetPickerItem[] = includeLocalText
-        ? textAssets
-          .filter(asset => !query || `${asset.title} ${asset.content}`.toLowerCase().includes(query))
+        ? filterTextAssets(textAssets, query, folderId, foldersResult.status === "fulfilled" ? foldersResult.value : [], true)
           .map(asset => ({
             id: `text:${asset.id}`,
             type: "text" as const,
@@ -658,8 +685,22 @@ export class CanvasAssetsMentionsController {
 }
 
 function pickerFolderOptions(folders: AssetFolder[]): CanvasAssetPickerFolderOption[] {
-  return flattenFolderTree(folders).map(({ folder }) => ({
+  const visibleFolders = visibleCanvasAssetFolders(folders);
+  return flattenFolderTree(visibleFolders).map(({ folder }) => ({
     id: folder.id,
-    label: folderPathLabel(folders, folder.id),
+    label: folderPathLabel(visibleFolders, folder.id),
   }));
+}
+
+function resolveTextAssetFolders(assets: CanvasTextAsset[], folders: AssetFolder[]) {
+  return assets.map(asset => asset.folderId || !asset.projectId ? asset : {
+    ...asset, folderId: canvasCategoryFolder(folders, asset.projectId, asset.category || "other")?.id,
+  });
+}
+
+function filterTextAssets(assets: CanvasTextAsset[], keyword: string, folderId: string, folders: AssetFolder[], includeDescendants: boolean) {
+  const folderIds = includeDescendants ? collectFolderSubtreeIds(folders, folderId) : new Set([folderId]);
+  const query = keyword.trim().toLowerCase();
+  return assets.filter(asset => (!folderId || folderIds.has(asset.folderId || ""))
+    && (!query || `${asset.title} ${asset.content}`.toLowerCase().includes(query)));
 }

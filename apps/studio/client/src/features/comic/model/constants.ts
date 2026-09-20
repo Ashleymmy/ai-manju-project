@@ -15,7 +15,8 @@ export const COMIC_SCOPE_OPTIONS: Array<{
   label: string;
 }> = [
   { value: "personal", label: "个人空间" },
-  { value: "team", label: "团队空间" },
+  // 暂时隐藏"团队空间"入口（全局隐藏），恢复时取消下行注释
+  // { value: "team", label: "团队空间" },
 ];
 
 export const COMIC_CLASS_LABELS: Record<ComicAssetClass, string> = {

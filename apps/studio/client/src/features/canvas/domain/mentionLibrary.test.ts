@@ -8,13 +8,14 @@ export const folder = (id: string, parent_id: string, name: string, extra: Parti
 });
 const folders = [
   folder("system", "", "系统归档", { system_key: "system_root" }),
-  folder("canvas", "system", "画布工坊"),
+  folder("canvas", "system", "画布工坊", { sort_order: 40 }),
   folder("mine", "canvas", "未命名画布1", { system_key: "canvas_project", source_ref_id: "project-1" }),
   folder("same-title", "canvas", "未命名画布1", { system_key: "canvas_project", source_ref_id: "project-2" }),
   folder("roles", "mine", "角色", { sort_order: 10 }),
   folder("scenes", "mine", "场景", { sort_order: 20 }),
   folder("props", "mine", "道具", { sort_order: 30 }),
-  folder("unfiled", "system", "未分类"),
+  folder("other", "mine", "其他", { sort_order: 70 }),
+  folder("unfiled", "system", "未分类", { sort_order: 10 }),
   folder("custom", "", "素材草稿", { kind: "user" }),
 ];
 const nodes = ["source", "ancestor", "target", "downstream", "sibling"].map(id => ({ id, kind: "text", title: id, content: id }));
@@ -29,22 +30,53 @@ const references = buildCanvasMentionReferences("target", nodes, edges, [
 const library: CanvasMentionLibraryState = { ...emptyCanvasMentionLibrary("project-1"), folders };
 
 describe("canvas mention library navigation", () => {
-  it("prioritizes incoming nodes, the exact linked folder, favorites and the real archive root", () => {
+  it("prioritizes incoming nodes, the exact linked folder, favorites and promoted archive folders", () => {
     expect(buildCanvasMentionLibraryMenu(references, "", "root", library).map(item => item.id)).toEqual([
-      "node:source", "node:ancestor", "folder:mine", "favorites", "folder:system", "folder:custom",
+      "node:source", "node:ancestor", "folder:mine", "favorites", "folder:unfiled", "folder:canvas", "folder:custom",
     ]);
   });
 
   it("opens actual direct children and never turns category names into folder IDs", () => {
     const items = buildCanvasMentionLibraryMenu(references, "", "folder:mine", library);
     expect(items.filter(item => item.kind === "folder").map(item => [item.label, item.target])).toEqual([
-      ["角色", "folder:roles"], ["场景", "folder:scenes"], ["道具", "folder:props"],
+      ["角色", "folder:roles"], ["场景", "folder:scenes"], ["道具", "folder:props"], ["其他", "folder:other"],
     ]);
   });
 
   it("keeps other folders hierarchical and does not repeat the current project", () => {
-    expect(buildCanvasMentionLibraryMenu([], "", "root", library).map(item => item.id)).toEqual(["folder:mine", "favorites", "folder:system", "folder:custom"]);
+    expect(buildCanvasMentionLibraryMenu([], "", "root", library).map(item => item.id)).toEqual(["folder:mine", "favorites", "folder:unfiled", "folder:canvas", "folder:custom"]);
     expect(buildCanvasMentionLibraryMenu([], "", "folder:canvas", library).map(item => item.id)).toEqual(["folder:same-title"]);
+  });
+
+  it("skips automatic dates while keeping categories, manually named dates and archived assets accessible", () => {
+    const view: CanvasMentionLibraryState = {
+      ...library, target: "folder:mine", assetIds: ["role", "scene"],
+      folders: [...folders,
+        folder("day-1", "mine", "2026-09-15", { system_key: "canvas_project_date" }),
+        folder("day-2", "mine", "2026-09-16", { system_key: "canvas_project_date" }),
+        folder("manual-day", "mine", "2026-09-16", { kind: "user", sort_order: 40 }),
+        folder("nested", "day-1", "补充素材", { kind: "user", sort_order: 50 }),
+      ],
+    };
+    expect(buildCanvasMentionLibraryMenu(references, "", "folder:mine", view).map(item => item.id)).toEqual([
+      "node:source", "node:ancestor", "folder:roles", "folder:scenes", "folder:props",
+      "folder:manual-day", "folder:nested", "folder:other", "asset:role", "asset:scene",
+    ]);
+    expect(view.folders.find(item => item.id === "nested")?.parent_id).toBe("day-1");
+  });
+
+  it("also skips system month buckets when browsing the other asset libraries", () => {
+    const view: CanvasMentionLibraryState = {
+      ...library, target: "folder:workbench", assetIds: ["scene"],
+      folders: [...folders,
+        folder("workbench", "system", "生图工作台", { system_key: "image_workbench" }),
+        folder("month", "workbench", "2026-09", { system_key: "image_workbench_month" }),
+      ],
+    };
+    expect(buildCanvasMentionLibraryMenu([], "", "folder:workbench", view)).toEqual([]);
+    expect(buildCanvasMentionLibraryMenu(references, "", "folder:workbench", view).map(item => item.id)).toEqual([
+      "node:source", "node:ancestor", "asset:scene",
+    ]);
   });
 
   it("uses only the latest folder/favorites response, preserving other cached chips", () => {

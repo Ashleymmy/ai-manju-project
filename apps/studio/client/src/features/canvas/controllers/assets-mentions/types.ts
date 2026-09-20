@@ -49,7 +49,7 @@ export type CanvasMentionMediaPreview = {
   kind: "image" | "video" | "audio";
 };
 
-export type ScopedCanvasAsset = Asset & { scope: WorkspaceScope };
+export type ScopedCanvasAsset = Omit<Asset, "type"> & { type: Asset["type"] | "text"; text?: string; scope: WorkspaceScope };
 
 export type CanvasAssetsMentionsSnapshot = {
   assets: ScopedCanvasAsset[];

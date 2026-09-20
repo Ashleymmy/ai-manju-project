@@ -42,6 +42,17 @@ describe("canvas node transforms", () => {
     });
   });
 
+  it("migrates old generated filenames while retaining custom and imported titles", () => {
+    const saved = {
+      id: "generated", kind: "image", title: "provider_0.Png", imageAssetId: "asset-1",
+      metadata: { prompt: "水果摊\n暖色光线", status: "success" },
+    };
+    expect(normalizeCanvasNode(saved)?.title).toBe("水果摊");
+    expect(normalizeCanvasNode({ ...saved, title: "自定义名称 v1.2" })?.title).toBe("自定义名称 v1.2");
+    expect(normalizeCanvasNode({ ...saved, metadata: { ...saved.metadata, canvasOrigin: "imported" } })?.title)
+      .toBe("provider_0.Png");
+  });
+
   it("updates managed coordinates without dropping nested position extensions", () => {
     const node = normalizeCanvasNode({
       id: "n-position",

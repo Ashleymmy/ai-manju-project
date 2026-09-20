@@ -14,6 +14,184 @@ const references: CanvasMentionReference[] = [{
   title: "雪景描述", searchText: "雪景描述", active: true,
 }];
 
+describe("canvas image mention caret", () => {
+  let root: Root;
+  let container: HTMLDivElement;
+  let changed: ReturnType<typeof vi.fn>;
+  let preview: ReturnType<typeof vi.fn>;
+  let submit: ReturnType<typeof vi.fn>;
+  const imageReferences: CanvasMentionReference[] = ["a", "b"].map(id => ({
+    id, key: `node:${id}`, source: "node", group: "canvas-node", targetId: id, nodeId: id,
+    kind: "image", label: `图片${id}`, title: id, searchText: id, active: true, upstreamDistance: 1,
+  }));
+  const original = "@[node:a] @[node:b] 生成企鹅";
+  function Harness({ initial = original }: { initial?: string }) {
+    const [value, setValue] = useState(initial);
+    return <CanvasResourceMentionTextarea value={value} references={imageReferences}
+      onChange={next => { changed(next); setValue(next); }} onPreviewReference={preview} onSubmit={submit} />;
+  }
+  const textarea = () => container.querySelector("textarea")!;
+  async function key(value: string, extra: KeyboardEventInit = {}) {
+    const event = new KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true, ...extra });
+    await act(async () => textarea().dispatchEvent(event));
+    return event;
+  }
+  beforeEach(async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    changed = vi.fn(); preview = vi.fn(); submit = vi.fn();
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => root.render(<Harness />));
+    await act(async () => textarea().focus());
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("crosses each thumbnail in one arrow press from either boundary without snapping back", async () => {
+    const { segments } = buildCanvasMentionEditorModel(original, imageReferences);
+    for (const segment of segments) {
+      textarea().setSelectionRange(segment.start, segment.start);
+      expect((await key("ArrowRight")).defaultPrevented).toBe(true);
+      expect(textarea().selectionStart).toBe(segment.end);
+      await act(async () => document.dispatchEvent(new Event("selectionchange")));
+      expect(textarea().selectionStart).toBe(segment.end);
+      expect((await key("ArrowLeft")).defaultPrevented).toBe(true);
+      expect(textarea().selectionStart).toBe(segment.start);
+    }
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it("extends and shrinks keyboard selections around entire references", async () => {
+    const { segments: [first] } = buildCanvasMentionEditorModel(original, imageReferences);
+    textarea().setSelectionRange(first.start, first.start);
+    await key("ArrowRight", { shiftKey: true });
+    expect([textarea().selectionStart, textarea().selectionEnd]).toEqual([first.start, first.end]);
+    await key("ArrowLeft", { shiftKey: true });
+    expect([textarea().selectionStart, textarea().selectionEnd]).toEqual([first.start, first.start]);
+    textarea().setSelectionRange(first.end, first.end);
+    await key("ArrowLeft", { shiftKey: true });
+    expect(textarea().selectionDirection).toBe("backward");
+    expect([textarea().selectionStart, textarea().selectionEnd]).toEqual([first.start, first.end]);
+  });
+
+  it("positions the caret on either side by mouse and reserves preview for double click", async () => {
+    const chip = container.querySelector<HTMLElement>(".mention-chip-thumb-only")!;
+    vi.spyOn(chip, "getBoundingClientRect").mockReturnValue({ left: 100, width: 24 } as DOMRect);
+    await act(async () => chip.dispatchEvent(new MouseEvent("pointerdown", { clientX: 120, button: 0, bubbles: true, cancelable: true })));
+    expect(textarea().selectionStart).toBe(buildCanvasMentionEditorModel(original, imageReferences).segments[0].end);
+    await act(async () => chip.click());
+    expect(preview).not.toHaveBeenCalled();
+    await act(async () => chip.dispatchEvent(new MouseEvent("pointerdown", { clientX: 101, button: 0, bubbles: true, cancelable: true })));
+    expect(textarea().selectionStart).toBe(0);
+    await act(async () => chip.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true })));
+    expect(preview).toHaveBeenCalledWith(imageReferences[0]);
+  });
+
+  it("deletes the intended thumbnail atomically and keeps the other reference and following text", async () => {
+    const { segments: [first] } = buildCanvasMentionEditorModel(original, imageReferences);
+    textarea().setSelectionRange(first.end, first.end);
+    await key("Backspace");
+    expect(changed.mock.lastCall?.[0]).not.toContain("@[node:a]");
+    expect(changed.mock.lastCall?.[0]).toContain("@[node:b]");
+    expect(changed.mock.lastCall?.[0]).toContain("生成企鹅");
+    expect(textarea().selectionStart).toBe(first.start);
+  });
+
+  it.each(["Backspace", "Delete"])("%s removes an adjacent image with its built-in spacing in one step", async deleteKey => {
+    const initial = "前@[node:a]@[node:b]后";
+    await act(async () => root.render(<Harness key={deleteKey} initial={initial} />));
+    const { segments: [first, second] } = buildCanvasMentionEditorModel(initial, imageReferences);
+    expect(first.end).toBe(second.start);
+    const cursor = deleteKey === "Backspace" ? first.end : first.start;
+    textarea().setSelectionRange(cursor, cursor);
+    await key(deleteKey);
+    expect(changed.mock.lastCall?.[0]).toBe("前@[node:b]后");
+    expect(textarea().value).toBe(buildCanvasMentionEditorModel("前@[node:b]后", imageReferences).displayValue);
+    expect(textarea().selectionStart).toBe(first.start);
+  });
+
+  it("does not submit or move the caret when confirming Chinese composition", async () => {
+    await act(async () => textarea().dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true })));
+    textarea().setSelectionRange(0, 0);
+    expect((await key("ArrowRight", { isComposing: true })).defaultPrevented).toBe(false);
+    expect(textarea().selectionStart).toBe(0);
+    await key("Enter", { isComposing: true });
+    expect(submit).not.toHaveBeenCalled();
+    await act(async () => textarea().dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "企鹅" })));
+    await key("Enter");
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it("deletes a selected reference without confusing identical thumbnail placeholders", async () => {
+    const { segments: [first] } = buildCanvasMentionEditorModel(original, imageReferences);
+    textarea().setSelectionRange(first.start, first.start);
+    await key("ArrowRight", { shiftKey: true });
+    await key("Backspace");
+    expect(changed.mock.lastCall?.[0]).not.toContain("@[node:a]");
+    expect(changed.mock.lastCall?.[0]).toContain("@[node:b]");
+    expect(changed.mock.lastCall?.[0]).toContain("生成企鹅");
+    expect(textarea().selectionStart).toBe(first.start);
+  });
+
+  it("keeps both references when typing between the thumbnails and the following prompt", async () => {
+    const model = buildCanvasMentionEditorModel(original, imageReferences);
+    const caret = model.segments[1].end;
+    textarea().setSelectionRange(model.segments[1].start, model.segments[1].start);
+    await key("ArrowRight");
+    expect(textarea().selectionStart).toBe(caret);
+    await act(async () => {
+      const next = textarea().value.slice(0, caret) + "参考" + textarea().value.slice(caret);
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea(), next);
+      textarea().setSelectionRange(caret + 2, caret + 2);
+      textarea().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(changed.mock.lastCall?.[0]).toContain("@[node:a]");
+    expect(changed.mock.lastCall?.[0]).toContain("@[node:b]参考 生成企鹅");
+    expect(textarea().selectionStart).toBe(caret + 2);
+  });
+
+  it("does not reinsert a deleted image gap or jump to the end when references refresh", async () => {
+    function RefreshingHarness({ tick }: { tick: number }) {
+      const [value, setValue] = useState(original);
+      return <CanvasResourceMentionTextarea value={value} references={imageReferences.map(ref => ({ ...ref, title: `${ref.title}-${tick}` }))}
+        onChange={next => { changed(next); setValue(next); }} />;
+    }
+    await act(async () => root.render(<RefreshingHarness tick={0} />));
+    const before = buildCanvasMentionEditorModel(original, imageReferences);
+    const gapPosition = before.segments[1].start - 1;
+    const afterDeletion = before.displayValue.slice(0, gapPosition) + before.displayValue.slice(gapPosition + 1);
+    await act(async () => {
+      textarea().focus();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea(), afterDeletion);
+      textarea().setSelectionRange(gapPosition, gapPosition);
+      textarea().dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" }));
+    });
+    await act(async () => root.render(<RefreshingHarness tick={1} />));
+    expect(textarea().value).toBe(afterDeletion);
+    expect(textarea().selectionStart).toBe(gapPosition);
+    expect(changed.mock.lastCall?.[0]).toContain("@[node:a]@[node:b]");
+  });
+
+  it("places the caret after an inserted image before the next keystroke without a deferred frame", async () => {
+    await act(async () => root.render(<Harness key="insert" initial="" />));
+    await act(async () => {
+      textarea().focus();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea(), "@");
+      textarea().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await key("Enter");
+    expect(changed.mock.lastCall?.[0]).toBe("@[node:a]");
+    expect(textarea().selectionStart).toBe(textarea().value.length);
+    expect(document.activeElement).toBe(textarea());
+    expect(document.querySelector(".canvas-mention-menu")).toBeNull();
+  });
+});
+
 describe("canvas prompt editor value synchronization", () => {
   let root: Root;
   let container: HTMLDivElement;
@@ -97,10 +275,11 @@ describe("canvas mention folder popup", () => {
   const library: CanvasMentionLibraryState = {
     ...emptyCanvasMentionLibrary("project-1"),
     folders: [
-      folder("root", "", "系统归档", { system_key: "system_root" }), folder("canvas", "root", "画布工坊"),
+      folder("root", "", "系统归档", { system_key: "system_root" }), folder("canvas", "root", "画布工坊", { sort_order: 40 }),
       folder("mine", "canvas", "第一集分镜", { system_key: "canvas_project", source_ref_id: "project-1" }),
       folder("roles", "mine", "角色", { sort_order: 10 }), folder("scenes", "mine", "场景", { sort_order: 20 }), folder("props", "mine", "道具", { sort_order: 30 }),
-      folder("unfiled", "root", "未分类"),
+      folder("other", "mine", "其他", { sort_order: 70 }),
+      folder("unfiled", "root", "未分类", { sort_order: 10 }),
     ],
   };
   const menuReferences: CanvasMentionReference[] = [
@@ -145,9 +324,9 @@ describe("canvas mention folder popup", () => {
   });
 
   it("renders the requested order and navigates folders without changing the prompt", async () => {
-    expect(rows()).toEqual(["前置文本", "第一集分镜", "收藏夹", "系统归档"]);
+    expect(rows()).toEqual(["前置文本", "第一集分镜", "收藏夹", "未分类", "画布工坊"]);
     await click("第一集分镜");
-    expect(rows()).toEqual(["前置文本", "角色", "场景", "道具"]);
+    expect(rows()).toEqual(["前置文本", "角色", "场景", "道具", "其他"]);
     expect(container.querySelector("textarea")!.value).toBe("@");
     await click("角色");
     expect(rows()).toEqual(["前置文本", "主角设定"]);
@@ -162,7 +341,7 @@ describe("canvas mention folder popup", () => {
     await press("Enter");
     expect(rows()).toContain("角色");
     await press("Escape");
-    expect(rows()).toEqual(["前置文本", "第一集分镜", "收藏夹", "系统归档"]);
+    expect(rows()).toEqual(["前置文本", "第一集分镜", "收藏夹", "未分类", "画布工坊"]);
     await click("收藏夹");
     expect(rows()).toEqual(["前置文本", "主角设定"]);
     expect(requests).toHaveBeenLastCalledWith("", "favorites", false);
@@ -177,16 +356,14 @@ describe("canvas mention folder popup", () => {
     expect(container.querySelector("textarea")!.value).toBe("@");
   });
 
-  it("opens system archive directly from the first level and returns there in one step", async () => {
+  it("opens promoted archive children directly and returns to the first level in one step", async () => {
     expect(document.querySelector(".canvas-mention-menu")?.textContent).not.toContain("其他资产库");
-    await click("系统归档");
-    expect(requests).toHaveBeenLastCalledWith("", "folder:root", false);
+    expect(document.querySelector(".canvas-mention-menu")?.textContent).not.toContain("系统归档");
     expect(rows()).toContain("未分类");
     await click("未分类");
+    expect(requests).toHaveBeenLastCalledWith("", "folder:unfiled", false);
     expect(document.querySelector(".canvas-mention-menu")?.textContent).toContain("此文件夹暂无匹配的素材");
     await click("返回");
-    expect(rows()).toContain("未分类");
-    await click("返回");
-    expect(rows()).toEqual(["前置文本", "第一集分镜", "收藏夹", "系统归档"]);
+    expect(rows()).toEqual(["前置文本", "第一集分镜", "收藏夹", "未分类", "画布工坊"]);
   });
 });

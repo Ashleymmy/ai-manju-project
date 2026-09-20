@@ -4,7 +4,10 @@ import {
   canvasTextAssetStorageKey,
   listCanvasTextAssets,
   saveCanvasTextAsset,
+  syncCanvasTextAssets,
+  canvasNodeTextAssetId,
 } from "./textAssetsRepository";
+import type { CanvasNodeData } from "../domain/types";
 
 function memoryStorage() {
   const values = new Map<string, unknown>();
@@ -15,6 +18,27 @@ function memoryStorage() {
 }
 
 describe("canvas text assets", () => {
+  it("automatically archives nonempty text in other and preserves manual classification during concurrent saves", async () => {
+    const storage = memoryStorage();
+    const text = (id: string, content: string) => ({ id, kind: "text", title: id, content } as CanvasNodeData);
+    const input = { userId: "user-a", scope: "personal" as const, projectId: "canvas-a", nodes: [text("one", "第一段"), text("two", "第二段"), text("empty", "")] };
+    expect(await syncCanvasTextAssets(input, storage)).toBe(true);
+    expect(await syncCanvasTextAssets(input, storage)).toBe(false);
+    expect(await listCanvasTextAssets("user-a", "personal", storage)).toEqual([
+      expect.objectContaining({ id: canvasNodeTextAssetId("canvas-a", "one"), content: "第一段", category: "other", projectId: "canvas-a" }),
+      expect.objectContaining({ id: canvasNodeTextAssetId("canvas-a", "two"), content: "第二段", category: "other" }),
+    ]);
+    await Promise.all([
+      saveCanvasTextAsset({ userId: "user-a", scope: "personal", id: canvasNodeTextAssetId("canvas-a", "one"), title: "角色", content: "已选角色", category: "character", folderId: "roles" }, storage),
+      syncCanvasTextAssets({ ...input, nodes: [text("one", "修改内容"), text("two", "新第二段")] }, storage),
+      syncCanvasTextAssets({ ...input, projectId: "canvas-b", nodes: [text("one", "另一画布")] }, storage),
+    ]);
+    const assets = await listCanvasTextAssets("user-a", "personal", storage);
+    expect(assets).toHaveLength(3);
+    expect(assets.find(asset => asset.id === canvasNodeTextAssetId("canvas-a", "one"))).toMatchObject({ category: "character", folderId: "roles", content: "已选角色" });
+    expect(assets.find(asset => asset.id === canvasNodeTextAssetId("canvas-a", "two"))?.content).toBe("新第二段");
+    expect(assets.find(asset => asset.id === canvasNodeTextAssetId("canvas-b", "one"))?.content).toBe("另一画布");
+  });
   it("isolates persisted text by user and workspace scope", async () => {
     const storage = memoryStorage();
     await saveCanvasTextAsset({ userId: "user-a", scope: "personal", title: "个人", content: "个人文本" }, storage);
@@ -47,5 +71,16 @@ describe("canvas text assets", () => {
     expect(await listCanvasTextAssets("user-a", "personal", storage)).toEqual([
       expect.objectContaining({ id: "valid", content: "正文", scope: "personal" }),
     ]);
+  });
+
+  it("persists the canvas category and reclassifies the same text without duplicating it", async () => {
+    const storage = memoryStorage();
+    const saved = await saveCanvasTextAsset({ userId: "user-a", scope: "personal", title: "设定", content: "人物背景",
+      folderId: "roles", category: "character", projectId: "canvas-a" }, storage);
+    await saveCanvasTextAsset({ userId: "user-a", scope: "personal", title: "设定", content: saved.content, id: saved.id,
+      folderId: "other", category: "other", projectId: "canvas-a" }, storage);
+    const items = await listCanvasTextAssets("user-a", "personal", storage);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ id: saved.id, folderId: "other", category: "other", projectId: "canvas-a", content: "人物背景" });
   });
 });

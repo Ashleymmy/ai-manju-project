@@ -71,7 +71,7 @@ func TestCanvasCreationAndRenameLinkLibraryThroughHTTP(t *testing.T) {
 			children[folder.Name] = true
 		}
 	}
-	if len(children) != 3 || !children["角色"] || !children["场景"] || !children["道具"] {
+	if len(children) != 4 || !children["角色"] || !children["场景"] || !children["道具"] || !children["其他"] {
 		t.Fatalf("HTTP children = %+v", children)
 	}
 	request(http.MethodPut, "/api/projects/"+first.ID+"?scope=personal", `{"title":"第一集分镜"}`, http.StatusOK, &first)

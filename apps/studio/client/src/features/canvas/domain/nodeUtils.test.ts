@@ -8,6 +8,7 @@ import {
   fitCanvasImageNodeSize,
   imageResolutionFromNode,
   isAbortError,
+  modelFromNode,
   promptTextFromNode,
   qualityFromNode,
   sizeFromNode,
@@ -90,5 +91,15 @@ describe("canvas node utilities", () => {
     expect(qualityFromNode({ metadata: { quality: "auto" } } as CanvasNodeData)).toBe("low");
     expect(qualityFromNode({ metadata: { quality: "high" } } as CanvasNodeData)).toBe("high");
     expect(imageResolutionFromNode({ metadata: { imageResolution: "4K" } } as CanvasNodeData)).toBe("4K");
+  });
+
+  it("treats retired gpt-image-1 family models saved on nodes as unset", () => {
+    const legacy = { metadata: { model: "provider::gpt-image-1.5" } } as CanvasNodeData;
+    const legacyV1 = { metadata: { model: "gpt-image-1" } } as CanvasNodeData;
+    const current = { metadata: { model: "provider::gpt-image-2" } } as CanvasNodeData;
+    expect(modelFromNode(legacy, "fallback-model")).toBe("fallback-model");
+    expect(modelFromNode(legacyV1, "fallback-model")).toBe("fallback-model");
+    expect(modelFromNode(current, "fallback-model")).toBe("provider::gpt-image-2");
+    expect(modelFromNode({ metadata: {} } as CanvasNodeData, "fallback-model")).toBe("fallback-model");
   });
 });

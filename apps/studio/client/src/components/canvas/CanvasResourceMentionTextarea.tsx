@@ -13,7 +13,9 @@ import {
 import { createPortal } from "react-dom";
 import {
   forwardRef,
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -22,6 +24,7 @@ import {
 
 import { getAssetContentObjectUrl } from "@/entities/asset";
 import { useOutsidePress } from "@/shared/lib/useOutsidePress";
+import { useMentionCaret } from "./useMentionCaret";
 import { buildCanvasMentionLibraryMenu, emptyCanvasMentionLibrary, mentionLibraryTargetLabel, type CanvasMentionLibraryItem, type CanvasMentionLibraryState, type CanvasMentionLibraryTarget } from "@/features/canvas/domain/mentionLibrary";
 import {
   applyCanvasMentionEditorEdit,
@@ -45,9 +48,12 @@ type Props = Omit<ComponentProps<"textarea">, "onChange" | "value"> & {
   mentionLibrary?: CanvasMentionLibraryState;
   onSubmit?: () => void;
   containerClassName?: string;
+  /** 随内容自动撑高（受 CSS max-height 限制）。仅在需要高度自适应的场合开启（如 Inspector 提示词框）；
+      节点内联编辑器等由布局决定高度的场景不要开。 */
+  autoGrow?: boolean;
   /** 返回引用对应的缩略图 URL（画布节点读预览缓存；返回空时资产库图片会按需拉取） */
   thumbnailForReference?: (reference: CanvasMentionReference) => string;
-  /** 点击已插入的引用 chip / 菜单项的"详情"按钮 */
+  /** 双击已插入的引用 chip / 点击菜单项的"详情"按钮 */
   onPreviewReference?: (reference: CanvasMentionReference) => void;
   /** 点击菜单项的"定位"按钮（仅画布内节点会显示） */
   onLocateReference?: (reference: CanvasMentionReference) => void;
@@ -76,6 +82,7 @@ export const CanvasResourceMentionTextarea = forwardRef<
     onMentionQueryChange,
     mentionLibrary = emptyCanvasMentionLibrary(),
     containerClassName,
+    autoGrow = false,
     className,
     onKeyDown,
     onSubmit,
@@ -92,11 +99,16 @@ export const CanvasResourceMentionTextarea = forwardRef<
   );
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
+  const composingRef = useRef(false);
+  const [isComposing, setIsComposing] = useState(false);
+  // Apply insertion/deletion caret positions immediately after the controlled value commits.
+  const pendingCaretRef = useRef<{ start: number; end: number; direction?: "forward" | "backward" | "none" } | null>(null);
   // 空字符串是有效的节点内容，不能在渲染时把它当作“未初始化”。
   // 后续外部值由同步 effect 同时更新 ref 与显示状态，避免选回原节点时只更新 ref。
   const editorValueRef = useRef(editorModel.displayValue);
   const editorSegmentsRef = useRef<CanvasMentionEditorSegment[]>(editorModel.segments);
   const emittedValueRef = useRef<string | null>(null);
+  const observedValueRef = useRef(value);
   const [mention, setMention] = useState<{
     start: number;
     query: string;
@@ -123,6 +135,48 @@ export const CanvasResourceMentionTextarea = forwardRef<
   const [editorSegments, setEditorSegments] = useState<
     CanvasMentionEditorSegment[]
   >(() => editorModel.segments);
+  useLayoutEffect(() => {
+    const caret = pendingCaretRef.current;
+    if (caret === null || !textareaRef.current) return;
+    pendingCaretRef.current = null;
+    textareaRef.current.focus({ preventScroll: true });
+    textareaRef.current.setSelectionRange(caret.start, caret.end, caret.direction);
+  }, [editorValue, editorSegments]);
+
+  // 用 JS 显式撑高，不走浏览器 field-sizing: content 的渲染路径：
+  // Chrome 在该属性 + 中文 IME 合成/长文本换行重排时会残留旧帧，
+  // 表现为一整条竖向“重影”带（看似凭空多出间隔、删除错位）。
+  const autoSizeTextarea = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || !autoGrow) return;
+    textarea.style.height = "0px";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [autoGrow]);
+  useLayoutEffect(() => {
+    autoSizeTextarea();
+  }, [editorValue, autoSizeTextarea]);
+  // 宽度变化（面板拖拽/画布缩放）会改变换行位置，需要重算高度；只在宽度变化时触发，避免高度回路。
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || typeof ResizeObserver === "undefined") return;
+    let lastWidth = textarea.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (textarea.clientWidth === lastWidth) return;
+      lastWidth = textarea.clientWidth;
+      autoSizeTextarea();
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [autoSizeTextarea]);
+  // 打字触发的自动滚动先于 onScroll 到达，渲染后立刻同步覆盖层滚动位置，避免长文本时双层短暂错位。
+  useLayoutEffect(() => {
+    const overlay = overlayRef.current;
+    const textarea = textareaRef.current;
+    if (!overlay || !textarea) return;
+    overlay.scrollTop = textarea.scrollTop;
+    overlay.scrollLeft = textarea.scrollLeft;
+  });
+  const { caret, refresh: refreshCaret } = useMentionCaret(textareaRef, editorValue);
   const referenceByKey = useMemo(
     () => new Map(references.map(reference => [reference.key, reference])),
     [references]
@@ -163,12 +217,22 @@ export const CanvasResourceMentionTextarea = forwardRef<
     setDisplayWidths(next);
   }, [editorSegments, editorValue, references]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const externalValueChanged = observedValueRef.current !== value;
+    observedValueRef.current = value;
+    // A refreshed reference list must not overwrite an edit awaiting its parent's acknowledgement.
+    if (!externalValueChanged && emittedValueRef.current !== null && emittedValueRef.current !== value) return;
     if (emittedValueRef.current === value) {
       emittedValueRef.current = null;
-      return;
     }
     const currentSegments = editorSegmentsRef.current;
+    // Preserve the current edit when only a thumbnail/catalog/title refreshed:
+    // assigning textarea.value unnecessarily can reset the native caret.
+    const sameContent = serializeCanvasMentionEditorValue(editorValueRef.current, currentSegments) === value;
+    if (sameContent && currentSegments.every(segment => {
+      const reference = referenceByKey.get(segment.key);
+      return editorValueRef.current.slice(segment.start, segment.end) === canvasMentionEditorDisplayText(reference);
+    })) return;
     const modelUnchanged =
       editorValueRef.current === editorModel.displayValue &&
       currentSegments.length === editorModel.segments.length &&
@@ -182,6 +246,14 @@ export const CanvasResourceMentionTextarea = forwardRef<
         );
       });
     if (modelUnchanged) return;
+    const textarea = textareaRef.current;
+    if (textarea && document.activeElement === textarea && !composingRef.current) {
+      pendingCaretRef.current = {
+        start: Math.min(textarea.selectionStart, editorModel.displayValue.length),
+        end: Math.min(textarea.selectionEnd, editorModel.displayValue.length),
+        direction: textarea.selectionDirection,
+      };
+    }
     editorValueRef.current = editorModel.displayValue;
     editorSegmentsRef.current = editorModel.segments;
     setEditorValue(editorModel.displayValue);
@@ -240,7 +312,7 @@ export const CanvasResourceMentionTextarea = forwardRef<
 
   const clampSelectionToMentionBoundary = () => {
     const textarea = textareaRef.current;
-    if (!textarea) return;
+    if (!textarea || composingRef.current || document.activeElement !== textarea) return;
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const overlapping = editorSegmentsRef.current.filter(segment =>
@@ -260,13 +332,14 @@ export const CanvasResourceMentionTextarea = forwardRef<
     }
     textarea.setSelectionRange(
       Math.min(start, ...overlapping.map(segment => segment.start)),
-      Math.max(end, ...overlapping.map(segment => segment.end))
+      Math.max(end, ...overlapping.map(segment => segment.end)),
+      textarea.selectionDirection
     );
   };
 
   const insertReference = (reference: CanvasMentionReference) => {
     if (!mention) return;
-    const end = textareaRef.current?.selectionStart ?? value.length;
+    const end = textareaRef.current?.selectionStart ?? editorValueRef.current.length;
     const displayReference = canvasMentionEditorDisplayText(reference);
     const insert = `${displayReference}${canvasMentionEditorGap(reference.kind)}`;
     const nextDisplay = `${editorValueRef.current.slice(0, mention.start)}${insert}${editorValueRef.current.slice(end)}`;
@@ -286,18 +359,12 @@ export const CanvasResourceMentionTextarea = forwardRef<
     const next = serializeCanvasMentionEditorValue(nextDisplay, nextSegments);
     editorValueRef.current = nextDisplay;
     editorSegmentsRef.current = nextSegments;
+    pendingCaretRef.current = { start: mention.start + insert.length, end: mention.start + insert.length };
     setEditorSegments(nextSegments);
     emittedValueRef.current = next;
     setEditorValue(nextDisplay);
     onChange(next);
     closeMention();
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(
-        mention.start + insert.length,
-        mention.start + insert.length
-      );
-    });
   };
 
   const activateMenuItem = (item: CanvasMentionLibraryItem) => {
@@ -314,7 +381,8 @@ export const CanvasResourceMentionTextarea = forwardRef<
   const showOverlay = Boolean(value) && editorSegments.length > 0;
 
   return (
-    <div className={`canvas-mention-editor ${containerClassName || ""}`}>
+    <div className={`canvas-mention-editor ${containerClassName || ""}`} data-enhanced-caret={Boolean(caret && !isComposing)}>
+      {caret && !isComposing ? <span className="canvas-mention-caret" style={caret} aria-hidden="true" /> : null}
       {showOverlay ? (
         <div
           ref={overlayRef}
@@ -325,39 +393,43 @@ export const CanvasResourceMentionTextarea = forwardRef<
             if (part.type === "text")
               return <span key={`${part.value}-${index}`}>{part.value}</span>;
             const reference = referenceByKey.get(part.key);
-            const clickable = Boolean(reference && onPreviewReference);
+            const previewable = Boolean(reference && onPreviewReference);
             const hideName = Boolean(
               reference && canvasMentionShowsName(reference.kind, part.missing) === false
             );
             return (
               <span
                 key={`${part.key}-${index}`}
-                className={`${part.missing ? "missing" : "reference"}${clickable ? " mention-chip-clickable" : ""}${hideName ? " mention-chip-thumb-only" : ""}`}
+                className={`${part.missing ? "missing" : "reference"} mention-chip-caret${hideName ? " mention-chip-thumb-only" : ""}`}
                 style={
                   !hideName && displayWidths[part.key]
                     ? { width: displayWidths[part.key] }
                     : undefined
                 }
                 title={
-                  reference ? `${reference.title}（点击查看详情）` : part.label
+                  reference ? `${reference.title}（单击定位光标${previewable ? "，双击查看详情" : ""}）` : part.label
                 }
-                onPointerDown={
-                  clickable
-                    ? event => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }
-                    : undefined
-                }
-                onClick={
-                  clickable
-                    ? event => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        if (reference) onPreviewReference?.(reference);
-                      }
-                    : undefined
-                }
+                onPointerDown={event => {
+                  if (event.button !== 0 || composingRef.current) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const textarea = textareaRef.current;
+                  if (!textarea) return;
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const caret = event.clientX < rect.left + rect.width / 2 ? part.start : part.end;
+                  const anchor = textarea.selectionDirection === "backward" ? textarea.selectionEnd : textarea.selectionStart;
+                  textarea.focus({ preventScroll: true });
+                  if (event.shiftKey) textarea.setSelectionRange(Math.min(anchor, caret), Math.max(anchor, caret), caret < anchor ? "backward" : "forward");
+                  else textarea.setSelectionRange(caret, caret);
+                  refreshCaret();
+                  closeMention();
+                }}
+                onClick={event => event.stopPropagation()}
+                onDoubleClick={event => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (reference && !composingRef.current) onPreviewReference?.(reference);
+                }}
               >
                 {hideName && reference ? (
                   <>
@@ -382,6 +454,8 @@ export const CanvasResourceMentionTextarea = forwardRef<
       ) : null}
       <textarea
         {...props}
+        // 拼写检查的波浪线不受透明文字颜色影响，会穿透覆盖层显示成游离的红线
+        spellCheck={false}
         ref={node => {
           textareaRef.current = node;
           if (typeof forwardedRef === "function") forwardedRef(node);
@@ -392,11 +466,26 @@ export const CanvasResourceMentionTextarea = forwardRef<
         onFocus={event => {
           props.onFocus?.(event);
         }}
-        onClick={() => {
-          requestAnimationFrame(clampSelectionToMentionBoundary);
+        onClick={event => {
+          clampSelectionToMentionBoundary();
+          props.onClick?.(event);
         }}
-        onSelect={() => {
-          requestAnimationFrame(clampSelectionToMentionBoundary);
+        onSelect={event => {
+          clampSelectionToMentionBoundary();
+          refreshCaret();
+          props.onSelect?.(event);
+        }}
+        onCompositionStart={event => {
+          composingRef.current = true;
+          setIsComposing(true);
+          props.onCompositionStart?.(event);
+        }}
+        onCompositionEnd={event => {
+          composingRef.current = false;
+          setIsComposing(false);
+          refreshCaret();
+          syncMention(event.currentTarget.value, event.currentTarget.selectionStart);
+          props.onCompositionEnd?.(event);
         }}
         onBlur={event => {
           window.setTimeout(closeMention, 120);
@@ -412,6 +501,7 @@ export const CanvasResourceMentionTextarea = forwardRef<
         }}
         onChange={event => {
           const nextDisplay = event.target.value;
+          if (!composingRef.current) pendingCaretRef.current = { start: event.target.selectionStart, end: event.target.selectionEnd, direction: event.target.selectionDirection };
           const nextSegments = applyCanvasMentionEditorEdit(
             editorValueRef.current,
             nextDisplay,
@@ -427,24 +517,30 @@ export const CanvasResourceMentionTextarea = forwardRef<
           emittedValueRef.current = nextCanonical;
           setEditorValue(nextDisplay);
           onChange(nextCanonical);
-          syncMention(nextDisplay, event.target.selectionStart);
+          if (!composingRef.current) syncMention(nextDisplay, event.target.selectionStart);
         }}
         onKeyDown={event => {
+          // IME Enter confirms the current word; it must not submit a generation or move the caret.
+          if (composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (
             (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
-            !event.shiftKey
+            !event.altKey && !event.ctrlKey && !event.metaKey
           ) {
             const textarea = event.currentTarget;
-            if (textarea.selectionStart === textarea.selectionEnd) {
-              const cursor = textarea.selectionStart;
-              const segment = editorSegmentsRef.current.find(
-                item => cursor > item.start && cursor < item.end
-              );
+            if (event.shiftKey || textarea.selectionStart === textarea.selectionEnd) {
+              const backward = textarea.selectionDirection === "backward";
+              const cursor = backward ? textarea.selectionStart : textarea.selectionEnd;
+              const anchor = backward ? textarea.selectionEnd : textarea.selectionStart;
+              const segment = editorSegmentsRef.current.find(item => event.key === "ArrowLeft"
+                ? cursor > item.start && cursor <= item.end
+                : cursor >= item.start && cursor < item.end);
               if (segment) {
                 event.preventDefault();
                 const boundary =
                   event.key === "ArrowLeft" ? segment.start : segment.end;
-                textarea.setSelectionRange(boundary, boundary);
+                if (event.shiftKey) textarea.setSelectionRange(Math.min(anchor, boundary), Math.max(anchor, boundary), boundary < anchor ? "backward" : "forward");
+                else textarea.setSelectionRange(boundary, boundary);
+                refreshCaret();
                 closeMention();
                 return;
               }
@@ -464,17 +560,20 @@ export const CanvasResourceMentionTextarea = forwardRef<
                   ? start > item.start && start <= item.end
                   : start >= item.start && start < item.end
             );
-            if (segment && start === end) {
+            if (segment) {
               event.preventDefault();
-              const nextDisplay = `${editorValueRef.current.slice(0, segment.start)}${editorValueRef.current.slice(segment.end)}`;
+              const overlapping = editorSegmentsRef.current.filter(item => start < item.end && end > item.start);
+              const removeStart = start === end ? segment.start : Math.min(start, ...overlapping.map(item => item.start));
+              const removeEnd = start === end ? segment.end : Math.max(end, ...overlapping.map(item => item.end));
+              const nextDisplay = `${editorValueRef.current.slice(0, removeStart)}${editorValueRef.current.slice(removeEnd)}`;
               const nextSegments = editorSegmentsRef.current
-                .filter(item => item !== segment)
+                .filter(item => item.end <= removeStart || item.start >= removeEnd)
                 .map(item =>
-                  item.start >= segment.end
+                  item.start >= removeEnd
                     ? {
                         ...item,
-                        start: item.start - (segment.end - segment.start),
-                        end: item.end - (segment.end - segment.start),
+                        start: item.start - (removeEnd - removeStart),
+                        end: item.end - (removeEnd - removeStart),
                       }
                     : item
                 );
@@ -484,13 +583,11 @@ export const CanvasResourceMentionTextarea = forwardRef<
               );
               editorValueRef.current = nextDisplay;
               editorSegmentsRef.current = nextSegments;
+              pendingCaretRef.current = { start: removeStart, end: removeStart };
               setEditorSegments(nextSegments);
               emittedValueRef.current = nextCanonical;
               setEditorValue(nextDisplay);
               onChange(nextCanonical);
-              requestAnimationFrame(() =>
-                textarea.setSelectionRange(segment.start, segment.start)
-              );
               closeMention();
               return;
             }

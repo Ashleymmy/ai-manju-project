@@ -94,6 +94,30 @@ export type AssetFolder = {
   sort_order: number;
 };
 
+/** Legacy automatic calendar folders are not user-created date-named folders. */
+const DATE_ARCHIVE_KEYS = new Set(["canvas_project_date", "image_workbench_month"]);
+
+export function isDateArchiveFolder(folder: AssetFolder) {
+  return folder.kind === "system" && DATE_ARCHIVE_KEYS.has(folder.system_key || "");
+}
+
+/** Promote children of retired automatic folders in every library navigation. */
+export function visibleAssetLibraryFolders(folders: readonly AssetFolder[]): AssetFolder[] {
+  const byId = new Map(folders.map(folder => [folder.id, folder]));
+  const hiddenIds = new Set(folders.filter(folder => isDateArchiveFolder(folder)
+    || (folder.kind === "system" && folder.system_key === "system_root"))
+    .map(folder => folder.id));
+  return folders.filter(folder => !hiddenIds.has(folder.id)).map(folder => {
+    let parentId = folder.parent_id;
+    const seen = new Set([folder.id]);
+    while (hiddenIds.has(parentId) && !seen.has(parentId)) {
+      seen.add(parentId);
+      parentId = byId.get(parentId)?.parent_id || "";
+    }
+    return parentId === folder.parent_id ? folder : { ...folder, parent_id: parentId };
+  });
+}
+
 export type AssetLibraryQuery = {
   folderId?: string;
   includeDescendants?: boolean;

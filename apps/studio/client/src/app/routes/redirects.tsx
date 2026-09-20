@@ -28,3 +28,12 @@ export function LegacyStudioRouteRedirect() {
   }, [location, navigate]);
   return null;
 }
+
+/* 首页入口：聊天台主页隐藏期间，/ 直接落到工作台（今日片场） */
+export function HomeRedirect() {
+  const [, navigate] = useLocation();
+  useEffect(() => {
+    navigate("/dashboard", { replace: true });
+  }, [navigate]);
+  return null;
+}

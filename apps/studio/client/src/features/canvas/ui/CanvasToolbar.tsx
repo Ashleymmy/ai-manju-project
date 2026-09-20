@@ -1,34 +1,27 @@
 import {
-  Bot,
-  Boxes,
   Camera,
   CloudUpload,
   Download,
   Film,
   FolderOpen,
-  GitMerge,
   Grid2X2,
   Grid3x3,
   History,
   Image as ImageIcon,
-  Link2,
-  Loader2,
   Map as MapIcon,
   Maximize2,
   MousePointer2,
-  Music2,
   Redo2,
-  SlidersHorizontal,
-  Sparkles,
   Square,
   Trash2,
   Type,
-  Undo2,
   Ungroup,
+  Undo2,
   Upload,
-  UserRoundCog,
-  WandSparkles,
 } from "lucide-react";
+// 暂时隐藏左侧工具栏的以下按钮：分组操作3个（创建分组/连接到配置/执行分组）、"从当前节点开始连接"、
+// "添加音频"、"添加配置"、底部胶囊区4个（数字人/数字资产/原型对话Agent/画布对话Agent）。
+// 恢复时取消下方对应注释，并恢复图标导入：Boxes, GitMerge, Loader2, WandSparkles, Link2, Music2, SlidersHorizontal, Bot, Sparkles, UserRoundCog
 import type { CanvasBackgroundMode, CanvasNodeKind } from "@/features/canvas/domain/types";
 
 export type CanvasTopToolbarProps = {
@@ -92,23 +85,30 @@ export function CanvasTopToolbar({
     <div className="canvas-top-tools" data-canvas-ui data-canvas-no-zoom>
       <div className="tool-cluster">
         <button title="选择" disabled={disabled}><MousePointer2 size={16} /></button>
+        {/* 暂时隐藏："从当前节点开始连接"按钮（恢复时取消注释，并恢复图标导入 Link2）
         <button title={connecting ? "选择目标节点完成连接" : "从当前节点开始连接"} className={connecting ? "active" : ""} onClick={() => selectedNodeId && onActivateConnection(selectedNodeId)} disabled={disabled}><Link2 size={16} /></button>
+        */}
         <button title="撤销" onClick={onUndo} disabled={!canUndo || disabled}><Undo2 size={16} /></button>
         <button title="重做" onClick={onRedo} disabled={!canRedo || disabled}><Redo2 size={16} /></button>
         <i className="tool-divider" />
         <button title="添加文本" onClick={() => onAddNode("text")} disabled={disabled}><Type size={16} /></button>
         <button title="添加图片" onClick={() => onAddNode("image")} disabled={disabled}><ImageIcon size={16} /></button>
         <button title="添加视频" onClick={() => onAddNode("video")} disabled={disabled}><Film size={16} /></button>
+        {/* 暂时隐藏："添加音频"和"添加配置"按钮（恢复时取消注释，并恢复图标导入 Music2, SlidersHorizontal）
         <button title="添加音频" onClick={() => onAddNode("audio")} disabled={disabled}><Music2 size={16} /></button>
         <button title="添加配置" onClick={() => onAddNode("config")} disabled={disabled}><SlidersHorizontal size={16} /></button>
+        */}
         <button title="添加导演台" onClick={() => onAddNode("director")} disabled={disabled}><Camera size={16} /></button>
         <i className="tool-divider" />
         <button title="上传素材" onClick={onUpload} disabled={uploading || disabled}><Upload size={16} /></button>
         <button title="从资产库插入" onClick={onOpenAssets} disabled={disabled}><FolderOpen size={16} /></button>
         <i className="tool-divider" />
+        {/* 暂时隐藏：创建分组/连接到配置/执行分组 3个按钮（"解散当前分组"已恢复在下方）。
+            恢复时取消注释，并恢复顶部图标导入：Boxes, GitMerge, Loader2, WandSparkles
         <button title="将所选节点创建为分组" onClick={onCreateGroup} disabled={disabled || selectedNodeCount < 2}><Boxes size={16} /></button>
         <button title="将所选节点连接到新配置或已有配置" onClick={onConnectSelection} disabled={disabled || selectedNodeCount < 2}><GitMerge size={16} /></button>
         <button title="按顺序执行当前分组中的可生成节点" onClick={() => selectedGroupId && onRunGroup(selectedGroupId)} disabled={disabled || !selectedGroupId || groupRunning}>{selectedGroupRunning ? <Loader2 className="spin" size={16} /> : <WandSparkles size={16} />}</button>
+        */}
         <button title="解散当前分组（保留节点）" onClick={() => selectedGroupId && onUngroup(selectedGroupId)} disabled={disabled || !selectedGroupId}><Ungroup size={16} /></button>
         {selectedNodeCount ? (
           <>
@@ -118,12 +118,15 @@ export function CanvasTopToolbar({
           </>
         ) : null}
       </div>
+      {/* 暂时隐藏：底部胶囊区4个按钮（数字人/数字资产/原型对话Agent/画布对话Agent）。
+          恢复时取消注释，并恢复图标导入 UserRoundCog, Sparkles, Bot（FolderOpen 保留在用）
       <div className="canvas-agent-pills" data-canvas-ui data-canvas-no-zoom>
         <button title="数字人（Seedance 素材）" onClick={() => selectedNodeId && onOpenSeedanceAssets(selectedNodeId)} disabled={!selectedNodeId || disabled}><UserRoundCog size={14} /></button>
         <button title="数字资产（资产库）" onClick={onOpenAssets} disabled={disabled}><FolderOpen size={14} /></button>
         <button title="原型对话 Agent（服务侧）" onClick={onToggleAgent} className={agentOpen ? "active" : ""} disabled={disabled}><Sparkles size={14} /></button>
         <button title="画布对话 Agent（本机桥接）" onClick={onToggleAgent} className={agentOpen ? "active" : ""} disabled={disabled}><Bot size={14} /></button>
       </div>
+      */}
     </div>
   );
 }

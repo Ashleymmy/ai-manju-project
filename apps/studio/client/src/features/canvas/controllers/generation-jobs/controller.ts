@@ -225,6 +225,7 @@ export class CanvasGenerationJobsController {
           request.controller.signal,
         )))[0];
       } else {
+        if (!input.model.trim()) throw new Error("图片模型尚未就绪，请稍后重试");
         const result = await this.generation(() => this.services.generateImages({
           model: input.model,
           prompt: input.requestPrompt || input.prompt,
@@ -604,7 +605,7 @@ export class CanvasGenerationJobsController {
           prompt,
           requestPrompt: diversifyCanvasBatchImagePrompt(prompt, slot.index, slot.count, seed),
           seed,
-          model: stringValue(target.metadata?.model) || this.bindings.getImageModel(),
+          model: modelFromNode(target, this.bindings.getImageModel()),
           size: toImageSizeValue(sizeFromNode(target)),
           quality: qualityFromNode(target),
           referenceFiles: files,
@@ -985,6 +986,11 @@ export class CanvasGenerationJobsController {
     if (!sourceNode || this.bindings.isSwitching()) return;
     const session = this.activeSession("画布");
     if (!session) return;
+    const model = modelFromNode(sourceNode, this.bindings.getImageModel());
+    if (!model.trim()) {
+      this.bindings.onWarning("图片模型尚未就绪，请稍后重试");
+      return;
+    }
     const context = await this.resolveMentionContextOrNotify(sourceNode, nodes, edges, {
       includeConnectedInputs: false,
     });
@@ -1038,7 +1044,6 @@ export class CanvasGenerationJobsController {
       ? Array.from({ length: count - 1 }, () => this.services.createId())
       : [];
     const targetIds = [rootId, ...childIds];
-    const model = modelFromNode(sourceNode, this.bindings.getImageModel());
     const size = toImageSizeValue(sizeFromNode(sourceNode));
     const quality = qualityFromNode(sourceNode);
     const generationRevisions = reuseSourceNode
@@ -1889,7 +1894,7 @@ export class CanvasGenerationJobsController {
           projectKey,
           scope,
           prompt: stringValue(node.metadata?.prompt) || node.content,
-          model: stringValue(node.metadata?.model) || this.bindings.getImageModel(),
+          model: modelFromNode(node, this.bindings.getImageModel()),
           size: toImageSizeValue(sizeFromNode(node)),
           quality: qualityFromNode(node),
           referenceFiles: [],

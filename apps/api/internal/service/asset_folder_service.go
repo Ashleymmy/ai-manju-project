@@ -150,10 +150,57 @@ func (s *AssetFolderService) List(userID string, scope string) ([]AssetFolderVie
 	if err != nil {
 		return nil, err
 	}
+	// The mention browser may load without reopening the project. Upgrade older
+	// linked libraries here as well, so advertised destinations exist on disk.
+	categoryKeys := make(map[string]bool, len(folders))
+	for _, folder := range folders {
+		if folder.SystemKey == model.AssetFolderSystemKeyCanvasCategory {
+			categoryKeys[folder.SourceRefID] = true
+		}
+	}
+	repaired := false
+	for _, folder := range folders {
+		if folder.SystemKey != model.AssetFolderSystemKeyCanvasProject || strings.TrimSpace(folder.SourceRefID) == "" {
+			continue
+		}
+		complete := true
+		for _, category := range canvasLibraryCategories {
+			complete = complete && categoryKeys[folder.SourceRefID+":"+category.key]
+		}
+		if complete {
+			continue
+		}
+		if err := s.ensureCanvasCategoryFolders(folder); err != nil {
+			return nil, err
+		}
+		repaired = true
+	}
+	if repaired {
+		folders, err = s.folders.ListByWorkspace(workspaceID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	counts, err := s.assets.CountByFolder(workspaceID)
 	if err != nil {
 		return nil, err
 	}
+	dateTargets := legacyDateFolderTargets(folders)
+	if changed, err := s.reconcileDefaultAssets(workspaceID, folders, counts, dateTargets); err != nil {
+		return nil, err
+	} else if changed {
+		counts, err = s.assets.CountByFolder(workspaceID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// Retain legacy IDs internally for in-flight jobs, but retire their directory
+	// entries. Late results are included in the destination's counts and queries.
+	for sourceID, targetID := range dateTargets {
+		counts[targetID] += counts[sourceID]
+		delete(counts, sourceID)
+	}
+	folders = withoutDateFolders(folders)
 	children := folderChildren(folders)
 	result := make([]AssetFolderView, 0, len(folders))
 	for _, folder := range folders {
@@ -297,6 +344,19 @@ func (s *AssetFolderService) validateDestinationForWorkspace(folderID string, wo
 	if folder.SystemKey == model.AssetFolderSystemKeyRoot {
 		return model.AssetFolder{}, ErrAssetFolderParent
 	}
+	if isLegacyDateFolder(folder) {
+		parent, err := s.validateDestinationForWorkspace(folder.ParentID, workspaceID)
+		if err != nil {
+			return model.AssetFolder{}, err
+		}
+		if parent.SystemKey == model.AssetFolderSystemKeyCanvasProject {
+			if err := s.ensureCanvasCategoryFolders(parent); err != nil {
+				return model.AssetFolder{}, err
+			}
+			return s.folders.FindSystem(workspaceID, model.AssetFolderSystemKeyCanvasCategory, parent.SourceRefID+":"+model.AssetCategoryOther)
+		}
+		return parent, nil
+	}
 	return folder, nil
 }
 
@@ -305,29 +365,46 @@ func (s *AssetFolderService) ResolveRegistration(userID string, scope string, co
 	return s.resolveRegistrationForWorkspace(userID, workspaceID, context)
 }
 
-// EnsureCanvasArchiveFolderAt resolves the stable project/date archive folder
-// for historical backfills without changing the asset file or URL.
-func (s *AssetFolderService) EnsureCanvasArchiveFolderAt(userID string, scope string, projectID string, projectName string, createdAt time.Time) (model.AssetFolder, error) {
+// EnsureCanvasArchiveFolderAt keeps the historical backfill entry point, but
+// dates no longer create directories. Historical assets use the same destination
+// as new canvas assets, without changing files or URLs.
+func (s *AssetFolderService) EnsureCanvasArchiveFolderAt(userID string, scope string, projectID string, projectName string, _ time.Time) (model.AssetFolder, error) {
 	workspaceID := WorkspaceIDForScope(scope, userID)
+	return s.resolveCanvasCategoryFolder(userID, workspaceID, strings.TrimSpace(projectID), projectName, model.AssetCategoryOther)
+}
+
+// ensureCanvasProjectFolder resolves the stable linked folder for a canvas.
+func (s *AssetFolderService) ensureCanvasProjectFolder(userID string, workspaceID string, projectID string, projectName string) (model.AssetFolder, error) {
 	defaults, err := s.ensureDefaultsForWorkspace(userID, workspaceID)
 	if err != nil {
 		return model.AssetFolder{}, err
 	}
 	projectID = strings.TrimSpace(projectID)
-	var parent model.AssetFolder
 	if projectID == "" {
-		parent, err = s.ensureSystemFolder(userID, workspaceID, defaults.Canvas.ID, "未归属画布", model.AssetFolderSystemKeyCanvasUnassigned, "canvas_unassigned", "", 0)
-	} else {
-		parent, err = s.ensureSystemFolder(userID, workspaceID, defaults.Canvas.ID, defaultFolderName(projectName, "未命名画布"), model.AssetFolderSystemKeyCanvasProject, "canvas_project", projectID, 0)
+		return s.ensureSystemFolder(userID, workspaceID, defaults.Canvas.ID, "未归属画布", model.AssetFolderSystemKeyCanvasUnassigned, "canvas_unassigned", "", 0)
 	}
+	if folder, err := s.folders.FindSystem(workspaceID, model.AssetFolderSystemKeyCanvasProject, projectID); err == nil {
+		return folder, nil
+	} else if !errors.Is(err, repository.ErrAssetFolderNotFound) {
+		return model.AssetFolder{}, err
+	}
+	return s.ensureSystemFolder(userID, workspaceID, defaults.Canvas.ID, defaultFolderName(projectName, "未命名画布"), model.AssetFolderSystemKeyCanvasProject, "canvas_project", projectID, 0)
+}
+
+// resolveCanvasCategoryFolder returns the linked category destination for new
+// canvas assets. An empty category is normalized to "other" by the caller.
+func (s *AssetFolderService) resolveCanvasCategoryFolder(userID string, workspaceID string, projectID string, projectName string, category string) (model.AssetFolder, error) {
+	if strings.TrimSpace(projectID) == "" {
+		return s.ensureCanvasProjectFolder(userID, workspaceID, projectID, projectName)
+	}
+	project, err := s.ensureCanvasProjectFolder(userID, workspaceID, projectID, projectName)
 	if err != nil {
 		return model.AssetFolder{}, err
 	}
-	if createdAt.IsZero() {
-		createdAt = time.Now()
+	if err := s.ensureCanvasCategoryFolders(project); err != nil {
+		return model.AssetFolder{}, err
 	}
-	date := createdAt.In(s.archiveZone).Format("2006-01-02")
-	return s.ensureSystemFolder(userID, workspaceID, parent.ID, date, model.AssetFolderSystemKeyCanvasProjectDate, "canvas_project_date", projectID+":"+date, 0)
+	return s.folders.FindSystem(workspaceID, model.AssetFolderSystemKeyCanvasCategory, project.SourceRefID+":"+category)
 }
 
 func (s *AssetFolderService) resolveRegistrationForWorkspace(userID string, workspaceID string, context AssetRegistrationContext) (AssetRegistrationContext, error) {
@@ -359,9 +436,15 @@ func (s *AssetFolderService) resolveRegistrationForWorkspace(userID string, work
 	case model.AssetSourceManualUpload:
 		folder = defaults.Upload
 	case model.AssetSourceImageWorkbench:
-		folder, err = s.ensureSystemFolder(userID, workspaceID, defaults.ImageWorkbench.ID, time.Now().UTC().Format("2006-01"), model.AssetFolderSystemKeyImageWorkbenchMonth, "month", time.Now().UTC().Format("2006-01"), 0)
+		folder = defaults.ImageWorkbench
 	case model.AssetSourceCanvas:
-		folder, err = s.EnsureCanvasArchiveFolderAt(userID, WorkspaceScopeFromID(workspaceID), context.SourceProjectID, context.SourceProjectName, time.Now())
+		// Canvas libraries intentionally expose only four destinations. Legacy
+		// categories such as costume/reference therefore fall back to "other".
+		if category != model.AssetCategoryCharacter && category != model.AssetCategoryEnvironment && category != model.AssetCategoryProp {
+			category = model.AssetCategoryOther
+			context.Category = category
+		}
+		folder, err = s.resolveCanvasCategoryFolder(userID, workspaceID, context.SourceProjectID, context.SourceProjectName, category)
 	case model.AssetSourceComicBatch:
 		if strings.TrimSpace(context.SourceProjectID) == "" {
 			folder = defaults.Comic
@@ -459,18 +542,35 @@ func (s *AssetFolderService) FolderIDsForQuery(folderID string, includeDescendan
 	if folderID == "" {
 		return nil, nil
 	}
-	if _, err := s.folders.GetByWorkspace(folderID, workspaceID); err != nil {
+	folder, err := s.folders.GetByWorkspace(folderID, workspaceID)
+	if err != nil {
 		return nil, err
 	}
-	ids := []string{folderID}
-	if !includeDescendants {
-		return ids, nil
+	if isLegacyDateFolder(folder) {
+		folder, err = s.validateDestinationForWorkspace(folderID, workspaceID)
+		if err != nil {
+			return nil, err
+		}
+		folderID = folder.ID
 	}
 	folders, err := s.folders.ListByWorkspace(workspaceID)
 	if err != nil {
 		return nil, err
 	}
-	return append(ids, descendantFolderIDs(folderID, folderChildren(folders))...), nil
+	ids := []string{folderID}
+	if includeDescendants {
+		ids = append(ids, descendantFolderIDs(folderID, folderChildren(withoutDateFolders(folders)))...)
+	}
+	wanted := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		wanted[id] = true
+	}
+	for sourceID, targetID := range legacyDateFolderTargets(folders) {
+		if wanted[targetID] {
+			ids = append(ids, sourceID)
+		}
+	}
+	return ids, nil
 }
 
 func (s *AssetFolderService) ensureSystemFolder(userID string, workspaceID string, parentID string, name string, systemKey string, sourceRefType string, sourceRefID string, sortOrder int) (model.AssetFolder, error) {

@@ -19,6 +19,7 @@ import {
   type CanvasNodeSnapBox,
 } from "@/features/canvas/domain/nodeSnap";
 import {
+  fitCanvasGroupsToNodes,
   resizeCanvasGroup,
   type CanvasGroupData,
   type CanvasGroupResizeCorner,
@@ -100,6 +101,7 @@ type CanvasResizeState = {
 
 type CanvasGroupDragState = {
   id: string;
+  sourceNodeId?: string;
   startX: number;
   startY: number;
   position: { x: number; y: number };
@@ -618,6 +620,7 @@ export class CanvasStageInteractionController {
   readonly startGroupDrag = (
     event: CanvasStagePointerEvent<HTMLElement>,
     group: CanvasGroupData,
+    sourceNodeId?: string,
   ) => {
     if (this.bindings.isSwitching() || event.button !== 0) return;
     if (this.adapter.isHotkeyEditingTarget(event.target)) return;
@@ -627,10 +630,11 @@ export class CanvasStageInteractionController {
     this.capturePointer("group-drag", event.currentTarget, event.pointerId);
     this.groupDrag = {
       id: group.id,
+      sourceNodeId,
       startX: event.clientX,
       startY: event.clientY,
       position: { ...group.position },
-      origins: captureCanvasNodeOrigins(this.currentNodes(), new Set(group.nodeIds)),
+      origins: captureCanvasNodeOrigins(this.currentNodes(), this.expandDragNodeIds(group.nodeIds)),
       moved: false,
     };
     this.bindings.pauseHistory();
@@ -663,6 +667,8 @@ export class CanvasStageInteractionController {
 
   readonly endGroupDrag = () => {
     const drag = this.groupDrag;
+    if (!drag) return;
+    if (drag.moved && drag.sourceNodeId) this.suppressNextNodeClick(drag.sourceNodeId);
     this.groupDrag = null;
     this.clearAlignmentGuides();
     this.releaseCapture("group-drag");
@@ -728,6 +734,11 @@ export class CanvasStageInteractionController {
       "button, input, textarea, select, [contenteditable='true'], .node-inline-editor, .canvas-connection-handle, [data-canvas-ui]",
     )) return;
     if (this.connectFrom || this.pendingConnectionCreate) return;
+    const group = this.currentGroups().find(item => !item.pending && item.nodeIds.includes(node.id));
+    if (group) {
+      this.startGroupDrag(event, group, node.id);
+      return;
+    }
     const additive = event.shiftKey || event.ctrlKey || event.metaKey;
     const current = this.bindings.getSelectedNodeIds();
     const suppressClick = shouldSuppressCanvasNodeClickAfterPointerSelection(
@@ -753,13 +764,7 @@ export class CanvasStageInteractionController {
       return;
     }
     this.capturePointer("node-drag", event.currentTarget, event.pointerId);
-    const dragIds = new Set(nextSelection);
-    this.currentNodes().forEach(item => {
-      if (!item.metadata?.isBatchRoot || !dragIds.has(item.id)) return;
-      (item.metadata.batchChildIds || []).forEach(childId => {
-        if (typeof childId === "string") dragIds.add(childId);
-      });
-    });
+    const dragIds = this.expandDragNodeIds(nextSelection);
     this.drag = {
       id: node.id,
       startX: event.clientX,
@@ -772,6 +777,10 @@ export class CanvasStageInteractionController {
   };
 
   readonly moveDrag = (event: CanvasStagePointerEvent<HTMLElement>) => {
+    if (this.groupDrag) {
+      this.moveGroupDrag(event);
+      return;
+    }
     const drag = this.drag;
     if (!drag || this.bindings.isSwitching()) return;
     const scale = this.viewport.zoom / 100;
@@ -791,14 +800,13 @@ export class CanvasStageInteractionController {
   };
 
   readonly endDrag = () => {
+    if (this.groupDrag) {
+      this.endGroupDrag();
+      return;
+    }
     const drag = this.drag;
     if (drag?.moved || drag?.suppressClick) {
-      this.suppressNodeClick = drag.id;
-      this.clearSuppressClickTimer();
-      this.suppressClickTimer = this.adapter.setTimer(() => {
-        this.suppressClickTimer = null;
-        if (this.suppressNodeClick === drag.id) this.suppressNodeClick = "";
-      }, 0);
+      this.suppressNextNodeClick(drag.id);
     }
     this.drag = null;
     this.clearAlignmentGuides();
@@ -806,6 +814,36 @@ export class CanvasStageInteractionController {
     this.flushGraphFrame();
     this.bindings.resumeHistory(Boolean(drag?.moved));
   };
+
+  private suppressNextNodeClick(nodeId: string) {
+    this.suppressNodeClick = nodeId;
+    this.clearSuppressClickTimer();
+    this.suppressClickTimer = this.adapter.setTimer(() => {
+      this.suppressClickTimer = null;
+      if (this.suppressNodeClick === nodeId) this.suppressNodeClick = "";
+    }, 0);
+  }
+
+  // Moving a member must include the whole confirmed group and batch children.
+  // Expand overlapping groups transitively without moving any node twice.
+  private expandDragNodeIds(ids: Iterable<string>) {
+    const result = new Set(ids);
+    const groups = this.currentGroups().filter(group => !group.pending);
+    const nodes = this.currentNodes();
+    let previousSize = -1;
+    while (result.size !== previousSize) {
+      previousSize = result.size;
+      for (const group of groups) {
+        if (group.nodeIds.some(id => result.has(id))) group.nodeIds.forEach(id => result.add(id));
+      }
+      for (const node of nodes) {
+        if (result.has(node.id) && node.metadata?.isBatchRoot) {
+          node.metadata.batchChildIds?.forEach(id => { if (typeof id === "string") result.add(id); });
+        }
+      }
+    }
+    return result;
+  }
 
   readonly startResize = (
     event: CanvasStagePointerEvent<HTMLButtonElement>,
@@ -922,6 +960,7 @@ export class CanvasStageInteractionController {
 
   private scheduleGraphFrame(patch: PendingGraphFrame) {
     this.pendingGraphFrame = { ...this.pendingGraphFrame, ...patch };
+    this.pendingGraphFrame.groups = fitCanvasGroupsToNodes(this.currentGroups(), this.currentNodes());
     if (this.graphFrame !== null) return;
     this.graphFrame = this.adapter.requestFrame(() => {
       this.graphFrame = null;
@@ -1140,6 +1179,13 @@ export class CanvasStageInteractionController {
     current: CanvasConnectionDraft,
   ) {
     const target = this.adapter.elementFromPoint(clientX, clientY);
+    const groupHandle = this.adapter.closest(target, ".canvas-group-connection-handle");
+    const groupNodeId = this.adapter.getAttribute(groupHandle, "data-connection-node-id");
+    if (groupNodeId && groupNodeId !== current.nodeId) {
+      const nodes = this.currentNodes();
+      const node = nodes.find(item => item.id === groupNodeId);
+      if (node && normalizeCanvasConnection(current.nodeId, node.id, nodes, current.handleType)) return node.id;
+    }
     const nodeElement = this.adapter.closest(target, ".real-canvas-node");
     const nodeId = this.adapter.getAttribute(nodeElement, "data-node-id");
     if (!nodeId || nodeId === current.nodeId) return "";
@@ -1610,7 +1656,11 @@ export class CanvasStageInteractionController {
         { nodeId: this.connectFrom, handleType: this.connectHandleType },
       );
       this.connectionPreviewPoint = previewPoint;
-      this.connectionTargetId = dropTarget.nodeId;
+      this.connectionTargetId = dropTarget.nodeId || this.getConnectionDomDropTargetId(
+        event.clientX,
+        event.clientY,
+        { nodeId: this.connectFrom, handleType: this.connectHandleType },
+      );
       this.scheduleConnectionFrame();
       return;
     }

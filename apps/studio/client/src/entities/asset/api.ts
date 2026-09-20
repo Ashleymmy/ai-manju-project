@@ -382,7 +382,7 @@ export async function downloadAssetExport(
   return response.blob();
 }
 
-export async function getAssetContentObjectUrl(
+export async function getAssetContentBlob(
   id: string,
   scope: WorkspaceScope = "personal",
   thumbnail?: 320 | 640,
@@ -400,7 +400,16 @@ export async function getAssetContentObjectUrl(
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
   if (!response.ok) throw new Error(`读取资产内容失败（${response.status}）`);
-  return URL.createObjectURL(await response.blob());
+  return response.blob();
+}
+
+export async function getAssetContentObjectUrl(
+  id: string,
+  scope: WorkspaceScope = "personal",
+  thumbnail?: 320 | 640,
+  signal?: AbortSignal
+) {
+  return URL.createObjectURL(await getAssetContentBlob(id, scope, thumbnail, signal));
 }
 
 /** Native media requests use the login cookie and retain browser Range support.

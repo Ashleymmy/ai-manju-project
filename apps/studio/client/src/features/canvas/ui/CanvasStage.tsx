@@ -28,6 +28,7 @@ import MetaBallOrb from "@/components/MetaBallOrb";
 import {
   buildCanvasConnectionLayerBounds,
   canvasConnectionCurvature,
+  canvasConnectionDisplayNode,
   isHiddenCanvasConnectionEndpoint,
 } from "@/features/canvas/domain/connections";
 import type { CanvasGroupData, CanvasGroupResizeCorner } from "@/features/canvas/domain/groups";
@@ -76,6 +77,24 @@ type PendingConnectionCreateState = {
   canvasY: number;
   connection: CanvasConnectionDraft;
 };
+
+function groupConnectionNode(
+  group: CanvasGroupData,
+  nodeMap: Map<string, CanvasNodeData>,
+  side: "left" | "right",
+) {
+  const members = group.nodeIds
+    .map(nodeId => nodeMap.get(nodeId))
+    .filter((node): node is CanvasNodeData => Boolean(node));
+  return members.reduce<CanvasNodeData | null>((best, node) => {
+    if (!best) return node;
+    const nodePosition = side === "left" ? node.x : node.x + node.width;
+    const bestPosition = side === "left" ? best.x : best.x + best.width;
+    return side === "left"
+      ? nodePosition < bestPosition ? node : best
+      : nodePosition > bestPosition ? node : best;
+  }, null);
+}
 
 type CanvasStageActions = {
   handleStagePointerDown: (event: PointerEvent<HTMLElement>) => void;
@@ -139,6 +158,8 @@ export type CanvasStageProps = {
   selectionBoxStyle?: CSSProperties;
   alignmentGuides?: CanvasAlignGuide[];
   connectionLayerBounds: ReturnType<typeof buildCanvasConnectionLayerBounds>;
+  connectFrom: string;
+  connectHandleType: ConnectionHandleType;
   edges: CanvasEdgeData[];
   nodes: CanvasNodeData[];
   nodeMap: Map<string, CanvasNodeData>;
@@ -183,6 +204,8 @@ export function CanvasStage({
   selectionBoxStyle,
   alignmentGuides = [],
   connectionLayerBounds,
+  connectFrom,
+  connectHandleType,
   edges,
   nodes,
   nodeMap,
@@ -215,9 +238,6 @@ export function CanvasStage({
     startGroupDrag,
     moveGroupDrag,
     endGroupDrag,
-    startGroupResize,
-    moveGroupResize,
-    endGroupResize,
     handleCanvasLinesPointerDown,
     handleCanvasLinesPointerMove,
     handleCanvasLinesPointerLeave,
@@ -271,7 +291,7 @@ export function CanvasStage({
   const connectionMenuRef = useRef<HTMLDivElement>(null);
   const displayEdges = useMemo(() => {
     const groupByNode = new Map<string, CanvasGroupData>();
-    groups.forEach((group) => group.nodeIds.forEach((nodeId) => groupByNode.set(nodeId, group)));
+    groups.filter(group => !group.pending).forEach((group) => group.nodeIds.forEach((nodeId) => groupByNode.set(nodeId, group)));
     const seen = new Set<string>();
     return edges.flatMap((edge) => {
       const fromGroup = groupByNode.get(edge.from);
@@ -359,18 +379,48 @@ export function CanvasStage({
                     </div>
                   ) : null}
                   {!group.pending && (["top-left", "top-right", "bottom-left", "bottom-right"] as CanvasGroupResizeCorner[]).map((corner) => (
-                    <button
-                      type="button"
+                    <span
                       key={corner}
-                      className={`canvas-group-resize-handle ${corner}`}
-                      title="调整分组尺寸"
-                      aria-label={`调整分组尺寸：${corner}`}
-                      onPointerDown={(event) => startGroupResize(event, group, corner)}
-                      onPointerMove={moveGroupResize}
-                      onPointerUp={endGroupResize}
-                      onPointerCancel={endGroupResize}
+                      className={`canvas-group-corner ${corner}`}
+                      aria-hidden="true"
                     />
                   ))}
+                  {!group.pending ? (() => {
+                    const leftNode = groupConnectionNode(group, nodeMap, "left");
+                    const rightNode = groupConnectionNode(group, nodeMap, "right");
+                    return <>
+                      <button
+                        ref={(element) => {
+                          if (leftNode) actions.node.registerConnectionHandle(leftNode.id, "target", element);
+                        }}
+                        type="button"
+                        className={`canvas-group-connection-handle target canvas-node-handle ${leftNode && connectFrom === leftNode.id && connectHandleType === "target" ? "active" : ""}`}
+                        data-connection-node-id={leftNode?.id || ""}
+                        aria-label="连接到分组"
+                        title="连接到分组"
+                        onClick={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                          if (leftNode) actions.node.beginConnection(event, leftNode.id, "target");
+                        }}
+                      />
+                      <button
+                        ref={(element) => {
+                          if (rightNode) actions.node.registerConnectionHandle(rightNode.id, "source", element);
+                        }}
+                        type="button"
+                        className={`canvas-group-connection-handle source canvas-node-handle ${rightNode && connectFrom === rightNode.id && connectHandleType === "source" ? "active" : ""}`}
+                        data-connection-node-id={rightNode?.id || ""}
+                        aria-label="从分组连接"
+                        title="从分组连接"
+                        onClick={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                          if (rightNode) actions.node.beginConnection(event, rightNode.id, "source");
+                        }}
+                      />
+                    </>;
+                  })() : null}
                 </section>
               ))}
               {selectionBoxStyle ? <div className="canvas-selection-box" style={selectionBoxStyle} /> : null}
@@ -411,10 +461,12 @@ export function CanvasStage({
                   const from = nodeMap.get(edge.from);
                   const to = nodeMap.get(edge.to);
                   if (!from || !to || isHiddenCanvasConnectionEndpoint(from, nodes) || isHiddenCanvasConnectionEndpoint(to, nodes)) return null;
-                  const x1 = fromGroup ? fromGroup.position.x + fromGroup.width : from.x + from.width;
-                  const y1 = fromGroup ? fromGroup.position.y + fromGroup.height / 2 : from.y + from.height / 2;
-                  const x2 = toGroup ? toGroup.position.x : to.x;
-                  const y2 = toGroup ? toGroup.position.y + toGroup.height / 2 : to.y + to.height / 2;
+                  const displayFrom = canvasConnectionDisplayNode(from, fromGroup ? [fromGroup] : []);
+                  const displayTo = canvasConnectionDisplayNode(to, toGroup ? [toGroup] : []);
+                  const x1 = displayFrom.x + displayFrom.width;
+                  const y1 = displayFrom.y + displayFrom.height / 2;
+                  const x2 = displayTo.x;
+                  const y2 = displayTo.y + displayTo.height / 2;
                   const curvature = canvasConnectionCurvature(x1, x2);
                   const path = `M ${x1} ${y1} C ${x1 + curvature} ${y1}, ${x2 - curvature} ${y2}, ${x2} ${y2}`;
                   const active = selectedEdgeId === edge.id || hoveredEdgeId === edge.id;

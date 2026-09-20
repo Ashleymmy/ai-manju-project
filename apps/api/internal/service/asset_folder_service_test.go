@@ -234,8 +234,8 @@ func TestAssetRegistrationUsesExpectedDefaultFolders(t *testing.T) {
 		sourceType string
 	}{
 		{name: "upload", context: AssetRegistrationContext{SourceType: model.AssetSourceManualUpload}, systemKey: model.AssetFolderSystemKeyUpload, category: model.AssetCategoryOther, sourceType: model.AssetSourceManualUpload},
-		{name: "workbench", context: AssetRegistrationContext{SourceType: model.AssetSourceImageWorkbench}, systemKey: model.AssetFolderSystemKeyImageWorkbenchMonth, parentKey: model.AssetFolderSystemKeyImageWorkbench, category: model.AssetCategoryOther, sourceType: model.AssetSourceImageWorkbench},
-		{name: "canvas", context: AssetRegistrationContext{SourceType: model.AssetSourceCanvas, SourceProjectID: "canvas_1", SourceProjectName: "第一画布"}, systemKey: model.AssetFolderSystemKeyCanvasProjectDate, parentKey: model.AssetFolderSystemKeyCanvasProject, category: model.AssetCategoryOther, sourceType: model.AssetSourceCanvas},
+		{name: "workbench", context: AssetRegistrationContext{SourceType: model.AssetSourceImageWorkbench}, systemKey: model.AssetFolderSystemKeyImageWorkbench, parentKey: model.AssetFolderSystemKeyRoot, category: model.AssetCategoryOther, sourceType: model.AssetSourceImageWorkbench},
+		{name: "canvas", context: AssetRegistrationContext{SourceType: model.AssetSourceCanvas, SourceProjectID: "canvas_1", SourceProjectName: "第一画布"}, systemKey: model.AssetFolderSystemKeyCanvasCategory, parentKey: model.AssetFolderSystemKeyCanvasProject, category: model.AssetCategoryOther, sourceType: model.AssetSourceCanvas},
 		{name: "comic", context: AssetRegistrationContext{SourceType: model.AssetSourceComicBatch, SourceProjectID: "comic_1", SourceProjectName: "第一漫剧", Category: model.AssetCategoryCharacter}, systemKey: model.AssetFolderSystemKeyComicCategory, parentKey: model.AssetFolderSystemKeyComicProject, category: model.AssetCategoryCharacter, sourceType: model.AssetSourceComicBatch},
 		{name: "legacy", context: AssetRegistrationContext{SourceType: model.AssetSourceLegacy}, systemKey: model.AssetFolderSystemKeyUnsorted, category: model.AssetCategoryOther, sourceType: model.AssetSourceLegacy},
 	}
@@ -262,7 +262,7 @@ func TestAssetRegistrationUsesExpectedDefaultFolders(t *testing.T) {
 	}
 }
 
-func TestEnsureCanvasArchiveFolderAtUsesBusinessTimezone(t *testing.T) {
+func TestEnsureCanvasArchiveFolderAtIgnoresDates(t *testing.T) {
 	fx := newAssetFolderFixture()
 	if err := fx.service.SetArchiveTimezone("Asia/Shanghai"); err != nil {
 		t.Fatal(err)
@@ -271,8 +271,21 @@ func TestEnsureCanvasArchiveFolderAtUsesBusinessTimezone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if folder.SystemKey != model.AssetFolderSystemKeyCanvasProjectDate || folder.Name != "2026-08-11" || folder.SourceRefID != "canvas_1:2026-08-11" {
+	if folder.SystemKey != model.AssetFolderSystemKeyCanvasCategory || folder.Name != "其他" || folder.SourceRefID != "canvas_1:other" {
 		t.Fatalf("archive folder = %+v", folder)
+	}
+	later, err := fx.service.EnsureCanvasArchiveFolderAt("user_a", WorkspaceScopePersonal, "canvas_1", "第一画布", time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil || later.ID != folder.ID {
+		t.Fatalf("historical dates split archive: %+v, err=%v", later, err)
+	}
+	all, err := fx.folders.ListByWorkspace(WorkspaceIDForScope(WorkspaceScopePersonal, "user_a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range all {
+		if isLegacyDateFolder(item) {
+			t.Fatalf("backfill created a date folder: %+v", item)
+		}
 	}
 }
 
@@ -313,8 +326,41 @@ func TestCanvasArchiveFoldersAllowDuplicateProjectTitles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.FolderID != second.ID {
-		t.Fatalf("registration folder = %s, want %s", resolved.FolderID, second.ID)
+	other, err := fx.folders.FindSystem(WorkspaceIDForScope(WorkspaceScopePersonal, "user_a"), model.AssetFolderSystemKeyCanvasCategory, "proj_bbbbbbb2:"+model.AssetCategoryOther)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.FolderID != other.ID || other.ParentID != second.ParentID {
+		t.Fatalf("registration folder = %s, want canvas other %s", resolved.FolderID, other.ID)
+	}
+}
+
+func TestCanvasRegistrationDefaultsToOtherWithoutDateFolder(t *testing.T) {
+	fx := newAssetFolderFixture()
+	resolved, err := fx.service.ResolveRegistration("user_a", WorkspaceScopePersonal, AssetRegistrationContext{
+		SourceType: model.AssetSourceCanvas, SourceProjectID: "canvas_default", SourceProjectName: "默认画布",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := WorkspaceIDForScope(WorkspaceScopePersonal, "user_a")
+	other, err := fx.folders.FindSystem(workspace, model.AssetFolderSystemKeyCanvasCategory, "canvas_default:"+model.AssetCategoryOther)
+	if err != nil || resolved.FolderID != other.ID {
+		t.Fatalf("default canvas destination = %s, other=%+v, err=%v", resolved.FolderID, other, err)
+	}
+	if _, err := fx.folders.FindSystem(workspace, model.AssetFolderSystemKeyCanvasProjectDate, "canvas_default:"+time.Now().Format("2006-01-02")); !errors.Is(err, repository.ErrAssetFolderNotFound) {
+		t.Fatalf("default registration created a date folder: %v", err)
+	}
+
+	character, err := fx.service.ResolveRegistration("user_a", WorkspaceScopePersonal, AssetRegistrationContext{
+		SourceType: model.AssetSourceCanvas, SourceProjectID: "canvas_default", SourceProjectName: "默认画布", Category: model.AssetCategoryCharacter,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	role, err := fx.folders.FindSystem(workspace, model.AssetFolderSystemKeyCanvasCategory, "canvas_default:"+model.AssetCategoryCharacter)
+	if err != nil || character.FolderID != role.ID {
+		t.Fatalf("explicit canvas category destination = %s, role=%+v, err=%v", character.FolderID, role, err)
 	}
 }
 

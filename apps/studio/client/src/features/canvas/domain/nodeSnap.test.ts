@@ -53,16 +53,24 @@ describe("canvas node dock snap", () => {
     });
   });
 
-  it("triggers docking within the 54px screen range", () => {
+  it("triggers docking within the 24px screen range", () => {
     const targetX = 300;
     const dockX = targetX - 100 - CANVAS_NODE_DOCK_GAP;
     const result = snapMovingBoxesToDock(
-      [box("a", dockX + 54, 0)],
+      [box("a", dockX + 24, 0)],
       [box("b", targetX, 0)],
       canvasNodeDockThreshold(100),
     );
-    expect(result.deltaX).toBe(-54);
+    expect(result.deltaX).toBe(-24);
     expect(result.guides).toHaveLength(3);
+    const outside = snapMovingBoxesToDock(
+      [box("a", dockX + 25, 0)],
+      [box("b", targetX, 0)],
+      canvasNodeDockThreshold(100),
+      canvasNodeAlignmentThreshold(100),
+    );
+    expect(outside.deltaX).toBe(0);
+    expect(outside.guides).toHaveLength(3);
   });
 
   it("shows alignment guides up to 200px without moving the node", () => {
@@ -102,8 +110,8 @@ describe("canvas node dock snap", () => {
   });
 
   it("scales the dock threshold with canvas zoom", () => {
-    expect(canvasNodeDockThreshold(100)).toBe(54);
-    expect(canvasNodeDockThreshold(50)).toBe(108);
+    expect(canvasNodeDockThreshold(100)).toBe(24);
+    expect(canvasNodeDockThreshold(50)).toBe(48);
     expect(canvasNodeAlignmentThreshold(100)).toBe(200);
     expect(canvasNodeAlignmentThreshold(50)).toBe(400);
     expect(canvasNodeAlignmentSnapThreshold(100)).toBe(12);

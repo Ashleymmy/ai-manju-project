@@ -82,7 +82,10 @@ export default function SeedanceAssetPanel({ scope }: { scope: WorkspaceScope })
           {items.map((asset) => <SeedanceCard key={asset.id} asset={asset} />)}
         </div>
       )}
-      <p className="wb-seedance-hint">上传 AI 生成的拟真人角色图，状态变为“可用”后，在视频工作台的“媒体资产库 → 真人(火山)”中选入参考。当前工作区：{scope === "team" ? "团队空间" : "个人空间"}。</p>
+        {/* 暂时隐藏"当前工作区：团队空间/个人空间"提示（全局隐藏团队空间显示），恢复时取消下行注释
+        <p className="wb-seedance-hint">上传 AI 生成的拟真人角色图，状态变为“可用”后，在视频工作台的“媒体资产库 → 真人(火山)”中选入参考。当前工作区：{scope === "team" ? "团队空间" : "个人空间"}。</p>
+        */}
+        <p className="wb-seedance-hint">上传 AI 生成的拟真人角色图，状态变为“可用”后，在视频工作台的“媒体资产库 → 真人(火山)”中选入参考。</p>
     </div>
   );
 }

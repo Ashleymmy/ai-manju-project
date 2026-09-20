@@ -8,7 +8,7 @@ import {
   buildCanvasMentionReferences,
   canvasMentionEditorDisplayText,
   canvasMentionEditorSpacer,
-  CANVAS_MENTION_IMAGE_CHIP_GAP,
+  canvasMentionEditorGap,
   filterCanvasMentionAssetCategories,
   filterCanvasMentionReferences,
   serializeCanvasMentionEditorValue,
@@ -296,7 +296,7 @@ describe("canvas mention references", () => {
     expect(canvasMentionEditorDisplayText(text)).toContain("设定");
   });
 
-  it("widens the display gap between adjacent image mentions", () => {
+  it("includes image spacing inside each atomic reference without adding prompt whitespace", () => {
     const references = buildCanvasMentionReferences(
       "prompt",
       nodes,
@@ -312,10 +312,13 @@ describe("canvas mention references", () => {
       "@[asset:fruit-stall]@[asset:hero]",
       references
     );
-    expect(withSpace.displayValue).toContain(CANVAS_MENTION_IMAGE_CHIP_GAP);
-    expect(adjacent.displayValue).toContain(CANVAS_MENTION_IMAGE_CHIP_GAP);
-    expect(withSpace.displayValue.includes(" ")).toBe(false);
-    expect(adjacent.displayValue.split(CANVAS_MENTION_IMAGE_CHIP_GAP).length).toBeGreaterThan(1);
+    expect(adjacent.segments[0].end).toBe(adjacent.segments[1].start);
+    expect(adjacent.displayValue).toBe(canvasMentionEditorSpacer("image").repeat(2));
+    expect(canvasMentionEditorGap("image")).toBe("");
+    expect(serializeCanvasMentionEditorValue(adjacent.displayValue, adjacent.segments))
+      .toBe("@[asset:fruit-stall]@[asset:hero]");
+    expect(serializeCanvasMentionEditorValue(withSpace.displayValue, withSpace.segments))
+      .toBe("@[asset:fruit-stall] @[asset:hero]");
   });
 
   it("moves mention offsets when text is inserted after a chip", () => {

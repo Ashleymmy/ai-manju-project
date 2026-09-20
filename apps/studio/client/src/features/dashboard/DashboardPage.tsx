@@ -9,6 +9,7 @@ import { useLocation } from "wouter";
 
 import { getJobs, type Job } from "@/entities/job";
 import { getProjects, type CanvasProject } from "@/entities/project";
+import { ChatComposer } from "@/features/chat";
 import {
   createAndOpenProject,
   ProjectCard,
@@ -182,6 +183,8 @@ export default function DashboardPage() {
 
   return (
     <div className="page-content dashboard-page">
+      {/* 创作对话框（原聊天台主页核心交互，现嵌在工作台顶部） */}
+      <ChatComposer />
       <PageIntro
         copy={dashboardIntro}
         action={

@@ -1,5 +1,7 @@
 export type CanvasConnectionHandleType = "source" | "target";
 
+import type { CanvasGroupData } from "./groups";
+
 export type CanvasConnectionNode = {
   id: string;
   kind: string;
@@ -134,7 +136,10 @@ export function canvasActiveConnectionPath(
   handleType: CanvasConnectionHandleType,
   mouseWorld: { x: number; y: number },
   target?: CanvasConnectionNode | null,
+  groups: readonly CanvasGroupData[] = [],
 ) {
+  node = canvasConnectionDisplayNode(node, groups);
+  target = target ? canvasConnectionDisplayNode(target, groups) : target;
   const start = handleType === "source"
     ? canvasEdgeStartPoint(node)
     : target
@@ -147,6 +152,17 @@ export function canvasActiveConnectionPath(
     : canvasEdgeTargetPoint(node);
   const distance = Math.abs(end.x - start.x);
   return `M ${start.x} ${start.y} C ${start.x + distance * 0.5} ${start.y}, ${end.x - distance * 0.5} ${end.y}, ${end.x} ${end.y}`;
+}
+
+/** Project confirmed members onto the group frame for all connection geometry. */
+export function canvasConnectionDisplayNode<T extends CanvasConnectionNode>(
+  node: T,
+  groups: readonly CanvasGroupData[],
+): T {
+  const group = groups.find(group => !group.pending && group.nodeIds.includes(node.id));
+  return group
+    ? { ...node, x: group.position.x, y: group.position.y, width: group.width, height: group.height }
+    : node;
 }
 
 export function addCanvasConnection<TEdge extends CanvasConnectionEdge>(
@@ -271,8 +287,9 @@ export function buildCanvasConnectionLayerBounds(
     previewPoint?: { x: number; y: number } | null;
     targetNodeId?: string;
   },
+  groups: readonly CanvasGroupData[] = [],
 ): CanvasConnectionLayerBounds {
-  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+  const nodeMap = new Map(nodes.map((node) => [node.id, canvasConnectionDisplayNode(node, groups)]));
   const points: Array<{ x: number; y: number }> = [];
   const addPoint = (point?: { x: number; y: number } | null) => {
     if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;

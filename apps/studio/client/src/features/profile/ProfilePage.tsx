@@ -127,7 +127,7 @@ export function ProfileView() {
             <ChevronRight size={16} />
           </button>
           <button className="profile-nav-item" onClick={() => window.location.assign("/image")}>
-            <span>打开关键帧生成</span>
+            <span>打开图片生成</span>
             <ChevronRight size={16} />
           </button>
         </div>

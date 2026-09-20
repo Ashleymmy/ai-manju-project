@@ -1,4 +1,4 @@
-/* 标注弹窗与工具弹窗底栏：画布 / 关键帧生成共用，避免只在画布页加载 styles.css 时样式丢失 */
+/* 标注弹窗与工具弹窗底栏：画布 / 图片生成（原关键帧生成）共用，避免只在画布页加载 styles.css 时样式丢失 */
 .canvas-annotation-dialog { width: min(1040px,calc(100vw - 2rem)); max-width: 1040px; max-height: 92vh; overflow-y: auto; border-color: var(--line); background: #171d1e; color: #e3e4dc; }
 .canvas-annotation-layout { display: grid; grid-template-columns: minmax(360px,1fr) 250px; gap: 18px; min-height: 430px; }
 .canvas-annotation-workspace { display: flex; min-width: 0; flex-direction: column; gap: 9px; }

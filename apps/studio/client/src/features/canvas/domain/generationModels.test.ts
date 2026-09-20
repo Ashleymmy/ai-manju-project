@@ -9,9 +9,19 @@ describe("canvas generation model choices", () => {
     expect(canvasGenerationModelOptions([model], model, labels)).toEqual([{ value: model, label: labels[model] }]);
   });
   it("shows each real model once and hides supplier names", () => {
-    expect(canvasGenerationModelOptions(["first::gpt-image-2", "other::gpt-image-2", "first::gpt-image-1.5"])).toEqual([
+    expect(canvasGenerationModelOptions(["first::gpt-image-2", "other::gpt-image-2", "first::seedream-4-0"])).toEqual([
       { value: "first::gpt-image-2", label: "gpt-image-2" },
-      { value: "first::gpt-image-1.5", label: "gpt-image-1.5" },
+      { value: "first::seedream-4-0", label: "seedream-4-0" },
+    ]);
+  });
+
+  it("hides retired gpt-image-1 family models even when still configured upstream", () => {
+    expect(canvasGenerationModelOptions([
+      "provider::gpt-image-1",
+      "provider::gpt-image-1.5",
+      "provider::gpt-image-2",
+    ], "provider::gpt-image-1.5")).toEqual([
+      { value: "provider::gpt-image-2", label: "gpt-image-2" },
     ]);
   });
 

@@ -1,4 +1,4 @@
-import { modelDisplayName } from "@/shared/lib/modelSelection";
+import { modelDisplayName, pickDefaultImageModel, visibleImageModels } from "@/shared/lib/modelSelection";
 import { request } from "@/shared/api/http";
 import { replaceVideoModelProtocols } from "./videoProtocol";
 
@@ -25,10 +25,10 @@ export async function fetchModelCatalog(): Promise<ModelCatalog> {
   const defaultImageModel = normalizeModelValue(data.default_image_model);
   const defaultVideoModel = normalizeModelValue(data.default_video_model);
   const defaultAudioModel = normalizeModelValue(data.default_audio_model);
-  const imageModels = normalizeModelList([
+  const imageModels = visibleImageModels(normalizeModelList([
     ...(data.image_models || []),
     ...(defaultImageModel ? [defaultImageModel] : []),
-  ]);
+  ]));
   const videoModels = normalizeModelList([
     ...(data.video_models || []),
     ...(defaultVideoModel ? [defaultVideoModel] : []),
@@ -45,7 +45,7 @@ export async function fetchModelCatalog(): Promise<ModelCatalog> {
     videoModels,
     audioModels,
     defaultTextModel: preferredModel(defaultTextModel, textModels),
-    defaultImageModel: preferredModel(defaultImageModel, imageModels),
+    defaultImageModel: pickDefaultImageModel(imageModels, defaultImageModel),
     defaultVideoModel: preferredModel(defaultVideoModel, videoModels),
     defaultAudioModel: preferredModel(defaultAudioModel, audioModels),
     modelLabels: normalizeStringRecord(data.model_labels),
@@ -78,13 +78,13 @@ export async function fetchImageModelCatalog(
   const { normalizeMetadata = true } = options;
   const data = await request<AiModelsResponse>("/api/ai/models");
   const defaultModel = normalizeModelValue(data.default_image_model);
-  const models = normalizeModelList([
+  const models = visibleImageModels(normalizeModelList([
     ...(data.image_models || []),
     ...(defaultModel ? [defaultModel] : []),
-  ]);
+  ]));
   return {
     models,
-    defaultModel: preferredModel(defaultModel, models),
+    defaultModel: pickDefaultImageModel(models, defaultModel),
     labels: modelMetadata(data.model_labels, normalizeMetadata),
     providerNames: modelMetadata(data.model_provider_names, normalizeMetadata),
   };

@@ -1,5 +1,5 @@
-import { registerCanvasImageAsset, registrationProviderId } from "./services/seedanceRegistration";
-import { resolveModel } from "@/shared/lib/modelSelection";
+import { registerCanvasImageAsset, registrationProviderId, savedSeedanceRegistration, seedanceRegistrationKey, seedanceRegistrationPhase, seedanceRegistrationSource, type SeedanceRegistrationState } from "./services/seedanceRegistration";
+import { pickDefaultImageModel, resolveModel } from "@/shared/lib/modelSelection";
 import {
   Archive,
   Check,
@@ -14,7 +14,6 @@ import {
   Home,
   Loader2,
   MoreHorizontal,
-  PanelRight,
   Plus,
   Redo2,
   Save,
@@ -60,6 +59,9 @@ import {
 } from "./ui/CanvasPopover";
 import { ApiError, publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
+import { useCanvasOriginalImage } from "./controllers/useCanvasOriginalImage";
+import { downloadCanvasOriginalMedia } from "./services/originalMedia";
+import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import {
   createProject,
   deleteProject,
@@ -75,6 +77,7 @@ import {
   downloadAssetExport,
   getAsset,
   getAssetContentObjectUrl,
+  getAssetContentBlob,
   getAssetExport,
   getAssetLibrary,
   invalidateAssetRecord,
@@ -90,6 +93,8 @@ import {
 } from "@/entities/asset";
 import { cancelJob, getJobs } from "@/entities/job";
 import { canvasGenerationModelOptions, canvasModelName } from "./domain/generationModels";
+import type { CanvasLibraryCategory } from "./domain/assetFolders";
+import { archiveCanvasMediaAsset, resolveCanvasArchiveFolder } from "./services/assetArchive";
 import type { PromptPreset } from "@/entities/prompt";
 import { fetchAiModels } from "@/services/api/ai";
 import { audioFormatOptions, audioVoiceOptions } from "@/services/api/audio";
@@ -236,6 +241,7 @@ import {
 } from "@/features/canvas/domain/text";
 import {
   saveCanvasTextAsset,
+  canvasNodeTextAssetId,
 } from "@/features/canvas/repositories/textAssetsRepository";
 import {
   applyCanvasAgentOps,
@@ -252,6 +258,7 @@ import {
 } from "@/features/canvas/domain/snapshotCodec";
 import {
   applyAssetNameToLinkedNodes,
+  applySyncedAssetNameToLinkedNodes,
   collectLinkedAssetRefs,
   reconcileLinkedAssetNames,
 } from "@/features/canvas/domain/assetNameSync";
@@ -347,13 +354,17 @@ const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用�
 3. 尽量写成可直接用于生图模型的完整提示词。`;
 const scopeOptions: Array<{ value: WorkspaceScope; label: string }> = [
   { value: "personal", label: "个人空间" },
-  { value: "team", label: "团队空间" },
+  // 暂时隐藏"团队空间"入口（全局隐藏，影响顶部切换/项目列表/新建对话框/资产选择器），恢复时取消下行注释
+  // { value: "team", label: "团队空间" },
 ];
 
 const CANVAS_FLOATING_PANEL_WIDTH = 340;
 const CANVAS_FLOATING_PANEL_MIN_HEIGHT = 280;
 const CANVAS_MINIMAP_WIDTH = 184;
 const CANVAS_MINIMAP_HEIGHT = 122;
+// Keep registration outcomes readable; pending progress remains visible until settled.
+const REGISTRATION_TOAST_SUCCESS_MS = 5_000;
+const REGISTRATION_TOAST_NOTICE_MS = 8_000;
 // 缩略导航关闭时的占位模型，避免 minimapModel 每帧随视口重建
 const EMPTY_CANVAS_MINIMAP_MODEL: CanvasMinimapModel = {
   width: CANVAS_MINIMAP_WIDTH,
@@ -571,6 +582,7 @@ export default function CanvasWorkspaceViewContent() {
   const [fragmentBusy, setFragmentBusy] = useState(false);
   const [projectArchiveBusy, setProjectArchiveBusy] = useState(false);
   const [captureFrameNodeId, setCaptureFrameNodeId] = useState("");
+  const [archiveNode, setArchiveNode] = useState<CanvasNodeData | null>(null);
   const hoveredId = useCanvasStore((state) => state.ui.hoveredNodeId);
   const setHoveredId = canvasCommands.ui.setHoveredNodeId;
   const hoveredEdgeId = useCanvasStore((state) => state.ui.hoveredEdgeId);
@@ -603,6 +615,8 @@ export default function CanvasWorkspaceViewContent() {
   const [imageToolDraft, setImageToolDraft] = useState<CanvasImageToolDraft>(defaultCanvasImageToolDraft);
   const [imageCropLocked, setImageCropLocked] = useState(false);
   const [imageToolBusy, setImageToolBusy] = useState(false);
+  const [seedanceRegistrationStates, setSeedanceRegistrationStates] = useState<Record<string, SeedanceRegistrationState>>({});
+  const seedanceRegistrationInFlight = useRef(new Set<string>());
   const [imageToolError, setImageToolError] = useState("");
   const imageAnnotationNodeId = useCanvasStore((state) => state.ui.imageAnnotationNodeId);
   const setImageAnnotationNodeId = canvasCommands.ui.setImageAnnotationNodeId;
@@ -859,7 +873,7 @@ export default function CanvasWorkspaceViewContent() {
   const imageMaskNode = imageMaskNodeId ? nodeMap.get(imageMaskNodeId) : undefined;
   const imageMaskPreview = imageMaskNode ? imageSrcFromNode(imageMaskNode, previews) : "";
   const imagePreviewNode = imagePreviewNodeId ? nodeMap.get(imagePreviewNodeId) : undefined;
-  const imagePreviewSrc = imagePreviewNode ? imageSrcFromNode(imagePreviewNode, previews) : "";
+  const originalImagePreview = useCanvasOriginalImage(imagePreviewNode, projectSessionController.canonicalScope || "personal");
   /** 预览弹窗的兄弟图集合：批次根 → [根, ...子图]；子图 → 同组全部；独立节点 → 自身。 */
   const imagePreviewSiblings = useMemo(() => {
     const node = imagePreviewNode;
@@ -951,6 +965,7 @@ export default function CanvasWorkspaceViewContent() {
   const projectCoverUrls = useProjectCoverUrls(projects, projectListScope);
   const projectScopePending = Boolean(projectId && !canonicalProjectScope);
   const projectActionDisabled = loading || switching || projectScopePending;
+  useEffect(() => { setArchiveNode(null); }, [projectId, canonicalProjectScope]);
   const canvasInteractionBlocked = projectActionDisabled;
   const syncTimestampLabel = formatCanvasSyncTime(snapshotUpdatedAt);
   const syncStatusTitle = [
@@ -1045,8 +1060,8 @@ export default function CanvasWorkspaceViewContent() {
     if (!source) return "";
     const target = connectionTargetId ? nodeMap.get(connectionTargetId) : null;
     if (!target && !connectionPreviewPoint) return "";
-    return canvasActiveConnectionPath(source, connectHandleType, connectionPreviewPoint || { x: source.x, y: source.y + source.height / 2 }, target);
-  }, [connectFrom, connectHandleType, connectionPreviewPoint, connectionTargetId, nodeMap]);
+    return canvasActiveConnectionPath(source, connectHandleType, connectionPreviewPoint || { x: source.x, y: source.y + source.height / 2 }, target, groups);
+  }, [connectFrom, connectHandleType, connectionPreviewPoint, connectionTargetId, nodeMap, groups]);
   const connectionLayerBounds = useMemo(() => buildCanvasConnectionLayerBounds(
     visibleNodes,
     edges,
@@ -1056,7 +1071,8 @@ export default function CanvasWorkspaceViewContent() {
       previewPoint: connectionPreviewPoint,
       targetNodeId: connectionTargetId || undefined,
     } : undefined,
-  ), [connectFrom, connectHandleType, connectionPreviewPoint, connectionTargetId, edges, visibleNodes]);
+    groups,
+  ), [connectFrom, connectHandleType, connectionPreviewPoint, connectionTargetId, edges, visibleNodes, groups]);
   const {
     activateConnectionMode,
     beginInlineNodeEdit,
@@ -1285,13 +1301,20 @@ export default function CanvasWorkspaceViewContent() {
           setWheelZoomRequiresCtrl(preferencesResult.value.canvas?.wheelZoomRequiresCtrl !== false);
           shortcutsRef.current = resolveCanvasShortcuts(preferencesResult.value.shortcuts);
         }
-        if (modelsResult.status === "fulfilled") {
-          const catalog = modelsResult.value;
+        const imageCatalog = modelsResult.status === "fulfilled" ? modelsResult.value
+          : aiModelsResult.status === "fulfilled" ? {
+            models: aiModelsResult.value.imageModels,
+            defaultModel: aiModelsResult.value.defaultImageModel,
+            labels: aiModelsResult.value.modelLabels,
+            providerNames: aiModelsResult.value.modelProviderNames,
+          } : null;
+        if (imageCatalog) {
+          const catalog = imageCatalog;
           setModelCatalog(catalog);
-          setImageModel((current) => resolveModel(catalog.models, current || preferredModel) || catalog.defaultModel);
+          setImageModel((current) => resolveModel(catalog.models, current)
+            || pickDefaultImageModel(catalog.models, resolveModel(catalog.models, preferredModel) || catalog.defaultModel));
         } else {
-          toast.error(publicApiError(modelsResult.reason, "读取图像模型失败"));
-          if (preferredModel) setImageModel((current) => current || preferredModel);
+          toast.error(publicApiError(modelsResult.status === "rejected" ? modelsResult.reason : undefined, "读取图像模型失败"));
         }
         if (aiModelsResult.status === "fulfilled") {
           const catalog = aiModelsResult.value;
@@ -1370,7 +1393,7 @@ export default function CanvasWorkspaceViewContent() {
   }, [canonicalProjectScope, loading, projectId, queryClient, switching]);
 
   useEffect(() => subscribeAssetNameChanges(message => {
-    const nextNodes = applyAssetNameToLinkedNodes(nodesRef.current, message.assetId, message.name);
+    const nextNodes = applySyncedAssetNameToLinkedNodes(nodesRef.current, message.assetId, message.name);
     if (nextNodes === nodesRef.current) return;
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
@@ -1743,7 +1766,7 @@ export default function CanvasWorkspaceViewContent() {
       metadata: {
         content: "",
         generationMode: defaultGenerationModeForKind(normalizedKind),
-        model: normalizedKind === "video" ? videoModel : normalizedKind === "audio" ? audioModel : normalizedKind === "image" ? imageModel : normalizedKind === "text" ? textModel : undefined,
+        model: normalizedKind === "video" ? videoModel : normalizedKind === "audio" ? audioModel : normalizedKind === "image" || normalizedKind === "config" ? imageModel : normalizedKind === "text" ? textModel : undefined,
         status: "idle",
         ...canvasImageParamDefaults(),
         resolution: "720p",
@@ -1989,6 +2012,11 @@ export default function CanvasWorkspaceViewContent() {
     if (node.kind !== "image" || registrationBusyRef.current) return;
     const projectKey = projectSessionController.canonicalKey;
     if (!projectKey || projectSessionController.switching) return;
+    const saved = savedSeedanceRegistration(node);
+    if (saved && seedanceRegistrationPhase(saved) === "success") {
+      toast.info("该图片已经注册过拟真人素材");
+      return;
+    }
     const linked = edgesRef.current.filter((edge) => edge.from === node.id)
       .map((edge) => nodesRef.current.find((item) => item.id === edge.to))
       .find((item) => item?.kind === "video");
@@ -2002,18 +2030,52 @@ export default function CanvasWorkspaceViewContent() {
     if (!registrationTarget || registrationBusyRef.current) return;
     const { nodeId, model: selectedModel, projectKey } = registrationTarget;
     const scope = projectSessionController.canonicalScope;
-    const isCurrent = () => !projectSessionController.switching && projectSessionController.canonicalKey === projectKey;
+    const isCurrent = () => !projectSessionController.switching
+      && projectSessionController.canonicalKey === projectKey
+      && nodesRef.current.some((item) => item.id === nodeId);
     const node = nodesRef.current.find((item) => item.id === nodeId);
     if (!scope || !node || !isCurrent() || !selectedModel) return;
     const providerId = registrationProviderId(selectedModel);
+    const key = seedanceRegistrationKey(projectKey, node);
+    if (seedanceRegistrationInFlight.current.has(key)) return;
+    const saved = savedSeedanceRegistration(node);
+    // A stale record from a replaced image is ignored so the new image uploads fresh.
+    const existing = saved
+      ? node.metadata?.seedanceVolcanoAssets?.find((item) => item.id === saved.id && (item.providerId || "") === (providerId || ""))
+      : undefined;
+    if (saved && existing && seedanceRegistrationPhase(saved) === "success") {
+      toast.info("该图片已经注册过拟真人素材");
+      setRegistrationTarget(null);
+      return;
+    }
+    seedanceRegistrationInFlight.current.add(key);
     registrationBusyRef.current = true;
     setRegistrationBusy(true);
     setRegistrationError("");
+    let registrationToastId: string | number | undefined;
+    let lastToastPhase: SeedanceRegistrationState["phase"] | undefined;
+    let toastSettled = false;
+    const onState = (state: SeedanceRegistrationState) => {
+      if (!isCurrent()) return;
+      setSeedanceRegistrationStates(previous => ({ ...previous, [key]: state }));
+      if ((state.phase === "uploading" || state.phase === "processing") && state.phase !== lastToastPhase) {
+        lastToastPhase = state.phase;
+        registrationToastId = toast.loading(
+          state.phase === "uploading" ? "正在上传拟真人素材…" : "素材已上传，正在处理注册…",
+          {
+            id: registrationToastId,
+            description: `${node.title || "当前图片"} · 完成后将出现在资产库「真人素材」中`,
+            duration: Infinity,
+            // Match the existing green success toast while retaining a progress spinner.
+            style: { background: "var(--success-bg)", color: "var(--success-text)", borderColor: "var(--success-border)" },
+          },
+        );
+      }
+    };
     let source: Awaited<ReturnType<typeof imageSourceForNode>> | null = null;
     try {
       const asset = await registerCanvasImageAsset({
-        scope, providerId, isCurrent,
-        existing: node.metadata?.seedanceVolcanoAssets?.find((item) => (item.providerId || "") === (providerId || "")),
+        scope, providerId, isCurrent, existing, onState,
         loadFile: async () => {
           source = await imageSourceForNode(node);
           const response = await fetch(source.url);
@@ -2026,7 +2088,7 @@ export default function CanvasWorkspaceViewContent() {
           if (!isCurrent()) return;
           const selected = { id: asset.id, providerId, volcanoAssetId: asset.volcano_asset_id || "", name: asset.name || node.title, status: asset.status, assetType: asset.asset_type || "Image" };
           const nextNodes = nodesRef.current.map((item) => item.id === node.id
-            ? { ...item, metadata: { ...item.metadata, seedanceVolcanoAssets: [selected] } }
+            ? { ...item, metadata: { ...item.metadata, seedanceVolcanoAssets: [selected], seedanceRegistrationSource: seedanceRegistrationSource(node) } }
             : item);
           nodesRef.current = nextNodes;
           setNodes(nextNodes);
@@ -2035,19 +2097,46 @@ export default function CanvasWorkspaceViewContent() {
       });
       if (!isCurrent()) return;
       if (asset.status.toLowerCase() === "active" && asset.volcano_asset_id) {
-        toast.success("素材注册成功，可以连接使用同一 Provider 的视频节点生成");
+        onState({ phase: "success" });
+        toast.success("拟真人素材注册成功", {
+          id: registrationToastId, style: {}, duration: REGISTRATION_TOAST_SUCCESS_MS,
+          description: `${node.title || "当前图片"} · 已加入资产库「真人素材」，可用于视频参考`,
+        });
+        toastSettled = true;
       } else {
-        toast.info("素材已提交，仍在处理中；再次点击注册会查询原记录的进度");
+        onState({ phase: "pending" });
+        toast.warning("素材已上传，后台仍在处理中", {
+          id: registrationToastId, style: {}, duration: REGISTRATION_TOAST_NOTICE_MS,
+          description: "可在资产库「真人素材」查看，或点击注册按钮刷新状态，无需重复上传。",
+        });
+        toastSettled = true;
       }
       setRegistrationTarget(null);
     } catch (error) {
-      const message = publicApiError(error, "拟真人素材注册失败");
-      setRegistrationError(message);
-      toast.error(message);
+      if (isCurrent()) {
+        const message = publicApiError(error, "拟真人素材注册失败");
+        setRegistrationError(message);
+        onState({ phase: "error", error: message });
+        toast.error("拟真人素材上传或注册失败", {
+          id: registrationToastId, style: {}, duration: REGISTRATION_TOAST_NOTICE_MS,
+          description: `${message}；可点击注册按钮重试。`,
+        });
+        toastSettled = true;
+      }
     } finally {
+      if (!toastSettled && registrationToastId !== undefined) toast.dismiss(registrationToastId);
       (source as Awaited<ReturnType<typeof imageSourceForNode>> | null)?.cleanup();
       registrationBusyRef.current = false;
       setRegistrationBusy(false);
+      seedanceRegistrationInFlight.current.delete(key);
+      setSeedanceRegistrationStates(previous => {
+        const state = previous[key];
+        // Settled states come from saved metadata; only transient errors need a local message.
+        if (!state || state.phase === "error") return previous;
+        const next = { ...previous };
+        delete next[key];
+        return next;
+      });
     }
   };
 
@@ -2552,87 +2641,69 @@ export default function CanvasWorkspaceViewContent() {
 
   const archiveCanvasMediaNode = async (sourceNode: CanvasNodeData) => {
     if (sourceNode.kind !== "image" && sourceNode.kind !== "video" && sourceNode.kind !== "audio") return;
-    const activeScope = projectSessionController.canonicalScope;
-    if (!activeScope) return toast.warning("正在确认项目工作区，暂不能归档素材");
-    const kind = mediaKindFromNode(sourceNode);
-    const existingAssetId = assetIdFromNode(sourceNode);
-    const sourceScope = workspaceScopeValue(sourceNode.metadata?.assetScope) || activeScope;
-    if (existingAssetId && sourceScope === activeScope) {
-      toast.success(`该${mediaKindLabel(kind)}已经归档到当前素材库`);
-      return;
-    }
-    let objectUrl = "";
-    try {
-      const source = existingAssetId
-        ? (objectUrl = await getAssetContentObjectUrl(existingAssetId, sourceScope))
-        : sourceNode.imageSrc || stringValue(sourceNode.metadata?.content);
-      if (!isReadableMediaSource(source)) throw new Error(`当前${mediaKindLabel(kind)}没有可读取的原始内容`);
-      const response = await fetch(source);
-      if (!response.ok) throw new Error(`读取${mediaKindLabel(kind)}失败（${response.status}）`);
-      const blob = await response.blob();
-      const contentType = blob.type || stringValue(sourceNode.metadata?.mimeType) || defaultMediaMimeType(kind);
-      const fileName = mediaFileName(sourceNode.title, kind, contentType);
-      const asset = await uploadAsset(new File([blob], fileName, { type: contentType }), {
-        type: kind,
-        name: fileName,
-        category: "other",
-        source_type: "canvas",
-        source_project_id: projectId,
-        source_project_name: projectTitle,
-        source_metadata: JSON.stringify({ canvas_node_id: sourceNode.id, relation: existingAssetId ? "cross_scope_copy" : "archive" }),
-      }, activeScope);
-      const nextNodes: CanvasNodeData[] = nodesRef.current.map((node) => node.id === sourceNode.id ? {
-        ...node,
-        imageAssetId: kind === "image" ? asset.id : undefined,
-        imageSrc: undefined,
-        metadata: {
-          ...node.metadata,
-          assetId: asset.id,
-          assetScope: activeScope,
-          mimeType: asset.content_type || contentType,
-          bytes: asset.size || blob.size,
-        },
-      } : node);
-      nodesRef.current = nextNodes;
-      setNodes(nextNodes);
-      await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      toast.success(`${mediaKindLabel(kind)}已加入${activeScope === "team" ? "团队" : "个人"}素材库`);
-    } catch (error) {
-      toast.error(publicApiError(error, `${mediaKindLabel(kind)}归档失败`));
-    } finally {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    }
+    if (!projectSessionController.canonicalScope) return toast.warning("正在确认项目工作区，暂不能归档素材");
+    setArchiveNode(sourceNode);
   };
 
   const archiveCanvasTextNode = async (sourceNode: CanvasNodeData) => {
     if (sourceNode.kind !== "text") return;
-    const activeScope = projectSessionController.canonicalScope;
-    if (!activeScope) return toast.warning("正在确认项目工作区，暂不能归档文本");
+    if (!projectSessionController.canonicalScope) return toast.warning("正在确认项目工作区，暂不能归档文本");
     if (!user?.id) return toast.error("当前登录用户不可用，无法保存文本资产");
     const content = canvasTextDisplayValue(sourceNode).trim();
     if (!content) return toast.error("没有可保存的文本");
-    try {
+    setArchiveNode(sourceNode);
+  };
+
+  const saveCanvasNodeToLibrary = async (category: CanvasLibraryCategory) => {
+    const sourceNode = nodesRef.current.find(node => node.id === archiveNode?.id);
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
+    const isCurrentProject = () => !projectSessionController.switching && projectSessionController.canonicalKey === projectKey;
+    if (!sourceNode || !activeScope || projectSessionController.switching) throw new Error("节点或画布已切换，请重新选择");
+    const folder = await resolveCanvasArchiveFolder(projectId, activeScope, category);
+    if (!isCurrentProject()) return;
+    let patch: (node: CanvasNodeData) => CanvasNodeData;
+    if (sourceNode.kind === "text") {
+      if (!user?.id) throw new Error("当前登录用户不可用，无法保存文本资产");
       const saved = await saveCanvasTextAsset({
         userId: user.id,
         scope: activeScope,
         title: stringValue(sourceNode.metadata?.prompt).slice(0, 24) || sourceNode.title || "画布文本",
-        content,
+        content: canvasTextDisplayValue(sourceNode).trim(),
+        id: (sourceNode.metadata?.textAssetScope === activeScope ? stringValue(sourceNode.metadata?.textAssetId) : "") || canvasNodeTextAssetId(projectId, sourceNode.id),
+        folderId: folder.id, category, projectId,
       });
-      const nextNodes = nodesRef.current.map((node) => node.id === sourceNode.id ? {
+      patch = node => ({
         ...node,
-        metadata: {
-          ...node.metadata,
-          textAssetId: saved.id,
-          textAssetScope: activeScope,
-        },
-      } : node);
-      nodesRef.current = nextNodes;
-      setNodes(nextNodes);
-      await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      toast.success(`文本已加入${activeScope === "team" ? "团队" : "个人"}素材库`);
-    } catch (error) {
-      toast.error(publicApiError(error, "文本归档失败"));
+        metadata: { ...node.metadata, textAssetId: saved.id, textAssetScope: activeScope },
+      });
+    } else {
+      const asset = await archiveCanvasMediaAsset({ node: sourceNode, projectId, projectTitle, scope: activeScope, folderId: folder.id, category });
+      if (!isCurrentProject()) return;
+      mergeCanvasAssetCatalog([asset], activeScope);
+      void invalidateAssetRecord(queryClient, activeScope, asset.id);
+      patch = node => ({
+        ...node,
+        imageAssetId: sourceNode.kind === "image" ? asset.id : undefined,
+        imageSrc: undefined,
+        metadata: { ...node.metadata, assetId: asset.id, assetScope: activeScope,
+          mimeType: asset.content_type || node.metadata?.mimeType, bytes: asset.size ?? node.metadata?.bytes },
+      });
     }
+    if (!isCurrentProject()) return;
+    const nextNodes = nodesRef.current.map(node => {
+      if (node.id !== sourceNode.id) return node;
+      // A slow upload must not restore an image the user has since replaced.
+      if (node.kind !== "text" && (assetIdFromNode(node) !== assetIdFromNode(sourceNode)
+        || node.imageSrc !== sourceNode.imageSrc || node.metadata?.content !== sourceNode.metadata?.content)) return node;
+      return patch(node);
+    });
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+    if (!isCurrentProject()) return;
+    void assetsMentionsController.loadMentionCatalog("", activeScope);
+    toast.success(`已加入 ${projectTitle} / ${folder.name}`);
   };
 
   const captureVideoFrameNode = async (sourceNode: CanvasNodeData) => {
@@ -2813,14 +2884,10 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const copyCanvasImagePrompt = async (sourceNode: CanvasNodeData) => {
-    const prompt = stringValue(sourceNode.metadata?.prompt) || sourceNode.content;
-    if (!prompt.trim()) return toast.info("当前图片没有可复制的提示词");
-    try {
-      await navigator.clipboard.writeText(prompt);
-      toast.success("提示词已复制");
-    } catch {
-      toast.error("浏览器未允许写入剪贴板");
-    }
+    const result = await copyTextToClipboard(promptTextFromNode(sourceNode));
+    if (result === "copied") toast.success("提示词已复制");
+    else if (result === "empty") toast.info("当前图片没有可复制的提示词");
+    else toast.error("复制失败，请选中提示词后按 Ctrl+C 复制");
   };
 
   const updateCanvasGroup = (groupId: string, patch: Partial<Pick<CanvasGroupData, "title" | "color">>) => {
@@ -3154,29 +3221,10 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const downloadNodeMedia = async (node: CanvasNodeData) => {
-    const assetId = assetIdFromNode(node);
-    const directSrc = imageSrcFromNode(node, previews);
-    const activeScope = projectSessionController.canonicalScope;
     try {
-      if (assetId && activeScope) {
-        const sourceScope = workspaceScopeValue(node.metadata?.assetScope) || activeScope;
-        const blob = await fetch(await getAssetContentObjectUrl(assetId, sourceScope)).then((response) => response.blob());
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = node.title || assetId;
-        anchor.click();
-        window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-        return;
-      }
-      if (!directSrc) return toast.info("当前节点没有可下载的媒体");
-      const blob = await fetch(directSrc).then((response) => response.blob());
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = node.title || node.id;
-      anchor.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      const blob = await downloadCanvasOriginalMedia(node, projectSessionController.canonicalScope);
+      const name = node.title || assetIdFromNode(node) || node.id;
+      downloadBlob(blob, mediaKindFromNode(node) === "image" ? imageFileName(name, blob.type) : name);
     } catch (error) {
       toast.error(publicApiError(error, "下载媒体失败"));
     }
@@ -3805,15 +3853,7 @@ export default function CanvasWorkspaceViewContent() {
     const assetReferences = collectCanvasArchiveAssetReferences(snapshot, projectScope);
     for (const [assetId, sourceScope] of Array.from(assetReferences.entries())) {
       const asset = await getAsset(assetId, sourceScope);
-      const objectUrl = await getAssetContentObjectUrl(asset.id, sourceScope);
-      let blob: Blob;
-      try {
-        const response = await fetch(objectUrl);
-        if (!response.ok) throw new Error(`读取资产失败（${response.status}）`);
-        blob = await response.blob();
-      } finally {
-        URL.revokeObjectURL(objectUrl);
-      }
+      const blob = await getAssetContentBlob(asset.id, sourceScope);
       const storageKey = canvasArchiveStorageKey(sourceScope, asset.type, asset.id);
       const fileName = canvasArchiveMediaFileName(asset);
       const path = `projects/${safeArchiveSegment(project.id)}/files/${safeArchiveSegment(asset.id.slice(-12))}-${fileName}`;
@@ -4011,7 +4051,7 @@ export default function CanvasWorkspaceViewContent() {
 
   const downloadSelectedMedia = async () => {
     const assetId = selectedNode ? assetIdFromNode(selectedNode) : "";
-    const directSrc = selectedNode ? imageSrcFromNode(selectedNode, previews) : "";
+    const directSrc = selectedNode ? imageSrcFromNode(selectedNode, {}) : "";
     if (!assetId && !directSrc) return toast.info("当前节点没有可下载的媒体");
     const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) {
@@ -4028,15 +4068,16 @@ export default function CanvasWorkspaceViewContent() {
         toast.success("媒体导出包已下载");
         return;
       }
-      const response = await fetch(directSrc);
-      const blob = await response.blob();
+      if (!selectedNode) return;
+      const blob = await downloadCanvasOriginalMedia(selectedNode, activeScope);
       const mediaKind = selectedNode ? mediaKindFromNode(selectedNode) : "image";
       const extension = mediaKind === "video"
         ? "mp4"
         : mediaKind === "audio"
           ? audioFileExtension(stringValue(selectedNode?.metadata?.mimeType))
           : "png";
-      downloadBlob(blob, `${selectedNode?.title || selectedNode?.id || "canvas-media"}.${extension}`);
+      const name = selectedNode.title || selectedNode.id || "canvas-media";
+      downloadBlob(blob, mediaKind === "image" ? imageFileName(name, blob.type) : `${name}.${extension}`);
     } catch (error) {
       toast.error(publicApiError(error, "下载媒体节点失败"));
     }
@@ -4106,7 +4147,7 @@ export default function CanvasWorkspaceViewContent() {
                 }
               }}
             />
-            <span className="text-xs text-muted-foreground">保留默认名称将自动编号，同时创建含角色、场景、道具的同名资产文件夹。</span>
+            <span className="text-xs text-muted-foreground">保留默认名称将自动编号，同时创建含角色、场景、道具、其他的同名资产文件夹。</span>
           </label>
           {createDialogError ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{createDialogError}</p> : null}
         </div>
@@ -4387,6 +4428,7 @@ export default function CanvasWorkspaceViewContent() {
         <div className="canvas-head-actions">
           <button className="outline-button small canvas-home-button" onClick={() => navigate("/dashboard")} title="返回首页" aria-label="返回首页"><Home size={15} /> 首页</button>
           {/* 空间切换是"离开当前画布"的导航出口：项目加载中/未确认时直接回列表页，不参与保存门禁，避免按钮卡死 */}
+          {/* "团队空间"已全局暂时隐藏：team 入口在 scopeOptions 数组定义处注释掉了，恢复见该处 */}
           <div className="scope-switch mini-scope">{scopeOptions.map((item) => <button key={item.value} className={currentProjectDisplayScope === item.value ? "active" : ""} onClick={() => { if (loading || projectScopePending) { navigate(canvasListHref(item.value)); return; } void switchCanvasScope(item.value); }} disabled={switching} title={loading || projectScopePending ? "返回该工作区的画布列表" : undefined}>{item.label}</button>)}</div>
           <button className="outline-button small canvas-icon-button" title="撤销" aria-label="撤销" onClick={() => void undoCanvas()} disabled={!canUndo || projectActionDisabled}><Undo2 size={15} /></button>
           <button className="outline-button small canvas-icon-button" title="重做" aria-label="重做" onClick={() => void redoCanvas()} disabled={!canRedo || projectActionDisabled}><Redo2 size={15} /></button>
@@ -4398,7 +4440,10 @@ export default function CanvasWorkspaceViewContent() {
           >
             <Save size={15} /> {projectScopePending ? "确认工作区" : switching ? "切换中" : saving || syncStatus === "saving" ? "保存中" : snapshotWriteReady ? "保存" : "保存已暂停"}
           </button>
+          {/* 暂时隐藏：顶部工具栏的"检查器"切换按钮（选中节点时检查器仍会自动打开）。
+              恢复时取消下方注释，并在顶部 lucide-react 导入中恢复 PanelRight
           <button className={`outline-button small inspector-trigger ${inspectorOpen ? "is-active" : ""}`} onClick={() => setInspectorOpen((value) => !value)} disabled={projectActionDisabled}><PanelRight size={15} /> 检查器</button>
+          */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="outline-button small canvas-icon-button canvas-more-trigger" title="更多操作" aria-label="更多操作" disabled={projectActionDisabled}><MoreHorizontal size={16} /></button>
@@ -4488,6 +4533,8 @@ export default function CanvasWorkspaceViewContent() {
           selectionBoxStyle={selectionBoxStyle}
           alignmentGuides={alignmentGuides}
           connectionLayerBounds={connectionLayerBounds}
+          connectFrom={connectFrom}
+          connectHandleType={connectHandleType}
           edges={edges}
           nodes={nodes}
           nodeMap={nodeMap}
@@ -4496,6 +4543,7 @@ export default function CanvasWorkspaceViewContent() {
           connectionPreviewPath={connectionPreviewPath}
           renderedNodes={renderedNodes}
           nodeCardProps={(node) => ({
+            seedanceRegistrationState: seedanceRegistrationStates[seedanceRegistrationKey(projectSessionController.canonicalKey, node)],
             node,
             mentionLibrary: editingInlineNodeId === node.id ? mentionLibrary : undefined,
             previews,
@@ -4503,6 +4551,7 @@ export default function CanvasWorkspaceViewContent() {
             isSelectedSingle: selectedId === node.id,
             isHovered: hoveredId === node.id,
             isConnectionTarget: connectionTargetId === node.id,
+            isGrouped: groups.some(group => !group.pending && group.nodeIds.includes(node.id)),
             isConnecting: Boolean(connectFrom),
             connectActiveTarget: connectFrom === node.id && connectHandleType === "target",
             connectActiveSource: connectFrom === node.id && connectHandleType === "source",
@@ -4574,6 +4623,7 @@ export default function CanvasWorkspaceViewContent() {
         />
 
         <CanvasInspector
+          seedanceRegistrationState={selectedNode ? seedanceRegistrationStates[seedanceRegistrationKey(projectSessionController.canonicalKey, selectedNode)] : undefined}
           panelRef={panelRef}
           selectedNode={selectedNode}
           selectedGroup={selectedGroup}
@@ -4631,7 +4681,7 @@ export default function CanvasWorkspaceViewContent() {
             selectGenerationModel: (value) => {
               if (!selectedNode) return;
               if (selectedGenerationMode === "text") setTextModel(value);
-              if (selectedGenerationMode === "image") setImageModel(value);
+              // Image choices belong to this node; new nodes keep the catalog default.
               if (selectedGenerationMode === "video") setVideoModel(value);
               if (selectedGenerationMode === "audio") setAudioModel(value);
               updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), model: value } });
@@ -4662,7 +4712,7 @@ export default function CanvasWorkspaceViewContent() {
             initialModel,
           }}
           skillLibrary={{ open: skillLibraryOpen, onOpenChange: setSkillLibraryOpen }}
-          presetManager={{ open: presetManagerOpen, onOpenChange: setPresetManagerOpen }}
+          presetManager={{ open: presetManagerOpen, onOpenChange: setPresetManagerOpen, onPresetsChange: setPromptPresets }}
           storyboardEditor={{
             open: Boolean(storyboardEditorNodeId),
             onOpenChange: (open) => { if (!open) setStoryboardEditorNodeId(""); },
@@ -4695,6 +4745,13 @@ export default function CanvasWorkspaceViewContent() {
         />
       </div>
       <CanvasDialogHost
+        assetArchive={{
+          open: Boolean(archiveNode) && !projectActionDisabled,
+          nodeKey: `${canonicalProjectScope}:${projectId}:${archiveNode?.id || ""}`,
+          assetName: archiveNode?.title || "素材", projectTitle,
+          onOpenChange: open => { if (!open) setArchiveNode(current => current === archiveNode ? null : current); },
+          onSave: saveCanvasNodeToLibrary,
+        }}
         imageTool={{
           dialog: imageToolDialog, busy: imageToolBusy, error: imageToolError, preview: imageToolPreview,
           node: imageToolNode, crop: imageToolCrop, cropStageRef: imageCropStageRef, draft: imageToolDraft,
@@ -4732,7 +4789,9 @@ export default function CanvasWorkspaceViewContent() {
           onExport: () => void exportCanvasStoryboard(),
         }}
         imagePreview={{
-          node: imagePreviewNode, source: imagePreviewSrc, siblings: imagePreviewSiblings,
+          node: imagePreviewNode, source: originalImagePreview.source, siblings: imagePreviewSiblings,
+          loading: originalImagePreview.loading, error: originalImagePreview.error,
+          originalBytes: originalImagePreview.bytes, onRetry: originalImagePreview.retry,
           selectedNodeId: imagePreviewNodeId, previews,
           modelLabel: imagePreviewNode ? imageModelLabel(modelFromNode(imagePreviewNode, imageModel), modelCatalog || undefined) : "—",
           createdAt: previewAssetMeta.createdAt,

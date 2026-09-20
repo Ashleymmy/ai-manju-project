@@ -62,6 +62,36 @@ describe("canvas image preview resolution", () => {
     expect(labels.indexOf("分辨率")).toBe(labels.indexOf("文件大小") - 1);
   });
 
+  it("shows the original image and its byte size while the sibling strip stays thumbnail-sized", async () => {
+    await act(async () => root.render(<CanvasImagePreviewDialog
+      node={node} source="blob:original" originalBytes={2097152}
+      siblings={[{ ...node, imageAssetId: "a" }, { ...node, id: "b", imageAssetId: "b" }]}
+      selectedNodeId={node.id} previews={{ a: "blob:thumb-a", b: "blob:thumb-b" }}
+      modelLabel="测试模型" creatorLabel="测试用户" onSelectNode={vi.fn()}
+      onSetBatchPrimary={vi.fn()} onDetachBatchChild={vi.fn()} onDownload={vi.fn()} onClose={vi.fn()}
+    />));
+    expect(image().getAttribute("src")).toBe("blob:original");
+    await load(image(), 2048, 1536);
+    expect(resolution()).toBe("2048 × 1536 px");
+    expect(document.querySelector(".preview-detail-rows")?.textContent).toContain("2.0 MB");
+    expect(Array.from(document.querySelectorAll(".preview-detail-thumbs img"), image => image.getAttribute("src"))).toEqual(["blob:thumb-a", "blob:thumb-b"]);
+  });
+
+  it("opens immediately while the original loads without showing thumbnail dimensions or stale bytes", async () => {
+    await act(async () => root.render(<CanvasImagePreviewDialog
+      node={node} source="" loading siblings={[node]} selectedNodeId={node.id}
+      previews={{}} modelLabel="测试模型" creatorLabel="测试用户" onSelectNode={vi.fn()}
+      onSetBatchPrimary={vi.fn()} onDetachBatchChild={vi.fn()} onDownload={vi.fn()} onClose={vi.fn()}
+    />));
+    expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(document.querySelector('[role="status"]')?.textContent).toBe("正在加载原图…");
+    expect(image()).toBeNull();
+    expect(resolution()).toBe("—");
+    const bytes = Array.from(document.querySelectorAll(".preview-detail-rows > div"))
+      .find(row => row.querySelector("span")?.textContent === "文件大小");
+    expect(bytes?.querySelector("b")?.textContent).toBe("—");
+  });
+
   it.each(["image-b", "image-a"])("clears stale dimensions when selecting or replacing %s", async nextId => {
     await render();
     const previousImage = image();

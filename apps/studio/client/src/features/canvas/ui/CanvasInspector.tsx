@@ -1,8 +1,9 @@
+import { CanvasSeedanceRegistrationButton } from "./CanvasSeedanceRegistrationButton";
+import type { SeedanceRegistrationState } from "../services/seedanceRegistration";
 import {
   Archive,
   ArrowRight,
   ArrowUp,
-  BadgeCheck,
   BookMarked,
   BookOpen,
   Bot,
@@ -13,7 +14,8 @@ import {
   Eraser,
   FolderOpen,
   GalleryHorizontalEnd,
-  Link2,
+  // 暂时隐藏「从此节点连接」按钮，恢复时一并取消下方 node-card-ops 里按钮的注释
+  // Link2,
   Loader2,
   MoreHorizontal,
   Palette,
@@ -59,6 +61,7 @@ import {
   type CanvasNodeCardActions,
 } from "./CanvasNodeCard";
 import { CanvasModelPicker } from "./CanvasModelPicker";
+import { CanvasCopyPromptButton } from "./CanvasCopyPromptButton";
 
 type PromptPresetView = {
   id: string;
@@ -167,6 +170,7 @@ export type CanvasInspectorActions = {
 };
 
 export type CanvasInspectorProps = {
+  seedanceRegistrationState?: SeedanceRegistrationState;
   panelRef: RefObject<HTMLElement | null>;
   selectedNode?: CanvasNodeData;
   selectedGroup?: CanvasGroupData;
@@ -202,6 +206,7 @@ export type CanvasInspectorProps = {
 };
 
 export function CanvasInspector({
+  seedanceRegistrationState,
   panelRef,
   selectedNode,
   selectedGroup,
@@ -303,17 +308,9 @@ export function CanvasInspector({
             {selectedNode && !selectedGroup ? (
               <div className="node-card-head-actions">
                 {selectedNode.kind === "image" ? (
-                  <button className="icon-button subtle" title="注册拟真人素材" onClick={() => void registerImageAsSeedanceAsset(selectedNode)}><BadgeCheck size={15} /></button>
+                  <CanvasSeedanceRegistrationButton className="icon-button subtle" node={selectedNode} state={seedanceRegistrationState} onRegister={registerImageAsSeedanceAsset} />
                 ) : null}
-                <button
-                  className="icon-button subtle"
-                  title="一键复制提示词内容"
-                  onClick={() => {
-                    const text = promptTextFromNode(selectedNode);
-                    if (!text.trim()) return toast.info("当前节点没有提示词");
-                    void navigator.clipboard.writeText(text).then(() => toast.success("提示词已复制"));
-                  }}
-                ><Copy size={15} /></button>
+                <CanvasCopyPromptButton key={selectedNode.id} text={promptTextFromNode(selectedNode)} />
                 <button className="icon-button subtle node-card-close" title="关闭面板" onClick={() => setInspectorOpen(false)}><X size={15} /></button>
               </div>
             ) : null}
@@ -378,50 +375,9 @@ export function CanvasInspector({
                     })}
                   </div>
                 ) : null}
-                {selectedNode.kind === "video" ? (
-                  <div className="video-submode-header">
-                    {(() => {
-                      const mode = videoSubModeFromNode(selectedNode);
-                      const incomingEdges = edges.filter((edge) => edge.to === selectedNode.id);
-                      const sourceNodes = incomingEdges.map((edge) => nodes.find((n) => n.id === edge.from)).filter((n): n is CanvasNodeData => n !== undefined);
-
-                      if (mode === "text") return null; // 文生视频无需输入源
-
-                      const requiredType = (mode === "reference" || mode === "first-last") ? "image" : (mode === "edit" || mode === "extend") ? "video" : null;
-                      const validSources = sourceNodes.filter((n) => n.kind === requiredType);
-
-                      // 全能参考支持多图，其它模式固定数量
-                      const minCount = mode === "first-last" ? 2 : 1;
-                      const displayCount = mode === "reference" ? Math.max(validSources.length, 1) : minCount;
-
-                      return (
-                        <div className="video-input-sources" data-count={displayCount}>
-                          {Array.from({ length: displayCount }).map((_, index) => {
-                            const source = validSources[index];
-                            const preview = source ? (source.kind === "image" ? imageSrcFromNode(source, previews) : source.metadata?.preview as string | undefined) : null;
-                            return (
-                              <div key={index} className="video-input-slot">
-                                {preview && source ? (
-                                  source.kind === "image" ? (
-                                    <img src={preview} alt="" onClick={() => setImagePreviewNodeId(source.id)} style={{ cursor: "pointer" }} />
-                                  ) : (
-                                    <video src={preview} muted onClick={() => setImagePreviewNodeId(source.id)} style={{ cursor: "pointer" }} />
-                                  )
-                                ) : (
-                                  <button type="button" title={`连接${requiredType === "image" ? "图片" : "视频"}节点`}>
-                                    <Plus size={14} />
-                                  </button>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                ) : null}
                 <CanvasResourceMentionTextarea
                   className="prompt-copy node-card-prompt"
+                  autoGrow
                   value={promptTextFromNode(selectedNode)}
                   references={mentionReferencesForNode(selectedNode.id)}
                   mentionLibrary={mentionLibrary}
@@ -458,7 +414,7 @@ export function CanvasInspector({
                       </PopoverTrigger>
                       <PopoverContent className="node-pop-card node-pop-wide" align="start" sideOffset={8}>
                         <p className="eyebrow">图片工具</p>
-                        <CanvasImageToolGrid node={selectedNode} imageToolBusy={imageToolBusy} storyboardBusy={storyboardBusy} openImageToolDialog={openImageToolDialog} setImageAnnotationNodeId={setImageAnnotationNodeId} setImageMaskNodeId={setImageMaskNodeId} setImageToolError={setImageToolError} flipCanvasImageNode={flipCanvasImageNode} generatePanoramaCanvasImage={generatePanoramaCanvasImage} generateStoryboard={(n) => setStoryboardNodeId(n.id)} createImageReversePromptNodes={createImageReversePromptNodes} setImagePreviewNodeId={setImagePreviewNodeId} setReplaceImageNodeId={setReplaceImageNodeId} replaceImageInputRef={replaceImageInputRef} archiveCanvasMediaNode={archiveCanvasMediaNode} registerImageAsSeedanceAsset={registerImageAsSeedanceAsset} />
+                        <CanvasImageToolGrid seedanceRegistrationState={seedanceRegistrationState} node={selectedNode} imageToolBusy={imageToolBusy} storyboardBusy={storyboardBusy} openImageToolDialog={openImageToolDialog} setImageAnnotationNodeId={setImageAnnotationNodeId} setImageMaskNodeId={setImageMaskNodeId} setImageToolError={setImageToolError} flipCanvasImageNode={flipCanvasImageNode} generatePanoramaCanvasImage={generatePanoramaCanvasImage} generateStoryboard={(n) => setStoryboardNodeId(n.id)} createImageReversePromptNodes={createImageReversePromptNodes} setImagePreviewNodeId={setImagePreviewNodeId} setReplaceImageNodeId={setReplaceImageNodeId} replaceImageInputRef={replaceImageInputRef} archiveCanvasMediaNode={archiveCanvasMediaNode} registerImageAsSeedanceAsset={registerImageAsSeedanceAsset} />
 
                       </PopoverContent>
                     </Popover>
@@ -602,7 +558,8 @@ export function CanvasInspector({
               </div>
 
               <div className="node-card-ops">
-                <button title="从此节点连接" onClick={() => activateConnectionMode(selectedNode.id)}><Link2 size={14} /></button>
+                {/* 暂时隐藏「从此节点连接」入口（需求暂定，后期恢复时取消本行与顶部 Link2 导入的注释）
+                <button title="从此节点连接" onClick={() => activateConnectionMode(selectedNode.id)}><Link2 size={14} /></button> */}
                 <button title="复制节点（仅入边）" onClick={() => void duplicateSelectedNode()}><Copy size={14} /></button>
                 <button title="删除节点" onClick={() => removeNode(selectedNode.id)}><Trash2 size={14} /></button>
                 <button title="清空输入框内容" disabled={!promptTextFromNode(selectedNode).trim()} onClick={() => updateNodePrompt(selectedNode.id, "")}><Eraser size={14} /></button>
@@ -676,7 +633,7 @@ export function CanvasInspector({
                         <button className="node-pop-item" onClick={() => setSeedanceAssetNodeId(selectedNode.id)}><UserRoundCog size={14} /> 拟真人素材 {selectedNode.metadata?.seedanceVolcanoAssets?.length || 0}</button>
                       </>
                     ) : null}
-                    {selectedNode.kind === "image" ? <button className="node-pop-item" onClick={() => void registerImageAsSeedanceAsset(selectedNode)}><BadgeCheck size={14} /> 注册拟真人素材 {selectedNode.metadata?.seedanceVolcanoAssets?.length || 0}</button> : null}
+                    {selectedNode.kind === "image" ? <CanvasSeedanceRegistrationButton className="node-pop-item" node={selectedNode} state={seedanceRegistrationState} onRegister={registerImageAsSeedanceAsset} showLabel /> : null}
                     {selectedNode.kind === "text" ? <button className="node-pop-item" onClick={() => void archiveCanvasTextNode(selectedNode)}><Archive size={14} /> 加入素材库</button> : null}
                     {selectedNode.kind === "video" ? <button className="node-pop-item" onClick={() => void captureVideoFrameNode(selectedNode)} disabled={Boolean(captureFrameNodeId)}><Camera size={14} /> {captureFrameNodeId === selectedNode.id ? "创建中…" : "当前帧创建图片"}</button> : null}
                     {selectedNode.kind === "video" || selectedNode.kind === "audio" ? <button className="node-pop-item" onClick={() => void archiveCanvasMediaNode(selectedNode)}><Archive size={14} /> 加入素材库</button> : null}
