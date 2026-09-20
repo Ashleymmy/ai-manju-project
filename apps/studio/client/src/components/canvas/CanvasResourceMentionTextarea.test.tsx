@@ -124,7 +124,19 @@ describe("canvas image mention caret", () => {
     expect(submit).not.toHaveBeenCalled();
     await act(async () => textarea().dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "企鹅" })));
     await key("Enter");
+    expect(submit).not.toHaveBeenCalled();
+    await key("Enter", { ctrlKey: true });
     expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it("inserts a newline on Enter and only submits via Ctrl/Cmd+Enter", async () => {
+    const enter = await key("Enter");
+    expect(submit).not.toHaveBeenCalled();
+    expect(enter.defaultPrevented).toBe(false);
+    expect((await key("Enter", { metaKey: true })).defaultPrevented).toBe(true);
+    expect(submit).toHaveBeenCalledTimes(1);
+    await key("Enter", { ctrlKey: true });
+    expect(submit).toHaveBeenCalledTimes(2);
   });
 
   it("deletes a selected reference without confusing identical thumbnail placeholders", async () => {

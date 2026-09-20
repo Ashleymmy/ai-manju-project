@@ -20,11 +20,13 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 
 import { getAssetContentObjectUrl } from "@/entities/asset";
 import { useOutsidePress } from "@/shared/lib/useOutsidePress";
-import { useMentionCaret } from "./useMentionCaret";
+import { offsetFromOverlayPoint, useMentionCaret } from "./useMentionCaret";
 import { buildCanvasMentionLibraryMenu, emptyCanvasMentionLibrary, mentionLibraryTargetLabel, type CanvasMentionLibraryItem, type CanvasMentionLibraryState, type CanvasMentionLibraryTarget } from "@/features/canvas/domain/mentionLibrary";
 import {
   applyCanvasMentionEditorEdit,
@@ -150,7 +152,8 @@ export const CanvasResourceMentionTextarea = forwardRef<
     const textarea = textareaRef.current;
     if (!textarea || !autoGrow) return;
     textarea.style.height = "0px";
-    textarea.style.height = `${textarea.scrollHeight}px`;
+    // The overlay can be taller than the raw token text (chip boxes), so grow to fit both.
+    textarea.style.height = `${Math.max(textarea.scrollHeight, overlayRef.current?.scrollHeight ?? 0)}px`;
   }, [autoGrow]);
   useLayoutEffect(() => {
     autoSizeTextarea();
@@ -176,7 +179,11 @@ export const CanvasResourceMentionTextarea = forwardRef<
     overlay.scrollTop = textarea.scrollTop;
     overlay.scrollLeft = textarea.scrollLeft;
   });
-  const { caret, refresh: refreshCaret } = useMentionCaret(textareaRef, editorValue);
+  // 覆盖层只负责把 @引用渲染成 chip；纯文本（无引用）时不渲染覆盖层，
+  // 直接显示 textarea 原生文字——双层的字体/间距度量再一致也可能有亚像素差，
+  // 纯文本走单层可以从根上避免光标与文字错位。
+  const showOverlay = Boolean(value) && editorSegments.length > 0;
+  const { caret, selection: selectionRects, refresh: refreshCaret } = useMentionCaret(textareaRef, overlayRef, editorValue, showOverlay);
   const referenceByKey = useMemo(
     () => new Map(references.map(reference => [reference.key, reference])),
     [references]
@@ -186,6 +193,21 @@ export const CanvasResourceMentionTextarea = forwardRef<
       splitCanvasMentionEditorDisplay(editorValue, editorSegments, references),
     [editorSegments, editorValue, references]
   );
+  // Text parts carry no offsets from the splitter; derive them so every overlay child
+  // exposes its display-value range for caret/selection measurement and hit-testing.
+  const partsWithOffsets = useMemo(() => {
+    let cursor = 0;
+    return parts.map(part => {
+      if (part.type === "reference") {
+        cursor = part.end;
+        return part;
+      }
+      const start = cursor;
+      const end = cursor + part.value.length;
+      cursor = end;
+      return { ...part, start, end };
+    });
+  }, [parts]);
   const [displayWidths, setDisplayWidths] = useState<Record<string, number>>(
     {}
   );
@@ -211,7 +233,9 @@ export const CanvasResourceMentionTextarea = forwardRef<
       const reference = referenceByKey.get(segment.key);
       if (reference && !canvasMentionShowsName(reference.kind)) return;
       probe.textContent = editorValue.slice(segment.start, segment.end);
-      next[segment.key] = Math.ceil(probe.getBoundingClientRect().width);
+      // No rounding: a subpixel wider chip shifts wrap points and the textarea's
+      // invisible layout diverges from the overlay line by line.
+      next[segment.key] = probe.getBoundingClientRect().width;
     });
     probe.remove();
     setDisplayWidths(next);
@@ -375,23 +399,121 @@ export const CanvasResourceMentionTextarea = forwardRef<
     insertReference(item.reference);
   };
 
-  // 覆盖层只负责把 @引用渲染成 chip；纯文本（无引用）时不渲染覆盖层，
-  // 直接显示 textarea 原生文字——双层的字体/间距度量再一致也可能有亚像素差，
-  // 纯文本走单层可以从根上避免光标与文字错位。
-  const showOverlay = Boolean(value) && editorSegments.length > 0;
+  // 覆盖层接管指针交互：点击/拖选都先命中覆盖层，再把坐标换算回文本偏移量写入
+  // textarea 的真实选区。原生选区绘制在被隐藏的 textarea 排版上，与可见的 chip
+  // 排版逐行错位，所以必须由覆盖层统一换算。
+  const overlayOffsetFromEvent = (event: { clientX: number; clientY: number }) => {
+    const overlay = overlayRef.current;
+    if (!overlay) return null;
+    return offsetFromOverlayPoint(overlay, event.clientX, event.clientY, editorValueRef.current.length);
+  };
+
+  const handleOverlayPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    // Keep consumer semantics (the canvas node card stops propagation here so the
+    // press does not start a node drag) even though the event now lands on the overlay.
+    props.onPointerDown?.(event as unknown as ReactPointerEvent<HTMLTextAreaElement>);
+    if (event.button !== 0 || composingRef.current) return;
+    const textarea = textareaRef.current;
+    const overlay = overlayRef.current;
+    const offset = overlayOffsetFromEvent(event);
+    if (!textarea || !overlay || offset === null) return;
+    event.preventDefault();
+    textarea.focus({ preventScroll: true });
+    if (event.shiftKey) {
+      const anchor = textarea.selectionDirection === "backward" ? textarea.selectionEnd : textarea.selectionStart;
+      textarea.setSelectionRange(Math.min(anchor, offset), Math.max(anchor, offset), offset < anchor ? "backward" : "forward");
+      refreshCaret();
+      closeMention();
+      return;
+    }
+    textarea.setSelectionRange(offset, offset);
+    refreshCaret();
+    closeMention();
+    // Drag selection: track on window so leaving the editor mid-drag keeps extending.
+    const anchor = offset;
+    const onMove = (moveEvent: PointerEvent) => {
+      const next = offsetFromOverlayPoint(overlay, moveEvent.clientX, moveEvent.clientY, editorValueRef.current.length);
+      textarea.setSelectionRange(Math.min(anchor, next), Math.max(anchor, next), next < anchor ? "backward" : "forward");
+      refreshCaret();
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      clampSelectionToMentionBoundary();
+      refreshCaret();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  const handleOverlayDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (composingRef.current) return;
+    const offset = overlayOffsetFromEvent(event);
+    const textarea = textareaRef.current;
+    if (offset === null || !textarea) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const text = editorValueRef.current;
+    const isWordChar = (char: string) => /[\p{L}\p{N}_]/u.test(char);
+    let start = offset;
+    let end = offset;
+    while (start > 0 && isWordChar(text[start - 1] ?? "")) start -= 1;
+    while (end < text.length && isWordChar(text[end] ?? "")) end += 1;
+    if (start === end) return;
+    textarea.focus({ preventScroll: true });
+    textarea.setSelectionRange(start, end);
+    refreshCaret();
+  };
+
+  // React's onWheel is passive and cannot preventDefault; the overlay covers the
+  // textarea, so forward wheel deltas to it natively. When the textarea cannot scroll
+  // any further the event keeps bubbling, preserving ancestor scroll/zoom chaining.
+  useEffect(() => {
+    const overlay = overlayRef.current;
+    const textarea = textareaRef.current;
+    if (!showOverlay || !overlay || !textarea) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.deltaY && !event.deltaX) return;
+      const style = getComputedStyle(textarea);
+      const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.25 || 16;
+      const unit = event.deltaMode === 1 ? lineHeight : event.deltaMode === 2 ? textarea.clientHeight : 1;
+      const previousTop = textarea.scrollTop;
+      const previousLeft = textarea.scrollLeft;
+      textarea.scrollTop += event.deltaY * unit;
+      textarea.scrollLeft += event.deltaX * unit;
+      if (textarea.scrollTop !== previousTop || textarea.scrollLeft !== previousLeft) {
+        event.preventDefault();
+        overlay.scrollTop = textarea.scrollTop;
+        overlay.scrollLeft = textarea.scrollLeft;
+      }
+    };
+    overlay.addEventListener("wheel", onWheel, { passive: false });
+    return () => overlay.removeEventListener("wheel", onWheel);
+  }, [showOverlay]);
 
   return (
     <div className={`canvas-mention-editor ${containerClassName || ""}`} data-enhanced-caret={Boolean(caret && !isComposing)}>
-      {caret && !isComposing ? <span className="canvas-mention-caret" style={caret} aria-hidden="true" /> : null}
+      {!showOverlay && caret && !isComposing ? <span className="canvas-mention-caret" style={caret} aria-hidden="true" /> : null}
       {showOverlay ? (
         <div
           ref={overlayRef}
           className={`${className || ""} canvas-mention-overlay`}
           aria-hidden="true"
+          onPointerDown={handleOverlayPointerDown}
+          onDoubleClick={handleOverlayDoubleClick}
         >
-          {parts.map((part, index) => {
+          {partsWithOffsets.map((part, index) => {
             if (part.type === "text")
-              return <span key={`${part.value}-${index}`}>{part.value}</span>;
+              return (
+                <span
+                  key={`${part.value}-${index}`}
+                  data-mention-text
+                  data-mention-start={part.start}
+                  data-mention-end={part.end}
+                >
+                  {part.value}
+                </span>
+              );
             const reference = referenceByKey.get(part.key);
             const previewable = Boolean(reference && onPreviewReference);
             const hideName = Boolean(
@@ -401,6 +523,9 @@ export const CanvasResourceMentionTextarea = forwardRef<
               <span
                 key={`${part.key}-${index}`}
                 className={`${part.missing ? "missing" : "reference"} mention-chip-caret${hideName ? " mention-chip-thumb-only" : ""}`}
+                data-mention-chip
+                data-mention-start={part.start}
+                data-mention-end={part.end}
                 style={
                   !hideName && displayWidths[part.key]
                     ? { width: displayWidths[part.key] }
@@ -450,6 +575,12 @@ export const CanvasResourceMentionTextarea = forwardRef<
               </span>
             );
           })}
+          <span className="canvas-mention-overlay-layer" data-mention-layer aria-hidden="true">
+            {selectionRects.map((rect, index) => (
+              <span key={`${rect.left}-${rect.top}-${index}`} className="canvas-mention-selection" style={rect} />
+            ))}
+          </span>
+          {caret && !isComposing ? <span className="canvas-mention-caret" style={caret} aria-hidden="true" /> : null}
         </div>
       ) : null}
       <textarea
@@ -620,10 +751,12 @@ export const CanvasResourceMentionTextarea = forwardRef<
             closeMention();
             return;
           }
+          // Enter inserts a newline like any textarea; generation is an explicit
+          // action via Ctrl/Cmd+Enter or the run button.
           if (
             !mention &&
             event.key === "Enter" &&
-            !event.shiftKey &&
+            (event.ctrlKey || event.metaKey) &&
             onSubmit
           ) {
             event.preventDefault();

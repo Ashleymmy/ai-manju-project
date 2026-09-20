@@ -381,7 +381,7 @@ export function CanvasInspector({
                   value={promptTextFromNode(selectedNode)}
                   references={mentionReferencesForNode(selectedNode.id)}
                   mentionLibrary={mentionLibrary}
-                  placeholder={selectedNode.kind === "video" ? videoSubModePlaceholder(videoSubModeFromNode(selectedNode)) : "输入 @ 可引用已连接节点或资产…，Enter 提交生成"}
+                  placeholder={selectedNode.kind === "video" ? videoSubModePlaceholder(videoSubModeFromNode(selectedNode)) : "输入 @ 可引用已连接节点或资产…，Enter 换行，Ctrl+Enter 生成"}
                   onMentionQueryChange={queueMentionAssetSearch}
                   onSubmit={() => void generateFromNode(selectedNode.id)}
                   onChange={(value) => updateNodePrompt(selectedNode.id, value)}

@@ -1996,13 +1996,18 @@
      两者断行位置不同，覆盖层会逐行错位成双影。 */
   overflow-wrap: break-word;
   word-break: normal;
-  pointer-events: none;
+  /* 覆盖层是唯一的可视排版真源：指针命中、光标与选区高亮都由它换算，
+     原生选区绘制在被隐藏的 textarea 排版上会逐行错位。 */
+  pointer-events: auto;
+  cursor: text;
+  user-select: none;
+  -webkit-user-select: none;
   color: var(--studio-text, #e7e5e4);
 }
 .canvas-mention-overlay + textarea {
   color: transparent;
   -webkit-text-fill-color: transparent;
-  caret-color: var(--studio-accent, #f2f1ed);
+  caret-color: transparent;
 }
 .canvas-mention-overlay .reference,
 .canvas-mention-overlay .missing {
@@ -3476,10 +3481,29 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
 .canvas-mention-editor > .canvas-mention-overlay + textarea {
   color: transparent;
   -webkit-text-fill-color: transparent;
-  caret-color: #ffd478;
+  /* 覆盖层激活时，原生光标/选区都绘制在被隐藏的 textarea 排版上，
+     会与可见的 chip 排版错位（光标"不上不下"、拖选高亮不在一个平面），
+     必须完全隐藏，改由覆盖层测量绘制。 */
+  caret-color: transparent;
+}
+.canvas-mention-editor > .canvas-mention-overlay + textarea::selection {
+  background: transparent;
 }
 .canvas-mention-editor > textarea { caret-color: #ffd478; }
 .canvas-mention-editor[data-enhanced-caret="true"] > textarea { caret-color: transparent; }
+.canvas-mention-overlay-layer {
+  position: absolute;
+  inset: 0;
+  /* 高亮画在文字下层，模拟原生选区的叠放次序；层随覆盖层内容一起滚动 */
+  z-index: -1;
+  overflow: visible;
+  pointer-events: none;
+}
+.canvas-mention-selection {
+  position: absolute;
+  border-radius: 2px;
+  background: rgba(255, 213, 122, 0.32);
+}
 .canvas-mention-caret {
   position: absolute;
   z-index: 3;
