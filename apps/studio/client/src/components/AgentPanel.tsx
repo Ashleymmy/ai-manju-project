@@ -32,6 +32,7 @@ import {
   upsertAgentConversation,
   type AgentConversation,
   type AgentMessage,
+  type AgentToolExecution,
   type AgentToolResult,
   type NormalizedToolCall,
   type OnlineToolContext,
@@ -63,6 +64,10 @@ const SKILL_PRESETS = [
 const BRAINSTORM_PROMPT = "围绕当前画布做一次头脑风暴：给出 5 个不同方向的创意点子，并说明各自的画面潜力。";
 
 const ONLINE_AGENT_MAX_STEPS = 4;
+// 插话后保留最近的对话和已完成工具结果，避免重复执行画布操作。
+const ONLINE_AGENT_HISTORY_LIMIT = 8;
+// 部分输入法确认候选词时只提供兼容键码，没有 isComposing 标记。
+const IME_COMPOSITION_KEY_CODE = 229;
 const ONLINE_AGENT_PROMPT = "你是 AI-Manju 的在线画布助手。首轮必须调用工具：只读问题调用 canvas_get_state，需要改动画布时调用对应画布工具。需要生成内容时调用 canvas_generate_text、canvas_generate_image、canvas_generate_video、canvas_generate_audio 或 canvas_create_generation_flow。不要输出伪造的 JSON ops，不要编造执行结果。涉及已有节点时只能使用当前画布快照中的真实 id；信息不足时先向用户说明。工具返回后必须依据真实结果回答。";
 const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = CANVAS_AGENT_TOOLS.map((item) => ({
   type: "function",
@@ -101,7 +106,7 @@ export default function AgentPanel({
   const [enabled, setEnabled] = useState(false);
   const [connected, setConnected] = useState(false);
   const [activity, setActivity] = useState("未连接");
-  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [messages, setMessageState] = useState<AgentMessage[]>([]);
   const [prompt, setPrompt] = useState("");
   const [waiting, setWaiting] = useState(false);
   const [threadId, setThreadId] = useState<string | undefined>();
@@ -132,6 +137,15 @@ export default function AgentPanel({
   const turnIdRef = useRef(0);
   const interruptedRef = useRef(false);
   const initialPromptSentRef = useRef(false);
+  const messagesRef = useRef<AgentMessage[]>([]);
+  const conversationEpochRef = useRef(0);
+  const onlineToolExecutionRef = useRef<Promise<AgentToolExecution[]> | null>(null);
+
+  const setMessages = (update: AgentMessage[] | ((previous: AgentMessage[]) => AgentMessage[])) => {
+    const next = typeof update === "function" ? update(messagesRef.current) : update;
+    messagesRef.current = next;
+    setMessageState(next);
+  };
 
   const setPendingAgentTool = (value: PendingAgentTool | null) => {
     pendingToolRef.current = value;
@@ -144,6 +158,7 @@ export default function AgentPanel({
 
   // 切换项目时重载该项目的对话列表并开启新对话
   useEffect(() => {
+    conversationEpochRef.current += 1;
     interruptedRef.current = true;
     turnIdRef.current += 1;
     turnAbortRef.current?.abort();
@@ -157,6 +172,13 @@ export default function AgentPanel({
     setWaiting(false);
     initialPromptSentRef.current = false;
   }, [projectId]);
+
+  useEffect(() => () => {
+    conversationEpochRef.current += 1;
+    interruptedRef.current = true;
+    turnIdRef.current += 1;
+    turnAbortRef.current?.abort();
+  }, []);
 
   // 消息变化时自动保存当前对话（标题取首条用户消息）
   useEffect(() => {
@@ -293,12 +315,11 @@ export default function AgentPanel({
 
   const sendPrompt = async () => {
     const text = prompt.trim();
-    if (pendingTool) return;
     if (channel === "online") {
       await sendOnlinePrompt(text);
       return;
     }
-    if (!connected || !text || waiting) return;
+    if (!connected || !text || waiting || pendingTool) return;
     const { signal, turnId } = beginAgentTurn();
     setWaiting(true);
     setActivity("发送中");
@@ -328,7 +349,7 @@ export default function AgentPanel({
   };
 
   const sendOnlinePrompt = async (text: string) => {
-    if (!text || waiting) return;
+    if (!text.trim()) return;
     if (!effectiveModel) {
       const message = modelLoadError || "没有支持 Agent 工具调用的文本模型";
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "error", text: message }]);
@@ -336,25 +357,34 @@ export default function AgentPanel({
       return;
     }
     const { signal, turnId } = beginAgentTurn();
+    setPendingAgentTool(null);
     setWaiting(true);
-    setActivity("在线模型思考中");
-    const userMessage: AgentMessage = { id: `u-${Date.now()}`, role: "user", text };
-    const history = messages
-      .filter((message) => message.role === "user" || message.role === "assistant")
-      .slice(-8)
-      .map((message): ResponseInputMessage => ({ role: message.role as "user" | "assistant", content: message.text }));
-    const requestMessages: ResponseInputMessage[] = [
-      { role: "system", content: ONLINE_AGENT_PROMPT },
-      ...history,
-      {
-        role: "user",
-        content: `当前画布：${JSON.stringify(compactCanvasAgentSnapshot(snapshotRef.current))}\n\n用户需求：${text}`,
-      },
-    ];
-    const assistantId = `a-${Date.now()}`;
+    setActivity(onlineToolExecutionRef.current ? "已收到补充，等待当前画布操作完成" : "在线模型思考中");
+    const userMessage: AgentMessage = { id: `u-${crypto.randomUUID()}`, role: "user", text };
+    const assistantId = `a-${crypto.randomUUID()}`;
     setMessages((prev) => [...prev, userMessage]);
     setPrompt("");
     try {
+      // 模型请求可以立即中断；已开始的画布操作先收尾，再把真实结果交给新一轮。
+      const execution = onlineToolExecutionRef.current;
+      if (execution) await execution;
+      if (!isActiveAgentTurn(turnId) || signal.aborted) return;
+      const history = messagesRef.current
+        .filter((message) => message.id !== userMessage.id && message.role !== "error")
+        .slice(-ONLINE_AGENT_HISTORY_LIMIT)
+        .map((message): ResponseInputMessage => ({
+          role: message.role === "user" ? "user" : "assistant",
+          content: message.role === "tool" ? `画布工具结果：${message.text}` : message.text,
+        }));
+      const requestMessages: ResponseInputMessage[] = [
+        { role: "system", content: ONLINE_AGENT_PROMPT },
+        ...history,
+        {
+          role: "user",
+          content: `当前画布：${JSON.stringify(compactCanvasAgentSnapshot(snapshotRef.current))}\n\n用户需求：${text}`,
+        },
+      ];
+      setActivity("在线模型思考中");
       await runOnlineAgentStep(requestMessages, 1, assistantId, "required", signal, turnId);
     } catch (error) {
       if (!isActiveAgentTurn(turnId) || isAgentTurnCancelled(error)) {
@@ -408,14 +438,26 @@ export default function AgentPanel({
     if (!isActiveAgentTurn(turnId) || signal.aborted) return;
     setWaiting(true);
     setActivity("执行画布工具");
-    const results = await executeToolCalls(context.calls, signal);
+    const epoch = conversationEpochRef.current;
+    const execution = executeToolCalls(context.calls, signal).then((results) => {
+      if (epoch === conversationEpochRef.current) {
+        setMessages((prev) => [...prev, {
+          id: `tool-${crypto.randomUUID()}`,
+          role: "tool",
+          text: results.map((item) => `${toolLabel(item.name)}：${item.result.message}`).join("\n"),
+        }]);
+      }
+      return results;
+    });
+    onlineToolExecutionRef.current = execution;
+    let results: AgentToolExecution[];
+    try {
+      results = await execution;
+    } finally {
+      if (onlineToolExecutionRef.current === execution) onlineToolExecutionRef.current = null;
+    }
     if (!isActiveAgentTurn(turnId) || signal.aborted) return;
     const failed = results.some((item) => !item.result.ok);
-    setMessages((prev) => [...prev, {
-      id: `tool-${Date.now()}`,
-      role: "tool",
-      text: results.map((item) => `${toolLabel(item.name)}：${item.result.message}`).join("\n"),
-    }]);
     if (failed || context.step >= ONLINE_AGENT_MAX_STEPS) {
       upsertAssistantMessage(
         context.assistantId,
@@ -467,6 +509,7 @@ export default function AgentPanel({
   };
 
   const executeAgentTool = async (name: string, input: Record<string, unknown>): Promise<AgentToolResult> => {
+    const epoch = conversationEpochRef.current;
     if (!isCanvasAgentToolName(name)) return { ok: false, message: `不支持的工具：${name}` };
     if (isCanvasAgentWorkspaceTool(name)) return onExecuteWorkspaceToolRef.current(name, input);
     const current = snapshotRef.current;
@@ -482,7 +525,7 @@ export default function AgentPanel({
     if (!ops.length) return { ok: false, message: `${toolLabel(name)}没有生成可执行操作。` };
     const before = JSON.stringify(compactCanvasAgentSnapshot(current));
     const execution = await onApplyOpsRef.current(ops);
-    snapshotRef.current = execution.snapshot;
+    if (epoch === conversationEpochRef.current) snapshotRef.current = execution.snapshot;
     const after = JSON.stringify(compactCanvasAgentSnapshot(execution.snapshot));
     const failedGeneration = execution.generationResults.find((item) => item.status !== "succeeded");
     const changed = before !== after || execution.generationResults.length > 0;
@@ -646,6 +689,7 @@ export default function AgentPanel({
   };
 
   const disconnect = () => {
+    conversationEpochRef.current += 1;
     interruptedRef.current = true;
     turnIdRef.current += 1;
     turnAbortRef.current?.abort();
@@ -706,6 +750,7 @@ export default function AgentPanel({
   const outputNodes = snapshot.nodes.filter((node) => node.imageSrc || node.imageAssetId);
 
   const newConversation = () => {
+    conversationEpochRef.current += 1;
     interruptedRef.current = true;
     turnIdRef.current += 1;
     turnAbortRef.current?.abort();
@@ -720,6 +765,7 @@ export default function AgentPanel({
   };
 
   const switchConversation = (conv: AgentConversation) => {
+    conversationEpochRef.current += 1;
     interruptedRef.current = true;
     turnIdRef.current += 1;
     turnAbortRef.current?.abort();
@@ -1031,10 +1077,13 @@ export default function AgentPanel({
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendPrompt(); }
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== IME_COMPOSITION_KEY_CODE) {
+                  e.preventDefault();
+                  void sendPrompt();
+                }
               }}
-              placeholder="描述创意或需求，/ 使用技能，@ 引用画布内容"
-              disabled={(channel === "online" && !effectiveModel) || (channel === "local" && !connected) || waiting || Boolean(pendingTool)}
+              placeholder={busy ? "可以继续补充或调整要求，按 Enter 发送" : "描述创意或需求，/ 使用技能，@ 引用画布内容"}
+              disabled={(channel === "online" && !effectiveModel) || (channel === "local" && !connected)}
               rows={2}
             />
             <input
@@ -1229,7 +1278,7 @@ export default function AgentPanel({
                     </div>
                   )}
                 </div>
-                {busy ? (
+                {busy && (
                   <button
                     type="button"
                     className="agent-send-btn agent-stop-btn"
@@ -1239,16 +1288,17 @@ export default function AgentPanel({
                   >
                     <Square size={13} />
                   </button>
-                ) : (
-                  <button
-                    className="agent-send-btn"
-                    onClick={() => void sendPrompt()}
-                    disabled={(channel === "online" && !effectiveModel) || (channel === "local" && !connected) || !prompt.trim()}
-                    aria-label="发送"
-                  >
-                    <ArrowUp size={16} />
-                  </button>
                 )}
+                <button
+                  type="button"
+                  className="agent-send-btn"
+                  onClick={() => void sendPrompt()}
+                  disabled={(channel === "online" && !effectiveModel) || (channel === "local" && (!connected || busy)) || !prompt.trim()}
+                  aria-label="发送"
+                  title={busy ? "发送补充要求" : "发送"}
+                >
+                  <ArrowUp size={16} />
+                </button>
               </div>
             </div>
           </div>
