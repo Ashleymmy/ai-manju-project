@@ -1,8 +1,9 @@
 import { getAssetMediaUrl } from "@/entities/asset";
 import { getJob, isTerminalJob, jobErrorMessage, type Job } from "@/entities/job";
-import { fetchModelCatalog, videoModelProtocol } from "@/entities/model";
+import { fetchModelCatalog, videoModelLabel, videoModelProtocol } from "@/entities/model";
 import { API_BASE_URL, ApiError, getAuthToken, request } from "@/shared/api/http";
 import type { WorkspaceScope } from "@/shared/config";
+import { createRandomUUID } from "@/shared/lib/cryptoRandomUuid";
 
 export type VideoProvider = "openai" | "seedance";
 
@@ -81,6 +82,8 @@ export type VideoGenerationTaskState =
 
 type RequestOptions = {
   signal?: AbortSignal;
+  /** Reuse only when retrying transmission of the same submission, not a new generation. */
+  idempotencyKey?: string;
   conversationId?: string;
   messageId?: string;
   onProgress?: (job: Job) => void;
@@ -137,6 +140,7 @@ export const videoReferenceLimits = {
   images: 9,
   videos: 3,
   audios: 3,
+  audioOnly: false,
   imageMaxBytes: 30 * 1024 * 1024,
   videoMaxBytes: 50 * 1024 * 1024,
   audioMaxBytes: 15 * 1024 * 1024,
@@ -150,6 +154,27 @@ export const videoReferenceLimits = {
   videoMinPixels: 640 * 640,
   videoMaxPixels: 2206 * 946,
 } as const;
+
+// Official Create Video Task API, checked 2026-09-20:
+// https://docs.volcengine.com/docs/ark/create-video-generation-task-api?lang=zh
+// 2.5 permits 30 images / 10 videos / 10 audios, with separate 30s totals.
+const seedance25ReferenceLimits = {
+  ...videoReferenceLimits,
+  images: 30,
+  videos: 10,
+  audios: 10,
+  audioOnly: true,
+  mediaMaxDurationMs: 30_000,
+  mediaMaxTotalDurationMs: 30_000,
+} as const;
+
+export function videoReferenceLimitsForModel(model: string) {
+  const name = modelOptionName(model);
+  // Labels identify opaque Ark endpoints, never override an explicit 2.0/Wan ID.
+  const versionName = name.startsWith("ep-") ? videoModelLabel(model) || "" : name;
+  return isSeedanceVideoModel(model) && /seedance[-_\s]*2[._-]5(?:$|[^\d])/i.test(versionName)
+    ? seedance25ReferenceLimits : videoReferenceLimits;
+}
 
 export const videoModelSettings = {
   seedanceResolutions,
@@ -274,9 +299,13 @@ export async function createVideoGenerationTask(
   const text = prompt.trim();
   if (!text) throw new Error("请输入视频提示词");
   validateVideoGenerationReferences(referenceSnapshot, normalized.model);
+  // Each explicit generation is a new intent even with identical parameters.
+  // Otherwise native jobs fall back to a payload fingerprint and return an old
+  // completed task. Keep this key stable across any transport retry of this call.
+  const submissionOptions = { ...options, idempotencyKey: options.idempotencyKey || `video-${createRandomUUID()}` };
   return isSeedanceVideoModel(normalized.model)
-    ? createSeedanceTask(normalized, text, referenceSnapshot, options)
-    : createOpenAiVideoTask(normalized, text, referenceSnapshot, options);
+    ? createSeedanceTask(normalized, text, referenceSnapshot, submissionOptions)
+    : createOpenAiVideoTask(normalized, text, referenceSnapshot, submissionOptions);
 }
 
 export function validateVideoGenerationReferences(
@@ -284,9 +313,10 @@ export function validateVideoGenerationReferences(
   model: string,
 ) {
   const seedance = isSeedanceVideoModel(model);
-  if (references.images.length > videoReferenceLimits.images) throw new Error("参考图片最多 9 张");
-  if (references.videos.length > videoReferenceLimits.videos) throw new Error("参考视频最多 3 个");
-  if (references.audios.length > videoReferenceLimits.audios) throw new Error("参考音频最多 3 个");
+  const limits = videoReferenceLimitsForModel(model);
+  if (references.images.length > limits.images) throw new Error(`参考图片最多 ${limits.images} 张`);
+  if (references.videos.length > limits.videos) throw new Error(`参考视频最多 ${limits.videos} 个`);
+  if (references.audios.length > limits.audios) throw new Error(`参考音频最多 ${limits.audios} 个`);
   if (!seedance) {
     if (references.videos.length || references.audios.length) {
       throw new Error("OpenAI-compatible 视频模型仅支持参考图片，请移除参考视频/音频或切换 Seedance/Wan 模型");
@@ -295,7 +325,7 @@ export function validateVideoGenerationReferences(
       throw new Error("OpenAI-compatible 视频模型最多支持 7 张参考图片");
     }
   }
-  if (references.audios.length && !references.images.length && !references.videos.length) {
+  if (!limits.audioOnly && references.audios.length && !references.images.length && !references.videos.length) {
     throw new Error("Seedance 参考音频不能单独使用，请同时添加参考图或参考视频");
   }
   references.images.forEach((reference, index) => {
@@ -318,11 +348,11 @@ export function validateVideoGenerationReferences(
     if (!isSupportedVideoReference(reference)) throw new Error(`参考视频${index + 1}格式不支持，请使用 mp4/mov`);
     if (!Number.isFinite(reference.bytes) || reference.bytes <= 0) throw new Error(`参考视频${index + 1}读取失败`);
     if (reference.bytes > videoReferenceLimits.videoMaxBytes) throw new Error(`参考视频${index + 1}超过 50MB`);
-    assertReferenceDuration(reference.durationMs, `参考视频${index + 1}`);
+    assertReferenceDuration(reference.durationMs, `参考视频${index + 1}`, limits.mediaMaxDurationMs);
     assertReferenceVideoGeometry(reference, index);
     videoDurationMs += reference.durationMs;
   });
-  if (videoDurationMs > videoReferenceLimits.mediaMaxTotalDurationMs) throw new Error("参考视频总时长不能超过 15 秒");
+  if (videoDurationMs > limits.mediaMaxTotalDurationMs) throw new Error(`参考视频总时长不能超过 ${limits.mediaMaxTotalDurationMs / 1000} 秒`);
   let audioDurationMs = 0;
   references.audios.forEach((reference, index) => {
     if (isAssetReference(reference.url)) {
@@ -333,10 +363,10 @@ export function validateVideoGenerationReferences(
     if (!isSupportedAudioReference(reference)) throw new Error(`参考音频${index + 1}格式不支持，请使用 mp3/wav`);
     if (!Number.isFinite(reference.bytes) || reference.bytes <= 0) throw new Error(`参考音频${index + 1}读取失败`);
     if (reference.bytes > videoReferenceLimits.audioMaxBytes) throw new Error(`参考音频${index + 1}超过 15MB`);
-    assertReferenceDuration(reference.durationMs, `参考音频${index + 1}`);
+    assertReferenceDuration(reference.durationMs, `参考音频${index + 1}`, limits.mediaMaxDurationMs);
     audioDurationMs += reference.durationMs;
   });
-  if (audioDurationMs > videoReferenceLimits.mediaMaxTotalDurationMs) throw new Error("参考音频总时长不能超过 15 秒");
+  if (audioDurationMs > limits.mediaMaxTotalDurationMs) throw new Error(`参考音频总时长不能超过 ${limits.mediaMaxTotalDurationMs / 1000} 秒`);
 }
 
 export async function pollVideoGenerationTask(
@@ -363,7 +393,7 @@ async function createOpenAiVideoTask(
   config: VideoGenerationConfig,
   prompt: string,
   references: VideoGenerationReferences,
-  options: RequestOptions,
+  options: RequestOptions & { idempotencyKey: string },
 ): Promise<VideoGenerationTask> {
   if (references.videos.length || references.audios.length) {
     throw new Error("OpenAI-compatible 视频模型仅支持参考图片，请移除参考视频/音频或切换 Seedance/Wan 模型");
@@ -386,6 +416,7 @@ async function createOpenAiVideoTask(
   });
   const created = await request<JobSubmission>("/api/ai/videos", {
     method: "POST",
+    headers: { "Idempotency-Key": options.idempotencyKey },
     body,
     signal: options.signal,
     timeoutMs: config.model.startsWith("sdvideo/") ? sdVideoSubmissionTimeoutMs : 30_000,
@@ -399,13 +430,14 @@ async function createSeedanceTask(
   config: VideoGenerationConfig,
   prompt: string,
   references: VideoGenerationReferences,
-  options: RequestOptions,
+  options: RequestOptions & { idempotencyKey: string },
 ): Promise<VideoGenerationTask> {
   const content = await buildSeedanceContent(config, prompt, references);
   const created = unwrapSeedanceTask(await request<ApiEnvelope<SeedanceTask>>(
     "/api/ai/contents/generations/tasks",
     {
       method: "POST",
+      headers: { "Idempotency-Key": options.idempotencyKey },
       body: {
         model: config.model,
         conversation_id: options.conversationId,
@@ -592,13 +624,13 @@ function dataUrlByteSize(dataUrl: string) {
   return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
 }
 
-function assertReferenceDuration(durationMs: number, label: string) {
+function assertReferenceDuration(durationMs: number, label: string, maxDurationMs: number) {
   if (
     !Number.isFinite(durationMs)
     || durationMs < videoReferenceLimits.mediaMinDurationMs
-    || durationMs > videoReferenceLimits.mediaMaxDurationMs
+    || durationMs > maxDurationMs
   ) {
-    throw new Error(`${label}时长需要在 2-15 秒之间`);
+    throw new Error(`${label}时长需要在 2-${maxDurationMs / 1000} 秒之间`);
   }
 }
 

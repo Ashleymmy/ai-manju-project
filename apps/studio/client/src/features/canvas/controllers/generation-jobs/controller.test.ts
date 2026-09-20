@@ -585,6 +585,8 @@ describe("CanvasGenerationJobsController", () => {
     });
     expect(harness.edges).toEqual([]);
 
+    expect(harness.runningIds.has("video-1")).toBe(true);
+    expect(harness.onSuccess).not.toHaveBeenCalled();
     expect(collectCanvasGenerationHistory(harness.nodes).map(item => item.assetId)).toEqual(["asset-video-1"]);
     const pending = normalizeCanvasNode(JSON.parse(JSON.stringify(serializeCanvasNode(harness.nodes[0]!))))!;
     expect(pending.metadata?.generationRevisions).toEqual([expect.objectContaining({ kind: "video", assetId: "asset-video-1" })]);
@@ -599,7 +601,28 @@ describe("CanvasGenerationJobsController", () => {
       kind: "video",
       metadata: { assetId: "asset-video-2", status: "success" },
     });
+    expect(harness.runningIds.has("video-1")).toBe(false);
+    expect(harness.onSuccess).toHaveBeenCalledWith("视频生成完成，节点结果已更新");
     expect(harness.onError).not.toHaveBeenCalled();
+  });
+
+  it("视频再次生成失败时保留旧视频并显示节点错误和反馈", async () => {
+    const services = createServices({
+      createVideoGenerationTask: vi.fn(async () => ({ id: "job_new", provider: "seedance", model: "seedance-2.5" })),
+      pollVideoGenerationTask: vi.fn(async () => ({ status: "failed", error: "本次视频生成失败" })),
+      getAssetContentObjectUrl: vi.fn(async () => "blob:old-video"),
+      fetchBlob: vi.fn(async () => new Blob(["video"], { type: "video/mp4" })),
+      readVideoMetadata: vi.fn(async () => ({ width: 1280, height: 720, durationMs: 6000 })),
+    });
+    const harness = createHarness([videoNode({ metadata: {
+      assetId: "old-video", status: "success", prompt: "重新生成", generationMode: "video", model: "seedance-2.5",
+    } })], services);
+    await harness.controller.generateFromNode("video-1");
+    expect(harness.nodes).toHaveLength(1);
+    expect(harness.nodes[0].metadata).toMatchObject({ assetId: "old-video", status: "error", errorDetails: "本次视频生成失败" });
+    expect(harness.onError).toHaveBeenCalledWith("本次视频生成失败");
+    expect(harness.onSuccess).not.toHaveBeenCalled();
+    expect(harness.runningIds.size).toBe(0);
   });
 
   it("用户导入的视频节点生成时创建新节点并保留原素材", async () => {

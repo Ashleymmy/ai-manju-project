@@ -57,6 +57,32 @@ describe("video API", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(["provider::doubao-seedance-2-5-pro", config.model, "sdvideo/seedance-2.0", "sdvideo/vidu-q2"])(
+    "same-parameter regeneration creates a new %s task, while retransmission can reuse its key", async model => {
+      const jobs = new Map<string, string>();
+      vi.mocked(fetch).mockImplementation(async (_url, init) => {
+        // Match the server's fallback: without a submission key, identical
+        // payloads would return the same old task, including a completed one.
+        const fingerprint = init?.body instanceof FormData
+          ? JSON.stringify(Array.from(init.body.entries())) : String(init?.body);
+        const key = new Headers(init?.headers).get("Idempotency-Key") || fingerprint;
+        if (!jobs.has(key)) jobs.set(key, `job_${jobs.size + 1}`);
+        return apiResponse({ id: jobs.get(key), job_id: jobs.get(key) });
+      });
+      const first = await createVideoGenerationTask({ ...config, model }, "同一提示词");
+      const second = await createVideoGenerationTask({ ...config, model }, "同一提示词");
+      expect(second.id).not.toBe(first.id);
+      const firstKey = new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers).get("Idempotency-Key");
+      const secondKey = new Headers(vi.mocked(fetch).mock.calls[1][1]?.headers).get("Idempotency-Key");
+      expect(firstKey).toMatch(/^video-[0-9a-f-]{36}$/);
+      expect(secondKey).not.toBe(firstKey);
+      const repeated = await createVideoGenerationTask({ ...config, model }, "同一提示词", undefined, { idempotencyKey: secondKey! });
+      expect(repeated.id).toBe(second.id);
+      expect(jobs.size).toBe(2);
+      expect(fetch).toHaveBeenCalledTimes(3);
+    },
+  );
+
   it.each([7, 23, 30])("routes configured Ark endpoints with registered references at %i seconds", async seconds => {
     const model = "official::ep-test";
     vi.mocked(fetch)
@@ -76,6 +102,35 @@ describe("video API", () => {
       content: expect.arrayContaining([{ type: "image_url", image_url: { url: "asset://person" }, role: "reference_image" }]),
     });
     expect(task).toMatchObject({ provider: "seedance", id: "job_official" });
+  });
+
+  it.each(["official::ep-seedance25", "sdvideo/seedance-2.5"])("submits every 2.5 reference through %s without truncation", async model => {
+    const opaque = model.includes("::ep-");
+    if (opaque) vi.mocked(fetch).mockResolvedValueOnce(apiResponse({
+      video_models: [model], video_model_protocols: { [model]: "seedance" }, model_labels: { [model]: "seedance 2.5" },
+    }));
+    vi.mocked(fetch).mockResolvedValueOnce(apiResponse({ id: "job_full_refs" }));
+    const image = { id: "image", kind: "image" as const, name: "image", mime: "image/png", bytes: 0, width: 0, height: 0 };
+    const references = {
+      images: Array.from({ length: 30 }, (_, i) => ({ ...image, url: `asset://image-${i}` })),
+      videos: Array.from({ length: 10 }, (_, i) => ({ ...image, kind: "video" as const, mime: "video/mp4", durationMs: 0, url: `asset://video-${i}` })),
+      audios: Array.from({ length: 10 }, (_, i) => ({ ...image, kind: "audio" as const, mime: "audio/mpeg", durationMs: 0, url: `asset://audio-${i}` })),
+    };
+    // Cold endpoint lookup must populate both the protocol and the version label.
+    await createVideoGenerationTask({ ...config, model }, "参考全部素材", references);
+    const call = vi.mocked(fetch).mock.calls[opaque ? 1 : 0];
+    const body = JSON.parse(String(call[1]?.body));
+    expect(new URL(String(call[0])).pathname).toBe("/api/ai/contents/generations/tasks");
+    for (const [kind, count] of [["image", 30], ["video", 10], ["audio", 10]] as const) {
+      const items = body.content.filter((item: { type: string }) => item.type === `${kind}_url`);
+      expect(items).toHaveLength(count);
+      expect(items[count - 1][`${kind}_url`].url).toBe(`asset://${kind}-${count - 1}`);
+      expect(items[count - 1].role).toBe(`reference_${kind}`);
+    }
+    references.images.push(references.images[0]);
+    const callsBeforeInvalid = vi.mocked(fetch).mock.calls.length;
+    await expect(createVideoGenerationTask({ ...config, model }, "超限", references)).rejects.toThrow("参考图片最多 30 张");
+    expect(fetch).toHaveBeenCalledTimes(callsBeforeInvalid);
   });
 
   it.each(["sdvideo/seedance-2.0", "sdvideo/vidu-q2"])("等待 %s 参考媒体上传超过 30 秒后返回原任务", async (model) => {
