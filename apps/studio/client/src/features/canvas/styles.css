@@ -4449,6 +4449,17 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   width: min(860px, calc(100vw - 2rem));
   max-width: 860px;
   max-height: 84vh;
+  overflow-y: auto;
+}
+.prompt-library-transfer-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.prompt-library-transfer-actions > button {
+  min-width: 0;
+  padding-inline: 8px;
+  white-space: nowrap;
 }
 .prompt-library-personal-list > .outline-button {
   width: 100%;
@@ -4587,6 +4598,12 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   color: #bbbbbb;
   font-size: 11px;
   padding: 20px 0;
+}
+@media (max-width: 640px) {
+  .prompt-library-personal-layout { grid-template-columns: minmax(0, 1fr); }
+  .prompt-library-personal-list { border-right: 0; padding-right: 0; }
+  .prompt-library-personal-items { max-height: 180px; flex: none; }
+  .prompt-library-personal-editor { overflow-y: visible; }
 }
 /* ---- Canvas: 闁告帒妫濋弳鍛村冀韫囨洜妞介弶鍫熷煀缁辨瑩寮崼鏇燂紵閺夌偞娼欑槐锟犳晬?---- */
 .storyboard-timeline-dialog {
