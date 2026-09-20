@@ -4,7 +4,6 @@ import {
   Archive,
   ArrowRight,
   ArrowUp,
-  BookMarked,
   BookOpen,
   Bot,
   Camera,
@@ -286,7 +285,6 @@ export function CanvasInspector({
     setPromptLibraryNodeId,
     setStyleCategory,
     setStoryboardEditorNodeId,
-    setPresetManagerOpen,
     onSkillsOpen,
     optimizeNodePrompt,
     setSkillLibraryOpen,
@@ -591,7 +589,6 @@ export function CanvasInspector({
                   </Popover>
                 ) : null}
                 {selectedNode.kind === "video" ? <button title="分镜栏编辑" onClick={() => setStoryboardEditorNodeId(selectedNode.id)}><GalleryHorizontalEnd size={14} /></button> : null}
-                {selectedNode.kind === "image" ? <button title="我的提示词预设" onClick={() => setPresetManagerOpen(true)}><BookMarked size={14} /></button> : null}
                 {selectedNode.kind !== "director" ? (
                   <Popover key={`${selectedNode.id}:skills`} active={inspectorOpen && !projectActionDisabled} onOpenChange={(open) => { if (open) onSkillsOpen(); }}>
                     <PopoverTrigger asChild>
