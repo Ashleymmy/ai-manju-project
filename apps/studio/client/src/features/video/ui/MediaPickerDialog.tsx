@@ -1,3 +1,6 @@
+import { RetryImage } from "@/shared/ui/RetryImage";
+import { VideoThumbnail } from "@/shared/ui/VideoThumbnail";
+import { getAssetMediaUrl } from "@/entities/asset";
 import { Check, ChevronLeft, ChevronRight, Film, FolderOpen, Image as ImageIcon, Loader2, Music2, RefreshCw, Search, UserRoundCog } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -10,7 +13,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  getAssetContentObjectUrl,
   getAssetLibrary,
   listUserSeedanceAssets,
   seedanceAssetRef,
@@ -19,7 +21,7 @@ import {
   type SeedanceAssetTag,
 } from "@/entities/asset";
 import { listTags, type SemanticTag } from "@/entities/tag";
-import { SeedanceAssetUpload, useSeedanceAssetPreview } from "@/components/SeedanceAssetMedia";
+import { SeedanceAssetUpload, SeedanceAssetThumbnail } from "@/components/SeedanceAssetMedia";
 import { publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 
@@ -30,7 +32,6 @@ import { workbenchFormatBytes } from "../model/referenceEngine";
    「真人(火山)」页签数据来自 Seedance 素材接口（/api/ai/seedance-assets/mentions），
    选中后以 asset:// 引用直通视频生成，无需下载文件。 */
 
-const pickerThumbCache = new Map<string, string>();
 
 /** 每页条数（网格 4-6 列，约 4 行） */
 const PICKER_PAGE_SIZE = 24;
@@ -398,7 +399,7 @@ function PickerCard({
   disabled: boolean;
   onToggle: () => void;
 }) {
-  const thumb = usePickerThumb(asset, scope);
+  const thumb = asset.type === "image" ? getAssetMediaUrl(asset.id, scope, 320) : "";
   const Icon = asset.type === "image" ? ImageIcon : asset.type === "video" ? Film : Music2;
   return (
     <button
@@ -408,9 +409,9 @@ function PickerCard({
       onClick={onToggle}
     >
       <span className="wb-picker-thumb">
-        {thumb && asset.type === "image" ? <img src={thumb} alt={asset.name} loading="lazy" /> : null}
-        {thumb && asset.type === "video" ? <video src={thumb} muted preload="metadata" /> : null}
-        {!thumb ? <Icon size={20} /> : null}
+        {thumb && asset.type === "image" ? <RetryImage src={thumb} alt={asset.name} loading="lazy" /> : null}
+        {asset.type === "video" ? <VideoThumbnail src={getAssetMediaUrl(asset.id, scope)} alt={asset.name} /> : null}
+        {!thumb && asset.type !== "video" ? <Icon size={20} /> : null}
         <i className="wb-picker-check">{selected ? <Check size={12} /> : null}</i>
       </span>
       <span className="wb-picker-name">{asset.name || asset.id.slice(-8)}</span>
@@ -419,7 +420,7 @@ function PickerCard({
   );
 }
 
-/** 火山真人素材卡片：source_url 直接预览，选中后以 asset:// 引用。 */
+/** 火山真人素材卡片使用缩略图，选中后仍以 asset:// 引用原素材。 */
 function VolcanoCard({
   asset,
   selected,
@@ -432,7 +433,6 @@ function VolcanoCard({
   onToggle: () => void;
 }) {
   const status = volcanoStatusLabel(asset.status);
-  const previewUrl = useSeedanceAssetPreview(asset.source_url);
   return (
     <button
       type="button"
@@ -442,9 +442,7 @@ function VolcanoCard({
       onClick={onToggle}
     >
       <span className="wb-picker-thumb">
-        {previewUrl && asset.asset_type === "Video" ? <video src={previewUrl} muted playsInline preload="metadata" /> : null}
-        {previewUrl && asset.asset_type !== "Video" ? <img src={previewUrl} alt={asset.name} loading="lazy" /> : null}
-        {!previewUrl ? <UserRoundCog size={20} /> : null}
+        <SeedanceAssetThumbnail source={asset.source_url} assetType={asset.asset_type} name={asset.name} />
         <i className={`wb-picker-status ${status.tone}`}>{status.text}</i>
         <i className="wb-picker-check">{selected ? <Check size={12} /> : null}</i>
       </span>
@@ -472,21 +470,4 @@ function uniqueSeedanceTags(tags: SeedanceAssetTag[]) {
     seen.add(tag.id);
     return true;
   });
-}
-
-function usePickerThumb(asset: Asset, scope: WorkspaceScope) {
-  const cacheKey = `${scope}:${asset.id}`;
-  const [url, setUrl] = useState(() => pickerThumbCache.get(cacheKey) || "");
-  useEffect(() => {
-    if (url || asset.type === "audio") return;
-    let alive = true;
-    getAssetContentObjectUrl(asset.id, scope, 320)
-      .then((value) => {
-        pickerThumbCache.set(cacheKey, value);
-        if (alive) setUrl(value);
-      })
-      .catch(() => undefined);
-    return () => { alive = false; };
-  }, [asset.id, asset.type, cacheKey, scope, url]);
-  return url;
 }

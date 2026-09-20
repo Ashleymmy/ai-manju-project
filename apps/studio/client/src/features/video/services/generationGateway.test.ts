@@ -261,15 +261,16 @@ describe("video API", () => {
     expect(state).toEqual({
       status: "completed",
       result: {
-        url: "blob:video-result",
+        url: expect.stringContaining("/api/assets/asset-video/content?scope=team"),
         mimeType: "video/mp4",
         fileName: "result.mp4",
         assetId: "asset-video",
         scope: "team",
-        ephemeral: true,
+        ephemeral: false,
       },
     });
-    expect(new URL(String(vi.mocked(fetch).mock.calls[1][0])).pathname).toBe("/api/assets/asset-video/content");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 
   it("forwards abort signals during task creation and result download", async () => {

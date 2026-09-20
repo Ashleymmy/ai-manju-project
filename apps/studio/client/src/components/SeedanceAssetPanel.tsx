@@ -3,7 +3,7 @@ import { Copy, Loader2, RefreshCw, Search, UserRoundCog } from "lucide-react";
 import { toast } from "sonner";
 
 import { listUserSeedanceAssets, seedanceAssetRef, type SeedanceAsset } from "@/entities/asset";
-import { SeedanceAssetUpload, useSeedanceAssetPreview } from "./SeedanceAssetMedia";
+import { SeedanceAssetUpload, SeedanceAssetThumbnail } from "./SeedanceAssetMedia";
 import type { WorkspaceScope } from "@/shared/config";
 import { publicApiError } from "@/shared/api/errors";
 import "../pages/video-workbench/workbench.css";
@@ -92,7 +92,6 @@ export default function SeedanceAssetPanel({ scope }: { scope: WorkspaceScope })
 
 function SeedanceCard({ asset }: { asset: SeedanceAsset }) {
   const status = statusLabel(asset.status);
-  const previewUrl = useSeedanceAssetPreview(asset.source_url);
   const active = asset.status === "Active" && Boolean(asset.volcano_asset_id);
   return (
               <article key={asset.id} className="wb-seedance-card">
@@ -103,9 +102,7 @@ function SeedanceCard({ asset }: { asset: SeedanceAsset }) {
                   title="复制 asset:// 引用，可在视频提示词中引用该素材"
                   onClick={() => void navigator.clipboard.writeText(seedanceAssetRef(asset)).then(() => toast.success(`已复制 ${seedanceAssetRef(asset)}`))}
                 >
-                  {previewUrl && asset.asset_type === "Image" ? <img src={previewUrl} alt={asset.name} loading="lazy" /> : null}
-                  {previewUrl && asset.asset_type === "Video" ? <video src={previewUrl} muted playsInline preload="metadata" /> : null}
-                  {!previewUrl ? <UserRoundCog size={22} /> : null}
+                  <SeedanceAssetThumbnail source={asset.source_url} assetType={asset.asset_type} name={asset.name} />
                   <span className={`wb-seedance-status ${status.tone}`}>{status.text}</span>
                   <i className="wb-seedance-copy"><Copy size={11} /></i>
                 </button>

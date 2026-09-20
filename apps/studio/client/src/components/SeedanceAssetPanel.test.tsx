@@ -42,3 +42,22 @@ it("上传注册后轮询状态，仅 Active 素材允许引用", async () => {
   expect(container.querySelector<HTMLButtonElement>(".wb-seedance-thumb")!.disabled).toBe(false);
   expect(container.textContent).toContain("asset://remote-one");
 });
+
+it("renders image and video material cards from thumbnails without fetching originals", async () => {
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  api.listUserSeedanceAssets.mockResolvedValue({ items: ["Image", "Video"].map((asset_type, index) => ({
+    id: String(index), name: asset_type, status: "Active", asset_type, volcano_asset_id: `registered-${index}`,
+    source_url: `/api/sd-video/volcano/assets/${index}/content?scope=team`,
+  })), total: 2 });
+  await act(async () => root.render(<SeedanceAssetPanel scope="team" />));
+  await act(async () => vi.advanceTimersByTimeAsync(260));
+  const images = container.querySelectorAll("img");
+  expect(images).toHaveLength(2);
+  for (const img of images) {
+    expect(img.src).toContain("/thumbnail?scope=team");
+    expect(img.getAttribute("loading")).toBe("lazy");
+  }
+  expect(container.querySelector("video")).toBeNull();
+  expect(fetcher).not.toHaveBeenCalled();
+});

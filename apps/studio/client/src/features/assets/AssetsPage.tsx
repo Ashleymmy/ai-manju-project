@@ -572,7 +572,7 @@ export function AssetLibraryView() {
       return "";
     });
     try {
-      const url = await getAssetContentObjectUrl(asset.id, scope);
+      const url = asset.type === "video" ? getAssetMediaUrl(asset.id, scope) : await getAssetContentObjectUrl(asset.id, scope);
       if (lightboxRequestRef.current !== requestId) {
         URL.revokeObjectURL(url);
         return;

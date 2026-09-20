@@ -1,3 +1,4 @@
+import { RetryImage } from "@/shared/ui/RetryImage";
 import {
   BookOpen,
   Check,
@@ -162,7 +163,7 @@ export function CanvasAssetPickerDialog({
                 onClick={() => onToggleItem(asset.id)}
               >
                 {thumb ? (
-                  <img className="canvas-asset-picker-thumb" src={thumb} alt="" />
+                  <RetryImage className="canvas-asset-picker-thumb" src={thumb} alt="" />
                 ) : (
                   <span className="canvas-asset-picker-fallback"><Icon size={22} /></span>
                 )}

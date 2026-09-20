@@ -1,3 +1,4 @@
+import { VideoThumbnail } from "@/shared/ui/VideoThumbnail";
 import { Download, Film, Image as ImageIcon, Loader2, Music2, Pencil, RotateCcw, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -170,7 +171,7 @@ function SystemTaskCard({
         {status === "succeeded" && videoUrl ? (
           <div className="wb-task-video" onClick={() => onOpenMedia(videoUrl, "video")} role="button" tabIndex={0}
             onKeyDown={(event) => { if (event.key === "Enter") onOpenMedia(videoUrl, "video"); }}>
-            <video src={`${videoUrl}#t=0.5`} preload="metadata" muted />
+            <VideoThumbnail src={videoUrl} />
             <span className="wb-task-play"><Film size={18} /></span>
           </div>
         ) : null}

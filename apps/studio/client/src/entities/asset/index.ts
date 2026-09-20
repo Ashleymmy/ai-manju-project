@@ -44,6 +44,7 @@ export {
   getUserSeedanceAsset,
   uploadUserSeedanceAsset,
   seedanceAssetPreviewSource,
+  seedanceAssetThumbnailSource,
   getSeedanceAssetPreviewUrl,
   listAdminSeedanceAssets,
   getAdminSeedanceAsset,

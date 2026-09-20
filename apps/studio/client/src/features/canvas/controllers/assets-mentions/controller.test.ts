@@ -44,6 +44,7 @@ function createServices(overrides: Partial<CanvasAssetsMentionsServices> = {}) {
   return {
     getAssetLibrary: vi.fn(async () => ({ items: [], total: 0, page: 1, page_size: 60 })),
     getAssetFolders: vi.fn(async () => []),
+    getAssetMediaUrl: vi.fn((id: string, scope: string, width?: number) => `/api/assets/${id}/content?scope=${scope}${width ? `&thumbnail=${width}` : ""}`),
     getAssetContentObjectUrl: vi.fn(async (assetId: string) => `blob:thumb-${assetId}`),
     listCanvasTextAssets: vi.fn(async () => []),
     createId: () => `node-${++sequence}`,
@@ -124,15 +125,23 @@ function mentionReference(values: Partial<CanvasMentionReference> = {}): CanvasM
 }
 
 describe("CanvasAssetsMentionsController", () => {
-  it("loads small canvas thumbnails while leaving other media unscaled", async () => {
-    const services = createServices();
+  it("publishes all preview URLs immediately without queueing original downloads", () => {
+    const services = createServices({ getAssetContentObjectUrl: vi.fn(() => new Promise(() => undefined)) });
     const image = { ...canvasNode("image"), imageAssetId: "image-original" };
     const video = { ...canvasNode("video"), kind: "video" as const, imageAssetId: "video-original" };
     const { controller } = createHarness([image, video], services);
-    await controller.syncNodePreviews({ projectId: "project-1", canonicalScope: "personal", fallbackScope: "personal" });
-    expect(services.getAssetContentObjectUrl).toHaveBeenCalledWith("image-original", "personal", 320);
-    expect(services.getAssetContentObjectUrl).toHaveBeenCalledWith("video-original", "personal", undefined);
+    controller.syncNodePreviews({ projectId: "project-1", canonicalScope: "personal", fallbackScope: "personal" });
+    expect(controller.getSnapshot().previews).toEqual({
+      "image-original": "/api/assets/image-original/content?scope=personal&thumbnail=320",
+      "video-original": "/api/assets/video-original/content?scope=personal",
+    });
+    expect(services.getAssetContentObjectUrl).not.toHaveBeenCalled();
+    controller.syncNodePreviews({ projectId: "project-1", canonicalScope: "team", fallbackScope: "personal" });
+    expect(controller.getSnapshot().previews["image-original"]).toContain("scope=team");
+    controller.syncNodePreviews({ projectId: "project-2", canonicalScope: null, fallbackScope: "personal" });
+    expect(controller.getSnapshot().previews).toEqual({});
     controller.dispose();
+    expect(services.revokeObjectURL).not.toHaveBeenCalled();
   });
   it("shows automatic text in its own canvas other folder without flattening categories into the canvas root", async () => {
     const folders: AssetFolder[] = [...archiveFolders, {
@@ -185,15 +194,11 @@ describe("CanvasAssetsMentionsController", () => {
     expect(harness.controller.getAssets()).toEqual([{ ...imageAsset, scope: "personal" }]);
     await vi.waitFor(() => {
       expect(harness.controller.getSnapshot().picker.thumbnails).toEqual({
-        "server:asset-1": "blob:thumb-asset-1",
+        "server:asset-1": "/api/assets/asset-1/content?scope=personal&thumbnail=320",
       });
     });
-    expect(services.getAssetContentObjectUrl).toHaveBeenCalledWith(
-      "asset-1",
-      "personal",
-      320,
-      expect.anything(),
-    );
+    expect(services.getAssetMediaUrl).toHaveBeenCalledWith("asset-1", "personal", 320);
+    expect(services.getAssetContentObjectUrl).not.toHaveBeenCalled();
 
     harness.controller.toggleAssetPickerItem("server:asset-1");
     await harness.controller.insertAssetPickerSelection();
@@ -293,7 +298,7 @@ describe("CanvasAssetsMentionsController", () => {
     );
   });
 
-  it("按 owner 复用并释放节点预览与 mention 详情 Object URL", async () => {
+  it("节点预览保留空间鉴权，mention 详情独立释放 Object URL", async () => {
     const getAssetContentObjectUrl = vi.fn(async (assetId: string) => `blob:${assetId}`);
     const revokeObjectURL = vi.fn();
     const services = createServices({
@@ -309,8 +314,8 @@ describe("CanvasAssetsMentionsController", () => {
       canonicalScope: "personal",
       fallbackScope: "personal",
     });
-    expect(harness.controller.getSnapshot().previews).toEqual({ "asset-1": "blob:asset-1" });
-    expect(getAssetContentObjectUrl).toHaveBeenCalledTimes(1);
+    expect(harness.controller.getSnapshot().previews).toEqual({ "asset-1": "/api/assets/asset-1/content?scope=personal&thumbnail=320" });
+    expect(getAssetContentObjectUrl).not.toHaveBeenCalled();
 
     harness.controller.previewMentionReference(mentionReference({
       id: "asset:asset-2",
@@ -329,7 +334,7 @@ describe("CanvasAssetsMentionsController", () => {
       fallbackScope: "personal",
     });
     expect(harness.controller.getSnapshot().previews).toEqual({});
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:asset-1");
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1);
   });
 
   it("展开折叠批次后定位 mention 指向的子节点", () => {

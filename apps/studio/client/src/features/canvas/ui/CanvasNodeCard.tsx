@@ -1,3 +1,5 @@
+import { RetryImage } from "@/shared/ui/RetryImage";
+import { videoPosterUrl } from "@/shared/ui/VideoThumbnail";
 import { CanvasSeedanceRegistrationButton } from "./CanvasSeedanceRegistrationButton";
 import type { SeedanceRegistrationState } from "../services/seedanceRegistration";
 import {
@@ -453,7 +455,8 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
           <video
             src={preview}
             controls
-            preload="metadata"
+            preload="none"
+            poster={videoPosterUrl(preview)}
             data-testid="canvas-node-video"
             data-canvas-no-zoom
             onPointerDown={(event) => {
@@ -476,13 +479,13 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
         <audio
           src={preview}
           controls
-          preload="metadata"
+          preload="none"
           data-testid="canvas-node-audio"
           data-canvas-no-zoom
           onPointerDown={(event) => event.stopPropagation()}
         />
       ) : preview ? (
-        <img
+        <RetryImage
           src={preview}
           alt={node.title}
           draggable={false}
