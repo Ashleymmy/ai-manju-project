@@ -416,8 +416,9 @@ export async function getAssetContentObjectUrl(
  * Keep the authenticated API URL stable so each new request gets a fresh signature.
  * Never put the session token into a media URL.
  */
-export function getAssetMediaUrl(id: string, scope: WorkspaceScope = "personal") {
+export function getAssetMediaUrl(id: string, scope: WorkspaceScope = "personal", thumbnail?: 320 | 640) {
   const url = new URL(`${API_BASE_URL}/api/assets/${encodeURIComponent(id)}/content`);
   url.searchParams.set("scope", scope);
+  if (thumbnail) url.searchParams.set("thumbnail", String(thumbnail));
   return url.toString();
 }

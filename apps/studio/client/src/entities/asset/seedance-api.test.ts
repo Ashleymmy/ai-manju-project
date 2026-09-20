@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getUserSeedanceAsset, getSeedanceAssetPreviewUrl, listUserSeedanceAssets, ensureSeedanceAssetsActive, uploadUserSeedanceAsset } from "./seedance-api";
+import { seedanceAssetThumbnailSource, getUserSeedanceAsset, getSeedanceAssetPreviewUrl, listUserSeedanceAssets, ensureSeedanceAssetsActive, uploadUserSeedanceAsset } from "./seedance-api";
 
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); sessionStorage.clear(); });
 
@@ -46,3 +46,17 @@ describe("用户拟真人素材接口", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
+
+ it("uses registered-material thumbnails without changing full-media references", () => {
+   for (const scope of ["personal", "team"]) {
+     for (const type of ["Image", "Video"]) {
+       const url = new URL(seedanceAssetThumbnailSource(`/api/sd-video/volcano/assets/one/content?scope=${scope}`, type));
+       expect(url.pathname).toBe("/api/sd-video/volcano/assets/one/thumbnail");
+       expect(url.searchParams.get("scope")).toBe(scope);
+     }
+   }
+   expect(seedanceAssetThumbnailSource("/api/admin/users")).toBe("");
+   expect(seedanceAssetThumbnailSource("//external.example/photo")).toBe("");
+   expect(seedanceAssetThumbnailSource("https://external.example/video.mp4", "Video")).toBe("");
+   expect(seedanceAssetThumbnailSource("https://external.example/image.png")).toBe("https://external.example/image.png");
+ });

@@ -57,15 +57,11 @@ export class CanvasAssetsMentionsController {
   private bindings = emptyBindings;
   private snapshot: CanvasAssetsMentionsSnapshot;
   private readonly listeners = new Set<() => void>();
-  private readonly previewCache = new Map<string, { assetId: string; url: string }>();
-  private readonly pickerThumbCache = new Map<string, string>();
   private catalogAbort: AbortController | null = null;
   private pickerAbort: AbortController | null = null;
   private searchTimer: number | null = null;
   private mentionOwnedUrl = "";
-  private previewRevision = 0;
   private mentionPreviewRevision = 0;
-  private pickerThumbRevision = 0;
   private disposed = false;
 
   constructor(
@@ -224,7 +220,6 @@ export class CanvasAssetsMentionsController {
     this.patchPicker({ open });
     if (!open) {
       this.pickerAbort?.abort();
-      this.pickerThumbRevision += 1;
       this.patchPicker({ selectedIds: [], error: "" });
     }
   };
@@ -367,79 +362,28 @@ export class CanvasAssetsMentionsController {
     this.bindings.focusNodeInViewport(reference.nodeId);
   };
 
-  readonly syncNodePreviews = async ({
-    projectId,
-    canonicalScope,
-    fallbackScope,
-  }: CanvasPreviewSyncInput) => {
-    const revision = ++this.previewRevision;
-    if (projectId && !canonicalScope) {
-      this.releaseAllPreviewUrls();
-      this.patchPreviews({});
-      return;
-    }
-    const needed = new Map<string, {
-      id: string;
-      kind: "image" | "video" | "audio";
-      scope: "personal" | "team";
-    }>();
-    for (const ref of collectCanvasPreviewAssetRefs(this.bindings.getNodes())) {
-      const scope = workspaceScopeValue(ref.scope) || canonicalScope || fallbackScope;
-      const descriptor = { id: ref.id, kind: ref.kind, scope };
-      const key = `${descriptor.scope}:${descriptor.kind}:${descriptor.id}`;
-      if (!needed.has(key)) needed.set(key, descriptor);
-    }
-    this.previewCache.forEach((entry, key) => {
-      if (needed.has(key)) return;
-      this.services.revokeObjectURL(entry.url);
-      this.previewCache.delete(key);
-    });
-    const syncPreviews = () => {
-      const next: Record<string, string> = {};
-      needed.forEach((descriptor, key) => {
-        const entry = this.previewCache.get(key);
-        if (entry) next[descriptor.id] = entry.url;
-      });
-      this.patchPreviews(next);
-    };
-    const missing = Array.from(needed.entries()).filter(([key]) => !this.previewCache.has(key));
-    if (!missing.length) {
-      syncPreviews();
-      return;
-    }
-    const items = await Promise.all(missing.map(async ([key, descriptor]) => {
-      try {
-        const url = await this.assets(() => this.services.getAssetContentObjectUrl(
-          descriptor.id,
-          descriptor.scope,
-          descriptor.kind === "image" ? CANVAS_THUMBNAIL_WIDTH : undefined,
-        ));
-        return [key, descriptor.id, url] as const;
-      } catch {
-        return [key, descriptor.id, ""] as const;
+  readonly syncNodePreviews = ({ projectId, canonicalScope, fallbackScope }: CanvasPreviewSyncInput) => {
+    if (this.disposed) return;
+    const previews: Record<string, string> = {};
+    if (!projectId || canonicalScope) {
+      for (const ref of collectCanvasPreviewAssetRefs(this.bindings.getNodes())) {
+        const scope = workspaceScopeValue(ref.scope) || canonicalScope || fallbackScope;
+        // Publish URLs immediately. Native images load independently; videos use
+        // Range on playback instead of downloading full files on canvas restore.
+        previews[ref.id] = this.services.getAssetMediaUrl(ref.id, scope, ref.kind === "image" ? CANVAS_THUMBNAIL_WIDTH : undefined);
       }
-    }));
-    if (this.disposed || revision !== this.previewRevision) {
-      items.forEach(([, , url]) => { if (url) this.services.revokeObjectURL(url); });
-      return;
     }
-    items.forEach(([key, assetId, url]) => {
-      if (url) this.previewCache.set(key, { assetId, url });
-    });
-    syncPreviews();
+    this.patchPreviews(previews);
   };
 
   dispose() {
     this.disposed = true;
-    this.previewRevision += 1;
     this.mentionPreviewRevision += 1;
     this.catalogAbort?.abort();
     this.pickerAbort?.abort();
     if (this.searchTimer) this.services.cancelSchedule(this.searchTimer);
     this.searchTimer = null;
-    this.releaseAllPreviewUrls();
     this.releaseMentionOwnedUrl();
-    this.releasePickerThumbs();
     this.listeners.clear();
     this.bindings = emptyBindings;
   }
@@ -511,11 +455,10 @@ export class CanvasAssetsMentionsController {
       const items = [...localTextItems, ...mediaItems];
       this.patchPicker({
         items,
-        thumbnails: this.cachedPickerThumbnails(items, scope),
+        thumbnails: this.pickerThumbnails(items, scope),
         ...folderPatch,
       });
       if (serverAssets.length) this.mergeAssets(serverAssets, scope);
-      void this.loadPickerThumbnails(mediaItems, scope, controller.signal);
       if (serverResult.status === "rejected") {
         this.patchPicker({
           error: textAssets.length
@@ -589,62 +532,15 @@ export class CanvasAssetsMentionsController {
     }];
   }
 
-  private cachedPickerThumbnails(items: CanvasAssetPickerItem[], scope: "personal" | "team") {
+  private pickerThumbnails(items: CanvasAssetPickerItem[], scope: "personal" | "team") {
     const thumbnails: Record<string, string> = {};
     items.forEach(item => {
       const assetId = item.serverAsset?.id;
-      if (item.type !== "image" || !assetId) return;
-      const cached = this.pickerThumbCache.get(`${scope}:${assetId}`);
-      if (cached) thumbnails[item.id] = cached;
+      if (item.type === "image" && assetId) {
+        thumbnails[item.id] = this.services.getAssetMediaUrl(assetId, scope, PICKER_THUMBNAIL_WIDTH);
+      }
     });
     return thumbnails;
-  }
-
-  private async loadPickerThumbnails(
-    items: CanvasAssetPickerItem[],
-    scope: "personal" | "team",
-    signal: AbortSignal,
-  ) {
-    const revision = ++this.pickerThumbRevision;
-    const imageItems = items.filter(item => item.type === "image" && item.serverAsset);
-    const neededKeys = new Set(imageItems.map(item => `${scope}:${item.serverAsset!.id}`));
-    this.pickerThumbCache.forEach((url, key) => {
-      if (neededKeys.has(key)) return;
-      this.services.revokeObjectURL(url);
-      this.pickerThumbCache.delete(key);
-    });
-    await Promise.all(imageItems.map(async item => {
-      const assetId = item.serverAsset!.id;
-      const cacheKey = `${scope}:${assetId}`;
-      if (this.pickerThumbCache.has(cacheKey)) return;
-      try {
-        const url = await this.assets(() => this.services.getAssetContentObjectUrl(
-          assetId,
-          scope,
-          PICKER_THUMBNAIL_WIDTH,
-          signal,
-        ));
-        if (!url || signal.aborted || revision !== this.pickerThumbRevision) {
-          if (url) this.services.revokeObjectURL(url);
-          return;
-        }
-        this.pickerThumbCache.set(cacheKey, url);
-        this.patchPicker({ thumbnails: this.cachedPickerThumbnails(this.snapshot.picker.items, scope) });
-      } catch {
-        /* 缩略图失败时保留图标占位，不阻断插入 */
-      }
-    }));
-    if (this.disposed || signal.aborted || revision !== this.pickerThumbRevision) return;
-    this.patchPicker({ thumbnails: this.cachedPickerThumbnails(this.snapshot.picker.items, scope) });
-  }
-
-  private releasePickerThumbs() {
-    this.pickerThumbRevision += 1;
-    this.pickerThumbCache.forEach(url => this.services.revokeObjectURL(url));
-    this.pickerThumbCache.clear();
-    if (this.snapshot.picker.thumbnails && Object.keys(this.snapshot.picker.thumbnails).length) {
-      this.patchPicker({ thumbnails: {} });
-    }
   }
 
   private patch(patch: Partial<CanvasAssetsMentionsSnapshot>) {
@@ -666,11 +562,6 @@ export class CanvasAssetsMentionsController {
       && nextKeys.every(assetId => current[assetId] === previews[assetId])
     ) return;
     this.patch({ previews });
-  }
-
-  private releaseAllPreviewUrls() {
-    this.previewCache.forEach(entry => this.services.revokeObjectURL(entry.url));
-    this.previewCache.clear();
   }
 
   private releaseMentionOwnedUrl() {

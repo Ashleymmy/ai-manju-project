@@ -1,3 +1,4 @@
+import { RetryImage } from "@/shared/ui/RetryImage";
 import { Film } from "lucide-react";
 import { useState } from "react";
 import { API_BASE_URL } from "@/shared/config";
@@ -20,6 +21,6 @@ export function VideoThumbnail({ src, alt = "视频封面" }: { src: string; alt
   const poster = videoPosterUrl(src);
   const [failed, setFailed] = useState<string>();
   return poster && failed !== poster
-    ? <img src={poster} alt={alt} loading="lazy" decoding="async" onError={() => setFailed(poster)} />
+    ? <RetryImage src={poster} alt={alt} loading="lazy" decoding="async" onError={() => setFailed(poster)} />
     : <Film size={24} aria-label={alt} />;
 }

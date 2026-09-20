@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { Loader2, Upload } from "lucide-react";
+import { RetryImage } from "@/shared/ui/RetryImage";
+import { useRef, useState } from "react";
+import { Loader2, Upload, UserRoundCog } from "lucide-react";
 import { toast } from "sonner";
-import { getSeedanceAssetPreviewUrl, uploadUserSeedanceAsset } from "@/entities/asset";
+import { seedanceAssetThumbnailSource, uploadUserSeedanceAsset } from "@/entities/asset";
 import { publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 
@@ -37,25 +38,8 @@ export function SeedanceAssetUpload({ scope, disabled, onRegistered }: {
   </>;
 }
 
-export function useSeedanceAssetPreview(source?: string) {
-  const [preview, setPreview] = useState<{ source?: string; url: string }>({ url: "" });
-  useEffect(() => {
-    const controller = new AbortController();
-    let objectUrl = "";
-    getSeedanceAssetPreviewUrl(source, controller.signal).then((url) => {
-      if (controller.signal.aborted) {
-        if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-        return;
-      }
-      objectUrl = url;
-      setPreview({ source, url });
-    }).catch(() => {
-      if (!controller.signal.aborted) setPreview({ source, url: "" });
-    });
-    return () => {
-      controller.abort();
-      if (objectUrl.startsWith("blob:")) URL.revokeObjectURL(objectUrl);
-    };
-  }, [source]);
-  return preview.source === source ? preview.url : "";
+export function SeedanceAssetThumbnail({ source, assetType, name }: { source?: string; assetType: string; name?: string }) {
+  const url = seedanceAssetThumbnailSource(source, assetType);
+  const fallback = <UserRoundCog size={22} />;
+  return url ? <RetryImage src={url} alt={name || "素材预览"} fallback={fallback} /> : fallback;
 }

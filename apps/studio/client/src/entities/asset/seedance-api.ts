@@ -33,6 +33,15 @@ export function seedanceAssetPreviewSource(source?: string) {
   return source && (/^https?:\/\//i.test(source) || /^\/api\/sd-video\/volcano\/assets\/[^/?#]+\/content\?scope=(personal|team)$/.test(source)) ? source : "";
 }
 
+/** Cards use the existing registered-material JPEG, including video posters.
+ * Keep the original preview helper unchanged for generation references/details.
+ */
+export function seedanceAssetThumbnailSource(source?: string, assetType = "Image") {
+  const path = seedanceAssetPreviewSource(source);
+  if (path.startsWith("/api/")) return apiUrl(path.replace("/content?", "/thumbnail?"));
+  return assetType === "Image" ? path : "";
+}
+
 export async function getSeedanceAssetPreviewUrl(source?: string, signal?: AbortSignal) {
   const path = seedanceAssetPreviewSource(source);
   if (!path.startsWith("/api/")) return path;

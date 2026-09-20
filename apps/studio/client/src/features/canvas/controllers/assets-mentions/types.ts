@@ -82,6 +82,7 @@ export type CanvasAssetsMentionsServices = {
   getAssetLibrary: typeof import("@/entities/asset").getAssetLibrary;
   getAssetFolders: typeof import("@/entities/asset").getAssetFolders;
   getAssetContentObjectUrl: typeof import("@/entities/asset").getAssetContentObjectUrl;
+  getAssetMediaUrl: typeof import("@/entities/asset").getAssetMediaUrl;
   listCanvasTextAssets: typeof import("@/features/canvas/repositories/textAssetsRepository").listCanvasTextAssets;
   createId(): string;
   confirm(message: string): boolean;

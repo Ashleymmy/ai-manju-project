@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"bytes"
 	"container/list"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"os"
 	"path/filepath"
 	"sync"
@@ -14,6 +17,8 @@ import (
 )
 
 const (
+	// Preview compression never alters the original media used for generation.
+	assetThumbnailJPEGQuality = 82
 	// Keep derived previews bounded independently of original media sizes.
 	assetThumbnailCacheBytes   = 64 * 1024 * 1024
 	assetThumbnailCacheEntries = 512
@@ -107,15 +112,18 @@ func (c *assetThumbnailCache) remove(element *list.Element) {
 
 func (c *assetThumbnailCache) get(key string) (assetThumbnail, bool) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if element := c.items[key]; element != nil {
 		entry := element.Value.(assetThumbnailEntry)
 		if time.Now().Before(entry.expires) {
 			c.lru.MoveToFront(element)
+			c.mu.Unlock()
 			return entry.value, true
 		}
 		c.remove(element)
 	}
+	c.mu.Unlock()
+	// Disk reads and one-time legacy PNG compression must not hold the global
+	// memory-cache lock; different previews can finish independently.
 	if c.directory != "" {
 		path := c.diskPath(key)
 		if info, err := os.Stat(path); err == nil && info.Size() <= assetThumbnailEntryBytes*2 {
@@ -123,12 +131,39 @@ func (c *assetThumbnailCache) get(key string) (assetThumbnail, bool) {
 			var entry thumbnailDiskEntry
 			if err == nil && json.Unmarshal(body, &entry) == nil && len(entry.Body) > 0 && len(entry.Body) <= assetThumbnailEntryBytes && (entry.ContentType == "image/jpeg" || entry.ContentType == "image/png") {
 				value := assetThumbnail{body: entry.Body, contentType: entry.ContentType, etag: entry.ETag, lastModified: entry.LastModified}
+				value = compactCachedThumbnail(value)
+				c.mu.Lock()
 				c.putMemory(key, value)
+				c.mu.Unlock()
 				return value, true
 			}
 		}
 	}
 	return assetThumbnail{}, false
+}
+
+// Reuse already downloaded thumbnails after upgrading instead of fetching all
+// originals from NAS again. Transparent PNGs retain their original bytes.
+func compactCachedThumbnail(value assetThumbnail) assetThumbnail {
+	if value.contentType != "image/png" {
+		return value
+	}
+	source, _, err := image.Decode(bytes.NewReader(value.body))
+	if err != nil {
+		return value
+	}
+	opaque, ok := source.(interface{ Opaque() bool })
+	if !ok || !opaque.Opaque() {
+		return value
+	}
+	var encoded bytes.Buffer
+	if jpeg.Encode(&encoded, source, &jpeg.Options{Quality: assetThumbnailJPEGQuality}) != nil || encoded.Len() >= len(value.body) {
+		return value
+	}
+	value.body = encoded.Bytes()
+	value.contentType = "image/jpeg"
+	value.etag = fmt.Sprintf(`"thumbnail-%x"`, sha256.Sum256(value.body))
+	return value
 }
 
 func (c *assetThumbnailCache) put(key string, value assetThumbnail) {

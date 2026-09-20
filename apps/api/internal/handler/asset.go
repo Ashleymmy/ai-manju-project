@@ -366,7 +366,7 @@ func (h *AssetHandler) Content(c *gin.Context) {
 	}
 	variant := ""
 	if thumbnailWidth > 0 && !download && content.Asset.Type == "image" {
-		variant = fmt.Sprintf("-thumb-%d", thumbnailWidth)
+		variant = fmt.Sprintf("-thumb-%d-v2", thumbnailWidth)
 	}
 	etag := fmt.Sprintf(`"asset-%s-%d-%d%s"`, content.Asset.ID, content.Object.Size, content.Object.ModifiedAt.UTC().Unix(), variant)
 	if variant != "" {
@@ -455,9 +455,18 @@ func resizeAssetThumbnail(original []byte, contentType string, targetWidth int) 
 		}
 	}
 	var encoded bytes.Buffer
-	if strings.EqualFold(contentType, "image/jpeg") {
-		if err := jpeg.Encode(&encoded, target, &jpeg.Options{Quality: 82}); err != nil {
+	// Generated PNGs are often opaque photos. Keep alpha where it is needed,
+	// but avoid sending a lossless PNG for every small photographic preview.
+	if target.Opaque() {
+		if err := jpeg.Encode(&encoded, target, &jpeg.Options{Quality: assetThumbnailJPEGQuality}); err != nil {
 			return nil, "", false
+		}
+		// Flat illustrations can still be smaller as PNG.
+		if !strings.EqualFold(contentType, "image/jpeg") {
+			var lossless bytes.Buffer
+			if png.Encode(&lossless, target) == nil && lossless.Len() < encoded.Len() {
+				return lossless.Bytes(), "image/png", true
+			}
 		}
 		return encoded.Bytes(), "image/jpeg", true
 	}
