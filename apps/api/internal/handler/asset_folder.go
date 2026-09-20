@@ -81,6 +81,8 @@ func assetFolderError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, repository.ErrAssetFolderNotFound):
 		response.Error(c, http.StatusNotFound, err.Error())
+	case errors.Is(err, service.ErrAssetFolderCanvasExists):
+		response.Error(c, http.StatusConflict, "关联画布尚未删除，请先在「全部项目」中删除该画布，再删除此文件夹。")
 	case errors.Is(err, repository.ErrAssetFolderConflict), errors.Is(err, repository.ErrAssetFolderProtected), errors.Is(err, repository.ErrAssetFolderInUse):
 		response.Error(c, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrAssetFolderNameRequired), errors.Is(err, service.ErrAssetFolderNameTooLong), errors.Is(err, service.ErrAssetFolderDepth), errors.Is(err, service.ErrAssetFolderCycle), errors.Is(err, service.ErrAssetFolderParent):

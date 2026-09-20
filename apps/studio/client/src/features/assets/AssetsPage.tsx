@@ -61,6 +61,7 @@ import {
 } from "@/entities/asset";
 import {
   createProject,
+  getProjects,
   getProjectSnapshot,
   saveProjectSnapshot,
   type CanvasProject,
@@ -236,6 +237,8 @@ export function AssetLibraryView() {
   const selectedIdsFromUi = selectedIds.filter(id => assets.some(asset => asset.id === id));
   const roots = tags.filter((tag) => !tag.parent_id || !tags.some((parent) => parent.id === tag.parent_id));
   const activeFolder = folders.find((folder) => folder.id === activeFolderId);
+  // Linked canvas archives can be removed; fixed system destinations cannot.
+  const canDeleteActiveFolder = activeFolder?.kind === "user" || activeFolder?.system_key === "canvas_project";
   const filterRoots = showAllFilterTags ? roots : roots.slice(0, 8);
   const navigationFolders = useMemo(() => visibleAssetLibraryFolders(folders), [folders]);
   const folderRows = useMemo(() => flattenFolderTree(navigationFolders), [navigationFolders]);
@@ -665,11 +668,24 @@ export function AssetLibraryView() {
   };
 
   const deleteFolder = async () => {
-    if (!activeFolderId) return;
-    const folder = folders.find((item) => item.id === activeFolderId);
-    if (!window.confirm(`删除文件夹"${folder?.name || activeFolderId}"？其中资产会回到默认归档目录。`)) return;
+    if (!activeFolder || !canDeleteActiveFolder) return;
     try {
+      if (activeFolder.system_key === "canvas_project") {
+        // Read fresh project state: another tab may have just deleted the canvas.
+        const result = await getProjects(scope);
+        const projects = Array.isArray(result) ? result : result.items || [];
+        if (projects.some((project) => project.id === activeFolder.source_ref_id)) {
+          toast.info("关联画布尚未删除，请先在「全部项目」中删除该画布，再删除此文件夹。");
+          return;
+        }
+      }
+      const message = activeFolder.system_key === "canvas_project"
+        ? `删除文件夹"${activeFolder.name}"及其全部子文件夹？其中资产会保留并移至“画布工坊”。`
+        : `删除文件夹"${activeFolder.name}"及其子文件夹？其中资产会回到默认归档目录。`;
+      if (!window.confirm(message)) return;
       const result = await deleteAssetFolder(activeFolderId, scope);
+      const deletedIds = collectFolderSubtreeIds(folders, activeFolderId);
+      setFolders((items) => items.filter((item) => !deletedIds.has(item.id)));
       setActiveFolderId("");
       setMoveFolderId("");
       toast.success(`文件夹已删除，迁移资产 ${result.moved_assets || 0} 个`);
@@ -913,7 +929,7 @@ export function AssetLibraryView() {
         <hr />
         <div className="library-tree-actions">
           <button type="button" onClick={() => void createFolder()}><Plus size={14} /> 新建文件夹</button>
-          <button type="button" onClick={() => void deleteFolder()} disabled={!activeFolderId}><Trash2 size={14} /> 删除当前文件夹</button>
+          <button type="button" onClick={() => void deleteFolder()} disabled={!canDeleteActiveFolder} title={activeFolder && !canDeleteActiveFolder ? "系统固定目录不可删除" : undefined}><Trash2 size={14} /> 删除当前文件夹</button>
         </div>
       </aside>
       <section className="asset-browser" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (smartView !== "seedance") void handleFiles(event.dataTransfer.files); }}>{smartView === "seedance" ? <SeedanceAssetPanel scope={scope} /> : <>
