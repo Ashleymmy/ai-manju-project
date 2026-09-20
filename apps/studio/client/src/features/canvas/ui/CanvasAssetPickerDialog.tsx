@@ -148,7 +148,7 @@ export function CanvasAssetPickerDialog({
           </button>
         </div>
         {error ? <p className="canvas-asset-picker-error">{error}</p> : null}
-        <div className="canvas-asset-picker-list">
+        <div className="canvas-asset-picker-list" aria-busy={loading}>
           {items.map((asset) => {
             const selected = selectedIds.includes(asset.id);
             const Icon = asset.type === "text" ? BookOpen : asset.type === "image" ? ImageIcon : asset.type === "video" ? Film : Music2;
@@ -160,6 +160,8 @@ export function CanvasAssetPickerDialog({
                 className={selected ? "selected" : ""}
                 disabled={insertBusy}
                 title={asset.name}
+                aria-label={asset.name}
+                aria-pressed={selected}
                 onClick={() => onToggleItem(asset.id)}
               >
                 {thumb ? (
@@ -171,6 +173,7 @@ export function CanvasAssetPickerDialog({
               </button>
             );
           })}
+          {loading && !items.length ? <div className="canvas-asset-picker-loading" role="status"><Loader2 className="spin" size={20} />正在加载资产…</div> : null}
           {!loading && !items.length && !error ? <div className="empty-output"><FolderOpen size={26} /><p>当前筛选下没有资产</p></div> : null}
         </div>
         <DialogFooter>

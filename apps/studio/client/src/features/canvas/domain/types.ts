@@ -53,6 +53,8 @@ export type CanvasImageReferenceSnapshot = {
 };
 
 export type CanvasNodeMetadata = Record<string, unknown> & {
+  /** Preserve an explicitly edited node title across snapshot normalization. */
+  titleEdited?: boolean;
   content?: string;
   prompt?: string;
   /** Original editable prompt, including @ tokens, separate from the resolved model request. */
@@ -83,6 +85,8 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   naturalWidth?: number;
   naturalHeight?: number;
   promptPanelWidth?: number;
+  /** User-selected inspector height in screen pixels; absent means content-sized. */
+  promptPanelHeight?: number;
   promptEditorHeight?: number;
   generationType?: "generation" | "edit";
   sourceNodeId?: string;

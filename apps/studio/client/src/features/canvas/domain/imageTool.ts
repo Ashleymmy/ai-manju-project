@@ -4,6 +4,7 @@ import type {
 } from "@/features/canvas/domain/imageData";
 
 export type CanvasImageToolDraft = {
+  cropRatio: number | null;
   cropX: number;
   cropY: number;
   cropWidth: number;
@@ -28,6 +29,7 @@ export type CanvasImageToolDraft = {
 };
 
 export const defaultCanvasImageToolDraft: CanvasImageToolDraft = {
+  cropRatio: null,
   cropX: 12,
   cropY: 12,
   cropWidth: 76,
@@ -50,3 +52,15 @@ export const defaultCanvasImageToolDraft: CanvasImageToolDraft = {
   angleDistance: 4.8,
   angleLens: "standard",
 };
+
+// Common output formats; null keeps the crop frame freely resizable.
+export const CANVAS_CROP_RATIOS = [
+  { label: "自由", ratio: null },
+  { label: "1:1", ratio: 1 },
+  { label: "4:3", ratio: 4 / 3 },
+  { label: "3:4", ratio: 3 / 4 },
+  { label: "3:2", ratio: 3 / 2 },
+  { label: "2:3", ratio: 2 / 3 },
+  { label: "16:9", ratio: 16 / 9 },
+  { label: "9:16", ratio: 9 / 16 },
+] as const;

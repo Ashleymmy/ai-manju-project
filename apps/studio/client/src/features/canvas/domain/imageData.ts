@@ -134,6 +134,7 @@ export function resizeImageCropRect(
   handle: ImageCropResizeHandle,
   locked: boolean,
   box: ImageCropBox,
+  aspectRatio = 1,
 ): ImageCropRect {
   let next = { ...crop };
   if (handle.includes("e")) next.width = crop.width + dx;
@@ -147,11 +148,25 @@ export function resizeImageCropRect(
     next.height = crop.height - dy;
   }
   if (locked) {
-    const size = Math.max(next.width * box.width, next.height * box.height);
-    next.width = size / box.width;
-    next.height = size / box.height;
-    if (handle.includes("w")) next.x = crop.x + crop.width - next.width;
-    if (handle.includes("n")) next.y = crop.y + crop.height - next.height;
+    // Work in normalized coordinates but constrain the ratio in actual image pixels.
+    const ratio = (Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 1)
+      * Math.max(1, box.height) / Math.max(1, box.width);
+    const horizontal = handle.includes("e") || handle.includes("w");
+    const vertical = handle.includes("n") || handle.includes("s");
+    const useWidth = horizontal && (!vertical || Math.abs(dx * box.width) >= Math.abs(dy * box.height));
+    const right = crop.x + crop.width;
+    const bottom = crop.y + crop.height;
+    const maxWidth = handle.includes("w") ? right : 1 - crop.x;
+    const maxHeight = handle.includes("n") ? bottom : 1 - crop.y;
+    const maxScale = Math.min(maxWidth / ratio, maxHeight);
+    const minScale = Math.min(maxScale, Math.max(MIN_IMAGE_CROP_SIZE / ratio, MIN_IMAGE_CROP_SIZE));
+    const height = clampImageCropValue(useWidth ? next.width / ratio : next.height, minScale, maxScale);
+    return {
+      x: handle.includes("w") ? right - height * ratio : crop.x,
+      y: handle.includes("n") ? bottom - height : crop.y,
+      width: height * ratio,
+      height,
+    };
   }
   next.width = clampImageCropValue(
     next.width,

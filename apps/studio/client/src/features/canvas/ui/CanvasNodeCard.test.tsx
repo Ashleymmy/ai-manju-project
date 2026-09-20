@@ -159,6 +159,26 @@ describe("CanvasNodeCard render boundary", () => {
     expect(container.querySelectorAll(".canvas-connection-handle")).toHaveLength(0);
   });
 
+  it("keeps title double-clicks out of node dragging and media preview", async () => {
+    const actions = createActions();
+    actions.startDrag = vi.fn();
+    actions.setTitleDraft = vi.fn();
+    actions.setTitleEditingNodeId = vi.fn();
+    actions.setImagePreviewNodeId = vi.fn();
+    const node = createNode();
+    await act(async () => root.render(<CanvasNodeCard {...createProps(node, actions)} />));
+
+    const title = container.querySelector(".node-float-label b")!;
+    await act(async () => {
+      title.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+      title.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    expect(actions.startDrag).not.toHaveBeenCalled();
+    expect(actions.setImagePreviewNodeId).not.toHaveBeenCalled();
+    expect(actions.setTitleDraft).toHaveBeenCalledWith(node.title);
+    expect(actions.setTitleEditingNodeId).toHaveBeenCalledWith(node.id);
+  });
+
   it("keeps the original comparator semantics and ignores action object identity", () => {
     const node = createNode();
     const previous = createProps(node);

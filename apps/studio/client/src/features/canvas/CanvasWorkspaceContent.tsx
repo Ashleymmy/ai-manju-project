@@ -60,6 +60,8 @@ import {
 import { ApiError, publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 import { useCanvasOriginalImage } from "./controllers/useCanvasOriginalImage";
+import { useInspectorResize } from "./controllers/useInspectorResize";
+import { INSPECTOR_SIZE, inspectorSizeLimits, savedInspectorHeight } from "./domain/inspectorSize";
 import { downloadCanvasOriginalMedia } from "./services/originalMedia";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import {
@@ -81,8 +83,6 @@ import {
   getAssetExport,
   getAssetLibrary,
   invalidateAssetRecord,
-  publishAssetNameChange,
-  subscribeAssetNameChanges,
   updateAssetMetadata,
   updateAssetUserState,
   uploadAsset,
@@ -168,6 +168,7 @@ import { loadSkills, type CanvasSkill } from "@/lib/skill-library";
 import type { StoryboardScene } from "@/components/StoryboardEditorDialog";
 import {
   createCanvasClipboard,
+  duplicateCanvasNode,
   pasteCanvasClipboard,
   type CanvasClipboardPayload,
 } from "@/features/canvas/domain/clipboard";
@@ -256,12 +257,7 @@ import {
   buildCanvasSnapshot,
   canvasAgentSnapshotFromCanvas,
 } from "@/features/canvas/domain/snapshotCodec";
-import {
-  applyAssetNameToLinkedNodes,
-  applySyncedAssetNameToLinkedNodes,
-  collectLinkedAssetRefs,
-  reconcileLinkedAssetNames,
-} from "@/features/canvas/domain/assetNameSync";
+import { renameCanvasNode } from "@/features/canvas/domain/nodeTitles";
 import {
   assetIdFromNode,
   imageSrcFromNode,
@@ -463,7 +459,6 @@ export default function CanvasWorkspaceViewContent() {
   const canvasCommands = useCanvasCommands();
   const canvasStore = useCanvasStoreApi();
   const queryClient = useQueryClient();
-  const assetNameSyncGeneration = useRef(0);
   const scope = useCanvasStore((state) => state.session.scope);
   const setScope = canvasCommands.session.setScope;
   const [projects, setProjects] = useState<CanvasProject[]>([]);
@@ -613,7 +608,6 @@ export default function CanvasWorkspaceViewContent() {
   const setMinimapOpen = canvasCommands.ui.setMinimapOpen;
   const [imageToolDialog, setImageToolDialog] = useState<{ nodeId: string; mode: CanvasImageToolMode } | null>(null);
   const [imageToolDraft, setImageToolDraft] = useState<CanvasImageToolDraft>(defaultCanvasImageToolDraft);
-  const [imageCropLocked, setImageCropLocked] = useState(false);
   const [imageToolBusy, setImageToolBusy] = useState(false);
   const [seedanceRegistrationStates, setSeedanceRegistrationStates] = useState<Record<string, SeedanceRegistrationState>>({});
   const seedanceRegistrationInFlight = useRef(new Set<string>());
@@ -984,13 +978,15 @@ export default function CanvasWorkspaceViewContent() {
     const nodeBottom = nodeTop + selectedNode.height * scale;
     if (nodeRight < 0 || nodeBottom < CANVAS_STAGE_OFFSET || nodeLeft > stageBounds.width || nodeTop > stageBounds.height) return undefined;
     // 面板做成长矩形（宽于节点约 200px，收敛在 560–720），chips/操作行单行不折行；用户拖宽过则以拖宽值为准。
+    const limits = inspectorSizeLimits(stageBounds.width, stageBounds.height - CANVAS_STAGE_OFFSET);
     const savedWidth = numberValue(selectedNode.metadata?.promptPanelWidth);
+    const savedHeight = savedInspectorHeight(selectedNode.metadata?.promptPanelHeight);
+    const height = savedHeight ? Math.min(limits.maxHeight, Math.max(limits.minHeight, savedHeight)) : undefined;
     const computedWidth = Math.round(selectedNode.width * scale) + 200;
-    let width = savedWidth ? Math.min(720, Math.max(340, savedWidth)) : Math.min(720, Math.max(560, computedWidth));
-    width = Math.min(width, Math.max(340, stageBounds.width - 24));
+    const width = Math.min(limits.maxWidth, Math.max(limits.minWidth, savedWidth || Math.max(INSPECTOR_SIZE.defaultWidth, computedWidth)));
     const nodeCenterX = panX + (selectedNode.x + selectedNode.width / 2) * scale;
     // 实测面板高度做钳制，避免估算偏差把面板顶回盖住节点；始终锚在节点正下方。
-    const measuredHeight = Math.max(160, panelHeight);
+    const measuredHeight = height ?? Math.max(160, panelHeight);
     const minPanelHeight = 140;
     let top = nodeBottom + 12;
     const maxTop = Math.max(CANVAS_STAGE_OFFSET + 8, stageBounds.height - measuredHeight - 12);
@@ -999,7 +995,7 @@ export default function CanvasWorkspaceViewContent() {
     top = Math.max(CANVAS_STAGE_OFFSET + 8, top);
     const availableHeight = Math.max(minPanelHeight, stageBounds.height - top - 12);
     const left = Math.min(Math.max(12, nodeCenterX - width / 2), Math.max(12, stageBounds.width - width - 12));
-    return { left: Math.round(left), top: Math.round(top), width, maxHeight: Math.round(availableHeight) };
+    return { left: Math.round(left), top: Math.round(top), width, height, maxHeight: Math.round(availableHeight) };
   }, [panX, panY, panelHeight, selectedNode, stageBounds.height, stageBounds.width, zoom]);
   const selectedGroupPanelStyle = useMemo<CSSProperties | undefined>(() => {
     if (!selectedGroup) return undefined;
@@ -1355,49 +1351,6 @@ export default function CanvasWorkspaceViewContent() {
       abortAllGenerationRequests();
     };
   }, [abortAllGenerationRequests, projectId, projectSessionController, scope]);
-
-  useEffect(() => {
-    if (loading || switching || !projectId) return;
-    const activeScope = projectSessionController.canonicalScope;
-    if (!activeScope) return;
-    const generation = ++assetNameSyncGeneration.current;
-    const nodes = nodesRef.current;
-    const refs = collectLinkedAssetRefs(nodes, activeScope);
-    if (!refs.length) return;
-    let disposed = false;
-    void Promise.all(refs.map(async item => {
-      try {
-        const asset = await getAsset(item.assetId, item.scope);
-        return [item.assetId, asset.name] as const;
-      } catch {
-        return [item.assetId, ""] as const;
-      }
-    })).then(entries => {
-      if (disposed || generation !== assetNameSyncGeneration.current) return;
-      const names = Object.fromEntries(entries.filter(([, name]) => name.trim()));
-      const result = reconcileLinkedAssetNames(nodesRef.current, names, activeScope);
-      if (result.nodes !== nodesRef.current) {
-        nodesRef.current = result.nodes;
-        setNodes(result.nodes);
-      }
-      for (const push of result.pushes) {
-        void updateAssetMetadata(push.assetId, { name: push.name }, push.scope)
-          .then(() => {
-            publishAssetNameChange(push);
-            void invalidateAssetRecord(queryClient, push.scope, push.assetId);
-          })
-          .catch(() => undefined);
-      }
-    });
-    return () => { disposed = true; };
-  }, [canonicalProjectScope, loading, projectId, queryClient, switching]);
-
-  useEffect(() => subscribeAssetNameChanges(message => {
-    const nextNodes = applySyncedAssetNameToLinkedNodes(nodesRef.current, message.assetId, message.name);
-    if (nextNodes === nodesRef.current) return;
-    nodesRef.current = nextNodes;
-    setNodes(nextNodes);
-  }), []);
 
   useEffect(() => {
     uploadingRef.current = uploading;
@@ -1947,7 +1900,6 @@ export default function CanvasWorkspaceViewContent() {
   const openImageToolDialog = (nodeId: string, mode: CanvasImageToolMode = "crop") => {
     setImageToolDialog({ nodeId, mode });
     setImageToolDraft({ ...defaultCanvasImageToolDraft });
-    setImageCropLocked(false);
     setImageToolError("");
     applyNodeSelection([nodeId], nodeId, true);
   };
@@ -1971,7 +1923,7 @@ export default function CanvasWorkspaceViewContent() {
       const dy = (pointer.clientY - start.clientY) / box.height;
       const crop = mode === "move"
         ? moveImageCropRect(start.crop, dx, dy)
-        : resizeImageCropRect(start.crop, dx, dy, handle, imageCropLocked, box);
+        : resizeImageCropRect(start.crop, dx, dy, handle, imageToolDraft.cropRatio !== null, box, imageToolDraft.cropRatio ?? 1);
       setImageToolDraft((draft) => ({ ...draft, ...imageToolDraftFromCropRect(crop) }));
     };
     const finish = () => {
@@ -3163,56 +3115,41 @@ export default function CanvasWorkspaceViewContent() {
     onWarning: message => toast.warning(message),
   });
 
-  const syncLinkedAssetTitle = (node: CanvasNodeData, nextTitle: string) => {
-    const title = nextTitle.trim();
-    if (!title) return;
-    const assetId = assetIdFromNode(node);
-    const nextNodes = applyAssetNameToLinkedNodes(nodesRef.current, assetId, title, node.id);
+  const renameNodeTitle = (node: CanvasNodeData, nextTitle: string) => {
+    const nextNodes = renameCanvasNode(nodesRef.current, node.id, nextTitle);
     if (nextNodes !== nodesRef.current) {
       nodesRef.current = nextNodes;
       setNodes(nextNodes);
     }
-    if (!assetId) return;
-    const assetScope = workspaceScopeValue(node.metadata?.assetScope) || projectSessionController.canonicalScope;
-    if (!assetScope) return;
-    void updateAssetMetadata(assetId, { name: title }, assetScope)
-      .then(() => {
-        publishAssetNameChange({ assetId, name: title, scope: assetScope });
-        void invalidateAssetRecord(queryClient, assetScope, assetId);
-      })
-      .catch(() => toast.warning("画布名称已改，但资产库同步失败"));
   };
 
   const commitNodeTitle = (node: CanvasNodeData) => {
     const nextTitle = titleDraft.trim();
     setTitleEditingNodeId("");
     if (!nextTitle || nextTitle === node.title) return;
-    syncLinkedAssetTitle(node, nextTitle);
+    renameNodeTitle(node, nextTitle);
   };
 
-  const commitLinkedAssetTitle = (node: CanvasNodeData) => {
+  const commitInspectorNodeTitle = (node: CanvasNodeData) => {
     const current = nodesRef.current.find(item => item.id === node.id) || node;
-    syncLinkedAssetTitle(current, current.title);
+    renameNodeTitle(current, current.title);
   };
 
-  const startPanelWidthResize = (event: PointerEvent, node: CanvasNodeData) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const startX = event.clientX;
-    const startWidth = panelRef.current?.getBoundingClientRect().width || 340;
-    const move = (moveEvent: globalThis.PointerEvent) => {
-      const width = Math.min(560, Math.max(340, Math.round(startWidth + moveEvent.clientX - startX)));
-      updateNode(node.id, { metadata: { ...(node.metadata || {}), promptPanelWidth: width } });
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-  };
+  const startPanelResize = useInspectorResize({
+    panelRef,
+    nodeId: inspectorOpen && !selectedGroup && !projectActionDisabled ? selectedNode?.id : undefined,
+    limits: inspectorSizeLimits(stageBounds.width, stageBounds.height - CANVAS_STAGE_OFFSET),
+    onResize: (nodeId, size, mode) => {
+      // Generation and prompt edits can finish during a drag; merge into the latest metadata.
+      const node = nodesRef.current.find(item => item.id === nodeId);
+      if (!node) return;
+      updateNode(nodeId, { metadata: {
+        ...node.metadata,
+        ...(mode !== "height" ? { promptPanelWidth: size.width } : {}),
+        ...(mode !== "width" ? { promptPanelHeight: size.height } : {}),
+      } });
+    },
+  });
 
   const adjustNodeFontSize = (node: CanvasNodeData, delta: number) => {
     const current = numberValue(node.metadata?.fontSize) || 14;
@@ -3659,28 +3596,13 @@ export default function CanvasWorkspaceViewContent() {
     const source = targetId ? nodesRef.current.find((node) => node.id === targetId) : selectedNode ? nodesRef.current.find((node) => node.id === selectedNode.id) : null;
     if (!source) return;
     const createdId = crypto.randomUUID();
-    const duplicate: CanvasNodeData = {
-      ...source,
-      id: createdId,
-      title: `${source.title} 副本`,
-      x: source.x + 36,
-      y: source.y + 36,
-      metadata: { ...source.metadata },
-    };
-    const currentEdges = edgesRef.current;
-    const incomingEdges = currentEdges
-      .filter((edge) => edge.to === source.id)
-      .map((edge) => ({ id: `${edge.from}:${createdId}`, from: edge.from, to: createdId }))
-      .filter((edge, index, all) => all.findIndex((item) => item.id === edge.id) === index && !currentEdges.some((existing) => existing.from === edge.from && existing.to === edge.to));
+    const duplicate = duplicateCanvasNode(source, createdId);
     const nextNodes = [...nodesRef.current, duplicate];
-    const nextEdges = [...currentEdges, ...incomingEdges];
     nodesRef.current = nextNodes;
-    edgesRef.current = nextEdges;
     setNodes(nextNodes);
-    setEdges(nextEdges);
     applyNodeSelection([createdId], createdId, true);
-    await persistSnapshot(nextNodes, nextEdges, viewportRef.current.zoom);
-    toast.success("节点已复制：仅保留左侧入边，右侧出边不会继承");
+    await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom);
+    toast.success("节点已复制为独立节点，不继承连线");
   };
 
   const imageAssetIds = () => nodesRef.current.map((node) => assetIdFromNode(node)).filter(Boolean) as string[];
@@ -4675,7 +4597,7 @@ export default function CanvasWorkspaceViewContent() {
             runCanvasGroupGeneration,
             ungroupCanvasGroup,
             updateNode,
-            commitLinkedAssetTitle,
+            commitInspectorNodeTitle,
             generateFromNode,
             openAssetPicker,
             selectGenerationModel: (value) => {
@@ -4695,7 +4617,7 @@ export default function CanvasWorkspaceViewContent() {
             setSkillLibraryOpen,
             setSeedanceAssetNodeId,
             downloadSelectedMedia,
-            startPanelWidthResize,
+            startPanelResize,
           }}
         />
         <CanvasWorkspaceDialogHost
@@ -4755,7 +4677,6 @@ export default function CanvasWorkspaceViewContent() {
         imageTool={{
           dialog: imageToolDialog, busy: imageToolBusy, error: imageToolError, preview: imageToolPreview,
           node: imageToolNode, crop: imageToolCrop, cropStageRef: imageCropStageRef, draft: imageToolDraft,
-          cropLocked: imageCropLocked,
           onOpenChange: (open) => {
             if (!open && imageToolBusy) return;
             if (!open) { setImageToolDialog(null); setImageToolError(""); }
@@ -4763,7 +4684,6 @@ export default function CanvasWorkspaceViewContent() {
           onStartCropPointer: startImageCropPointer,
           onSelectMode: (mode) => setImageToolDialog((current) => current ? { ...current, mode } : current),
           onDraftChange: setImageToolDraft,
-          onToggleCropLock: () => setImageCropLocked((locked) => !locked),
           onCancel: () => { setImageToolDialog(null); setImageToolError(""); },
           onRun: () => void runCanvasImageTool(),
         }}

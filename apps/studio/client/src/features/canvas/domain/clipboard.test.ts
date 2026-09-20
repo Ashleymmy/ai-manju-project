@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createCanvasClipboard, pasteCanvasClipboard } from "./clipboard";
+import { createCanvasClipboard, duplicateCanvasNode, pasteCanvasClipboard } from "./clipboard";
 
 const nodes = [
   { id: "a", title: "A", x: 0, y: 0, width: 100, height: 80, metadata: { nested: { value: 1 }, sourceNodeId: "b", batchChildIds: ["b", "c"] } },
@@ -14,6 +14,44 @@ const edges = [
 ];
 
 describe("canvas clipboard", () => {
+  it("duplicates the image and settings without sharing nested data or original task relationships", () => {
+    const source = {
+      ...nodes[0], imageAssetId: "apple-asset", imageSrc: "/apple.png",
+      metadata: {
+        nested: { value: 1 }, status: "success", prompt: "一个苹果", model: "image-model",
+        sourceNodeId: "config-1", batchRootId: "root", batchChildIds: ["child"],
+        isBatchRoot: true, batchModelV2: true, batchStatus: "loading", batchErrorDetails: "旧批次错误",
+        primaryImageId: "child", ownAssetId: "previous-asset", ownImageSrc: "/previous.png",
+        imageBatchExpanded: true, jobId: "original-job", jobProgress: 80,
+      },
+    };
+    const before = structuredClone(source);
+    const duplicate = duplicateCanvasNode(source, "new-apple");
+    expect(duplicate).toMatchObject({
+      id: "new-apple", title: "A 副本", imageAssetId: "apple-asset", imageSrc: "/apple.png",
+    });
+    expect(duplicate.metadata).toEqual({
+      nested: { value: 1 }, status: "success", prompt: "一个苹果", model: "image-model",
+    });
+    duplicate.metadata.nested.value = 99;
+    expect(source).toEqual(before);
+  });
+
+  it("does not leave a duplicate waiting on the original node's running job", () => {
+    const source = { ...nodes[0], metadata: { status: "loading", jobId: "running-job", jobProgress: 50 } };
+    expect(duplicateCanvasNode(source, "copy").metadata).toEqual({ status: "idle" });
+    expect(source.metadata).toEqual({ status: "loading", jobId: "running-job", jobProgress: 50 });
+  });
+
+  it("pastes a single node without any upstream or downstream connections", () => {
+    const clipboard = createCanvasClipboard(nodes, edges, ["b"], "personal:project-1");
+    const pasted = pasteCanvasClipboard(clipboard, "personal:project-1", { x: 500, y: 300 }, () => "copy-b");
+    expect(clipboard?.edges).toEqual([]);
+    expect(pasted?.edges).toEqual([]);
+    expect(pasted?.nodes[0].metadata).not.toHaveProperty("sourceNodeId");
+    expect(edges).toHaveLength(3);
+  });
+
   it("deep clones selected nodes and keeps only internal edges", () => {
     const clipboard = createCanvasClipboard(nodes, edges, ["a", "b"], "personal:project-1");
 

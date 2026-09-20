@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { CANVAS_CROP_RATIOS } from "./imageTool";
+import { cropRectForAspectRatio } from "@/features/image/model/cropRect";
 
 import {
   MAX_UPSCALE_LONG_EDGE,
@@ -79,6 +81,33 @@ describe("canvas image data", () => {
     expect(imageToolDraftFromCropRect(imageCropRectFromDraft(draft))).toEqual(
       draft,
     );
+  });
+
+  it.each(CANVAS_CROP_RATIOS.filter(preset => preset.ratio !== null))("keeps $label through all resize handles and image boundaries", ({ ratio }) => {
+    for (const box of [{ width: 1600, height: 900 }, { width: 900, height: 1600 }, { width: 1024, height: 1024 }]) {
+      const crop = cropRectForAspectRatio(box.width / box.height, ratio!);
+      for (const handle of ["n", "e", "s", "w", "ne", "nw", "se", "sw"] as const) {
+        for (const delta of [-2, -0.1, 0.1, 2]) {
+          const resized = resizeImageCropRect(crop, delta, -delta, handle, true, box, ratio!);
+          expect(resized.width * box.width / (resized.height * box.height)).toBeCloseTo(ratio!, 8);
+          expect(resized.x).toBeGreaterThanOrEqual(-Number.EPSILON);
+          expect(resized.y).toBeGreaterThanOrEqual(-Number.EPSILON);
+          expect(resized.x + resized.width).toBeLessThanOrEqual(1 + Number.EPSILON);
+          expect(resized.y + resized.height).toBeLessThanOrEqual(1 + Number.EPSILON);
+          expect(resized.width).toBeGreaterThan(0);
+          expect(resized.height).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+
+  it("shrinks a locked box from a single side without forcing its old height or a square", () => {
+    const crop = { x: 0.1, y: 0.1, width: 0.8, height: 0.45 };
+    const result = resizeImageCropRect(crop, -0.2, 0, "e", true, { width: 1000, height: 1000 }, 16 / 9);
+    expect(result.width).toBeCloseTo(0.6);
+    expect(result.height).toBeCloseTo(0.3375);
+    expect(result.x).toBe(crop.x);
+    expect(result.y).toBe(crop.y);
   });
 
   it("describes the selected camera angle without browser dependencies", () => {

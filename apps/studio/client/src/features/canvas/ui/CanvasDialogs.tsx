@@ -1,11 +1,14 @@
 import {
   Check,
   Image as ImageIcon,
-  Lock,
-  LockOpen,
+  RotateCcw,
+  Scan,
   X,
 } from "lucide-react";
-import type { PointerEvent, RefObject, SetStateAction } from "react";
+import { useState, type PointerEvent, type RefObject, type SetStateAction } from "react";
+import { RetryImage } from "@/shared/ui/RetryImage";
+import { cropRectForAspectRatio } from "@/features/image";
+import { imageCropRectFromDraft, imageToolDraftFromCropRect, resizeImageCropRect } from "@/features/canvas/domain/imageData";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +24,7 @@ import type {
   ImageUpscaleAlgorithm,
 } from "@/features/canvas/domain/imageData";
 import type { CanvasNodeData } from "@/features/canvas/domain/types";
-import type { CanvasImageToolDraft } from "@/features/canvas/domain/imageTool";
+import { CANVAS_CROP_RATIOS, defaultCanvasImageToolDraft, type CanvasImageToolDraft } from "@/features/canvas/domain/imageTool";
 import type { CanvasImageToolMode } from "./CanvasNodeCard";
 export { defaultCanvasImageToolDraft } from "@/features/canvas/domain/imageTool";
 export type { CanvasImageToolDraft } from "@/features/canvas/domain/imageTool";
@@ -39,12 +42,10 @@ export type CanvasImageToolDialogProps = {
   crop: ImageCropRect;
   cropStageRef: RefObject<HTMLDivElement | null>;
   draft: CanvasImageToolDraft;
-  cropLocked: boolean;
   onOpenChange: (open: boolean) => void;
   onStartCropPointer: (event: PointerEvent<HTMLDivElement | HTMLButtonElement>, mode: "move" | "resize", handle?: ImageCropResizeHandle) => void;
   onSelectMode: (mode: CanvasImageToolMode) => void;
   onDraftChange: (update: SetStateAction<CanvasImageToolDraft>) => void;
-  onToggleCropLock: () => void;
   onCancel: () => void;
   onRun: () => void;
 };
@@ -58,15 +59,32 @@ export function CanvasImageToolDialog({
   crop,
   cropStageRef,
   draft,
-  cropLocked,
   onOpenChange,
   onStartCropPointer,
   onSelectMode,
   onDraftChange,
-  onToggleCropLock,
   onCancel,
   onRun,
 }: CanvasImageToolDialogProps) {
+  const [imageSize, setImageSize] = useState({ source: "", width: 0, height: 0 });
+  const cropMode = dialog?.mode === "crop" || dialog?.mode === "focus";
+  const imageReady = imageSize.source === preview && imageSize.width > 0 && imageSize.height > 0;
+  const imageAspect = imageReady ? imageSize.width / imageSize.height : 1;
+  const selectRatio = (ratio: number | null) => {
+    onDraftChange(current => ({ ...current, cropRatio: ratio,
+      ...(ratio ? imageToolDraftFromCropRect(cropRectForAspectRatio(imageAspect, ratio)) : {}),
+    }));
+  };
+  const changeCropSize = (dimension: "width" | "height", value: number) => {
+    if (!Number.isFinite(value)) return;
+    onDraftChange(current => {
+      const rect = imageCropRectFromDraft(current);
+      const resized = resizeImageCropRect(rect, dimension === "width" ? value / 100 - rect.width : 0,
+        dimension === "height" ? value / 100 - rect.height : 0, dimension === "width" ? "e" : "s",
+        current.cropRatio !== null, imageSize, current.cropRatio ?? 1);
+      return { ...current, ...imageToolDraftFromCropRect(resized) };
+    });
+  };
   return (
     <Dialog open={Boolean(dialog)} onOpenChange={onOpenChange}>
       <DialogContent
@@ -76,7 +94,7 @@ export function CanvasImageToolDialog({
         onPointerDownOutside={(event) => { if (busy) event.preventDefault(); }}
         onInteractOutside={(event) => { if (busy) event.preventDefault(); }}
       >
-        <DialogHeader>
+        <DialogHeader className={cropMode ? "sr-only" : undefined}>
           <DialogTitle>{dialog ? `图片${canvasImageToolLabel(dialog.mode)}` : "图片工具"}</DialogTitle>
           <DialogDescription>处理结果会上传到当前工作区，并以子节点连接到原图片；水平/垂直翻转直接更新原节点。</DialogDescription>
         </DialogHeader>
@@ -84,7 +102,8 @@ export function CanvasImageToolDialog({
           <div className="canvas-image-tool-preview">
             {preview ? dialog?.mode === "crop" || dialog?.mode === "focus" ? (
               <div ref={cropStageRef} className="canvas-image-crop-stage">
-                <img src={preview} alt={node?.title || "待处理图片"} draggable={false} />
+                <RetryImage src={preview} alt={node?.title || "待处理图片"} draggable={false}
+                  onLoad={event => setImageSize({ source: preview, width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} />
                 <div className="canvas-image-crop-mask top" style={{ height: `${crop.y * 100}%` }} />
                 <div className="canvas-image-crop-mask bottom" style={{ height: `${(1 - crop.y - crop.height) * 100}%` }} />
                 <div className="canvas-image-crop-mask left" style={{ top: `${crop.y * 100}%`, width: `${crop.x * 100}%`, height: `${crop.height * 100}%` }} />
@@ -106,6 +125,7 @@ export function CanvasImageToolDialog({
                       style={imageCropHandleStyle(handle)}
                       onPointerDown={(event) => onStartCropPointer(event, "resize", handle)}
                       aria-label={`从 ${handle} 方向调整裁剪框`}
+                      disabled={busy || !imageReady}
                     />
                   ))}
                 </div>
@@ -120,16 +140,24 @@ export function CanvasImageToolDialog({
                 </button>
               ))}
             </div>
-            {dialog?.mode === "crop" || dialog?.mode === "focus" ? <div className="canvas-image-tool-fields">
-              <label>左侧起点（%）<input type="number" min={0} max={99} value={draft.cropX} onChange={(event) => onDraftChange((current) => ({ ...current, cropX: Number(event.target.value) }))} /></label>
-              <label>顶部起点（%）<input type="number" min={0} max={99} value={draft.cropY} onChange={(event) => onDraftChange((current) => ({ ...current, cropY: Number(event.target.value) }))} /></label>
-              <label>裁剪宽度（%）<input type="number" min={1} max={100} value={draft.cropWidth} onChange={(event) => onDraftChange((current) => ({ ...current, cropWidth: Number(event.target.value) }))} /></label>
-              <label>裁剪高度（%）<input type="number" min={1} max={100} value={draft.cropHeight} onChange={(event) => onDraftChange((current) => ({ ...current, cropHeight: Number(event.target.value) }))} /></label>
+            {cropMode ? <div className="canvas-image-tool-fields">
+              <div className="canvas-image-crop-ratios" role="group" aria-label="裁剪比例">
+                {CANVAS_CROP_RATIOS.map(({ label, ratio }) => (
+                  <button key={label} type="button" aria-pressed={draft.cropRatio === ratio}
+                    onClick={() => selectRatio(ratio)} disabled={busy || !imageReady}>
+                    <span className="canvas-image-crop-ratio-icon" aria-hidden="true">
+                      {ratio ? <span style={{ width: ratio >= 1 ? 26 : 26 * ratio, height: ratio >= 1 ? 26 / ratio : 26 }} /> : <Scan size={24} />}
+                    </span>
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+              <label>裁剪宽度（%）<input type="number" min={1} max={100} step={0.1} value={draft.cropWidth} disabled={busy || !imageReady} onChange={(event) => changeCropSize("width", Number(event.target.value))} /></label>
+              <label>裁剪高度（%）<input type="number" min={1} max={100} step={0.1} value={draft.cropHeight} disabled={busy || !imageReady} onChange={(event) => changeCropSize("height", Number(event.target.value))} /></label>
               <div className="canvas-image-crop-actions">
-                <button type="button" className="outline-button small" onClick={onToggleCropLock} disabled={busy}>
-                  {cropLocked ? <Lock size={14} /> : <LockOpen size={14} />}{cropLocked ? "锁定比例" : "自由比例"}
-                </button>
-                <button type="button" className="outline-button small" onClick={() => onDraftChange((current) => ({ ...current, cropX: 12, cropY: 12, cropWidth: 76, cropHeight: 76 }))} disabled={busy}>重置裁剪框</button>
+                <button type="button" className="outline-button small" onClick={() => draft.cropRatio ? selectRatio(draft.cropRatio) : onDraftChange(current => ({ ...current,
+                  ...imageToolDraftFromCropRect(imageCropRectFromDraft(defaultCanvasImageToolDraft)),
+                }))} disabled={busy || !imageReady}><RotateCcw size={14} />重置裁剪框</button>
               </div>
             </div> : null}
             {dialog?.mode === "split" ? <div className="canvas-image-tool-fields">

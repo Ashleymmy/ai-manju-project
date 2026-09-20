@@ -2,6 +2,7 @@
 // feature 入口再次嵌套 lazy，导致路由模块默认导出无法被 React 解析。
 export { ImageWorkbenchView } from "./ImagePage";
 export { default } from "./ImagePage";
+export { cropRectForAspectRatio } from "./model/cropRect";
 export {
   fetchImageModels,
   fetchTextModels,

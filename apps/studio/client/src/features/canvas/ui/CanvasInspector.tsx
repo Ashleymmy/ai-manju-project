@@ -13,6 +13,7 @@ import {
   Eraser,
   FolderOpen,
   GalleryHorizontalEnd,
+  ImageOff,
   // 暂时隐藏「从此节点连接」按钮，恢复时一并取消下方 node-card-ops 里按钮的注释
   // Link2,
   Loader2,
@@ -30,10 +31,11 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import type { CSSProperties, PointerEvent, RefObject } from "react";
+import { useRef, type CSSProperties, type PointerEvent, type RefObject } from "react";
 import { toast } from "sonner";
 import { VideoDurationInput } from "@/shared/ui/VideoDurationInput";
-import { CanvasResourceMentionTextarea } from "@/components/canvas/CanvasResourceMentionTextarea";
+import { RetryImage } from "@/shared/ui/RetryImage";
+import { CanvasResourceMentionTextarea, type CanvasMentionEditorHandle } from "@/components/canvas/CanvasResourceMentionTextarea";
 import { CanvasPopover as Popover, CanvasPopoverContent as PopoverContent, CanvasPopoverTrigger as PopoverTrigger } from "./CanvasPopover";
 import type { CanvasGroupData } from "@/features/canvas/domain/groups";
 import { ImageEditToolIcon } from "@/features/canvas/ui/ImageEditToolIcon";
@@ -61,6 +63,8 @@ import {
 } from "./CanvasNodeCard";
 import { CanvasModelPicker } from "./CanvasModelPicker";
 import { CanvasCopyPromptButton } from "./CanvasCopyPromptButton";
+import { CanvasInspectorResizeHandles } from "./CanvasInspectorResizeHandles";
+import { savedInspectorHeight, type InspectorResizeMode } from "../domain/inspectorSize";
 
 type PromptPresetView = {
   id: string;
@@ -152,7 +156,7 @@ export type CanvasInspectorActions = {
   runCanvasGroupGeneration: (groupId: string) => Promise<unknown>;
   ungroupCanvasGroup: (groupId: string) => void;
   updateNode: (nodeId: string, patch: Partial<CanvasNodeData>) => void;
-  commitLinkedAssetTitle: (node: CanvasNodeData) => void;
+  commitInspectorNodeTitle: (node: CanvasNodeData) => void;
   generateFromNode: (nodeId?: string) => Promise<unknown>;
   openAssetPicker: () => void;
   selectGenerationModel: (value: string) => void;
@@ -165,7 +169,7 @@ export type CanvasInspectorActions = {
   setSkillLibraryOpen: (open: boolean) => void;
   setSeedanceAssetNodeId: (nodeId: string) => void;
   downloadSelectedMedia: () => Promise<unknown>;
-  startPanelWidthResize: (event: PointerEvent<HTMLButtonElement>, node: CanvasNodeData) => void;
+  startPanelResize: (event: PointerEvent<HTMLButtonElement>, mode: InspectorResizeMode) => void;
 };
 
 export type CanvasInspectorProps = {
@@ -239,6 +243,7 @@ export function CanvasInspector({
   enabledSkills,
   actions,
 }: CanvasInspectorProps) {
+  const promptEditorRef = useRef<CanvasMentionEditorHandle>(null);
   const {
     node: {
       openDirectorNode,
@@ -290,8 +295,10 @@ export function CanvasInspector({
     setSkillLibraryOpen,
     setSeedanceAssetNodeId,
     downloadSelectedMedia,
-    startPanelWidthResize,
+    startPanelResize,
   } = actions;
+  const promptReferences = selectedNode ? mentionReferencesForNode(selectedNode.id) : [];
+  const hasCustomHeight = Boolean(savedInspectorHeight(selectedNode?.metadata?.promptPanelHeight));
   const connectedSources = selectedNode
     ? edges
       .filter((edge) => edge.to === selectedNode.id)
@@ -300,7 +307,7 @@ export function CanvasInspector({
       .filter((node, index, list) => list.findIndex((item) => item.id === node.id) === index)
     : [];
   return (
-        <aside ref={panelRef} className={`inspector-panel canvas-floating-inspector${selectedNode && !selectedGroup ? " inspector-floating" : ""}${selectedGroup ? " inspector-group" : ""}${selectedNode?.metadata?.canvasOrigin === "imported" ? " inspector-imported-node" : ""}`} data-canvas-ui data-canvas-no-zoom style={selectedNode && !selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedPanelStyle ? selectedPanelStyle : { display: "none" }) : selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedGroupPanelStyle ? selectedGroupPanelStyle : { display: "none" }) : { display: "none" }} onClick={(event) => event.stopPropagation()}>
+        <aside ref={panelRef} className={`inspector-panel canvas-floating-inspector${selectedNode && !selectedGroup ? " inspector-floating" : ""}${hasCustomHeight && !selectedGroup ? " inspector-sized" : ""}${selectedGroup ? " inspector-group" : ""}${selectedNode?.metadata?.canvasOrigin === "imported" ? " inspector-imported-node" : ""}`} data-canvas-ui data-canvas-no-zoom style={selectedNode && !selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedPanelStyle ? selectedPanelStyle : { display: "none" }) : selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedGroupPanelStyle ? selectedGroupPanelStyle : { display: "none" }) : { display: "none" }} onClick={(event) => event.stopPropagation()}>
           <div className="inspector-head">
             <div><p className="eyebrow">INSPECTOR</p><div className="inspector-title-row"><h3>{selectedGroup?.title || selectedNode?.title || "未选择节点"}</h3>{selectedNode && !selectedGroup && selectedNode.kind === "video" ? <span className="video-submode-badge inspector-submode-badge">{VIDEO_SUBMODES.find((sub) => sub.value === videoSubModeFromNode(selectedNode))?.label || "文生视频"}</span> : null}</div></div>
             {selectedNode && !selectedGroup ? (
@@ -317,7 +324,7 @@ export function CanvasInspector({
             <div className="inspector-imported-preview">
               {selectedNode.kind === "image" && imageSrcFromNode(selectedNode, previews) ? (
                 <button type="button" title="查看原图" onClick={() => setImagePreviewNodeId(selectedNode.id)}>
-                  <img src={imageSrcFromNode(selectedNode, previews)} alt={selectedNode.title || "导入图片"} />
+                  <RetryImage src={imageSrcFromNode(selectedNode, previews)} alt={selectedNode.title || "导入图片"} fallback={<ImageOff size={20} aria-label="图片暂不可用" />} />
                 </button>
               ) : (
                 <div className="inspector-imported-placeholder">{selectedNode.kind === "audio" ? "AUDIO" : selectedNode.kind === "video" ? "VIDEO" : selectedNode.kind === "image" ? "IMAGE" : "TEXT"}</div>
@@ -356,6 +363,7 @@ export function CanvasInspector({
                 {connectedSources.length ? (
                   <div className="canvas-connected-preview-strip" aria-label="前置节点预览">
                     {connectedSources.map((source) => {
+                      const reference = promptReferences.find(item => item.source === "node" && item.targetId === source.id);
                       const preview = source.kind === "image"
                         ? imageSrcFromNode(source, previews)
                         : source.metadata?.preview as string | undefined;
@@ -364,20 +372,27 @@ export function CanvasInspector({
                           key={source.id}
                           type="button"
                           className="canvas-connected-preview"
-                          title={`前置节点：${source.title || source.id}`}
-                          onClick={() => source.kind === "image" ? setImagePreviewNodeId(source.id) : undefined}
+                          title={`引用：${source.title || source.id}`}
+                          aria-label={`引用：${source.title || source.id}`}
+                          disabled={!reference}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => reference && promptEditorRef.current?.insertReference(reference)}
                         >
-                          {preview ? <img src={preview} alt={source.title || "前置节点"} /> : <span>{source.kind.toUpperCase()}</span>}
+                          {preview ? <RetryImage src={preview} alt={source.title || "前置节点"} fallback={<ImageOff size={16} aria-label="图片暂不可用" />} /> : <span>{source.kind.toUpperCase()}</span>}
                         </button>
                       );
                     })}
                   </div>
                 ) : null}
                 <CanvasResourceMentionTextarea
+                  key={selectedNode.id}
+                  editorRef={promptEditorRef}
                   className="prompt-copy node-card-prompt"
-                  autoGrow
+                  autoGrow={!hasCustomHeight}
+                  style={hasCustomHeight ? { height: "100%" } : undefined}
                   value={promptTextFromNode(selectedNode)}
-                  references={mentionReferencesForNode(selectedNode.id)}
+                  references={promptReferences}
                   mentionLibrary={mentionLibrary}
                   placeholder={selectedNode.kind === "video" ? videoSubModePlaceholder(videoSubModeFromNode(selectedNode)) : "输入 @ 可引用已连接节点或资产…，Enter 换行，Ctrl+Enter 生成"}
                   onMentionQueryChange={queueMentionAssetSearch}
@@ -558,7 +573,7 @@ export function CanvasInspector({
               <div className="node-card-ops">
                 {/* 暂时隐藏「从此节点连接」入口（需求暂定，后期恢复时取消本行与顶部 Link2 导入的注释）
                 <button title="从此节点连接" onClick={() => activateConnectionMode(selectedNode.id)}><Link2 size={14} /></button> */}
-                <button title="复制节点（仅入边）" onClick={() => void duplicateSelectedNode()}><Copy size={14} /></button>
+                <button title="复制为独立节点" onClick={() => void duplicateSelectedNode()}><Copy size={14} /></button>
                 <button title="删除节点" onClick={() => removeNode(selectedNode.id)}><Trash2 size={14} /></button>
                 <button title="清空输入框内容" disabled={!promptTextFromNode(selectedNode).trim()} onClick={() => updateNodePrompt(selectedNode.id, "")}><Eraser size={14} /></button>
                 {selectedNode.kind !== "director" ? <button title="提示词库" onClick={() => setPromptLibraryNodeId(selectedNode.id)}><BookOpen size={14} /></button> : null}
@@ -615,8 +630,8 @@ export function CanvasInspector({
                       <span className="field-label">节点标题</span>
                       <input
                         value={selectedNode.title}
-                        onChange={(event) => updateNode(selectedNode.id, { title: event.target.value })}
-                        onBlur={() => actions.commitLinkedAssetTitle(selectedNode)}
+                        onChange={(event) => updateNode(selectedNode.id, { title: event.target.value, metadata: { ...selectedNode.metadata, titleEdited: true } })}
+                        onBlur={() => actions.commitInspectorNodeTitle(selectedNode)}
                         onKeyDown={(event) => {
                           if (event.key !== "Enter") return;
                           event.preventDefault();
@@ -641,7 +656,7 @@ export function CanvasInspector({
             </>
           ) : <div className="empty-output"><p>选择一个节点后编辑。</p></div>}
           {selectedNode && !selectedGroup ? (
-            <button className="node-panel-resize" title="拖动调整面板宽度" aria-label="拖动调整面板宽度" onPointerDown={(event) => startPanelWidthResize(event, selectedNode)} />
+            <CanvasInspectorResizeHandles onResize={startPanelResize} />
           ) : null}
         </aside>
   );

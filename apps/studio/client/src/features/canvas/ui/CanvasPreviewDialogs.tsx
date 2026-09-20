@@ -7,6 +7,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useRef, useState, type ComponentProps } from "react";
+import { RetryImage } from "@/shared/ui/RetryImage";
 import { CanvasImageAnnotationDialog } from "@/components/canvas/CanvasImageAnnotationDialog";
 import { CanvasImageMaskDialog } from "@/components/canvas/CanvasImageMaskDialog";
 import {
@@ -206,7 +207,7 @@ export function CanvasImagePreviewDialog({
                 <div className="preview-detail-thumbs">
                   {siblings.map((sibling) => (
                     <button key={sibling.id} type="button" className={sibling.id === selectedNodeId ? "selected" : ""} onClick={() => onSelectNode(sibling.id)} title={sibling.title}>
-                      {imageSrcFromNode(sibling, previews) ? <img src={imageSrcFromNode(sibling, previews)} alt={sibling.title} /> : <ImageIcon size={16} />}
+                      {imageSrcFromNode(sibling, previews) ? <RetryImage src={imageSrcFromNode(sibling, previews)} alt={sibling.title} fallback={<ImageIcon size={16} />} /> : <ImageIcon size={16} />}
                     </button>
                   ))}
                 </div>
@@ -277,7 +278,7 @@ export function CanvasMentionPreviewDialog({
             ) : preview.kind === "audio" ? (
               <audio src={preview.url} controls autoPlay />
             ) : (
-              <img src={preview.url} alt={preview.title} />
+              <RetryImage src={preview.url} alt={preview.title} showRetryButton />
             )}
           </div>
         ) : null}

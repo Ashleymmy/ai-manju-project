@@ -1,4 +1,5 @@
 import { VideoThumbnail, videoPosterUrl } from "@/shared/ui/VideoThumbnail";
+import { RetryImage } from "@/shared/ui/RetryImage";
 import { ChevronLeft, ChevronRight, Copy, Film, History, Image as ImageIcon, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -95,7 +96,7 @@ function HistoryMedia({
     );
   }
   return (
-    <img
+    <RetryImage
       src={src}
       alt={alt}
       loading="lazy"

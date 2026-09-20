@@ -20,6 +20,33 @@ export type CanvasClipboardPayload<TNode extends CanvasClipboardNode, TEdge exte
   edges: TEdge[];
 };
 
+// 让单节点副本与原节点错开，便于直接选中和拖动。
+const CANVAS_NODE_DUPLICATE_OFFSET = 36;
+
+// 副本保留内容和生成参数，但不能控制原节点的任务或批次。
+const CANVAS_NODE_DUPLICATE_DETACHED_KEYS = [
+  "sourceNodeId", "batchRootId", "batchChildIds", "isBatchRoot", "batchModelV2",
+  "batchStatus", "batchErrorDetails", "primaryImageId", "ownAssetId", "ownImageSrc",
+  "imageBatchExpanded", "jobId", "jobProgress",
+] as const;
+
+/** 单节点复制只创建独立节点；原图的入线和出线均不复制。 */
+export function duplicateCanvasNode<TNode extends CanvasClipboardNode>(source: TNode, id: string): TNode {
+  const duplicate = structuredClone(source);
+  duplicate.id = id;
+  duplicate.title = `${source.title} 副本`;
+  duplicate.x += CANVAS_NODE_DUPLICATE_OFFSET;
+  duplicate.y += CANVAS_NODE_DUPLICATE_OFFSET;
+  if (duplicate.metadata) {
+    for (const key of CANVAS_NODE_DUPLICATE_DETACHED_KEYS) delete duplicate.metadata[key];
+    if (duplicate.metadata.status === "loading") {
+      duplicate.metadata.status = "idle";
+      delete duplicate.metadata.errorDetails;
+    }
+  }
+  return duplicate;
+}
+
 export function createCanvasClipboard<TNode extends CanvasClipboardNode, TEdge extends CanvasClipboardEdge>(
   nodes: readonly TNode[],
   edges: readonly TEdge[],
