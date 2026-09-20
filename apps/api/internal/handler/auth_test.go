@@ -443,6 +443,7 @@ func newAuthTestRouterWithConfig(t *testing.T, cfg config.Config) (*gin.Engine, 
 	api.POST("/auth/register", handler.Register)
 	api.POST("/auth/login", handler.Login)
 	api.GET("/auth/me", middleware.RequireAuth(authService), handler.Me)
+	api.PATCH("/auth/me", middleware.RequireAuth(authService), handler.UpdateMe)
 	api.POST("/auth/logout", middleware.RequireAuth(authService), handler.Logout)
 	admin := api.Group("/admin", middleware.RequireSuperAdmin(authService))
 	admin.GET("/users", handler.ListUsers)
@@ -515,4 +516,80 @@ func loginToken(t *testing.T, body string) string {
 		t.Fatalf("login token missing in body = %s", body)
 	}
 	return payload.Data.Token
+}
+
+func TestAuthUpdateMeDisplayName(t *testing.T) {
+	router, userRepo, cookie := newAuthTestRouter(t)
+
+	// 改名成功：响应即返回新昵称，且持久化到仓库；角色/状态不受影响。
+	updated := performJSON(router, http.MethodPatch, "/api/auth/me", `{"display_name":"  新昵称  "}`, cookie)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("update me status = %d, body = %s", updated.Code, updated.Body.String())
+	}
+	var payload struct {
+		Success bool `json:"success"`
+		Data    struct {
+			DisplayName string `json:"display_name"`
+			Role        string `json:"role"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(updated.Body.String()), &payload); err != nil {
+		t.Fatalf("decode update me body failed: %v; body = %s", err, updated.Body.String())
+	}
+	if !payload.Success || payload.Data.DisplayName != "新昵称" {
+		t.Fatalf("display_name = %q, want %q (trimmed); body = %s", payload.Data.DisplayName, "新昵称", updated.Body.String())
+	}
+	if payload.Data.Role != model.UserRoleMember {
+		t.Fatalf("role = %q, want %q（自助改名不得触碰角色）", payload.Data.Role, model.UserRoleMember)
+	}
+
+	stored, err := userRepo.GetUser("user_member")
+	if err != nil {
+		t.Fatalf("get user failed: %v", err)
+	}
+	if stored.DisplayName != "新昵称" {
+		t.Fatalf("stored display_name = %q, want %q", stored.DisplayName, "新昵称")
+	}
+
+	// 后续 /me 返回改名后的资料（中间件每请求重读仓库，无缓存残留）。
+	me := performJSON(router, http.MethodGet, "/api/auth/me", "", cookie)
+	if me.Code != http.StatusOK || !strings.Contains(me.Body.String(), `"display_name":"新昵称"`) {
+		t.Fatalf("me after rename status = %d, body = %s", me.Code, me.Body.String())
+	}
+}
+
+func TestAuthUpdateMeValidation(t *testing.T) {
+	router, _, cookie := newAuthTestRouter(t)
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"empty", `{"display_name":""}`},
+		{"whitespace only", `{"display_name":"   "}`},
+		{"missing field", `{}`},
+		{"over 32 chars", `{"display_name":"` + strings.Repeat("很", 33) + `"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := performJSON(router, http.MethodPatch, "/api/auth/me", tc.body, cookie)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body = %s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+
+	// 边界：恰好 32 个字符允许。
+	ok := performJSON(router, http.MethodPatch, "/api/auth/me", `{"display_name":"`+strings.Repeat("很", 32)+`"}`, cookie)
+	if ok.Code != http.StatusOK {
+		t.Fatalf("32-char name status = %d, want 200; body = %s", ok.Code, ok.Body.String())
+	}
+}
+
+func TestAuthUpdateMeRequiresAuth(t *testing.T) {
+	router, _, _ := newAuthTestRouter(t)
+	recorder := performJSON(router, http.MethodPatch, "/api/auth/me", `{"display_name":"x"}`, nil)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body = %s", recorder.Code, recorder.Body.String())
+	}
 }

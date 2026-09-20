@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ai-manju/api/internal/auth"
 	"github.com/ai-manju/api/internal/config"
@@ -30,6 +31,9 @@ type AuthHandler struct {
 	inviteValidate func(code string) error
 	inviteBind     func(inviteeID string, code string) error
 }
+
+// maxDisplayNameRunes 昵称长度上限（按 Unicode 字符数计，中文按 1 字）。
+const maxDisplayNameRunes = 32
 
 func NewAuthHandler(authService *auth.Service, userRepo repository.UserRepository, cfg config.Config) *AuthHandler {
 	return &AuthHandler{authService: authService, userRepo: userRepo, cfg: cfg}
@@ -213,6 +217,43 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	user, ok := auth.CurrentUser(c)
 	if !ok {
 		response.Error(c, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	response.OK(c, userResponse(user))
+}
+
+// UpdateMe 用户自助改名（账号弹窗"修改昵称"）：仅允许更新本人 display_name，
+// 角色/状态等仍只有管理员能改（PUT /api/admin/users/:id）。
+func (h *AuthHandler) UpdateMe(c *gin.Context) {
+	current, ok := auth.CurrentUser(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var req struct {
+		DisplayName string `json:"display_name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	displayName := strings.TrimSpace(req.DisplayName)
+	if displayName == "" {
+		response.Error(c, http.StatusBadRequest, "display name is required")
+		return
+	}
+	if utf8.RuneCountInString(displayName) > maxDisplayNameRunes {
+		response.Error(c, http.StatusBadRequest, "display name must be at most 32 characters")
+		return
+	}
+
+	current.DisplayName = displayName
+	user, err := h.userRepo.UpdateUser(current)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 

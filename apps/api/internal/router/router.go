@@ -248,6 +248,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			authRoutes.POST("/register", authHandler.Register)
 			authRoutes.POST("/login", authHandler.Login)
 			authRoutes.GET("/me", middleware.RequireAuth(authService), authHandler.Me)
+			authRoutes.PATCH("/me", middleware.RequireAuth(authService), authHandler.UpdateMe)
 			authRoutes.POST("/logout", middleware.RequireAuth(authService), authHandler.Logout)
 		}
 
