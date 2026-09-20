@@ -17,7 +17,8 @@ export type ComicAnalysisSession = {
   id: string;
   title: string;
   style_preset: string;
-  status: "active" | "confirmed";
+  status: "processing" | "failed" | "active" | "confirmed";
+  analysis_error?: string;
   active_revision_id: string;
   confirmed_revision_id: string;
   project_id: string;

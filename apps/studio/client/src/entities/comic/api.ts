@@ -22,6 +22,7 @@ import type {
 } from "./model";
 import { API_BASE_URL, getAuthToken, request } from "@/shared/api/http";
 import type { WorkspaceScope } from "@/shared/config";
+import { awaitComicAnalysis } from "./analysisTask";
 
 export function listComicProjects(scope: WorkspaceScope = "personal") {
   return request<ComicAssetProject[]>("/api/comic-asset-projects", {
@@ -181,12 +182,12 @@ export function createComicAnalysisSession(
     JSON.stringify({ ...input, source_type: "script", default_templates: {} })
   );
   body.set("source_file", sourceFile, sourceFile.name);
-  return request<ComicAnalysisDetail>("/api/comic-asset-analysis-sessions", {
+  return awaitComicAnalysis(() => request<ComicAnalysisDetail>("/api/comic-asset-analysis-sessions", {
     method: "POST",
-    query: { scope },
+    query: { scope, async: true },
     body,
-    timeoutMs: 0, // The server bounds each same-model supplier attempt.
-  });
+    timeoutMs: 0, // Upload duration is independent of the background analysis.
+  }), (id) => getComicAnalysisSession(id, scope), { ...input, scope, source_file_name: sourceFile.name });
 }
 
 export function createComicAnalysisRevision(

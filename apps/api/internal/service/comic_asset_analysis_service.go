@@ -127,6 +127,7 @@ type ComicAnalysisDetail struct {
 
 type CreateComicAnalysisSessionInput struct {
 	CreateComicProjectInput
+	Async              bool
 	SourceType         string
 	SourceFileName     string
 	SourceContentType  string
@@ -229,6 +230,27 @@ func (s *ComicAssetService) CreateAnalysisSession(ctx context.Context, userID st
 		return ComicAnalysisDetail{}, ErrComicSourceTooLarge
 	}
 
+	now := time.Now().UTC()
+	session := model.ComicAssetAnalysisSession{
+		ID: sessionID, OwnerID: userID, WorkspaceID: projectInput.WorkspaceID,
+		Title: projectInput.Title, StylePreset: projectInput.StylePreset, DefaultTemplates: projectInput.DefaultTemplates,
+		SourceType: sourceType, SourceFileName: filepath.Base(strings.ReplaceAll(strings.TrimSpace(input.SourceFileName), "\\", "/")),
+		SourceStorageKey: storageKey, SourceContentType: contentType, SourceSize: object.Size, SourceText: sourceText,
+		Status: model.ComicAnalysisStatusActive, ExpiresAt: now.Add(ComicAnalysisRetention),
+	}
+	if input.Async {
+		session.Status = model.ComicAnalysisStatusProcessing
+		session, err = s.repo.CreatePendingAnalysisSession(session)
+		if err != nil {
+			return ComicAnalysisDetail{}, err
+		}
+		cleanupSource = false
+		// The source has been saved: never retain the multipart reader or request
+		// cancellation in the background task.
+		go s.runPendingAnalysis(context.WithoutCancel(ctx), session, requestedModel, initialInstruction, comicInitialAnalysisRequest(projectInput, sourceText, initialInstruction))
+		session.Scope = WorkspaceScopeFromID(session.WorkspaceID)
+		return ComicAnalysisDetail{Session: session, Revisions: []model.ComicAssetAnalysisRevision{}}, nil
+	}
 	generated, err := s.textGenerator(ctx, requestedModel, comicInitialAnalysisRequest(projectInput, sourceText, initialInstruction))
 	if err != nil {
 		return ComicAnalysisDetail{}, err
@@ -238,14 +260,6 @@ func (s *ComicAssetService) CreateAnalysisSession(ctx context.Context, userID st
 		return ComicAnalysisDetail{}, err
 	}
 	candidateJSON := encodeComicJSON(snapshot, `{"assets":[]}`)
-	now := time.Now().UTC()
-	session := model.ComicAssetAnalysisSession{
-		ID: sessionID, OwnerID: userID, WorkspaceID: projectInput.WorkspaceID,
-		Title: projectInput.Title, StylePreset: projectInput.StylePreset, DefaultTemplates: projectInput.DefaultTemplates,
-		SourceType: sourceType, SourceFileName: filepath.Base(strings.ReplaceAll(strings.TrimSpace(input.SourceFileName), "\\", "/")),
-		SourceStorageKey: storageKey, SourceContentType: contentType, SourceSize: object.Size, SourceText: sourceText,
-		Status: model.ComicAnalysisStatusActive, ExpiresAt: now.Add(ComicAnalysisRetention),
-	}
 	revision := model.ComicAssetAnalysisRevision{
 		ID: "comic_revision_" + randomHex(10), SessionID: sessionID,
 		Source: model.ComicAnalysisRevisionSourceInitial, Instruction: initialInstruction,
@@ -264,6 +278,16 @@ func (s *ComicAssetService) GetAnalysisSession(sessionID string, userID string, 
 	session, revisions, err := s.repo.GetAnalysisSession(sessionID, WorkspaceIDForScope(scope, userID))
 	if err != nil {
 		return ComicAnalysisDetail{}, err
+	}
+	// A process restart must not leave a saved task looking busy indefinitely.
+	if session.Status == model.ComicAnalysisStatusProcessing && time.Since(session.CreatedAt) > ComicAnalysisTaskTimeout {
+		if err := s.repo.FinishPendingAnalysisSession(session.ID, session.WorkspaceID, nil, comicAnalysisTimeoutMessage); err != nil && !errors.Is(err, repository.ErrComicAssetInvalidState) {
+			return ComicAnalysisDetail{}, err
+		}
+		session, revisions, err = s.repo.GetAnalysisSession(sessionID, session.WorkspaceID)
+		if err != nil {
+			return ComicAnalysisDetail{}, err
+		}
 	}
 	if err := validateComicAnalysisSession(session); err != nil {
 		return ComicAnalysisDetail{}, err

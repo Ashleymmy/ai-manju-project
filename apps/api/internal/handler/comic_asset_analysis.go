@@ -50,6 +50,7 @@ func (h *ComicAssetHandler) CreateAnalysisSession(c *gin.Context) {
 	}
 	defer file.Close()
 	detail, err := h.assets.CreateAnalysisSession(c.Request.Context(), user.ID, requestWorkspaceScope(c), service.CreateComicAnalysisSessionInput{
+		Async: c.Query("async") == "true",
 		CreateComicProjectInput: service.CreateComicProjectInput{
 			Title: req.Title, StylePreset: req.StylePreset, DefaultTemplates: req.DefaultTemplates,
 		},
@@ -58,6 +59,10 @@ func (h *ComicAssetHandler) CreateAnalysisSession(c *gin.Context) {
 	})
 	if err != nil {
 		writeComicAssetError(c, "create comic asset analysis session", err)
+		return
+	}
+	if c.Query("async") == "true" {
+		response.Accepted(c, detail)
 		return
 	}
 	response.Created(c, detail)

@@ -130,7 +130,11 @@ export async function request<T>(
     } catch {
       parsed = raw;
     }
-    const envelope = parsed as Partial<ApiEnvelope<T>> | undefined;
+    // Gateways can return HTML/text (not an API envelope). Inspecting `error`
+    // with `in` on that string would turn an HTTP 504 into a fake network error.
+    const envelope = parsed && typeof parsed === "object"
+      ? parsed as Partial<ApiEnvelope<T>>
+      : undefined;
 
     if (response.status === 401) {
       clearAuthToken();

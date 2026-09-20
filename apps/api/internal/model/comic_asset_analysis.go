@@ -3,6 +3,9 @@ package model
 import "time"
 
 const (
+	// Processing/failed sessions retain the uploaded source while async analysis runs.
+	ComicAnalysisStatusProcessing = "processing"
+	ComicAnalysisStatusFailed     = "failed"
 	// ComicAnalysisStatusActive means the candidate history can still be edited.
 	ComicAnalysisStatusActive = "active"
 	// ComicAnalysisStatusConfirmed means one immutable revision created a project.
@@ -31,6 +34,7 @@ type ComicAssetAnalysisSession struct {
 	SourceSize          int64      `json:"source_size"`
 	SourceText          string     `json:"-" gorm:"type:text"`
 	Status              string     `json:"status" gorm:"not null;index"`
+	AnalysisError       string     `json:"analysis_error,omitempty"`
 	ActiveRevisionID    string     `json:"active_revision_id" gorm:"index"`
 	ConfirmedRevisionID string     `json:"confirmed_revision_id" gorm:"index"`
 	ProjectID           string     `json:"project_id" gorm:"index"`

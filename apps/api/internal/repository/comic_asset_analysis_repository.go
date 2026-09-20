@@ -197,7 +197,7 @@ func (r *MemoryComicAssetRepository) ListExpiredAnalysisSessions(now time.Time) 
 	defer r.mu.Unlock()
 	result := make([]model.ComicAssetAnalysisSession, 0)
 	for _, session := range r.analysisSessions {
-		if session.Status == model.ComicAnalysisStatusActive && !session.ExpiresAt.After(now) {
+		if comicAnalysisCanExpire(session.Status) && !session.ExpiresAt.After(now) {
 			result = append(result, session)
 		}
 	}
@@ -212,7 +212,7 @@ func (r *MemoryComicAssetRepository) DeleteExpiredAnalysisSession(sessionID stri
 	if !ok {
 		return nil
 	}
-	if session.Status != model.ComicAnalysisStatusActive || session.ExpiresAt.After(now) {
+	if !comicAnalysisCanExpire(session.Status) || session.ExpiresAt.After(now) {
 		return ErrComicAssetInvalidState
 	}
 	delete(r.analysisSessions, sessionID)
@@ -398,7 +398,7 @@ func (r *GormComicAssetRepository) ConfirmAnalysisSession(sessionID string, revi
 
 func (r *GormComicAssetRepository) ListExpiredAnalysisSessions(now time.Time) ([]model.ComicAssetAnalysisSession, error) {
 	var sessions []model.ComicAssetAnalysisSession
-	err := r.db.Where("status = ? AND expires_at <= ?", model.ComicAnalysisStatusActive, now).Order("expires_at ASC").Find(&sessions).Error
+	err := r.db.Where("status IN ? AND expires_at <= ?", []string{model.ComicAnalysisStatusActive, model.ComicAnalysisStatusProcessing, model.ComicAnalysisStatusFailed}, now).Order("expires_at ASC").Find(&sessions).Error
 	return sessions, err
 }
 
@@ -411,7 +411,7 @@ func (r *GormComicAssetRepository) DeleteExpiredAnalysisSession(sessionID string
 			}
 			return err
 		}
-		if session.Status != model.ComicAnalysisStatusActive || session.ExpiresAt.After(now) {
+		if !comicAnalysisCanExpire(session.Status) || session.ExpiresAt.After(now) {
 			return ErrComicAssetInvalidState
 		}
 		if err := tx.Where("session_id = ?", sessionID).Delete(&model.ComicAssetAnalysisRevision{}).Error; err != nil {
