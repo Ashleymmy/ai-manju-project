@@ -216,8 +216,8 @@ export function snapshotCanvasGenerationRevision(
 }
 
 function looksLikeStoredImageSrc(node: CanvasNodeData) {
-  const candidate = node.imageSrc || stringValue(node.metadata?.content);
-  return candidate && !assetIdFromNode(node) ? candidate : "";
+  // Empty/failed media nodes also store prompt text in metadata.content.
+  return assetIdFromNode(node) ? "" : imageSrcFromNode(node, {});
 }
 
 export function appendCanvasGenerationRevision(

@@ -356,6 +356,12 @@ describe("cloneCanvasNodeFromGenerationHistory", () => {
 });
 
 describe("appendCanvasGenerationRevision", () => {
+  it.each(["image", "video"] as const)("only archives real media, not empty %s prompt text", kind => {
+    expect(appendCanvasGenerationRevision(node("empty", { kind, metadata: { content: "a prompt", prompt: "a prompt" } }), "rev")).toEqual([]);
+    const revisions = appendCanvasGenerationRevision(node("media", { kind, imageSrc: "https://media.example.test/result", metadata: { prompt: "a prompt" } }), "rev");
+    expect(revisions).toEqual([expect.objectContaining({ kind, imageSrc: "https://media.example.test/result" })]);
+  });
+
   it("把当前图片归档进版本栈且不去重失败", () => {
     const revisions = appendCanvasGenerationRevision(node("live", {
       title: "圣诞",

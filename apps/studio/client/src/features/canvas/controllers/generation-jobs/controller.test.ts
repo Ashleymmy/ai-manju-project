@@ -4,6 +4,7 @@ import type { CanvasEdgeData, CanvasNodeData } from "@/features/canvas/domain/ty
 import { buildCanvasMentionEditorModel, buildCanvasMentionReferences } from "@/features/canvas/domain/mentions";
 import { promptTextFromNode } from "@/features/canvas/domain/nodeUtils";
 import { normalizeCanvasNode, serializeCanvasNode } from "@/features/canvas/domain/nodes";
+import { cloneCanvasNodeFromGenerationRevision, collectCanvasGenerationHistory, collectCanvasPreviewAssetRefs } from "@/features/canvas/domain/generationHistory";
 import { CanvasGenerationJobsController } from "./controller";
 import { rememberPendingCanvasJob } from "./pendingJobStore";
 import type {
@@ -82,6 +83,32 @@ function audioNode(overrides: Partial<CanvasNodeData> = {}): CanvasNodeData {
   };
 }
 
+function storedVideoNode(appliedFromHistory = false): CanvasNodeData {
+  return videoNode({
+    title: "Original video",
+    metadata: {
+      prompt: "Original prompt", content: "Original prompt", generationMode: "video",
+      status: "success", assetId: "video-old", assetScope: "team", mimeType: "video/mp4",
+      generatedAt: "2026-09-10T08:00:00.000Z", seconds: "5", appliedFromHistory,
+    },
+  });
+}
+
+function videoHistoryServices() {
+  let resultIndex = 0;
+  return createServices({
+    cancelJob: vi.fn(async id => ({ id, type: "video.generate", status: "canceled" as const, state: "canceled" as const })),
+    createVideoGenerationTask: vi.fn(async () => ({ id: `job-${++resultIndex}`, provider: "openai" as const, model: "video-model" })),
+    pollVideoGenerationTask: vi.fn(async () => ({
+      status: "completed" as const,
+      result: { url: "", assetId: `video-${resultIndex}`, fileName: `Video ${resultIndex}`, mimeType: "video/mp4" },
+    })),
+    getAssetContentObjectUrl: vi.fn(async () => "blob:video"),
+    fetchBlob: vi.fn(async () => new Blob(["video"], { type: "video/mp4" })),
+    readVideoMetadata: vi.fn(async () => ({ width: 1920, height: 1080, durationMs: 5000 })),
+  });
+}
+
 function createServices(overrides: Partial<CanvasGenerationServices> = {}) {
   let sequence = 0;
   return {
@@ -124,7 +151,7 @@ function createHarness(
   let runningIds = new Set<string>();
   let progress: Record<string, number> = {};
   let promptOptimizing = false;
-  const persistSnapshot = vi.fn(async () => true);
+  const persistSnapshot = vi.fn<CanvasGenerationBindings["persistSnapshot"]>(async () => true);
   const onError = vi.fn();
   const onSuccess = vi.fn();
   const onWarning = vi.fn();
@@ -537,6 +564,10 @@ describe("CanvasGenerationJobsController", () => {
 
     expect(harness.runningIds.has("video-1")).toBe(true);
     expect(harness.onSuccess).not.toHaveBeenCalled();
+    expect(collectCanvasGenerationHistory(harness.nodes).map(item => item.assetId)).toEqual(["asset-video-1"]);
+    const pending = normalizeCanvasNode(JSON.parse(JSON.stringify(serializeCanvasNode(harness.nodes[0]!))))!;
+    expect(pending.metadata?.generationRevisions).toEqual([expect.objectContaining({ kind: "video", assetId: "asset-video-1" })]);
+
     resolveTask?.({ id: "job-video-1", provider: "openai", model: "video-model" });
     await running;
 
@@ -608,6 +639,84 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.nodes[0]).toMatchObject({ id: "video-1", metadata: { assetId: "asset-video-imported" } });
     expect(harness.nodes[1]).toMatchObject({ kind: "video", metadata: { assetId: "asset-video-generated", status: "success" } });
     expect(harness.edges).toEqual([expect.objectContaining({ from: "video-1", to: harness.nodes[1]?.id })]);
+  });
+
+  it.each(["generate", "retry", "selected"] as const)("retains overwritten videos through %s, persistence and history application", async entry => {
+    const services = videoHistoryServices();
+    const harness = createHarness([storedVideoNode()], services);
+    const run = () => entry === "generate"
+      ? harness.controller.generateVideoFromNode("video-1")
+      : entry === "retry" ? harness.controller.retryVideoNode(harness.nodes[0]!) : harness.controller.runSelectedGeneration();
+    await run();
+    await run();
+
+    expect(harness.onError).not.toHaveBeenCalled();
+    expect(harness.nodes).toHaveLength(1);
+    const current = harness.nodes[0]!;
+    expect(current.metadata?.generationRevisions?.map(revision => revision.assetId)).toEqual(["video-1", "video-old"]);
+    expect(current.metadata?.generatedAt).not.toBe("2026-09-10T08:00:00.000Z");
+    const persisted = harness.persistSnapshot.mock.calls.at(-1)?.[0];
+    expect(persisted).toEqual(harness.nodes);
+    const restored = normalizeCanvasNode(JSON.parse(JSON.stringify(serializeCanvasNode(current))))!;
+    const previews = { "video-old": "blob:old", "video-1": "blob:one", "video-2": "blob:two" };
+    const history = collectCanvasGenerationHistory([restored], previews);
+    expect(history.map(item => item.assetId).sort()).toEqual(["video-1", "video-2", "video-old"]);
+    expect(history.every(item => item.kind === "video" && Boolean(item.previewUrl))).toBe(true);
+    expect(collectCanvasPreviewAssetRefs([restored])).toContainEqual({ id: "video-old", kind: "video", scope: "team" });
+    const revision = restored.metadata!.generationRevisions!.find(item => item.assetId === "video-old")!;
+    const applied = cloneCanvasNodeFromGenerationRevision(restored, revision, { id: "applied", x: 100, y: 100 });
+    expect(applied).toMatchObject({ kind: "video", metadata: { assetId: "video-old", assetScope: "team", seconds: "5", appliedFromHistory: true } });
+    expect(current.metadata?.assetId).toBe("video-2");
+  });
+
+  it.each(["generate", "retry"] as const)("records newly generated videos from a history copy via %s", async entry => {
+    const harness = createHarness([storedVideoNode(true)], videoHistoryServices());
+    if (entry === "generate") await harness.controller.generateVideoFromNode("video-1");
+    else await harness.controller.retryVideoNode(harness.nodes[0]!);
+    expect(harness.nodes[0]?.metadata?.appliedFromHistory).toBeUndefined();
+    expect(collectCanvasGenerationHistory(harness.nodes).map(item => item.assetId).sort()).toEqual(["video-1", "video-old"]);
+  });
+
+  it("keeps the previous video in history after a failed overwrite and a retry without duplicates", async () => {
+    const services = videoHistoryServices();
+    vi.mocked(services.pollVideoGenerationTask).mockResolvedValueOnce({ status: "failed", error: "provider unavailable" });
+    const harness = createHarness([storedVideoNode()], services);
+    await harness.controller.generateVideoFromNode("video-1");
+    expect(harness.nodes[0]?.metadata?.status).toBe("error");
+    expect(collectCanvasGenerationHistory(harness.nodes).map(item => item.assetId)).toEqual(["video-old"]);
+    await harness.controller.retryVideoNode(harness.nodes[0]!);
+    expect(harness.nodes[0]?.metadata?.generationRevisions).toHaveLength(1);
+    expect(collectCanvasGenerationHistory(harness.nodes).map(item => item.assetId).sort()).toEqual(["video-2", "video-old"]);
+  });
+
+  it("does not archive prompts as video results when generating or retrying an empty node", async () => {
+    const services = videoHistoryServices();
+    vi.mocked(services.pollVideoGenerationTask).mockResolvedValueOnce({ status: "failed", error: "provider unavailable" });
+    const harness = createHarness([videoNode()], services);
+    await harness.controller.generateVideoFromNode("video-1");
+    expect(collectCanvasGenerationHistory(harness.nodes)).toEqual([]);
+    await harness.controller.retryVideoNode(harness.nodes[0]!);
+    expect(harness.nodes[0]?.metadata?.generationRevisions || []).toEqual([]);
+    expect(collectCanvasGenerationHistory(harness.nodes).map(item => item.assetId)).toEqual(["video-2"]);
+  });
+
+  it("retains video history when an overwrite is stopped and when its saved job resumes", async () => {
+    const services = videoHistoryServices();
+    vi.mocked(services.pollVideoGenerationTask).mockImplementationOnce((_config, _task, options) => new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    }));
+    const harness = createHarness([storedVideoNode()], services);
+    const running = harness.controller.generateVideoFromNode("video-1");
+    await vi.waitFor(() => expect(services.pollVideoGenerationTask).toHaveBeenCalledTimes(1));
+    const saved = normalizeCanvasNode(JSON.parse(JSON.stringify(serializeCanvasNode(harness.nodes[0]!))))!;
+    harness.controller.stopGenerationByNodeId("video-1");
+    await running;
+    expect(collectCanvasGenerationHistory(harness.nodes).map(item => item.assetId)).toEqual(["video-old"]);
+    const restored = createHarness([saved], services);
+    restored.controller.recoverPendingJobs();
+    await vi.waitFor(() => expect(restored.nodes[0]?.metadata?.status).toBe("success"));
+    expect(services.createVideoGenerationTask).toHaveBeenCalledTimes(1);
+    expect(collectCanvasGenerationHistory(restored.nodes).map(item => item.assetId).sort()).toEqual(["video-1", "video-old"]);
   });
 
   it("已有音频的节点再次生成会覆盖原节点", async () => {

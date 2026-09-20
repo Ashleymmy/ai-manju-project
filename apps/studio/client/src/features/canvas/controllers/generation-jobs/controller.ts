@@ -785,6 +785,8 @@ export class CanvasGenerationJobsController {
         imageSrc: undefined,
         metadata: {
           ...item.metadata,
+          generationRevisions: appendCanvasGenerationRevision(item, this.services.createId()),
+          appliedFromHistory: undefined,
           assetId: undefined,
           generationMode: "video" as const,
           videoProvider: isSeedanceVideoModel(config.model) ? "seedance" : "openai",
@@ -1207,6 +1209,9 @@ export class CanvasGenerationJobsController {
     const reuseSourceNode = sourceNode.kind === "video" && sourceNode.metadata?.canvasOrigin !== "imported";
     const hasExistingMedia = reuseSourceNode && Boolean(assetIdFromNode(sourceNode));
     const targetNodeId = reuseSourceNode ? sourceNode.id : this.services.createId();
+    const generationRevisions = reuseSourceNode
+      ? appendCanvasGenerationRevision(sourceNode, this.services.createId())
+      : undefined;
     const targetNode: CanvasNodeData = {
       id: targetNodeId,
       kind: "video",
@@ -1218,6 +1223,8 @@ export class CanvasGenerationJobsController {
       height: reuseSourceNode ? sourceNode.height : 260,
       metadata: {
         ...(reuseSourceNode ? sourceNode.metadata : {}),
+        generationRevisions,
+        appliedFromHistory: undefined,
         // Keep the previous media attached while regenerating so the node keeps
         // showing the old video during generation and after a failed attempt,
         // matching the image-node behavior.
