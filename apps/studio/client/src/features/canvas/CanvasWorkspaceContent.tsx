@@ -63,6 +63,8 @@ import type { WorkspaceScope } from "@/shared/config";
 import { useCanvasOriginalImage } from "./controllers/useCanvasOriginalImage";
 import { useInspectorResize } from "./controllers/useInspectorResize";
 import { INSPECTOR_SIZE, inspectorSizeLimits, savedInspectorHeight } from "./domain/inspectorSize";
+import { useCanvasServerVideoHistory } from "./controllers/useCanvasServerVideoHistory";
+import { mergeCanvasGenerationHistory, serverVideoHistoryNodes } from "./domain/serverVideoHistory";
 import { downloadCanvasOriginalMedia } from "./services/originalMedia";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { readCanvasClipboardData, readSystemCanvasClipboard, type CanvasClipboardContent } from "./adapters/clipboard";
@@ -844,9 +846,15 @@ export default function CanvasWorkspaceViewContent() {
   );
   const visibleNodes = useMemo(() => nodes.filter((node) => !isHiddenCanvasBatchChild(node, nodes)), [nodes]);
   const pinnedMarkers = useMemo(() => canvasPinnedNodes(visibleNodes), [visibleNodes]);
+  const serverVideoHistory = useCanvasServerVideoHistory(generationHistoryOpen && !projectSessionController.switching,
+    projectId, projectSessionController.canonicalScope,
+    nodes.filter(node => node.kind === "video").map(node => assetIdFromNode(node)).join(","));
+  const historyAssetNodes = useMemo(() => serverVideoHistoryNodes(serverVideoHistory.assets,
+    projectSessionController.canonicalScope || "personal"), [serverVideoHistory.assets, projectSessionController.canonicalScope]);
   const generationHistoryItems = useMemo(
-    () => collectCanvasGenerationHistory(nodes, previews, canvasAssets),
-    [canvasAssets, nodes, previews],
+    () => mergeCanvasGenerationHistory(collectCanvasGenerationHistory(nodes, previews, canvasAssets),
+      collectCanvasGenerationHistory(historyAssetNodes)),
+    [canvasAssets, nodes, previews, historyAssetNodes],
   );
   // 视口裁剪（移植自旧优化引擎的可见区剔除思路）：只为"可视范围 + 600px 屏幕缓冲"内的节点挂载 DOM。
   // 缓冲区同时保证节点入场动画在屏外播完，正常平移不会看到节点闪现；缩略图/连线仍用全量 visibleNodes。
@@ -3204,7 +3212,9 @@ export default function CanvasWorkspaceViewContent() {
 
   const applyGenerationHistoryItem = async (nodeId: string) => {
     const parsed = parseCanvasGenerationHistoryItemId(nodeId);
-    const host = nodesRef.current.find((item) => item.id === parsed.nodeId);
+    if (projectSessionController.switching) return;
+    const host = nodesRef.current.find((item) => item.id === parsed.nodeId)
+      || historyAssetNodes.find((item) => item.id === parsed.nodeId);
     if (!host || (host.kind !== "image" && host.kind !== "video")) return;
     const center = getCanvasCenter();
     const placement = {
@@ -4832,6 +4842,9 @@ export default function CanvasWorkspaceViewContent() {
         generationHistory={{
           open: generationHistoryOpen,
           items: generationHistoryItems,
+          loading: serverVideoHistory.loading,
+          error: serverVideoHistory.error,
+          onRetry: serverVideoHistory.retry,
           preferredNodeId: selectedId,
           formatModel: (model, kind) => {
             if (!model) return "—";

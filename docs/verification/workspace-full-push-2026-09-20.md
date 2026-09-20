@@ -91,3 +91,27 @@ exit 0
 ```
 
 本轮浏览器回归合计 30 项通过（29 + 1）。
+
+## 推送前整合最新视频历史修复
+
+推送前远端新增 29f5f82（从服务端资产恢复持久视频历史），已无冲突合并。最终合并版本重新完成 Studio 类型检查、全量单元测试与构建，以及 API 全量构建、静态检查与测试；再次运行视频历史浏览器回归。
+
+```text
+Studio check: tsc --noEmit, exit 0
+Test Files  177 passed (177)
+     Tests  1106 passed (1106)
+✓ built in 3.00s
+
+API: go build ./... && go vet ./... && go test ./...
+exit 0
+ok github.com/ai-manju/api/internal/handler 14.542s
+ok github.com/ai-manju/api/internal/repository 0.029s
+ok github.com/ai-manju/api/internal/router 0.651s
+ok github.com/ai-manju/api/internal/service 0.454s
+
+canvas-video-history.spec.ts
+1 passed (8.7s)
+exit 0
+```
+
+本次远端更新未涉及 Canvas Agent、Director Desk 和 Worker，沿用上文通过的验收结果。最终工作区与暂存区的 `git diff --check` 均通过。

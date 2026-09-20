@@ -37,6 +37,16 @@ function apiResponse(data: unknown, status = 200) {
 }
 
 describe("video API", () => {
+  it.each(["provider::doubao-seedance-2-5-pro", config.model, "sdvideo/seedance-2.0"])(
+    "persists canvas source and workspace when submitting %s", async model => {
+      vi.mocked(fetch).mockResolvedValue(apiResponse({ id: "job_accepted" }));
+      await createVideoGenerationTask({ ...config, model }, "镜头", undefined,
+        { projectId: "canvas", nodeId: "node", scope: "team" });
+      const [url, init] = vi.mocked(fetch).mock.calls[0];
+      expect(String(url)).toContain("scope=team");
+      const body = init?.body instanceof FormData ? Object.fromEntries(init.body.entries()) : JSON.parse(String(init?.body));
+      expect(body).toMatchObject({ project_id: "canvas", node_id: "node" });
+    });
   beforeEach(() => {
     const NativeURL = globalThis.URL;
     class TestURL extends NativeURL {

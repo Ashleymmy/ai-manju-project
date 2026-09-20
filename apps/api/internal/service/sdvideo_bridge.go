@@ -149,6 +149,7 @@ func (b *SDVideoBridge) reconcile(ctx context.Context, job model.Job) error {
 		}
 		// 该 Payload 与幂等键在发送前已经持久化；超时恢复会命中同一远端任务。
 		request["studio_job_id"] = job.ID
+		delete(request, "studio_model") // Display name is Studio history metadata, not a vendor option.
 		remote, err := b.client.CreateAcceptedTask(ctx, user, job.WorkspaceID, request)
 		if err != nil {
 			return err
@@ -294,7 +295,7 @@ func (b *SDVideoBridge) reconcile(ctx context.Context, job model.Job) error {
 		Registration: AssetRegistrationContext{
 			AssetName: name, SourceType: model.AssetSourceSDVideo, SourceJobID: job.ID,
 			SourceProjectID: stringValue(metadata["project_id"]), SourceNodeID: stringValue(metadata["node_id"]),
-			SourceMetadata: map[string]any{"external_task_id": taskID, "external_provider": "sd-video"},
+			SourceMetadata: VideoHistoryMetadata(original),
 		},
 		IdempotencyKey: "sd-video-result:" + taskID, IngestionMode: "automatic",
 	})

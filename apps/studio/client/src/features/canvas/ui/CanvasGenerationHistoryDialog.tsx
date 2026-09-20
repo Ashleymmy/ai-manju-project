@@ -27,6 +27,9 @@ import {
 export type CanvasGenerationHistoryDialogProps = {
   open: boolean;
   items: CanvasGenerationHistoryItem[];
+  loading?: boolean;
+  error?: string;
+  onRetry?: () => void;
   preferredNodeId?: string;
   formatModel?: (model: string, kind: CanvasGenerationHistoryKind) => string;
   onOpenChange: (open: boolean) => void;
@@ -138,6 +141,9 @@ function HistoryThumb({
 export function CanvasGenerationHistoryDialog({
   open,
   items,
+  loading,
+  error,
+  onRetry,
   preferredNodeId = "",
   formatModel,
   onOpenChange,
@@ -235,6 +241,8 @@ export function CanvasGenerationHistoryDialog({
           <DialogTitle>生成历史</DialogTitle>
           <DialogDescription>查看当前画布内的图片和视频生成记录。</DialogDescription>
         </DialogHeader>
+        {loading && <p role="status" className="px-4 py-2 text-sm">正在读取服务端视频历史…</p>}
+        {error && <p role="alert" className="px-4 py-2 text-sm">{error} <button type="button" onClick={onRetry}>重试</button></p>}
         <div className="canvas-generation-history-shell">
           <aside className="canvas-generation-history-detail">
             {selected ? (

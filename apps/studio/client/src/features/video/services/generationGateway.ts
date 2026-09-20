@@ -82,6 +82,9 @@ export type VideoGenerationTaskState =
 
 type RequestOptions = {
   signal?: AbortSignal;
+  projectId?: string;
+  nodeId?: string;
+  scope?: WorkspaceScope;
   /** Reuse only when retrying transmission of the same submission, not a new generation. */
   idempotencyKey?: string;
   conversationId?: string;
@@ -403,6 +406,8 @@ async function createOpenAiVideoTask(
   }
   const body = new FormData();
   body.append("model", config.model);
+  if (options.projectId) body.append("project_id", options.projectId);
+  if (options.nodeId) body.append("node_id", options.nodeId);
   if (options.conversationId) body.append("conversation_id", options.conversationId);
   if (options.messageId) body.append("studio_message_id", options.messageId);
   body.append("prompt", prompt);
@@ -416,6 +421,7 @@ async function createOpenAiVideoTask(
   });
   const created = await request<JobSubmission>("/api/ai/videos", {
     method: "POST",
+    query: { scope: options.scope },
     headers: { "Idempotency-Key": options.idempotencyKey },
     body,
     signal: options.signal,
@@ -437,9 +443,12 @@ async function createSeedanceTask(
     "/api/ai/contents/generations/tasks",
     {
       method: "POST",
+      query: { scope: options.scope },
       headers: { "Idempotency-Key": options.idempotencyKey },
       body: {
         model: config.model,
+        project_id: options.projectId,
+        node_id: options.nodeId,
         conversation_id: options.conversationId,
         studio_message_id: options.messageId,
         content,

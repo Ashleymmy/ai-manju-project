@@ -492,6 +492,7 @@ func sanitizeAssetSourceMetadata(value map[string]any) map[string]any {
 	allowed := map[string]bool{
 		"node_id": true, "candidate_index": true, "variant_index": true,
 		"version": true, "asset_code": true, "operation": true,
+		"model": true, "prompt": true, "seconds": true, "size": true,
 	}
 	result := make(map[string]any)
 	for key, item := range value {
@@ -502,8 +503,12 @@ func sanitizeAssetSourceMetadata(value map[string]any) map[string]any {
 		switch typed := item.(type) {
 		case string:
 			runes := []rune(strings.TrimSpace(typed))
-			if len(runes) > 128 {
-				runes = runes[:128]
+			limit := 128
+			if key == "prompt" {
+				limit = maxAssetHistoryPromptRunes
+			}
+			if len(runes) > limit {
+				runes = runes[:limit]
 			}
 			result[key] = string(runes)
 		case float64, float32, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, bool:

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/ai-manju/api/internal/config"
@@ -49,7 +50,7 @@ func TestSDVideoBridgeImportsResultWithoutContentRequest(t *testing.T) {
 	jobs := NewJobService(repository.NewMemoryJobRepository(), nil, "celery", 3)
 	created, err := jobs.CreateExternal(ExternalJobInput{
 		UserID: user.ID, Scope: WorkspaceScopePersonal, Type: model.JobTypeVideoGenerate,
-		ExternalProvider: "sd-video", ExternalTaskID: "sdv_bridge", Payload: model.JSONB(`{"project_id":"project-1","node_id":"node-1"}`),
+		ExternalProvider: "sd-video", ExternalTaskID: "sdv_bridge", Payload: model.JSONB(`{"project_id":"project-1","node_id":"node-1","studio_model":"sdvideo/seedance-2.5","prompt":"original prompt","duration":12}`),
 		IdempotencyKey: "bridge-idempotency",
 	})
 	if err != nil {
@@ -80,5 +81,8 @@ func TestSDVideoBridgeImportsResultWithoutContentRequest(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].SourceType != model.AssetSourceSDVideo || items[0].SourceJobID != created.Job.ID {
 		t.Fatalf("imported assets = %+v", items)
+	}
+	if items[0].SourceProjectID != "project-1" || !strings.Contains(string(items[0].SourceMetadata), "original prompt") {
+		t.Fatal("bridge history provenance missing")
 	}
 }

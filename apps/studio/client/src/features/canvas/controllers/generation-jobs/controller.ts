@@ -413,7 +413,8 @@ export class CanvasGenerationJobsController {
           input.config,
           input.prompt,
           input.references,
-          { signal: request.controller.signal },
+          { signal: request.controller.signal, projectId: this.bindings.getProjectId(),
+            nodeId: this.bindings.getProjectId() ? input.targetNodeId : undefined, scope: input.scope },
         ));
         const active = isCurrent();
         if (!active) return false;

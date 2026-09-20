@@ -431,6 +431,12 @@ func (h *AIHandler) VideoTaskCreate(c *gin.Context) {
 		writeProviderError(c, config.BaseURL, errors.New("video model is not configured"))
 		return
 	}
+	payloadMap["studio_model"] = requestedModel
+	if err := h.prepareVideoAssetRegistration(c, payloadMap); err != nil {
+		h.cleanupStagedInputs(c, workspaceID, stagedInputs)
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	payloadMap["model"] = modelID
 	removeGenerationPrivateFields(payloadMap)
 	payload, err := marshalJSONB(payloadMap)
