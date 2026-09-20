@@ -42,6 +42,46 @@ function imageNode(overrides: Partial<CanvasNodeData> = {}): CanvasNodeData {
   };
 }
 
+function videoNode(overrides: Partial<CanvasNodeData> = {}): CanvasNodeData {
+  return {
+    id: "video-1",
+    kind: "video",
+    title: "空视频节点",
+    content: "镜头缓慢推近",
+    x: 10,
+    y: 20,
+    width: 420,
+    height: 260,
+    metadata: {
+      content: "镜头缓慢推近",
+      prompt: "镜头缓慢推近",
+      generationMode: "video",
+      status: "idle",
+    },
+    ...overrides,
+  };
+}
+
+function audioNode(overrides: Partial<CanvasNodeData> = {}): CanvasNodeData {
+  return {
+    id: "audio-1",
+    kind: "audio",
+    title: "空音频节点",
+    content: "平静的环境音",
+    x: 10,
+    y: 20,
+    width: 320,
+    height: 120,
+    metadata: {
+      content: "平静的环境音",
+      prompt: "平静的环境音",
+      generationMode: "audio",
+      status: "idle",
+    },
+    ...overrides,
+  };
+}
+
 function createServices(overrides: Partial<CanvasGenerationServices> = {}) {
   let sequence = 0;
   return {
@@ -450,6 +490,137 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.nodes[0]).toMatchObject({ id: "image-1", imageAssetId: "asset-imported" });
     expect(harness.nodes[1]).toMatchObject({ kind: "image", metadata: { status: "success" } });
     expect(harness.edges).toEqual([expect.objectContaining({ from: "image-1", to: harness.nodes[1]?.id })]);
+  });
+
+  it("已有视频的节点修改提示词后重新生成会覆盖原节点，生成期间保留旧视频", async () => {
+    let resolveTask: ((task: { id: string; provider: "openai"; model: string }) => void) | undefined;
+    const createVideoGenerationTask = vi.fn(() => new Promise<{ id: string; provider: "openai"; model: string }>(resolve => { resolveTask = resolve; }));
+    const pollVideoGenerationTask = vi.fn(async () => ({
+      status: "completed" as const,
+      result: {
+        url: "https://cdn.example.com/video-2.mp4",
+        assetId: "asset-video-2",
+        fileName: "video-2.mp4",
+        mimeType: "video/mp4",
+      },
+    }));
+    const services = createServices({
+      createVideoGenerationTask: createVideoGenerationTask as CanvasGenerationServices["createVideoGenerationTask"],
+      pollVideoGenerationTask: pollVideoGenerationTask as CanvasGenerationServices["pollVideoGenerationTask"],
+      // 重新生成时节点会把自身旧视频作为参考素材（视频流既有行为），需要可读回的媒体内容。
+      getAssetContentObjectUrl: vi.fn(async () => "blob:asset-video-1"),
+      fetchBlob: vi.fn(async () => new Blob(["video"], { type: "video/mp4" })),
+      readVideoMetadata: vi.fn(async () => ({ width: 1920, height: 1080, durationMs: 6000 })),
+    });
+    const harness = createHarness([videoNode({
+      title: "旧视频",
+      metadata: {
+        content: "镜头缓慢推近",
+        prompt: "镜头缓慢推近",
+        generationMode: "video",
+        status: "success",
+        assetId: "asset-video-1",
+        mimeType: "video/mp4",
+      },
+    })], services);
+
+    const running = harness.controller.generateVideoFromNode("video-1");
+    // 任务尚未被供应商受理时，节点已进入 loading，但仍挂着旧视频资产（与图片节点一致）。
+    await vi.waitFor(() => expect(harness.nodes[0]?.metadata?.status).toBe("loading"));
+    expect(harness.nodes).toHaveLength(1);
+    expect(harness.nodes[0]).toMatchObject({
+      id: "video-1",
+      title: "旧视频",
+      metadata: { assetId: "asset-video-1", mimeType: "video/mp4" },
+    });
+    expect(harness.edges).toEqual([]);
+
+    resolveTask?.({ id: "job-video-1", provider: "openai", model: "video-model" });
+    await running;
+
+    expect(createVideoGenerationTask).toHaveBeenCalledTimes(1);
+    expect(harness.nodes).toHaveLength(1);
+    expect(harness.nodes[0]).toMatchObject({
+      id: "video-1",
+      kind: "video",
+      metadata: { assetId: "asset-video-2", status: "success" },
+    });
+    expect(harness.onError).not.toHaveBeenCalled();
+  });
+
+  it("用户导入的视频节点生成时创建新节点并保留原素材", async () => {
+    const createVideoGenerationTask = vi.fn(async () => ({ id: "job-video-1", provider: "openai" as const, model: "video-model" }));
+    const pollVideoGenerationTask = vi.fn(async () => ({
+      status: "completed" as const,
+      result: {
+        url: "https://cdn.example.com/video-generated.mp4",
+        assetId: "asset-video-generated",
+        fileName: "generated.mp4",
+        mimeType: "video/mp4",
+      },
+    }));
+    const services = createServices({
+      createVideoGenerationTask: createVideoGenerationTask as CanvasGenerationServices["createVideoGenerationTask"],
+      pollVideoGenerationTask: pollVideoGenerationTask as CanvasGenerationServices["pollVideoGenerationTask"],
+      getAssetContentObjectUrl: vi.fn(async () => "blob:asset-video-imported"),
+      fetchBlob: vi.fn(async () => new Blob(["video"], { type: "video/mp4" })),
+      readVideoMetadata: vi.fn(async () => ({ width: 1920, height: 1080, durationMs: 6000 })),
+    });
+    const harness = createHarness([videoNode({
+      title: "导入视频",
+      metadata: {
+        content: "",
+        prompt: "让画面动起来",
+        generationMode: "video",
+        status: "success",
+        assetId: "asset-video-imported",
+        canvasOrigin: "imported",
+      },
+    })], services);
+
+    await harness.controller.generateVideoFromNode("video-1");
+
+    expect(createVideoGenerationTask).toHaveBeenCalledTimes(1);
+    expect(harness.nodes).toHaveLength(2);
+    expect(harness.nodes[0]).toMatchObject({ id: "video-1", metadata: { assetId: "asset-video-imported" } });
+    expect(harness.nodes[1]).toMatchObject({ kind: "video", metadata: { assetId: "asset-video-generated", status: "success" } });
+    expect(harness.edges).toEqual([expect.objectContaining({ from: "video-1", to: harness.nodes[1]?.id })]);
+  });
+
+  it("已有音频的节点再次生成会覆盖原节点", async () => {
+    const requestAudioGeneration = vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" }));
+    const uploadAsset = vi.fn(async () => ({
+      id: "asset-audio-2",
+      type: "audio",
+      name: "audio-2.mp3",
+      content_type: "audio/mpeg",
+      size: 6,
+    }));
+    const services = createServices({
+      requestAudioGeneration: requestAudioGeneration as CanvasGenerationServices["requestAudioGeneration"],
+      uploadAsset: uploadAsset as CanvasGenerationServices["uploadAsset"],
+    });
+    const harness = createHarness([audioNode({
+      title: "旧音频",
+      metadata: {
+        content: "平静的环境音",
+        prompt: "平静的环境音",
+        generationMode: "audio",
+        status: "success",
+        assetId: "asset-audio-1",
+      },
+    })], services);
+
+    await harness.controller.generateAudioFromNode("audio-1");
+
+    expect(requestAudioGeneration).toHaveBeenCalledTimes(1);
+    expect(harness.nodes).toHaveLength(1);
+    expect(harness.nodes[0]).toMatchObject({
+      id: "audio-1",
+      kind: "audio",
+      metadata: { assetId: "asset-audio-2", status: "success" },
+    });
+    expect(harness.onError).not.toHaveBeenCalled();
   });
 
   it("删除关联节点会按 request identity 中止请求并取消已入队 Job", async () => {

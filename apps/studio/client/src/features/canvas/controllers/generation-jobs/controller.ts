@@ -1200,12 +1200,16 @@ export class CanvasGenerationJobsController {
         sourceNode.metadata?.seedanceVolcanoAssets,
       ),
     );
-    const reuseSourceNode = sourceNode.kind === "video" && !assetIdFromNode(sourceNode);
+    // Mirror the image-node overwrite workflow: generated video nodes reuse their
+    // slot when the prompt is edited and regenerated; imported source material
+    // always spawns a new node so the original asset stays intact.
+    const reuseSourceNode = sourceNode.kind === "video" && sourceNode.metadata?.canvasOrigin !== "imported";
+    const hasExistingMedia = reuseSourceNode && Boolean(assetIdFromNode(sourceNode));
     const targetNodeId = reuseSourceNode ? sourceNode.id : this.services.createId();
     const targetNode: CanvasNodeData = {
       id: targetNodeId,
       kind: "video",
-      title: "视频生成中…",
+      title: hasExistingMedia ? sourceNode.title : "视频生成中…",
       content: prompt,
       x: reuseSourceNode ? sourceNode.x : sourceNode.x + sourceNode.width + 96,
       y: reuseSourceNode ? sourceNode.y : sourceNode.y + 24,
@@ -1213,7 +1217,10 @@ export class CanvasGenerationJobsController {
       height: reuseSourceNode ? sourceNode.height : 260,
       metadata: {
         ...(reuseSourceNode ? sourceNode.metadata : {}),
-        assetId: undefined,
+        // Keep the previous media attached while regenerating so the node keeps
+        // showing the old video during generation and after a failed attempt,
+        // matching the image-node behavior.
+        assetId: hasExistingMedia ? assetIdFromNode(sourceNode) : undefined,
         content: prompt,
         composerContent: promptTextFromNode(sourceNode),
         prompt,
@@ -1233,8 +1240,8 @@ export class CanvasGenerationJobsController {
         errorDetails: undefined,
         jobId: undefined,
         jobProgress: 0,
-        mimeType: undefined,
-        bytes: undefined,
+        mimeType: hasExistingMedia ? sourceNode.metadata?.mimeType : undefined,
+        bytes: hasExistingMedia ? sourceNode.metadata?.bytes : undefined,
       },
     };
     const pendingNodes = reuseSourceNode
@@ -1283,12 +1290,15 @@ export class CanvasGenerationJobsController {
       this.bindings.onWarning(!config.model ? "请先配置音频模型" : "提示词不能为空");
       return;
     }
-    const reuseSourceNode = sourceNode.kind === "audio" && !assetIdFromNode(sourceNode);
+    // Same overwrite workflow as image/video: generated audio nodes reuse their
+    // slot; imported material spawns a new node to protect the original asset.
+    const reuseSourceNode = sourceNode.kind === "audio" && sourceNode.metadata?.canvasOrigin !== "imported";
+    const hasExistingMedia = reuseSourceNode && Boolean(assetIdFromNode(sourceNode));
     const targetNodeId = reuseSourceNode ? sourceNode.id : this.services.createId();
     const targetNode: CanvasNodeData = {
       id: targetNodeId,
       kind: "audio",
-      title: "音频生成中…",
+      title: hasExistingMedia ? sourceNode.title : "音频生成中…",
       content: prompt,
       x: reuseSourceNode ? sourceNode.x : sourceNode.x + sourceNode.width + 96,
       y: reuseSourceNode ? sourceNode.y : sourceNode.y + Math.max(0, (sourceNode.height - 120) / 2),
@@ -1296,7 +1306,7 @@ export class CanvasGenerationJobsController {
       height: reuseSourceNode ? sourceNode.height : 120,
       metadata: {
         ...(reuseSourceNode ? sourceNode.metadata : {}),
-        assetId: undefined,
+        assetId: hasExistingMedia ? assetIdFromNode(sourceNode) : undefined,
         content: prompt,
         composerContent: promptTextFromNode(sourceNode),
         prompt,
@@ -1311,8 +1321,8 @@ export class CanvasGenerationJobsController {
         errorDetails: undefined,
         jobId: undefined,
         jobProgress: undefined,
-        mimeType: undefined,
-        bytes: undefined,
+        mimeType: hasExistingMedia ? sourceNode.metadata?.mimeType : undefined,
+        bytes: hasExistingMedia ? sourceNode.metadata?.bytes : undefined,
       },
     };
     const pendingNodes = reuseSourceNode
