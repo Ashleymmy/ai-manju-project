@@ -39,7 +39,7 @@ func NewAssetHandler(repo repository.AssetRepository, cfg config.Config) *AssetH
 }
 
 func NewAssetHandlerWithService(assets *service.AssetService, cfg config.Config) *AssetHandler {
-	return &AssetHandler{assets: assets, cfg: cfg, thumbnails: newAssetThumbnailCache()}
+	return &AssetHandler{assets: assets, cfg: cfg, thumbnails: newAssetThumbnailCache(cfg.AssetStorageDir)}
 }
 
 func (h *AssetHandler) SetLineageService(lineage *service.AssetLineageService) {
@@ -307,6 +307,10 @@ func (h *AssetHandler) Content(c *gin.Context) {
 	}
 
 	scope := requestWorkspaceScope(c)
+	if queryBool(c.Query("poster")) {
+		h.videoPoster(c, user.ID, scope)
+		return
+	}
 	thumbnailWidth, err := assetThumbnailWidth(c.Query("thumbnail"))
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
@@ -323,6 +327,8 @@ func (h *AssetHandler) Content(c *gin.Context) {
 		}
 		if asset.Type == "image" {
 			cacheKey = assetThumbnailKey(asset, thumbnailWidth)
+			unlock := h.thumbnails.lock(cacheKey)
+			defer unlock()
 			if cached, ok := h.thumbnails.get(cacheKey); ok {
 				c.Header("Cache-Control", "private, max-age=86400")
 				c.Header("ETag", cached.etag)

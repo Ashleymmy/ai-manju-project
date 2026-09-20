@@ -1,3 +1,4 @@
+import { VideoThumbnail, videoPosterUrl } from "@/shared/ui/VideoThumbnail";
 import { ChevronLeft, ChevronRight, Copy, Film, History, Image as ImageIcon, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -80,13 +81,15 @@ function HistoryMedia({
     return <span>{kind === "video" ? <Film size={videoControls ? 28 : 18} /> : <ImageIcon size={videoControls ? 28 : 18} />}</span>;
   }
   if (kind === "video") {
+    if (!videoControls) return <VideoThumbnail src={src} alt={alt || "视频封面"} />;
     return (
       <video
         src={src}
         controls={videoControls}
         muted={!videoControls}
         playsInline
-        preload="metadata"
+        preload="none"
+        poster={videoPosterUrl(src)}
         onError={() => setFailed(true)}
       />
     );
@@ -95,6 +98,8 @@ function HistoryMedia({
     <img
       src={src}
       alt={alt}
+      loading="lazy"
+      decoding="async"
       onError={() => {
         const cloned = src === url ? cloneDecodedImageSrc(url) : "";
         if (cloned) {

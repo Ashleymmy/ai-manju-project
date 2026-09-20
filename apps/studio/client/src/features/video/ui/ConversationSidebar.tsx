@@ -1,3 +1,4 @@
+import { VideoThumbnail } from "@/shared/ui/VideoThumbnail";
 import { Film, History, MessageSquarePlus, Pencil, Trash2, Wand2 } from "lucide-react";
 
 import type { VideoWorkbenchConversation } from "../repositories/conversationRepository";
@@ -50,7 +51,7 @@ export function ConversationSidebar({
           >
             <span className="wb-conv-thumb">
               {thumbnails[conversation.id]
-                ? <video src={thumbnails[conversation.id]} muted preload="metadata" />
+                ? <VideoThumbnail src={thumbnails[conversation.id]} />
                 : <Film size={15} />}
             </span>
             <span className="wb-conv-copy">

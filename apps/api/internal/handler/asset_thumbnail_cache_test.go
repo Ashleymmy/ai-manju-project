@@ -1,10 +1,31 @@
 package handler
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 	"time"
 )
+
+func TestThumbnailDiskCacheSurvivesRestartAndKeysInvalidate(t *testing.T) {
+	root := t.TempDir()
+	cache := newAssetThumbnailCache(root)
+	value := assetThumbnail{body: []byte("preview"), contentType: "image/jpeg", etag: "version1"}
+	cache.put("asset/version1", value)
+	restarted := newAssetThumbnailCache(root)
+	got, ok := restarted.get("asset/version1")
+	if !ok || !bytes.Equal(got.body, value.body) || got.etag != value.etag {
+		t.Fatal("persistent preview not recovered")
+	}
+	if _, ok := restarted.get("asset/version2"); ok {
+		t.Fatal("stale asset revision reused")
+	}
+	restarted.diskBytes = assetThumbnailDiskBytes
+	restarted.put("over-budget", value)
+	if _, ok := newAssetThumbnailCache(root).get("over-budget"); ok {
+		t.Fatal("disk budget exceeded")
+	}
+}
 
 func TestThumbnailCacheBoundsAndExpiry(t *testing.T) {
 	cache := newAssetThumbnailCache()

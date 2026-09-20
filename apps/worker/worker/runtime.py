@@ -86,6 +86,8 @@ def main() -> int:
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda _sig, _frame: stop.set())
+    from .video_poster import run_poster_worker
+    threading.Thread(target=run_poster_worker, args=(stop, load_settings()), name="video-posters", daemon=True).start()
     return supervise(commands(), stop)
 
 

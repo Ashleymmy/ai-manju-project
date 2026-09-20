@@ -78,6 +78,9 @@ def register_result_assets(
         persisted = store.create_asset(asset)
         if isinstance(persisted, dict):
             asset = json_compatible({**asset, **persisted})
+        if asset_type == "video":
+            from .video_poster import create_video_poster
+            create_video_poster(settings.asset_storage_dir, target, asset_id, str(asset.get("content_sha256") or ""))
         enriched = dict(output)
         enriched.update(
             {

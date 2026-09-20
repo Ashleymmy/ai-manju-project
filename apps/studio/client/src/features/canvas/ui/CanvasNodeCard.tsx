@@ -1,3 +1,4 @@
+import { videoPosterUrl } from "@/shared/ui/VideoThumbnail";
 import {
   Archive,
   ArrowRight,
@@ -441,7 +442,8 @@ function CanvasNodeCardView({ node, previews, isSelected, isSelectedSingle, isHo
           <video
             src={preview}
             controls
-            preload="metadata"
+            preload="none"
+            poster={videoPosterUrl(preview)}
             data-testid="canvas-node-video"
             data-canvas-no-zoom
             onPointerDown={(event) => {

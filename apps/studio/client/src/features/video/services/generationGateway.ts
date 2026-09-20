@@ -1,4 +1,4 @@
-import { getAssetContentObjectUrl } from "@/entities/asset";
+import { getAssetMediaUrl } from "@/entities/asset";
 import { getJob, isTerminalJob, jobErrorMessage, type Job } from "@/entities/job";
 import { fetchModelCatalog, videoModelProtocol } from "@/entities/model";
 import { API_BASE_URL, ApiError, getAuthToken, request } from "@/shared/api/http";
@@ -697,12 +697,10 @@ async function videoResultFromCompletedJob(
     || stringValue(output.video_url)
     || stringValue(output.url);
   if (assetId) {
-    const url = await getAssetContentObjectUrl(assetId, scope, undefined, options.signal);
-    if (options.signal?.aborted) {
-      URL.revokeObjectURL(url);
-      throw abortError();
-    }
-    return { url, mimeType, fileName, assetId, scope, ephemeral: true };
+    if (options.signal?.aborted) throw abortError();
+    // Completion must not wait for the entire video to download. The native
+    // player uses the session cookie and Range requests through this URL.
+    return { url: getAssetMediaUrl(assetId, scope), mimeType, fileName, assetId, scope, ephemeral: false };
   }
   if (assetUrl) {
     return {

@@ -1,3 +1,5 @@
+import { VideoThumbnail } from "@/shared/ui/VideoThumbnail";
+import { getAssetMediaUrl } from "@/entities/asset";
 import { Check, ChevronLeft, ChevronRight, Film, FolderOpen, Image as ImageIcon, Loader2, Music2, RefreshCw, Search, UserRoundCog } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -408,8 +410,8 @@ function PickerCard({
     >
       <span className="wb-picker-thumb">
         {thumb && asset.type === "image" ? <img src={thumb} alt={asset.name} loading="lazy" /> : null}
-        {thumb && asset.type === "video" ? <video src={thumb} muted preload="metadata" /> : null}
-        {!thumb ? <Icon size={20} /> : null}
+        {asset.type === "video" ? <VideoThumbnail src={getAssetMediaUrl(asset.id, scope)} alt={asset.name} /> : null}
+        {!thumb && asset.type !== "video" ? <Icon size={20} /> : null}
         <i className="wb-picker-check">{selected ? <Check size={12} /> : null}</i>
       </span>
       <span className="wb-picker-name">{asset.name || asset.id.slice(-8)}</span>
@@ -477,7 +479,7 @@ function usePickerThumb(asset: Asset, scope: WorkspaceScope) {
   const cacheKey = `${scope}:${asset.id}`;
   const [url, setUrl] = useState(() => pickerThumbCache.get(cacheKey) || "");
   useEffect(() => {
-    if (url || asset.type === "audio") return;
+    if (url || asset.type !== "image") return;
     let alive = true;
     getAssetContentObjectUrl(asset.id, scope, 320)
       .then((value) => {

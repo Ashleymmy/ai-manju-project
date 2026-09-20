@@ -66,7 +66,9 @@ describe("视频历史消息重新编辑", () => {
     history[0].messages = [{ id: "video", role: "system", text: "已完成", createdAt: 2, taskStatus: "succeeded", resultAssetId: "asset-video", resultScope: "personal" }];
     mocks.load.mockResolvedValue(history);
     await render();
-    const src = container.querySelector("video")!.getAttribute("src")!;
+    const src = container.querySelector("img")!.getAttribute("src")!;
+    expect(src).toContain("poster=1");
+    expect(container.querySelector("video")).toBeNull();
     expect(src).toContain("/api/assets/asset-video/content?scope=personal");
     expect(src).not.toContain("access_token");
     expect(mocks.assetContent).not.toHaveBeenCalled();
