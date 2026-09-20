@@ -472,6 +472,7 @@ export class CanvasGenerationJobsController {
       ));
       this.forgetCanvasJob(input.targetNodeId, task?.id || request.jobId);
       await this.persist(next);
+      if (isCurrent()) this.bindings.onSuccess("视频生成完成，节点结果已更新");
       return true;
     } catch (error) {
       if (!isCurrent() || isAbortError(error)) return false;

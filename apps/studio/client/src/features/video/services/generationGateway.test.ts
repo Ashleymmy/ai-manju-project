@@ -57,6 +57,32 @@ describe("video API", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(["provider::doubao-seedance-2-5-pro", config.model, "sdvideo/seedance-2.0", "sdvideo/vidu-q2"])(
+    "same-parameter regeneration creates a new %s task, while retransmission can reuse its key", async model => {
+      const jobs = new Map<string, string>();
+      vi.mocked(fetch).mockImplementation(async (_url, init) => {
+        // Match the server's fallback: without a submission key, identical
+        // payloads would return the same old task, including a completed one.
+        const fingerprint = init?.body instanceof FormData
+          ? JSON.stringify(Array.from(init.body.entries())) : String(init?.body);
+        const key = new Headers(init?.headers).get("Idempotency-Key") || fingerprint;
+        if (!jobs.has(key)) jobs.set(key, `job_${jobs.size + 1}`);
+        return apiResponse({ id: jobs.get(key), job_id: jobs.get(key) });
+      });
+      const first = await createVideoGenerationTask({ ...config, model }, "同一提示词");
+      const second = await createVideoGenerationTask({ ...config, model }, "同一提示词");
+      expect(second.id).not.toBe(first.id);
+      const firstKey = new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers).get("Idempotency-Key");
+      const secondKey = new Headers(vi.mocked(fetch).mock.calls[1][1]?.headers).get("Idempotency-Key");
+      expect(firstKey).toMatch(/^video-[0-9a-f-]{36}$/);
+      expect(secondKey).not.toBe(firstKey);
+      const repeated = await createVideoGenerationTask({ ...config, model }, "同一提示词", undefined, { idempotencyKey: secondKey! });
+      expect(repeated.id).toBe(second.id);
+      expect(jobs.size).toBe(2);
+      expect(fetch).toHaveBeenCalledTimes(3);
+    },
+  );
+
   it.each([7, 23, 30])("routes configured Ark endpoints with registered references at %i seconds", async seconds => {
     const model = "official::ep-test";
     vi.mocked(fetch)

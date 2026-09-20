@@ -3,6 +3,7 @@ import { getJob, isTerminalJob, jobErrorMessage, type Job } from "@/entities/job
 import { fetchModelCatalog, videoModelProtocol } from "@/entities/model";
 import { API_BASE_URL, ApiError, getAuthToken, request } from "@/shared/api/http";
 import type { WorkspaceScope } from "@/shared/config";
+import { createRandomUUID } from "@/shared/lib/cryptoRandomUuid";
 
 export type VideoProvider = "openai" | "seedance";
 
@@ -81,6 +82,8 @@ export type VideoGenerationTaskState =
 
 type RequestOptions = {
   signal?: AbortSignal;
+  /** Reuse only when retrying transmission of the same submission, not a new generation. */
+  idempotencyKey?: string;
   conversationId?: string;
   messageId?: string;
   onProgress?: (job: Job) => void;
@@ -274,9 +277,13 @@ export async function createVideoGenerationTask(
   const text = prompt.trim();
   if (!text) throw new Error("请输入视频提示词");
   validateVideoGenerationReferences(referenceSnapshot, normalized.model);
+  // Each explicit generation is a new intent even with identical parameters.
+  // Otherwise native jobs fall back to a payload fingerprint and return an old
+  // completed task. Keep this key stable across any transport retry of this call.
+  const submissionOptions = { ...options, idempotencyKey: options.idempotencyKey || `video-${createRandomUUID()}` };
   return isSeedanceVideoModel(normalized.model)
-    ? createSeedanceTask(normalized, text, referenceSnapshot, options)
-    : createOpenAiVideoTask(normalized, text, referenceSnapshot, options);
+    ? createSeedanceTask(normalized, text, referenceSnapshot, submissionOptions)
+    : createOpenAiVideoTask(normalized, text, referenceSnapshot, submissionOptions);
 }
 
 export function validateVideoGenerationReferences(
@@ -363,7 +370,7 @@ async function createOpenAiVideoTask(
   config: VideoGenerationConfig,
   prompt: string,
   references: VideoGenerationReferences,
-  options: RequestOptions,
+  options: RequestOptions & { idempotencyKey: string },
 ): Promise<VideoGenerationTask> {
   if (references.videos.length || references.audios.length) {
     throw new Error("OpenAI-compatible 视频模型仅支持参考图片，请移除参考视频/音频或切换 Seedance/Wan 模型");
@@ -386,6 +393,7 @@ async function createOpenAiVideoTask(
   });
   const created = await request<JobSubmission>("/api/ai/videos", {
     method: "POST",
+    headers: { "Idempotency-Key": options.idempotencyKey },
     body,
     signal: options.signal,
     timeoutMs: config.model.startsWith("sdvideo/") ? sdVideoSubmissionTimeoutMs : 30_000,
@@ -399,13 +407,14 @@ async function createSeedanceTask(
   config: VideoGenerationConfig,
   prompt: string,
   references: VideoGenerationReferences,
-  options: RequestOptions,
+  options: RequestOptions & { idempotencyKey: string },
 ): Promise<VideoGenerationTask> {
   const content = await buildSeedanceContent(config, prompt, references);
   const created = unwrapSeedanceTask(await request<ApiEnvelope<SeedanceTask>>(
     "/api/ai/contents/generations/tasks",
     {
       method: "POST",
+      headers: { "Idempotency-Key": options.idempotencyKey },
       body: {
         model: config.model,
         conversation_id: options.conversationId,
