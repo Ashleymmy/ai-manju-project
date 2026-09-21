@@ -4,7 +4,7 @@
   align-items: center;
   gap: 9px;
   color: #b3b3b3;
-  font-size: 11px;
+  font-size: var(--font-size-small);
 }
 .project-card-wrap {
   position: relative;

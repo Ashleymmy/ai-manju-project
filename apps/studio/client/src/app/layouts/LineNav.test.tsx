@@ -96,9 +96,11 @@ it("restores a collapsed destination group on navigation and cancels animation o
 
 it("keeps query-based canvas navigation active and expands its group", async () => {
   localStorage.setItem("ai-manju:rail-open-groups", '[]');
-  const canvasGroups = [{ id: "creation", title: "制作桌", items: [{ href: "/canvas?resume=recent", label: "画布工坊", icon: Box }] }];
+  const canvasGroups = [{ id: "creation", title: "制作桌", items: [{ href: "/canvas?resume=recent", label: "当前任务", icon: Box }] }];
   await act(async () => root.render(<LineNav groups={canvasGroups} currentPath="/canvas" />));
   expect(container.querySelector("a")?.getAttribute("href")).toBe("/canvas?resume=recent");
+  expect(container.querySelector("a")?.getAttribute("title")).toBe("当前任务");
+  expect(container.querySelector("a .ln-label")?.textContent).toBe("当前任务");
   expect(container.querySelector("a")?.getAttribute("aria-current")).toBe("page");
   expect(container.querySelector(".ln-parent")?.getAttribute("aria-expanded")).toBe("true");
 });

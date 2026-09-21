@@ -275,6 +275,61 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.onWarning).toHaveBeenCalledWith("图片模型尚未就绪，请稍后重试");
   });
 
+  it("freezes the clicked parameters while references load, then uses new choices on the next run", async () => {
+    let resolveReference!: (url: string) => void;
+    const referenceReady = new Promise<string>(resolve => {
+      resolveReference = resolve;
+    });
+    const services = createServices({
+      getAssetContentObjectUrl: vi.fn(() => referenceReady),
+      fetchBlob: vi.fn(async () => new Blob(["image"], { type: "image/png" })),
+      generateImages: vi.fn(async () => ({
+        images: [{ id: "result", assetId: "result", src: "" }],
+      })),
+    });
+    const source = imageNode({
+      metadata: {
+        prompt: "苹果 @[node:reference]",
+        composerContent: "苹果 @[node:reference]",
+        size: "1:1",
+        imageResolution: "1K",
+        quality: "low",
+      },
+    });
+    const reference = imageNode({
+      id: "reference",
+      metadata: { assetId: "reference-asset" },
+    });
+    const harness = createHarness([source, reference], services);
+    const pending = harness.controller.generateFromNode(source.id);
+    await vi.waitFor(() =>
+      expect(services.getAssetContentObjectUrl).toHaveBeenCalled()
+    );
+    harness.nodes[0] = {
+      ...source,
+      metadata: {
+        ...source.metadata,
+        size: "16:9",
+        imageResolution: "4K",
+        quality: "high",
+      },
+    };
+    resolveReference("blob:reference");
+    await pending;
+    expect(vi.mocked(services.generateImages).mock.calls[0][0]).toMatchObject({
+      size: "1024x1024",
+      quality: "low",
+    });
+    expect(harness.nodes[0].metadata).toMatchObject({
+      size: "16:9", imageResolution: "4K", quality: "high", requestedImageSize: "1024x1024",
+    });
+    await harness.controller.generateFromNode(source.id);
+    expect(vi.mocked(services.generateImages).mock.calls[1][0]).toMatchObject({
+      size: "3840x2160",
+      quality: "high",
+    });
+  });
+
   it("marks a generation intent immediately and ignores duplicate clicks", async () => {
     let release!: () => void;
     const waiting = new Promise<void>(resolve => { release = resolve; });
@@ -571,6 +626,8 @@ describe("CanvasGenerationJobsController", () => {
         status: "success",
         assetId: "asset-video-1",
         mimeType: "video/mp4",
+        naturalWidth: 1920,
+        naturalHeight: 1080,
       },
     })], services);
 
@@ -601,6 +658,9 @@ describe("CanvasGenerationJobsController", () => {
       kind: "video",
       metadata: { assetId: "asset-video-2", status: "success" },
     });
+    expect(harness.nodes[0].metadata?.naturalWidth).toBeUndefined();
+    expect(harness.nodes[0].metadata?.naturalHeight).toBeUndefined();
+    expect(harness.nodes[0].metadata?.generationRevisions?.[0]).toMatchObject({ naturalWidth: 1920, naturalHeight: 1080 });
     expect(harness.runningIds.has("video-1")).toBe(false);
     expect(harness.onSuccess).toHaveBeenCalledWith("视频生成完成，节点结果已更新");
     expect(createVideoGenerationTask).toHaveBeenCalledWith(expect.anything(), expect.any(String), expect.anything(),

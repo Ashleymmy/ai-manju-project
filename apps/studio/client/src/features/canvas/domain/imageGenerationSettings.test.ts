@@ -8,7 +8,7 @@ const ratios = ["1:1", "2:1", "4:3", "3:4", "5:4", "4:5", "3:2", "2:3", "21:9", 
 
 describe("canvas image generation settings", () => {
   it.each([
-    ["1K", "1360x768"], ["2K", "2720x1536"], ["4K", "3840x2160"],
+    ["1K", "1280x720"], ["2K", "2560x1440"], ["4K", "3840x2160"],
   ])("sends a distinct pixel size for %s independent of detail quality", (imageResolution, size) => {
     for (const quality of ["low", "medium", "high"]) {
       expect(canvasImageGenerationSettings(node({ imageResolution, size: "16:9", quality })))
@@ -30,7 +30,7 @@ describe("canvas image generation settings", () => {
       expect(width * height).toBeLessThanOrEqual(8294400);
       expect(width * height).toBeGreaterThan(previousPixels);
       const [rw, rh] = (size === "panorama" ? "3:1" : size).split(":").map(Number);
-      expect(Math.abs(width / height / (rw / rh) - 1)).toBeLessThan(0.02);
+      expect(width * rh).toBe(height * rw);
       previousPixels = width * height;
     }
   });

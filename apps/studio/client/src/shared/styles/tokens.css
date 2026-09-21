@@ -20,10 +20,17 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --font-sans: "Noto Sans SC", sans-serif;
+  --font-sans: var(--font-family-ui);
   --font-mono: "IBM Plex Mono", monospace;
 }
 :root {
+  /* Medium rounded text adds weight without enlarging UI or authored content. */
+  --font-family-ui: "Studio Rounded", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
+  --font-weight-ui: 500;
+  /* Readable UI sizes for captions, secondary text and compact controls. */
+  --font-size-caption: 12px;
+  --font-size-small: 13px;
+  --font-size-control: 14px;
   --background: #101112;
   --foreground: #f1eee6;
   --card: #1c1c1c;

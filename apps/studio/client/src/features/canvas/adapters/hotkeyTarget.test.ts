@@ -6,7 +6,7 @@ describe("canvas hotkey target adapter", () => {
   it("detects editable and interactive targets that should ignore canvas shortcuts", () => {
     const OriginalElement = globalThis.Element;
     class MockElement {
-      constructor(private readonly match: string[] = []) {}
+      constructor(private readonly match: string[] = [], readonly tagName = "DIV") {}
       closest(selector: string) {
         return this.match.some((item) => selector.includes(item)) ? this : null;
       }
@@ -19,6 +19,7 @@ describe("canvas hotkey target adapter", () => {
       const nested = new MockElement(["[contenteditable='true']"]);
       const canvasUi = new MockElement(["[data-canvas-ui]"]);
       const canvasNoZoom = new MockElement(["[data-canvas-no-zoom]"]);
+      const video = new MockElement(["[data-canvas-no-zoom]"], "VIDEO");
       const input = new MockElement(["input"]);
       const textarea = new MockElement(["textarea"]);
       const select = new MockElement(["select"]);
@@ -29,6 +30,7 @@ describe("canvas hotkey target adapter", () => {
       expect(isCanvasHotkeyEditingTarget(nested)).toBe(true);
       expect(isCanvasHotkeyEditingTarget(canvasUi)).toBe(true);
       expect(isCanvasHotkeyEditingTarget(canvasNoZoom)).toBe(true);
+      expect(isCanvasHotkeyEditingTarget(video)).toBe(false);
       expect(isCanvasHotkeyEditingTarget(input)).toBe(true);
       expect(isCanvasHotkeyEditingTarget(textarea)).toBe(true);
       expect(isCanvasHotkeyEditingTarget(select)).toBe(true);

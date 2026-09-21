@@ -9,6 +9,7 @@ import {
   canvasClientPointToWorld,
   canvasConnectionCurvature,
   canvasConnectionDisplayNode,
+  canvasGroupConnections,
   connectableCanvasNodesToConfig,
   connectCanvasNodesToConfig,
   createConnectedCanvasGraph,
@@ -63,10 +64,10 @@ describe("canvas connection rules", () => {
     );
   });
 
-  it("anchors both preview directions to confirmed group frames without mutating members", () => {
+  it.each([false, true])("anchors both preview directions to group frames (pending=%s) without mutating members", pending => {
     const member = { id: "member", kind: "image", x: 100, y: 80, width: 200, height: 120 };
     const group: CanvasGroupData = {
-      id: "group", title: "Group", color: "#fff", nodeIds: [member.id],
+      id: "group", title: "Group", color: "#fff", nodeIds: [member.id], pending,
       position: { x: 40, y: 20 }, width: 400, height: 400,
     };
     expect(canvasActiveConnectionPath(member, "source", { x: 600, y: 300 }, null, [group]))
@@ -76,7 +77,7 @@ describe("canvas connection rules", () => {
     const moved = { ...group, position: { x: 60, y: 40 }, height: 600 };
     expect(canvasActiveConnectionPath(member, "source", { x: 600, y: 300 }, null, [moved]))
       .toBe("M 460 340 C 530 340, 530 300, 600 300");
-    expect(canvasConnectionDisplayNode(member, [{ ...group, pending: true }])).toBe(member);
+    expect(canvasConnectionDisplayNode(member, [group])).toMatchObject({ x: 40, y: 20, width: 400, height: 400 });
     expect(canvasConnectionDisplayNode(member, [])).toBe(member);
     expect(member).toMatchObject({ x: 100, y: 80, width: 200, height: 120 });
   });
@@ -97,7 +98,56 @@ describe("canvas connection rules", () => {
     expect(buildCanvasConnectionLayerBounds([source, target], edges, preview, groups))
       .toEqual(buildCanvasConnectionLayerBounds(projected, edges, preview));
     expect(canvasActiveConnectionPath(source, "source", { x: 900, y: 80 }, target, groups.map(group => ({ ...group, pending: true }))))
-      .toBe(canvasActiveConnectionPath(source, "source", { x: 900, y: 80 }, target));
+      .toBe(path);
+  });
+
+  it.each([false, true])("connects all visible group members in both directions (pending=%s)", pending => {
+    const members = [
+      { id: "a", kind: "image" }, { id: "b", kind: "video" },
+      { id: "hidden", kind: "image", metadata: { batchRootId: "a" } },
+      { id: "c", kind: "image" }, { id: "d", kind: "text" },
+    ];
+    const groups: CanvasGroupData[] = [
+      { id: "ab", title: "AB", nodeIds: ["a", "b", "hidden", "missing"], position: { x: 0, y: 0 }, width: 300, height: 200, color: "#fff", pending },
+      { id: "cd", title: "CD", nodeIds: ["c", "d"], position: { x: 500, y: 0 }, width: 300, height: 200, color: "#fff" },
+    ];
+    expect(canvasGroupConnections("a", "c", members, "source", groups)).toEqual([
+      { from: "a", to: "c" }, { from: "a", to: "d" }, { from: "b", to: "c" }, { from: "b", to: "d" },
+    ]);
+    expect(canvasGroupConnections("b", "c", members, "target", groups)).toEqual([
+      { from: "c", to: "a" }, { from: "d", to: "a" }, { from: "c", to: "b" }, { from: "d", to: "b" },
+    ]);
+    expect(canvasGroupConnections("a", "b", members, "source", groups)).toEqual([]);
+    for (const handleType of ["source", "target"] as const) {
+      let id = 0;
+      const graph = createConnectedCanvasGraph(members, [], { id: "new", kind: "image" }, { nodeId: "b", handleType }, () => `edge-${++id}`, groups)!;
+      expect(graph.edges.map(({ from, to }) => ({ from, to }))).toEqual(handleType === "source"
+        ? [{ from: "a", to: "new" }, { from: "b", to: "new" }]
+        : [{ from: "new", to: "a" }, { from: "new", to: "b" }]);
+    }
+  });
+
+  it("accepts a mixed group's valid config connections even if its port belongs to a config", () => {
+    const group: CanvasGroupData = { id: "mixed", title: "Mixed", nodeIds: ["config", "image"], position: { x: 0, y: 0 }, width: 300, height: 200, color: "#fff", pending: true };
+    const graph = createConnectedCanvasGraph(nodes, [], { id: "new", kind: "config" }, { nodeId: "config", handleType: "source" }, () => "edge", [group]);
+    expect(graph?.edges).toEqual([{ id: "edge", from: "image", to: "new" }]);
+  });
+
+  it("hit-tests temporary frame ports and excludes its own members at different zoom levels", () => {
+    const members = [
+      { id: "outside", kind: "image", x: 0, y: 0, width: 100, height: 100 },
+      { id: "a", kind: "image", x: 800, y: 400, width: 100, height: 100 },
+      { id: "b", kind: "video", x: 1000, y: 200, width: 100, height: 100 },
+    ];
+    const group: CanvasGroupData = { id: "selection", title: "Selection", nodeIds: ["a", "b"], position: { x: 700, y: 100 }, width: 500, height: 500, color: "#fff", pending: true };
+    for (const zoom of [50, 100, 200]) {
+      const options = { groups: [group], zoom };
+      expect(findCanvasConnectionDropTarget(members, { nodeId: "outside", handleType: "source" }, { x: 700, y: 350 }, options).nodeId).toBe("b");
+      expect(findCanvasConnectionDropTarget(members, { nodeId: "outside", handleType: "target" }, { x: 1200, y: 350 }, options).nodeId).toBe("b");
+      expect(findCanvasConnectionDropTarget(members, { nodeId: "a", handleType: "source" }, { x: 1000, y: 250 }, options))
+        .toEqual({ nodeId: "", isNearNode: true });
+    }
+    expect(canvasConnectionDisplayNode(members[1], [group, { ...group, id: "old", pending: false, position: { x: 900, y: 0 } }])).toMatchObject({ x: 700, y: 100 });
   });
 
   it("rejects missing nodes, self links, and config-to-config links", () => {

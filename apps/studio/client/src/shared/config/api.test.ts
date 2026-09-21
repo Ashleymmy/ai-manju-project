@@ -32,6 +32,20 @@ describe("API runtime config", () => {
     expect(configured.API_BASE_URL).toBe("https://api.example.com");
   });
 
+  it("uses the Vite proxy for browser development without overriding an explicit API", () => {
+    vi.stubEnv("DEV", true);
+    vi.stubGlobal("window", { location: { origin: "http://localhost:3100" } });
+    expect(normalizeApiBaseUrl(undefined)).toBe("http://localhost:3100");
+    expect(normalizeApiBaseUrl("")).toBe("http://localhost:3100");
+    expect(normalizeApiBaseUrl("http://custom-api:3101/")).toBe("http://custom-api:3101");
+  });
+
+  it("preserves the production fallback when no API is configured", () => {
+    vi.stubEnv("DEV", false);
+    vi.stubGlobal("window", { location: { origin: "https://studio.example.com" } });
+    expect(normalizeApiBaseUrl(undefined)).toBe(DEFAULT_API_BASE_URL);
+  });
+
   it("resolves the same-origin build option without a localhost fallback", async () => {
     vi.stubGlobal("window", { location: { origin: "https://studio.example.com" } });
     vi.stubEnv("VITE_API_URL", "/");

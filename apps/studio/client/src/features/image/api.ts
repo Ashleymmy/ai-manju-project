@@ -2,6 +2,7 @@ import { getJob, isTerminalJob, jobErrorMessage, type Job } from "@/entities/job
 import { API_BASE_URL, ApiError, getAuthToken, request } from "@/shared/api/http";
 import { fetchImageModelCatalog, fetchTextModelCatalog, modelLabel } from "@/entities/model";
 import type { CapabilityModelCatalog } from "@/entities/model";
+import { canvasImageRequestPrompt } from "./outputRequirements";
 
 export type { AiModelsResponse } from "@/entities/model";
 export type ImageModelCatalog = CapabilityModelCatalog;
@@ -62,7 +63,7 @@ export async function submitImageGeneration(input: ImageGenerationInput, signal?
     headers: { "Idempotency-Key": globalThis.crypto?.randomUUID?.() || `image_${Date.now()}` },
     body: {
       model: input.model || "",
-      prompt,
+      prompt: canvasImageRequestPrompt(input),
       size: input.size || "auto",
       quality: input.quality || "auto",
       n: Math.max(1, Math.min(15, Math.floor(input.count || 1))),
@@ -86,7 +87,7 @@ export async function submitImageEdit(input: ImageGenerationInput, signal?: Abor
   if (!referenceFiles.length) throw new Error("图片编辑至少需要一张参考图");
   const body = new FormData();
   body.set("model", input.model || "");
-  body.set("prompt", prompt);
+  body.set("prompt", canvasImageRequestPrompt(input));
   body.set("size", input.size || "auto");
   body.set("quality", input.quality || "auto");
   body.set("n", String(Math.max(1, Math.min(15, Math.floor(input.count || 1)))));

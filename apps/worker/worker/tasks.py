@@ -11,6 +11,8 @@ from .config import load_settings
 from .db import JOB_STATUS_CANCELED, JOB_STATUS_FAILED, JOB_STATUS_SUCCEEDED, JobStore, json_compatible
 from .errors import SafeTaskError, error_payload, job_canceled_error
 from .generation_failover import PROVIDER_CANDIDATES_FIELD, generation_attempt, is_provider_failure, unavailable_error
+from .image_output_validation import validate_canvas_image_outputs
+from .image_requirements import ImageParameterError
 from .provider import edit_image, generate_image, provider_has_remote
 from .provider_gate import ProviderGate, provider_gate_from_payload
 from .staged_inputs import JOB_WORKSPACE_FIELD, cleanup_staged_inputs
@@ -222,6 +224,8 @@ def execute_job(
                 cleanup_job_inputs(payload, job, job_id)
                 log_job("job_canceled", job_id)
                 return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
+            if asset_type == "image":
+                validate_canvas_image_outputs(payload, result, settings)
             result = register_result_assets(store, job, result, settings, asset_type)
             result = json_compatible(result)
             stored = store.set_result(job_id, result)
@@ -265,7 +269,7 @@ def execute_job(
                     countdown=retry_after_seconds(exc, int(job.get("attempts") or 0)),
                     max_retries=100000,
                 )
-            if generation_max_attempts:
+            if generation_max_attempts and not isinstance(exc, ImageParameterError):
                 exc = unavailable_error() if generation_retry else SafeTaskError("任务处理失败，请稍后重试", code="generation_processing_failed", retryable=False)
                 payload_error = error_payload(exc)
             stored = store.set_error(job_id, payload_error)

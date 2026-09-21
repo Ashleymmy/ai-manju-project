@@ -145,10 +145,12 @@ describe("image API", () => {
     await submitImageGeneration({ prompt: "人物", ...settings, sourceType: "canvas" });
     const json = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body));
     expect(json).toMatchObject({ size: "3840x2160", quality, output_format: "png" });
+    expect(json.prompt).toContain("3840×2160");
     await submitImageEdit({ prompt: "人物", ...settings, sourceType: "canvas", referenceFiles: [new File(["image"], "reference.png")] });
     const form = vi.mocked(fetch).mock.calls[1][1]?.body as FormData;
     expect(form.get("size")).toBe("3840x2160");
     expect(form.get("quality")).toBe(quality);
+    expect(form.get("prompt")).toContain("3840×2160");
   });
 
   it("reports accepted and progress before surfacing a terminal error", async () => {

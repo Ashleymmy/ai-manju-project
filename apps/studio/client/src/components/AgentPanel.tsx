@@ -55,6 +55,7 @@ import {
   type CanvasAgentSnapshot,
   type CanvasAgentToolRequest,
 } from "@/lib/canvas-agent";
+import "./AgentPanel.css";
 
 type AgentMenuKind = "threads" | "files" | "plus" | "confirm" | "models";
 type PlusMenuView = "root" | "canvas" | "skills" | "apps";
@@ -72,33 +73,19 @@ const ONLINE_AGENT_HISTORY_LIMIT = 8;
 // 部分输入法确认候选词时只提供兼容键码，没有 isComposing 标记。
 const IME_COMPOSITION_KEY_CODE = 229;
 const ONLINE_AGENT_PROMPT = "你是 AI-Manju 的在线画布助手。首轮必须调用工具：只读问题调用 canvas_get_state，需要改动画布时调用对应画布工具。需要生成内容时调用 canvas_generate_text、canvas_generate_image、canvas_generate_video、canvas_generate_audio 或 canvas_create_generation_flow。不要输出伪造的 JSON ops，不要编造执行结果。涉及已有节点时只能使用当前画布快照中的真实 id；信息不足时先向用户说明。工具返回后必须依据真实结果回答。";
+// The global dialog has no active canvas and must not imply access to project data or tools.
+const STUDIO_AGENT_PROMPT = "你是 AI-Manju 的创作助手，帮助用户讨论创意、分析剧本、规划分镜和优化提示词。当前是独立对话，没有连接任何画布，也没有画布操作或生成工具；不要声称读取或修改了项目，不要编造执行结果。需要项目内容时请用户提供；需要操作画布时请用户进入对应画布继续。";
 const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = CANVAS_AGENT_TOOLS.map((item) => ({
   type: "function",
   function: { ...item.function },
 }));
 
-export default function AgentPanel({
-  projectId,
-  open,
-  onClose,
-  snapshot,
-  canUndoOps,
-  onApplyOps,
-  onExecuteWorkspaceTool,
-  onUndoOps,
-  initialPrompt,
-  initialModel,
-  assetScope = "personal",
-  referenceSelection,
-}: {
+type AgentPanelProps = {
   projectId: string;
   open: boolean;
   onClose: () => void;
-  snapshot: CanvasAgentSnapshot;
-  canUndoOps: boolean;
-  onApplyOps: (ops: CanvasAgentOp[]) => Promise<CanvasAgentExecutionResult>;
-  onExecuteWorkspaceTool: (name: string, input: Record<string, unknown>) => Promise<AgentToolResult>;
-  onUndoOps: () => Promise<CanvasAgentSnapshot | null>;
+  displayName?: string;
+  pagePath?: string;
   /** 聊天台引导流程交接的用户输入原文（步骤5：同步为一条用户消息并发送，仅一次） */
   initialPrompt?: string;
   /** 聊天台选中的模型标识，首轮保留该模型，由后台选择可用供应商。 */
@@ -106,7 +93,31 @@ export default function AgentPanel({
   assetScope?: "personal" | "team";
   /** User-driven selection only; generated output selections must not become references. */
   referenceSelection?: { projectId: string; nodeIds: string[] };
-}) {
+} & ({
+  mode?: "canvas";
+  snapshot: CanvasAgentSnapshot;
+  canUndoOps: boolean;
+  onApplyOps: (ops: CanvasAgentOp[]) => Promise<CanvasAgentExecutionResult>;
+  onExecuteWorkspaceTool: (name: string, input: Record<string, unknown>) => Promise<AgentToolResult>;
+  onUndoOps: () => Promise<CanvasAgentSnapshot | null>;
+} | {
+  mode: "studio";
+  snapshot?: never;
+  canUndoOps?: never;
+  onApplyOps?: never;
+  onExecuteWorkspaceTool?: never;
+  onUndoOps?: never;
+});
+
+export default function AgentPanel({
+  projectId, open, onClose, snapshot: canvasSnapshot, canUndoOps,
+  onApplyOps, onExecuteWorkspaceTool, onUndoOps, initialPrompt, initialModel,
+  assetScope = "personal", referenceSelection, mode = "canvas", displayName, pagePath,
+}: AgentPanelProps) {
+  const isStudio = mode === "studio";
+  const snapshot = useMemo<CanvasAgentSnapshot>(() => canvasSnapshot ?? {
+    projectId, title: "工作台", nodes: [], connections: [], selectedNodeIds: [], viewport: { x: 0, y: 0, k: 1 },
+  }, [canvasSnapshot, projectId]);
   const [tab, setTab] = useState<"connect" | "chat">("chat");
   const [channel, setChannel] = useState<"online" | "local">("online");
   const [url, setUrl] = useState(() => loadAgentConnectionSettings().url);
@@ -138,6 +149,7 @@ export default function AgentPanel({
   const [autoModel, setAutoModel] = useState(false);
   const [moreModelsOpen, setMoreModelsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const clientId = useRef(crypto.randomUUID()).current;
   const snapshotRef = useRef(snapshot);
@@ -240,7 +252,7 @@ export default function AgentPanel({
   useEffect(() => {
     fetchAiModels()
       .then((result) => {
-        const models = result.agentTextModels;
+        const models = isStudio ? result.textModels : result.agentTextModels;
         const defaultModel = pickAgentDefaultModel(models, result.modelLabels, result.defaultTextModel);
         const catalog: TextModelCatalog = {
           models,
@@ -250,7 +262,7 @@ export default function AgentPanel({
         };
         setModelCatalog(catalog);
         setTextModel((current) => resolveAgentModel(models, current) || defaultModel);
-        setModelLoadError(models.length ? "" : "没有支持 Agent 工具调用的文本模型");
+        setModelLoadError(models.length ? "" : isStudio ? "没有可用的文本模型" : "没有支持 Agent 工具调用的文本模型");
         setActivity(models.length ? "在线 Agent 可用" : "Agent 模型未配置");
       })
       .catch((error) => {
@@ -261,7 +273,7 @@ export default function AgentPanel({
         setActivity("Agent 模型不可用");
         toast.error(message);
       });
-  }, []);
+  }, [isStudio]);
 
   useEffect(() => {
     if (initialModel && modelCatalog && resolveAgentModel(modelCatalog.models, initialModel) && !initialPromptSentRef.current) {
@@ -416,14 +428,14 @@ export default function AgentPanel({
           role: message.role === "user" ? "user" : "assistant",
           content: message.role === "tool" ? `画布工具结果：${message.text}` : message.text + describeAgentReferences(message.references || []),
         }));
-      const content = await buildAgentReferenceContent(
+      const content = isStudio ? text : await buildAgentReferenceContent(
         `当前画布：${JSON.stringify(compactCanvasAgentSnapshot(snapshotRef.current))}\n\n用户需求：${text}`,
         references,
         signal,
       );
       if (!isActiveAgentTurn(turnId) || signal.aborted) return;
       const requestMessages: ResponseInputMessage[] = [
-        { role: "system", content: ONLINE_AGENT_PROMPT },
+        { role: "system", content: isStudio ? `${STUDIO_AGENT_PROMPT}\n当前页面路径：${pagePath || "/"}` : ONLINE_AGENT_PROMPT },
         ...history,
         {
           role: "user",
@@ -459,11 +471,11 @@ export default function AgentPanel({
     const response = await requestAiText({
       model: effectiveModel,
       messages: requestMessages,
-      tools: ONLINE_AGENT_TOOLS,
-      tool_choice: toolChoice,
+      ...(isStudio ? {} : { tools: ONLINE_AGENT_TOOLS, tool_choice: toolChoice }),
     }, signal);
     if (!isActiveAgentTurn(turnId) || signal.aborted) return;
     const calls = normalizeToolCalls(response.toolCalls);
+    if (isStudio && calls.length) throw new Error("当前对话未连接画布，未执行模型返回的操作。请进入对应画布继续。");
     if (!calls.length) {
       upsertAssistantMessage(assistantId, response.content || "模型没有返回内容。");
       setActivity(response.model ? `完成 · ${response.model.split("::").at(-1)}` : "完成");
@@ -557,6 +569,7 @@ export default function AgentPanel({
 
   const executeAgentTool = async (name: string, input: Record<string, unknown>, references: AgentReference[]): Promise<AgentToolResult> => {
     const epoch = conversationEpochRef.current;
+    if (isStudio || !onApplyOpsRef.current || !onExecuteWorkspaceToolRef.current) return { ok: false, message: "当前对话未连接画布。" };
     if (!isCanvasAgentToolName(name)) return { ok: false, message: `不支持的工具：${name}` };
     if (isCanvasAgentWorkspaceTool(name)) return onExecuteWorkspaceToolRef.current(name, input);
     const current = snapshotRef.current;
@@ -706,7 +719,7 @@ export default function AgentPanel({
   };
 
   const undoLastTool = async () => {
-    const restored = await onUndoOpsRef.current();
+    const restored = await onUndoOpsRef.current?.();
     if (!restored) return;
     snapshotRef.current = restored;
     setMessages((prev) => [...prev, { id: `tool-${Date.now()}`, role: "tool", text: "已撤销上一次画布工具操作。" }]);
@@ -893,10 +906,22 @@ export default function AgentPanel({
     void sendOnlinePrompt(initialPrompt);
   }, [open, initialPrompt, waiting, messages.length, channel, effectiveModel, modelLoadError, initialModelError, sendOnlinePrompt]);
 
+  useEffect(() => {
+    if (isStudio && open && rendered && effectiveModel) composerRef.current?.focus({ preventScroll: true });
+  }, [isStudio, open, rendered, Boolean(effectiveModel)]);
+
   if (!rendered) return null;
 
   return (
-    <aside className={open ? "agent-panel" : "agent-panel closing"} style={{ width: `min(${panelWidth}px, calc(100% - 16px))` }}>
+    <aside role="dialog" aria-label="Agent 对话" className={open ? "agent-panel" : "agent-panel closing"}
+      style={{ width: `min(${panelWidth}px, calc(${isStudio ? "100vw - 24px" : "100% - 16px"}))` }}
+      onKeyDown={event => {
+        if (event.key === "Escape" && openMenu && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpenMenu(null);
+        }
+      }}>
       <div className="agent-panel-resizer" onPointerDown={startResize} />
 
       {/* 顶部工具栏：左侧切换对话，右侧历史记录 / 文件 / 设置 / 关闭 */}
@@ -1037,14 +1062,14 @@ export default function AgentPanel({
                 <div className="agent-welcome-avatar">
                   <Bot size={17} />
                 </div>
-                <span className="agent-welcome-hi">Hi {projectId.slice(0, 10)}!</span>
+                <span className="agent-welcome-hi">Hi {displayName || projectId.slice(0, 10)}!</span>
               </div>
               <h3>今天一起创作点什么？</h3>
 
               <div className="agent-quick-actions">
                 <button
                   className="agent-quick-card"
-                  onClick={() => setPrompt("讲清这个项目的创作思路：解释主题、画面选择和关键验证点。")}
+                  onClick={() => setPrompt(isStudio ? "帮我梳理创作思路，先和我讨论主题、画面选择和关键验证点。" : "讲清这个项目的创作思路：解释主题、画面选择和关键验证点。")}
                 >
                   <span className="quick-card-top">
                     <ChartColumn size={14} />
@@ -1056,7 +1081,7 @@ export default function AgentPanel({
                 </button>
                 <button
                   className="agent-quick-card"
-                  onClick={() => setPrompt("搭建可视化创作工作台：把世界观、人物和故事结构可视化。")}
+                  onClick={() => setPrompt(isStudio ? "帮我规划可视化创作方案，梳理世界观、人物和故事结构。" : "搭建可视化创作工作台：把世界观、人物和故事结构可视化。")}
                 >
                   <span className="quick-card-top">
                     <ScanSearch size={14} />
@@ -1128,6 +1153,7 @@ export default function AgentPanel({
           }} />
           <div className="agent-composer">
             <textarea
+              ref={composerRef}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => {
@@ -1136,7 +1162,7 @@ export default function AgentPanel({
                   void sendPrompt();
                 }
               }}
-              placeholder={busy ? "可以继续补充或调整要求，按 Enter 发送" : "描述创意或需求，/ 使用技能，@ 引用画布内容"}
+              placeholder={busy ? "可以继续补充或调整要求，按 Enter 发送" : isStudio ? "描述创意或需求" : "描述创意或需求，/ 使用技能，@ 引用画布内容"}
               disabled={(channel === "online" && !effectiveModel) || (channel === "local" && !connected)}
               rows={2}
             />
@@ -1155,7 +1181,7 @@ export default function AgentPanel({
                   <button
                     type="button"
                     className="agent-icon-btn"
-                    title="上传文件或引用画布内节点"
+                    title={isStudio ? "技能与创意" : "上传文件或引用画布内节点"}
                     onClick={() => toggleMenu("plus")}
                   >
                     <Plus size={15} />
@@ -1170,21 +1196,21 @@ export default function AgentPanel({
                       )}
                       {plusView === "root" && (
                         <>
-                          <button type="button" className="agent-plus-item" onClick={() => setPlusView("canvas")}>
+                          {!isStudio && <button type="button" className="agent-plus-item" onClick={() => setPlusView("canvas")}>
                             <ImageIcon size={14} /> <span>从画布添加</span> <ChevronRight size={13} />
-                          </button>
-                          <button type="button" className="agent-plus-item" onClick={() => fileInputRef.current?.click()}>
+                          </button>}
+                          {!isStudio && <button type="button" className="agent-plus-item" onClick={() => fileInputRef.current?.click()}>
                             <Paperclip size={14} /> <span>上传附件</span>
-                          </button>
+                          </button>}
                           <button type="button" className="agent-plus-item" onClick={() => setPlusView("skills")}>
                             <Puzzle size={14} /> <span>技能</span> <ChevronRight size={13} />
                           </button>
-                          <button type="button" className="agent-plus-item" onClick={() => applyPresetPrompt(BRAINSTORM_PROMPT)}>
+                          <button type="button" className="agent-plus-item" onClick={() => applyPresetPrompt(isStudio ? "和我做一次头脑风暴：先讨论创作主题，再给出 5 个不同方向的创意及画面潜力。" : BRAINSTORM_PROMPT)}>
                             <Brain size={14} /> <span>头脑风暴</span>
                           </button>
-                          <button type="button" className="agent-plus-item" onClick={() => setPlusView("apps")}>
+                          {!isStudio && <button type="button" className="agent-plus-item" onClick={() => setPlusView("apps")}>
                             <LayoutGrid size={14} /> <span>全部应用</span> <ChevronRight size={13} />
-                          </button>
+                          </button>}
                         </>
                       )}
                       {plusView === "canvas" && (
@@ -1225,7 +1251,7 @@ export default function AgentPanel({
                   )}
                 </div>
                 {/* 手动确认 / 自动生成 下拉 */}
-                <div className="agent-confirm-picker" data-agent-menu>
+                {!isStudio && <div className="agent-confirm-picker" data-agent-menu>
                   <button
                     type="button"
                     className="agent-confirm-toggle"
@@ -1256,7 +1282,7 @@ export default function AgentPanel({
                       </button>
                     </div>
                   )}
-                </div>
+                </div>}
               </div>
 
               <div className="agent-composer-right">

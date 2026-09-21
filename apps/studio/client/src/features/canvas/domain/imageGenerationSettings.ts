@@ -11,6 +11,25 @@ const RESOLUTION_PIXELS = { "1K": 1024 ** 2, "2K": 2048 ** 2, "4K": IMAGE_MAX_PI
 
 export function canvasImageGenerationSettings(node: CanvasNodeData, size = sizeFromNode(node)) {
   const imageResolution = imageResolutionFromNode(node);
+  // Explicit ratio buttons must stay exact after the API's 16 px alignment.
+  const ratioParts = (size === "panorama" ? "3:1" : size).match(/^(\d+):(\d+)$/);
+  if (ratioParts) {
+    const rw = Number(ratioParts[1]);
+    const rh = Number(ratioParts[2]);
+    if (rw > 0 && rh > 0 && Math.max(rw, rh) / Math.min(rw, rh) <= IMAGE_MAX_RATIO) {
+      const divisor = greatestCommonDivisor(rw, rh);
+      const unitWidth = rw / divisor * IMAGE_DIMENSION_STEP;
+      const unitHeight = rh / divisor * IMAGE_DIMENSION_STEP;
+      const scale = Math.floor(Math.min(
+        IMAGE_MAX_EDGE / Math.max(unitWidth, unitHeight),
+        Math.sqrt(RESOLUTION_PIXELS[imageResolution] / (unitWidth * unitHeight)),
+      ));
+      if (scale > 0) return {
+        size: `${unitWidth * scale}x${unitHeight * scale}` as const,
+        quality: qualityFromNode(node), imageResolution,
+      };
+    }
+  }
   const ratio = imageAspectRatio(node, size);
   const longRatio = Math.max(ratio, 1 / ratio);
   const longSide = Math.floor(Math.min(
@@ -27,6 +46,11 @@ export function canvasImageGenerationSettings(node: CanvasNodeData, size = sizeF
   ) * IMAGE_DIMENSION_STEP;
   const [width, height] = ratio >= 1 ? [longSide, shortSide] : [shortSide, longSide];
   return { size: `${width}x${height}` as const, quality: qualityFromNode(node), imageResolution };
+}
+
+function greatestCommonDivisor(a: number, b: number): number {
+  while (b) [a, b] = [b, a % b];
+  return a;
 }
 
 function imageAspectRatio(node: CanvasNodeData, size: string) {

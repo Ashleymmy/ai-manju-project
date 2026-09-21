@@ -61,13 +61,18 @@ async function setup(page: Page, empty = false) {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/dashboard");
   await page.getByRole("button", { name: "知道了", exact: true }).click();
-  await expect(page.getByRole("link", { name: "画布工坊", exact: false })).toBeVisible();
+  const entry = page.getByRole("link", { name: "当前任务", exact: false });
+  await expect(entry).toBeVisible();
+  await expect(entry).toHaveAttribute("href", "/canvas?resume=recent");
+  await expect(entry).toHaveAttribute("title", "当前任务");
+  await expect(page.getByRole("link", { name: "画布工坊", exact: false })).toHaveCount(0);
   return state;
 }
 
 test("sidebar opens the latest server-edited canvas, supports Back and ignores deleted projects", async ({ page }, testInfo) => {
   const state = await setup(page);
-  await page.getByRole("link", { name: "画布工坊", exact: false }).click();
+  await page.screenshot({ path: testInfo.outputPath("current-task-nav.png") });
+  await page.getByRole("link", { name: "当前任务", exact: false }).click();
   await expect(page).toHaveURL(/\/canvas\/recent\?scope=personal$/);
   await expect(page.locator(".real-canvas-stage")).toBeVisible();
   await expect(page.locator(".canvas-switcher-title")).toHaveText("Recent Canvas");
@@ -75,7 +80,7 @@ test("sidebar opens the latest server-edited canvas, supports Back and ignores d
   await page.goBack();
   await expect(page).toHaveURL(/\/dashboard$/);
   state.projects = state.projects.filter(project => project.id !== "recent");
-  await page.getByRole("link", { name: "画布工坊", exact: false }).click();
+  await page.getByRole("link", { name: "当前任务", exact: false }).click();
   await expect(page).toHaveURL(/\/canvas\/older\?scope=personal$/);
   await expect(page.locator(".real-canvas-stage")).toBeVisible();
   expect(state.createRequests).toBe(0);
@@ -91,7 +96,7 @@ test("editing another canvas changes the next sidebar destination", async ({ pag
   await page.keyboard.press("Control+v");
   await expect.poll(() => state.saves).toBeGreaterThan(0);
   await page.getByRole("button", { name: "返回首页", exact: true }).click();
-  await page.getByRole("link", { name: "画布工坊", exact: false }).click();
+  await page.getByRole("link", { name: "当前任务", exact: false }).click();
   await expect(page).toHaveURL(/\/canvas\/older\?scope=personal$/);
   await expect(page.locator(".real-canvas-node.text")).toContainText("Latest canvas edit");
   expect(state.errors).toEqual([]);
@@ -99,7 +104,7 @@ test("editing another canvas changes the next sidebar destination", async ({ pag
 
 test("new users see the existing create entry without an automatic project", async ({ page }) => {
   const state = await setup(page, true);
-  await page.getByRole("link", { name: "画布工坊", exact: false }).click();
+  await page.getByRole("link", { name: "当前任务", exact: false }).click();
   await expect(page).toHaveURL(/\/canvas\?scope=personal$/);
   await expect(page.getByText("还没有画布项目。", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "新建画布", exact: true })).toBeVisible();
@@ -110,7 +115,7 @@ test("new users see the existing create entry without an automatic project", asy
 test("list failures return to the list without a redirect loop", async ({ page }) => {
   const state = await setup(page);
   state.failList = true;
-  await page.getByRole("link", { name: "画布工坊", exact: false }).click();
+  await page.getByRole("link", { name: "当前任务", exact: false }).click();
   await expect(page).toHaveURL(/\/canvas\?scope=personal$/);
   await expect(page.locator('[data-sonner-toast][data-type="error"]')).toBeVisible();
   await expect(page.getByRole("button", { name: "新建画布", exact: true })).toBeVisible();

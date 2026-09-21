@@ -53,7 +53,7 @@
 .chat-topbar-brand p {
   margin: 0;
   color: var(--muted-foreground);
-  font: 10px "IBM Plex Mono", monospace;
+  font: var(--font-size-caption) "IBM Plex Mono", monospace;
 }
 
 /* 模式 Tab：与 composer-tabs / detail-tabs 一致的下划线激活态 */
@@ -74,7 +74,7 @@
   background: transparent;
   color: var(--muted-foreground);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-control);
   font-weight: 500;
   transition: color .16s ease;
 }
@@ -112,7 +112,7 @@
   background: rgba(255, 255, 255, 0.03);
   color: var(--foreground);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-control);
   transition: border-color .15s ease, background .15s ease;
 }
 .chat-user-trigger:hover {
@@ -141,7 +141,7 @@
   gap: 6px;
   min-height: 32px;
   padding: 0 14px;
-  font-size: 12px;
+  font-size: var(--font-size-control);
 }
 
 /* 下拉菜单：统一 pop-in 动画 + 深色描边面板 */
@@ -172,7 +172,7 @@
   background: transparent;
   color: var(--foreground);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-control);
   text-align: left;
   transition: background .14s ease;
 }
@@ -278,7 +278,7 @@
 }
 .chat-composer-hint {
   color: #979797;
-  font: 10px "IBM Plex Mono", monospace;
+  font: var(--font-size-caption) "IBM Plex Mono", monospace;
 }
 .chat-composer-actions {
   display: flex;
@@ -309,7 +309,7 @@
   margin: 0;
   padding: 8px 10px;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--font-size-control);
 }
 .chat-model-trigger {
   max-width: min(320px, calc(100vw - 154px));
@@ -334,7 +334,7 @@
   background: rgba(255, 255, 255, 0.03);
   color: #d7d3c9;
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--font-size-small);
   transition: border-color .15s ease, background .15s ease, color .15s ease;
 }
 .chat-tool-btn:hover {
@@ -427,7 +427,7 @@
   border: 1px dashed rgba(239, 235, 222, 0.22);
   background: transparent;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--font-size-control);
 }
 .chat-new-card::before {
   content: none;
@@ -462,7 +462,7 @@
 }
 .chat-loading small {
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--font-size-small);
 }
 .chat-loading-bar {
   position: relative;

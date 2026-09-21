@@ -203,6 +203,7 @@ function createHarness(initialNodes: CanvasNodeData[] = [node("a"), node("b", 30
     info,
     resumeHistory,
     get nodes() { return nodes; },
+    get edges() { return edges; },
     get groups() { return groups; },
     get selectedGroupId() { return selectedGroupId; },
     get viewport() { return viewport; },
@@ -211,6 +212,84 @@ function createHarness(initialNodes: CanvasNodeData[] = [node("a"), node("b", 30
 }
 
 describe("CanvasStageInteractionController", () => {
+  it.each(["source", "target"] as const)("connects an entire temporary selection with the %s port without duplicates", handleType => {
+    const nodes = [node("a"), node("b", 150), node("outside", 600)];
+    const group = { ...createCanvasGroup(nodes, ["a", "b"], "selection")!, pending: true };
+    const harness = createHarness(nodes, [group]);
+    expect(harness.controller.connectNodes("a", "outside", handleType)).toBe(true);
+    expect(harness.controller.connectNodes("b", "outside", handleType)).toBe(true);
+    expect(harness.edges.map(({ from, to }) => ({ from, to }))).toEqual(handleType === "source"
+      ? [{ from: "a", to: "outside" }, { from: "b", to: "outside" }]
+      : [{ from: "outside", to: "a" }, { from: "outside", to: "b" }]);
+    expect(harness.controller.connectNodes("a", "b")).toBe(false);
+    expect(harness.edges).toHaveLength(2);
+    harness.controller.dispose();
+  });
+
+  it("drops onto a temporary frame boundary away from its member cards", () => {
+    const nodes = [node("outside"), { ...node("a", 400), y: 200 }, { ...node("b", 600), y: 400 }];
+    const group = { ...createCanvasGroup(nodes, ["a", "b"], "selection")!, pending: true };
+    const harness = createHarness(nodes, [group]);
+    const handle = {} as HTMLElement;
+    harness.controller.beginConnection(pointer(handle, { clientX: 100, clientY: 102 }), "outside", "source");
+    const drop = { pointerId: 1, clientX: group.position.x, clientY: group.position.y + group.height / 2 + 52 };
+    harness.adapter.emit("pointermove", drop);
+    harness.adapter.emit("pointerup", drop);
+    expect(harness.edges.map(({ from, to }) => ({ from, to }))).toEqual([{ from: "outside", to: "a" }, { from: "outside", to: "b" }]);
+    expect(harness.controller.getSnapshot().pendingConnectionCreate).toBeNull();
+    harness.controller.dispose();
+  });
+
+  it("keeps a temporary group while click-connecting to a node body", () => {
+    const nodes = [node("a"), node("b", 150), node("outside", 600)];
+    const group = { ...createCanvasGroup(nodes, ["a", "b"], "selection")!, pending: true };
+    const dismissPendingGroup = vi.fn();
+    const harness = createHarness(nodes, [group], { dismissPendingGroup });
+    const target = {} as HTMLElement;
+    harness.controller.beginConnection(pointer(target), "b", "source");
+    vi.spyOn(harness.adapter, "closest").mockReturnValue(target);
+    harness.controller.handleStagePointerDown(pointer(target));
+    expect(dismissPendingGroup).not.toHaveBeenCalled();
+    harness.controller.chooseNode("outside");
+    expect(harness.edges).toHaveLength(2);
+    harness.controller.dispose();
+  });
+
+  it.each(["image", "video"] as const)("resizes %s proportionally at different zoom levels and records one history entry", kind => {
+    for (const zoom of [50, 100, 200]) {
+      const media = { ...node("media"), kind, width: 320, height: 180, metadata: { naturalWidth: 1920, naturalHeight: 1080 } };
+      const pauseHistory = vi.fn();
+      const harness = createHarness([media, node("untouched")], [], { pauseHistory });
+      const handle = {} as HTMLButtonElement;
+      const event = (x: number, y: number) => pointer(handle, { clientX: x, clientY: y }) as CanvasStagePointerEvent<HTMLButtonElement>;
+      harness.controller.syncViewport({ zoom, panX: 0, panY: 0 });
+      harness.controller.startResize(event(10, 20), media);
+      harness.controller.moveResize(event(10 + 160 * zoom / 100, 20 + 90 * zoom / 100));
+      harness.adapter.runFrames();
+      expect(harness.nodes[0]).toMatchObject({ width: 480, height: 270, x: 0, y: 0 });
+      expect(harness.nodes[1]).toEqual(node("untouched"));
+      harness.controller.endResize();
+      expect(pauseHistory).toHaveBeenCalledTimes(1);
+      expect(harness.resumeHistory).toHaveBeenCalledTimes(1);
+      expect(harness.resumeHistory).toHaveBeenCalledWith(true);
+      expect(harness.adapter.releases).toEqual([{ element: handle, pointerId: 1 }]);
+      harness.controller.dispose();
+    }
+  });
+
+  it("does not resize or create history when the handle is only clicked", () => {
+    const media = { ...node("media"), kind: "image" as const, width: 320, height: 180 };
+    const harness = createHarness([media]);
+    const event = pointer({} as HTMLButtonElement) as CanvasStagePointerEvent<HTMLButtonElement>;
+    harness.controller.startResize(event, media);
+    harness.controller.moveResize(event);
+    harness.controller.endResize();
+    expect(harness.nodes[0]).toBe(media);
+    expect(harness.resumeHistory).toHaveBeenCalledTimes(1);
+    expect(harness.resumeHistory).toHaveBeenCalledWith(false);
+    harness.controller.dispose();
+  });
+
   it.each([0, 1])("returns keyboard focus to the canvas for background pointer button %s", button => {
     const harness = createHarness();
     harness.controller.handleStagePointerDown(pointer(harness.stage, { button }) as CanvasStagePointerEvent<HTMLElement>);

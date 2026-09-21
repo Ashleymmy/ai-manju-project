@@ -1807,6 +1807,7 @@ export default function CanvasWorkspaceViewContent() {
       created,
       draft.connection,
       () => crypto.randomUUID(),
+      groupsRef.current,
     );
     if (!graph) {
       toast.warning("该连接不符合节点规则");
@@ -1814,11 +1815,11 @@ export default function CanvasWorkspaceViewContent() {
       setContextMenu(null);
       return;
     }
-    // When a marquee selection is still active, fan the new node connection
-    // out to every selected node. The handle side determines the direction:
-    // source handles converge into the new node, target handles receive from it.
-    const selectedSources = [...selectedNodeIdsRef.current]
-      .filter((nodeId) => graph.nodes.some((node) => node.id === nodeId));
+    // Keep Ctrl/Shift multi-selection fan-out when no shared frame owns the port.
+    const selectedSources = selectedNodeIdsRef.current.has(draft.connection.nodeId)
+      && !groupsRef.current.some(group => group.nodeIds.includes(draft.connection.nodeId))
+      ? [...selectedNodeIdsRef.current]
+      : [];
     let nextEdges = graph.edges;
     selectedSources.forEach((nodeId) => {
       const connection = normalizeCanvasConnection(nodeId, created.id, graph.nodes, draft.connection.handleType);
@@ -2789,6 +2790,8 @@ export default function CanvasWorkspaceViewContent() {
           assetScope: activeScope,
           mimeType: asset.content_type || file.type,
           bytes: asset.size || file.size,
+          naturalWidth: undefined,
+          naturalHeight: undefined,
           status: "success" as const,
         },
       } : node);
@@ -2803,9 +2806,11 @@ export default function CanvasWorkspaceViewContent() {
     }
   };
 
-  const fitCanvasImageNodeFrame = (nodeId: string, naturalWidth: number, naturalHeight: number) => {
+  const fitCanvasMediaNodeFrame = (nodeId: string, naturalWidth: number, naturalHeight: number, source?: string) => {
     const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
-    if (!sourceNode || sourceNode.kind !== "image") return;
+    if (!sourceNode || (sourceNode.kind !== "image" && sourceNode.kind !== "video")) return;
+    // Ignore a late metadata event from a video replaced on this node.
+    if (source && imageSrcFromNode(sourceNode, previews) !== source) return;
     const nextNode = applyCanvasImageNaturalSize(sourceNode, naturalWidth, naturalHeight);
     if (nextNode === sourceNode) return;
     const nextNodes = nodesRef.current.map((node) => node.id === nodeId ? nextNode : node);
@@ -4324,7 +4329,7 @@ export default function CanvasWorkspaceViewContent() {
     retryAudioNode,
     retryVideoNode,
     removeNode,
-    fitCanvasImageNodeFrame,
+    fitCanvasMediaNodeFrame,
   });
 
   return (
@@ -4571,7 +4576,7 @@ export default function CanvasWorkspaceViewContent() {
             isSelectedSingle: selectedId === node.id,
             isHovered: hoveredId === node.id,
             isConnectionTarget: connectionTargetId === node.id,
-            isGrouped: groups.some(group => !group.pending && group.nodeIds.includes(node.id)),
+            isGrouped: groups.some(group => group.nodeIds.includes(node.id)),
             isConnecting: Boolean(connectFrom),
             connectActiveTarget: connectFrom === node.id && connectHandleType === "target",
             connectActiveSource: connectFrom === node.id && connectHandleType === "source",

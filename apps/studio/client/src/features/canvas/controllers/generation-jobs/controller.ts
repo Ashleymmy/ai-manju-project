@@ -1065,6 +1065,10 @@ export class CanvasGenerationJobsController {
       generationType: prepared.files.length ? "edit" : "generation",
       referenceInputs: prepared.snapshots,
     };
+    // The request keeps the clicked settings, while choices edited during
+    // reference loading remain available for the user's next generation.
+    const currentSourceNode = this.bindings.getNodes().find(node => node.id === sourceNode.id) || sourceNode;
+    const currentImageSettings = canvasImageGenerationSettings(currentSourceNode);
     const rootNode: CanvasNodeData = {
       ...(reuseSourceNode ? sourceNode : {
         id: rootId,
@@ -1097,6 +1101,12 @@ export class CanvasGenerationJobsController {
         errorDetails: undefined,
         appliedFromHistory: undefined,
         generationRevisions,
+        ...(reuseSourceNode ? {
+          size: sizeFromNode(currentSourceNode),
+          quality: currentImageSettings.quality,
+          imageResolution: currentImageSettings.imageResolution,
+          model: modelFromNode(currentSourceNode, model),
+        } : {}),
       },
     };
     const childNodes = childIds.map((id, index): CanvasNodeData => {

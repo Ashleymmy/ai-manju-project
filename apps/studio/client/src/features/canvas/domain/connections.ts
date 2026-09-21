@@ -69,7 +69,7 @@ export function findCanvasConnectionDropTarget(
   nodes: readonly CanvasConnectionNode[],
   current: CanvasConnectionDraft,
   world: { x: number; y: number },
-  options: { padding?: number; handleRadius?: number; zoom?: number } = {},
+  options: { padding?: number; handleRadius?: number; zoom?: number; groups?: readonly CanvasGroupData[] } = {},
 ): CanvasConnectionDropTarget {
   const scale = Math.max(0.05, (options.zoom ?? 100) / 100);
   const padding = (options.padding ?? 28) / scale;
@@ -82,6 +82,7 @@ export function findCanvasConnectionDropTarget(
     .filter((node) => !isHiddenCanvasBatchChild(node, nodes))
     .reverse()
     .forEach((node) => {
+      node = canvasConnectionDisplayNode(node, options.groups || []);
       const anchor = canvasConnectionTargetAnchor(node, current.handleType);
       const dx = world.x - anchor.x;
       const dy = world.y - anchor.y;
@@ -96,7 +97,7 @@ export function findCanvasConnectionDropTarget(
         && world.y <= (node.y || 0) + (node.height || 0) + padding;
       if (!hitsHandle && !hitsInside && !hitsExpanded) return;
       isNearNode = true;
-      if (node.id === current.nodeId || !normalizeCanvasConnection(current.nodeId, node.id, nodes, current.handleType)) return;
+      if (!canvasGroupConnections(current.nodeId, node.id, nodes, current.handleType, options.groups).length) return;
       const priority = hitsInside ? 0 : hitsHandle ? 1 : 2;
       if (priority < bestPriority) {
         bestNodeId = node.id;
@@ -154,15 +155,39 @@ export function canvasActiveConnectionPath(
   return `M ${start.x} ${start.y} C ${start.x + distance * 0.5} ${start.y}, ${end.x - distance * 0.5} ${end.y}, ${end.x} ${end.y}`;
 }
 
-/** Project confirmed members onto the group frame for all connection geometry. */
+/** A temporary selection owns its ports even when it includes an existing group. */
+export function canvasConnectionGroup(nodeId: string, groups: readonly CanvasGroupData[]) {
+  return groups.find(group => group.pending && group.nodeIds.includes(nodeId))
+    || groups.find(group => group.nodeIds.includes(nodeId));
+}
+
+/** Project both temporary and confirmed members onto their shared frame. */
 export function canvasConnectionDisplayNode<T extends CanvasConnectionNode>(
   node: T,
   groups: readonly CanvasGroupData[],
 ): T {
-  const group = groups.find(group => !group.pending && group.nodeIds.includes(node.id));
+  const group = canvasConnectionGroup(node.id, groups);
   return group
     ? { ...node, x: group.position.x, y: group.position.y, width: group.width, height: group.height }
     : node;
+}
+
+export function canvasGroupConnections(
+  firstNodeId: string,
+  secondNodeId: string,
+  nodes: readonly CanvasConnectionNode[],
+  handleType: CanvasConnectionHandleType,
+  groups: readonly CanvasGroupData[] = [],
+): Array<Pick<CanvasConnectionEdge, "from" | "to">> {
+  const firstGroup = canvasConnectionGroup(firstNodeId, groups);
+  const secondGroup = canvasConnectionGroup(secondNodeId, groups);
+  if (firstNodeId === secondNodeId || (firstGroup && firstGroup.id === secondGroup?.id)) return [];
+  const first = visibleCanvasConnectionNodes(nodes, firstGroup?.nodeIds || [firstNodeId]);
+  const second = visibleCanvasConnectionNodes(nodes, secondGroup?.nodeIds || [secondNodeId]);
+  return first.flatMap(source => second.flatMap(target => {
+    const connection = normalizeCanvasConnection(source.id, target.id, nodes, handleType);
+    return connection ? [connection] : [];
+  }));
 }
 
 export function addCanvasConnection<TEdge extends CanvasConnectionEdge>(
@@ -212,13 +237,15 @@ export function createConnectedCanvasGraph<TNode extends CanvasConnectionNode, T
   candidate: TNode,
   draft: CanvasConnectionDraft,
   createEdgeId: () => string,
+  groups: readonly CanvasGroupData[] = [],
 ) {
   const nextNodes = [...nodes, candidate];
-  const connection = normalizeCanvasConnection(draft.nodeId, candidate.id, nextNodes, draft.handleType);
+  const connections = canvasGroupConnections(draft.nodeId, candidate.id, nextNodes, draft.handleType, groups);
+  const connection = connections[0];
   if (!connection) return null;
   return {
     nodes: nextNodes,
-    edges: addCanvasConnection(edges, connection, createEdgeId),
+    edges: connections.reduce((result, item) => addCanvasConnection(result, item, createEdgeId), edges as TEdge[]),
     connection,
   };
 }

@@ -60,8 +60,8 @@ describe("canvas image parameter controls", () => {
     await click("参数");
     await click("2K");
     await click("4:3");
-    expect(document.body.textContent).toContain("请求尺寸：2352 × 1760 px");
+    expect(document.body.textContent).toContain("请求尺寸：2304 × 1728 px");
     await act(async () => generate!.click());
-    expect(submit).toHaveBeenLastCalledWith({ size: "2352x1760", quality: "high", imageResolution: "2K" });
+    expect(submit).toHaveBeenLastCalledWith({ size: "2304x1728", quality: "high", imageResolution: "2K" });
   });
 });

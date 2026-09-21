@@ -184,6 +184,58 @@ export function serializeCanvasMentionEditorValue(
   return result + value.slice(cursor);
 }
 
+/** Clipboard selections treat each displayed reference as one indivisible token. */
+export function sliceCanvasMentionEditorSelection(
+  displayValue: string,
+  segments: readonly CanvasMentionEditorSegment[],
+  start: number,
+  end: number,
+) {
+  start = Math.max(0, Math.min(start, displayValue.length));
+  end = Math.max(start, Math.min(end, displayValue.length));
+  const overlapping = segments.filter(segment => start === end
+    ? start > segment.start && start < segment.end
+    : start < segment.end && end > segment.start);
+  if (start === end && overlapping.length) {
+    const segment = overlapping[0];
+    start = end = start - segment.start <= segment.end - start ? segment.start : segment.end;
+  } else if (overlapping.length) {
+    start = Math.min(start, ...overlapping.map(segment => segment.start));
+    end = Math.max(end, ...overlapping.map(segment => segment.end));
+  }
+  const selectedSegments = segments.filter(segment => segment.start >= start && segment.end <= end)
+    .map(segment => ({ ...segment, start: segment.start - start, end: segment.end - start }));
+  return { start, end, value: serializeCanvasMentionEditorValue(displayValue.slice(start, end), selectedSegments) };
+}
+
+export function replaceCanvasMentionEditorSelection(
+  displayValue: string,
+  segments: readonly CanvasMentionEditorSegment[],
+  start: number,
+  end: number,
+  insertedValue: string,
+  references: readonly CanvasMentionReference[],
+) {
+  const selection = sliceCanvasMentionEditorSelection(displayValue, segments, start, end);
+  const inserted = buildCanvasMentionEditorModel(insertedValue, references);
+  const delta = inserted.displayValue.length - (selection.end - selection.start);
+  // Spacers can look identical, so preserve references by selection offsets, not string diffs.
+  const nextSegments = segments.filter(segment => segment.end <= selection.start || segment.start >= selection.end)
+    .map(segment => segment.start >= selection.end
+      ? { ...segment, start: segment.start + delta, end: segment.end + delta } : segment);
+  nextSegments.push(...inserted.segments.map(segment => ({
+    ...segment, start: segment.start + selection.start, end: segment.end + selection.start,
+  })));
+  nextSegments.sort((left, right) => left.start - right.start);
+  const nextDisplay = displayValue.slice(0, selection.start) + inserted.displayValue + displayValue.slice(selection.end);
+  return {
+    displayValue: nextDisplay,
+    segments: nextSegments,
+    value: serializeCanvasMentionEditorValue(nextDisplay, nextSegments),
+    caret: selection.start + inserted.displayValue.length,
+  };
+}
+
 export function splitCanvasMentionEditorDisplay(
   value: string,
   segments: readonly CanvasMentionEditorSegment[],

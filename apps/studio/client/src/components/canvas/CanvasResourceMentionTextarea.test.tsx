@@ -26,16 +26,25 @@ describe("canvas image mention caret", () => {
     kind: "image", label: `图片${id}`, title: id, searchText: id, active: true, upstreamDistance: 1,
   }));
   const original = "@[node:a] @[node:b] 生成企鹅";
-  function Harness({ initial = original }: { initial?: string }) {
+  function Harness({ initial = original, readOnly = false }: { initial?: string; readOnly?: boolean }) {
     const [value, setValue] = useState(initial);
     return <CanvasResourceMentionTextarea value={value} references={imageReferences} editorRef={editorRef}
-      onChange={next => { changed(next); setValue(next); }} onPreviewReference={preview} onSubmit={submit} />;
+      onChange={next => { changed(next); setValue(next); }} onPreviewReference={preview} onSubmit={submit} readOnly={readOnly} />;
   }
   const textarea = () => container.querySelector("textarea")!;
   async function key(value: string, extra: KeyboardEventInit = {}) {
     const event = new KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true, ...extra });
     await act(async () => textarea().dispatchEvent(event));
     return event;
+  }
+  async function clipboard(type: "copy" | "cut" | "paste", data = new Map<string, string>(), failWrite = false) {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: {
+      getData: (format: string) => data.get(format) || "",
+      setData: (format: string, text: string) => { if (failWrite) throw new Error("Clipboard unavailable"); data.set(format, text); },
+    } });
+    await act(async () => textarea().dispatchEvent(event));
+    return { event, data };
   }
   beforeEach(async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -51,6 +60,68 @@ describe("canvas image mention caret", () => {
     container.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("copies text and multiple image references and restores thumbnails in another editor", async () => {
+    textarea().select();
+    const { data } = await clipboard("copy");
+    expect(data.get("text/plain")).toBe(original);
+    expect(changed).not.toHaveBeenCalled();
+    await act(async () => root.render(<Harness key="paste-destination" initial="" />));
+    const { event } = await clipboard("paste", data);
+    expect(event.defaultPrevented).toBe(true);
+    expect(changed).toHaveBeenLastCalledWith(original);
+    expect(container.querySelectorAll(".mention-chip-thumb-only")).toHaveLength(2);
+    expect(textarea().value).toBe(buildCanvasMentionEditorModel(original, imageReferences).displayValue);
+    expect(textarea().selectionStart).toBe(textarea().value.length);
+  });
+
+  it("copies a partially selected image atomically and cuts only the selected reference", async () => {
+    const [first] = buildCanvasMentionEditorModel(original, imageReferences).segments;
+    textarea().setSelectionRange(first.start + 1, first.end - 1);
+    const { data } = await clipboard("cut");
+    expect(data.get("text/plain")).toBe("@[node:a]");
+    expect(changed).toHaveBeenLastCalledWith(" @[node:b] 生成企鹅");
+    expect(container.querySelectorAll(".mention-chip-thumb-only")).toHaveLength(1);
+    await clipboard("paste", data);
+    expect(changed).toHaveBeenLastCalledWith(original);
+    expect(container.querySelectorAll(".mention-chip-thumb-only")).toHaveLength(2);
+  });
+
+  it("does not remove the source when writing a cut selection fails", async () => {
+    textarea().select();
+    expect((await clipboard("cut", new Map(), true)).event.defaultPrevented).toBe(true);
+    expect(changed).not.toHaveBeenCalled();
+    expect(container.querySelectorAll(".mention-chip-thumb-only")).toHaveLength(2);
+  });
+
+  it("pastes tokens from the copy-prompt button and replaces only the intended identical chip", async () => {
+    const [first] = buildCanvasMentionEditorModel(original, imageReferences).segments;
+    textarea().setSelectionRange(first.start, first.end);
+    await clipboard("paste", new Map([["text/plain", "@[node:b]@[node:a]\r\n尾"]]));
+    expect(changed).toHaveBeenLastCalledWith("@[node:b]@[node:a]\n尾 @[node:b] 生成企鹅");
+    expect(container.querySelectorAll(".mention-chip-thumb-only")).toHaveLength(3);
+    expect(textarea().selectionStart).toBe(buildCanvasMentionEditorModel("@[node:b]@[node:a]\n尾", imageReferences).displayValue.length);
+  });
+
+  it("keeps normal text copy/paste behavior and never imports clipboard HTML", async () => {
+    const textStart = textarea().value.indexOf("生成");
+    textarea().setSelectionRange(textStart, textarea().value.length);
+    expect((await clipboard("copy")).event.defaultPrevented).toBe(false);
+    await act(async () => root.render(<Harness key="plain-paste" initial="" />));
+    const result = await clipboard("paste", new Map([["text/plain", "普通文本"], ["text/html", "<img onerror='bad()'>"]]));
+    expect(result.event.defaultPrevented).toBe(false);
+    expect(changed).not.toHaveBeenCalled();
+    expect(container.querySelector("img[onerror]")).toBeNull();
+  });
+
+  it("allows copying but does not cut or paste into read-only editors", async () => {
+    await act(async () => root.render(<Harness key="readonly" readOnly />));
+    textarea().select();
+    const { data } = await clipboard("cut");
+    expect(data.get("text/plain")).toBe(original);
+    await clipboard("paste", new Map([["text/plain", "@[node:a]"]]));
+    expect(changed).not.toHaveBeenCalled();
   });
 
   it("crosses each thumbnail in one arrow press from either boundary without snapping back", async () => {

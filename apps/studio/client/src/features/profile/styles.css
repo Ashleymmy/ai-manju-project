@@ -7,16 +7,16 @@
 .profile-account-info .eyebrow { margin: 0 0 8px; }
 .profile-account-info h2 { margin: 0 0 8px; color: #f7f9f5; font-size: 30px; font-weight: 700; letter-spacing: -.04em; }
 .profile-role-text { margin: 0; }
-.profile-role-badge { display: inline-flex; align-items: center; padding: 4px 10px; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; background: rgba(255,255,255,.05); box-shadow: inset 0 1px 0 rgba(255,255,255,.07); color: #c9cfc9; font-size: 11px; }
+.profile-role-badge { display: inline-flex; align-items: center; padding: 4px 10px; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; background: rgba(255,255,255,.05); box-shadow: inset 0 1px 0 rgba(255,255,255,.07); color: #c9cfc9; font-size: var(--font-size-small); }
 .profile-stats-row { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 14px; }
 .profile-metric-card { padding: 0; overflow: hidden; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background: linear-gradient(180deg, #212121, #1c1c1c); box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 10px 24px rgba(0,0,0,.32); }
-.profile-metric-card .metric-label { display: block; padding: 10px 14px 8px; border-bottom: 1px solid rgba(255,255,255,.07); color: #cdcdcd; font-size: 11px; }
+.profile-metric-card .metric-label { display: block; padding: 10px 14px 8px; border-bottom: 1px solid rgba(255,255,255,.07); color: #cdcdcd; font-size: var(--font-size-small); }
 .profile-metric-card .metric-value { display: block; padding: 18px 14px 6px; color: #fff; font: 700 38px "IBM Plex Mono", monospace; letter-spacing: -.03em; line-height: 1; }
-.profile-metric-card .metric-unit { display: block; padding: 0 14px 16px; color: #929292; font-size: 10px; }
+.profile-metric-card .metric-unit { display: block; padding: 0 14px 16px; color: #929292; font-size: var(--font-size-caption); }
 .profile-shortcuts-section { padding: 4px 0 0; }
 .profile-shortcuts-section .eyebrow { margin: 0 0 14px; }
 .profile-nav-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
-.profile-nav-item { display: flex; align-items: center; justify-content: space-between; min-height: 46px; padding: 0 14px; border: 1px solid rgba(255,255,255,.1); border-radius: 10px; background: linear-gradient(180deg, #212121, #1c1c1c); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); color: #d8d8d8; cursor: pointer; font-size: 11px; text-align: left; transition: all .15s ease; }
+.profile-nav-item { display: flex; align-items: center; justify-content: space-between; min-height: 46px; padding: 0 14px; border: 1px solid rgba(255,255,255,.1); border-radius: 10px; background: linear-gradient(180deg, #212121, #1c1c1c); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); color: #d8d8d8; cursor: pointer; font-size: var(--font-size-small); text-align: left; transition: all .15s ease; }
 .profile-nav-item:hover { border-color: rgba(255, 255, 255, 0.47); background: linear-gradient(180deg, #2a2a2a, #202020); color: #fff; }
 .profile-nav-item svg { flex-shrink: 0; color: #909090; transition: transform .15s ease; }
 .profile-nav-item:hover svg { color: #cdcdcd; transform: translateX(2px); }
@@ -30,13 +30,13 @@
 .profile-preset-list button { padding: 11px 12px; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; background: linear-gradient(180deg, #202020, #1c1c1c); box-shadow: inset 0 1px 0 rgba(255,255,255,.05); color: inherit; cursor: pointer; text-align: left; transition: all .12s ease; }
 .profile-preset-list button:hover { border-color: rgba(255, 255, 255, 0.43); background: linear-gradient(180deg, #262626, #1e1e1e); }
 .profile-preset-list button.selected { border-color: rgba(255, 255, 255, 0.55); background: linear-gradient(180deg, #2a2a2a, #212121); }
-.preset-priority { display: inline-block; margin-bottom: 6px; color: #a6a6a6; font: 10px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .08em; }
-.profile-preset-list b { display: block; margin-bottom: 5px; color: #e8ede6; font-size: 12px; font-weight: 600; }
-.profile-preset-list small { display: block; color: #a9a9a9; font-size: 11px; line-height: 1.5; }
+.preset-priority { display: inline-block; margin-bottom: 6px; color: #a6a6a6; font: var(--font-size-caption) "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: 0; }
+.profile-preset-list b { display: block; margin-bottom: 5px; color: #e8ede6; font-size: var(--font-size-control); font-weight: 600; }
+.profile-preset-list small { display: block; color: #a9a9a9; font-size: var(--font-size-small); line-height: 1.5; }
 .profile-preset-editor { display: grid; align-content: start; gap: 10px; padding: 16px; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background: linear-gradient(180deg, #212121, #1c1c1c); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
 .profile-preset-editor input,
 .profile-preset-editor select,
-.profile-preset-editor textarea { width: 100%; min-height: 36px; padding: 0 11px; border: 1px solid rgba(255,255,255,.1); border-radius: 8px; outline: none; background: rgba(255,255,255,.03); color: #dfe6df; font-size: 11px; transition: border-color .12s ease; }
+.profile-preset-editor textarea { width: 100%; min-height: 36px; padding: 0 11px; border: 1px solid rgba(255,255,255,.1); border-radius: 8px; outline: none; background: rgba(255,255,255,.03); color: #dfe6df; font-size: var(--font-size-small); transition: border-color .12s ease; }
 .profile-preset-editor input:focus,
 .profile-preset-editor select:focus,
 .profile-preset-editor textarea:focus { border-color: rgba(255, 255, 255, 0.53); }

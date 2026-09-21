@@ -21,6 +21,7 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type ClipboardEvent as ReactClipboardEvent,
   type Ref,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -38,8 +39,11 @@ import {
   canvasMentionEditorGap,
   canvasMentionShowsName,
   canvasMentionToken,
+  extractCanvasMentionTokens,
   matchCanvasMentionTrigger,
+  replaceCanvasMentionEditorSelection,
   serializeCanvasMentionEditorValue,
+  sliceCanvasMentionEditorSelection,
   splitCanvasMentionEditorDisplay,
   type CanvasMentionEditorSegment,
   type CanvasMentionReference,
@@ -416,6 +420,38 @@ export const CanvasResourceMentionTextarea = forwardRef<
     closeMention();
   };
 
+  const replaceClipboardSelection = (text: string, start: number, end: number) => {
+    const next = replaceCanvasMentionEditorSelection(
+      editorValueRef.current, editorSegmentsRef.current, start, end, text, references,
+    );
+    editorValueRef.current = next.displayValue;
+    editorSegmentsRef.current = next.segments;
+    emittedValueRef.current = next.value;
+    pendingCaretRef.current = { start: next.caret, end: next.caret };
+    setEditorValue(next.displayValue);
+    setEditorSegments(next.segments);
+    onChange(next.value);
+    closeMention();
+  };
+
+  const copySelection = (event: ReactClipboardEvent<HTMLTextAreaElement>, cut = false) => {
+    if (event.defaultPrevented || composingRef.current || props.disabled) return;
+    const textarea = event.currentTarget;
+    const selection = sliceCanvasMentionEditorSelection(
+      editorValueRef.current, editorSegmentsRef.current, textarea.selectionStart, textarea.selectionEnd,
+    );
+    if (selection.start === selection.end) return;
+    if (!editorSegmentsRef.current.some(segment => selection.start < segment.end && selection.end > segment.start)) return;
+    event.preventDefault();
+    try {
+      // Plain text carries canonical tokens, so OS clipboard and the copy-prompt button interoperate.
+      event.clipboardData.setData("text/plain", selection.value);
+    } catch {
+      return; // Never remove a cut selection when the clipboard write failed.
+    }
+    if (cut && !props.readOnly) replaceClipboardSelection("", selection.start, selection.end);
+  };
+
   const insertReference = (reference: CanvasMentionReference) => {
     if (!mention) return;
     replaceWithReference(reference, mention.start, textareaRef.current?.selectionStart ?? editorValueRef.current.length);
@@ -634,6 +670,25 @@ export const CanvasResourceMentionTextarea = forwardRef<
         }}
         className={className}
         value={editorValue}
+        onCopy={event => {
+          props.onCopy?.(event);
+          copySelection(event);
+        }}
+        onCut={event => {
+          props.onCut?.(event);
+          copySelection(event, true);
+        }}
+        onPaste={event => {
+          props.onPaste?.(event);
+          if (event.defaultPrevented || props.disabled || props.readOnly || composingRef.current) return;
+          const text = event.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n");
+          if (!text) return;
+          const { selectionStart: start, selectionEnd: end } = event.currentTarget;
+          const replacesReference = start !== end && editorSegmentsRef.current.some(segment => start < segment.end && end > segment.start);
+          if (!replacesReference && !extractCanvasMentionTokens(text).length) return;
+          event.preventDefault();
+          replaceClipboardSelection(text, start, end);
+        }}
         onFocus={event => {
           hasFocusedRef.current = true;
           props.onFocus?.(event);

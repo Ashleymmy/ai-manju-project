@@ -29,7 +29,7 @@
   border: 1px dashed var(--line);
   border-radius: 7px;
   color: #cdcdcd;
-  font-size: 11px;
+  font-size: var(--font-size-small);
 }
 .skill-manage-bar label {
   display: flex;
@@ -44,6 +44,6 @@
 .skill-side-hint {
   margin-top: 14px;
   color: #979797;
-  font-size: 10px;
+  font-size: var(--font-size-caption);
   line-height: 1.7;
 }

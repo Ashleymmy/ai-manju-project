@@ -63,6 +63,7 @@ import {
   type CanvasNodeCardActions,
 } from "./CanvasNodeCard";
 import { CanvasModelPicker } from "./CanvasModelPicker";
+import { CanvasImageOutputStatus } from "./CanvasImageOutputStatus";
 import { CanvasCopyPromptButton } from "./CanvasCopyPromptButton";
 import { CanvasInspectorResizeHandles } from "./CanvasInspectorResizeHandles";
 import { savedInspectorHeight, type InspectorResizeMode } from "../domain/inspectorSize";
@@ -572,6 +573,7 @@ export function CanvasInspector({
                 </div>
               </div>
 
+              <CanvasImageOutputStatus node={selectedNode} />
               <div className="node-card-ops">
                 {/* 暂时隐藏「从此节点连接」入口（需求暂定，后期恢复时取消本行与顶部 Link2 导入的注释）
                 <button title="从此节点连接" onClick={() => activateConnectionMode(selectedNode.id)}><Link2 size={14} /></button> */}

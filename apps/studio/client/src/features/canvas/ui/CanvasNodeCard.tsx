@@ -135,7 +135,7 @@ export type CanvasNodeCardActions = {
   retryAudioNode: (node: CanvasNodeData) => Promise<unknown>;
   retryVideoNode: (node: CanvasNodeData) => Promise<unknown>;
   removeNode: (id: string) => void;
-  fitCanvasImageNodeFrame: (nodeId: string, naturalWidth: number, naturalHeight: number) => void;
+  fitCanvasMediaNodeFrame: (nodeId: string, naturalWidth: number, naturalHeight: number, source?: string) => void;
 };
 
 export type CanvasNodeCardProps = {
@@ -277,7 +277,7 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
     openImageToolDialog, flipCanvasImageNode, generatePanoramaCanvasImage, createImageReversePromptNodes,
     generateImageFromTextNode, archiveCanvasMediaNode, archiveCanvasTextNode,
     retryImageNode, retryTextNode, retryAudioNode, retryVideoNode, removeNode,
-    fitCanvasImageNodeFrame,
+    fitCanvasMediaNodeFrame,
   } = actions;
   return (
     <article
@@ -453,12 +453,17 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
       {preview && previewKind === "video" ? (
         <>
           <video
+            key={preview}
             src={preview}
             controls
-            preload="none"
+            preload="metadata"
             poster={videoPosterUrl(preview)}
             data-testid="canvas-node-video"
             data-canvas-no-zoom
+            onLoadedMetadata={(event) => {
+              const video = event.currentTarget;
+              fitCanvasMediaNodeFrame(node.id, video.videoWidth, video.videoHeight, preview);
+            }}
             onPointerDown={(event) => {
               const rect = event.currentTarget.getBoundingClientRect();
               if (event.clientY > rect.bottom - 36) event.stopPropagation();
@@ -492,14 +497,14 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
           showRetryButton
           onLoad={(event) => {
             const image = event.currentTarget;
-            fitCanvasImageNodeFrame(node.id, image.naturalWidth, image.naturalHeight);
+            fitCanvasMediaNodeFrame(node.id, image.naturalWidth, image.naturalHeight);
           }}
           ref={(image) => {
             if (!image?.complete || !image.naturalWidth || !image.naturalHeight) return;
             const nodeId = node.id;
             const width = image.naturalWidth;
             const height = image.naturalHeight;
-            queueMicrotask(() => fitCanvasImageNodeFrame(nodeId, width, height));
+            queueMicrotask(() => fitCanvasMediaNodeFrame(nodeId, width, height));
           }}
         />
       ) : editableNodeKind(node.kind) ? (
@@ -578,7 +583,7 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
           </button>
         </div>
       ) : null}
-      {(isSelected || isHovered) && <button className="node-resize-handle" title="调整尺寸" onPointerDown={(event) => startResize(event, node)} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} />}
+      {(isSelected || isHovered) && <button className="node-resize-handle" title={node.kind === "image" || node.kind === "video" ? "等比调整尺寸" : "调整尺寸"} onPointerDown={(event) => startResize(event, node)} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={endResize} />}
       {isRunning ? (
         <div className="node-loading-overlay is-pixel">
           <PixelLoadingOverlay />

@@ -89,6 +89,19 @@ function caretRectAt(overlay: HTMLElement, offset: number, valueLength: number) 
   const range = rangeAt(point);
   const direct = range.getClientRects()[0];
   if (direct && (direct.height > 0.5 || direct.width > 0.5)) return direct;
+  // A chip spans multiple placeholder characters. Moving one character can snap
+  // to the same DOM boundary again, so use the actual chip edge instead.
+  if (point.node === overlay) {
+    const next = overlay.childNodes[point.offset];
+    const previous = overlay.childNodes[point.offset - 1];
+    const chip = next instanceof HTMLElement && next.hasAttribute("data-mention-chip") ? next
+      : previous instanceof HTMLElement && previous.hasAttribute("data-mention-chip") ? previous : null;
+    if (chip) {
+      const rect = chip.getBoundingClientRect();
+      const left = chip === next ? rect.left : rect.right;
+      return { left, right: left, top: rect.top, height: rect.height };
+    }
+  }
   if (offset < valueLength) {
     const next = positionFromOffset(overlay, offset + 1);
     if (next) {

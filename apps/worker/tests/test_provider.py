@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import struct
 import tempfile
 import sys
 import unittest
@@ -94,6 +95,23 @@ class ProviderTest(unittest.TestCase):
             self.assertEqual(output.suffix, ".png")
             self.assertIn(45, progress_values)
             self.assertIn(90, progress_values)
+
+    def test_mock_canvas_image_uses_requested_dimensions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = generate_image(
+                "job_canvas_size",
+                {
+                    "prompt": "hello",
+                    "size": "2304x1728",
+                    "asset_registration": {"source_type": "canvas"},
+                },
+                test_settings(tmp),
+                lambda _: None,
+            )
+            output = Path(result["outputs"][0]["path"])
+            data = output.read_bytes()
+            self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+            self.assertEqual(struct.unpack("!2I", data[16:24]), (2304, 1728))
 
     def test_openai_compatible_edit_sends_multipart_images(self) -> None:
         captured: dict[str, Any] = {}

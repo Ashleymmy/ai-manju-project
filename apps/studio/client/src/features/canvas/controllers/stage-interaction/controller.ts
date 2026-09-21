@@ -1,15 +1,16 @@
 import {
   addCanvasConnection,
   canvasClientPointToWorld,
+  canvasGroupConnections,
   defaultCanvasConnectionHandle,
   findCanvasConnectionDropTarget,
   isActiveCanvasConnectionPointer,
   isHiddenCanvasBatchChild,
-  normalizeCanvasConnection,
   type CanvasConnectionDropTarget,
   type CanvasConnectionHandleType,
 } from "@/features/canvas/domain/connections";
 import { nearestCanvasEdgeIdAtPoint } from "@/features/canvas/domain/geometry";
+import { canvasNodeResizeAspect, resizeCanvasNodeFrame } from "@/features/canvas/domain/nodeResize";
 import {
   canvasNodeDockThreshold,
   canvasNodeAlignmentThreshold,
@@ -94,6 +95,7 @@ type CanvasResizeState = {
   startY: number;
   width: number;
   height: number;
+  aspect: number | null;
   currentWidth: number;
   currentHeight: number;
   moved: boolean;
@@ -863,6 +865,7 @@ export class CanvasStageInteractionController {
       startY: event.clientY,
       width: node.width,
       height: node.height,
+      aspect: canvasNodeResizeAspect(node),
       currentWidth: node.width,
       currentHeight: node.height,
       moved: false,
@@ -874,16 +877,11 @@ export class CanvasStageInteractionController {
     const resize = this.resize;
     if (!resize || this.bindings.isSwitching()) return;
     const scale = this.viewport.zoom / 100;
-    const width = Math.round(clamp(
-      resize.width + (event.clientX - resize.startX) / scale,
-      220,
-      960,
-    ));
-    const height = Math.round(clamp(
-      resize.height + (event.clientY - resize.startY) / scale,
-      120,
-      720,
-    ));
+    const { width, height } = resizeCanvasNodeFrame(
+      resize,
+      (event.clientX - resize.startX) / scale,
+      (event.clientY - resize.startY) / scale,
+    );
     if (width === resize.currentWidth && height === resize.currentHeight) return;
     resize.currentWidth = width;
     resize.currentHeight = height;
@@ -1143,16 +1141,15 @@ export class CanvasStageInteractionController {
     handleType: CanvasConnectionHandleType = "source",
   ) => {
     const nodes = this.currentNodes();
-    const normalized = normalizeCanvasConnection(fromId, toId, nodes, handleType);
-    if (!normalized) {
+    const connections = canvasGroupConnections(fromId, toId, nodes, handleType, this.currentGroups());
+    if (!connections.length) {
       this.bindings.onWarning("该连接不符合节点规则");
       this.resetConnectionAndPending();
       return false;
     }
-    const nextEdges = addCanvasConnection(
+    const nextEdges = connections.reduce(
+      (edges, connection) => addCanvasConnection(edges, connection, this.adapter.createId),
       this.bindings.getEdges(),
-      normalized,
-      this.adapter.createId,
     );
     this.bindings.setEdges(nextEdges);
     this.resetConnectionAndPending();
@@ -1173,6 +1170,7 @@ export class CanvasStageInteractionController {
         padding: CONNECTION_NODE_HIT_PADDING,
         handleRadius: CONNECTION_HANDLE_HIT_RADIUS,
         zoom: this.viewport.zoom,
+        groups: this.currentGroups(),
       },
     );
   }
@@ -1188,7 +1186,7 @@ export class CanvasStageInteractionController {
     if (groupNodeId && groupNodeId !== current.nodeId) {
       const nodes = this.currentNodes();
       const node = nodes.find(item => item.id === groupNodeId);
-      if (node && normalizeCanvasConnection(current.nodeId, node.id, nodes, current.handleType)) return node.id;
+      if (node && canvasGroupConnections(current.nodeId, node.id, nodes, current.handleType, this.currentGroups()).length) return node.id;
     }
     const nodeElement = this.adapter.closest(target, ".real-canvas-node");
     const nodeId = this.adapter.getAttribute(nodeElement, "data-node-id");
@@ -1196,12 +1194,13 @@ export class CanvasStageInteractionController {
     const nodes = this.currentNodes();
     const node = nodes.find(item => item.id === nodeId);
     if (!node || isHiddenCanvasBatchChild(node, nodes)) return "";
-    return normalizeCanvasConnection(
+    return canvasGroupConnections(
       current.nodeId,
       nodeId,
       nodes,
       current.handleType,
-    ) ? nodeId : "";
+      this.currentGroups(),
+    ).length ? nodeId : "";
   }
 
   private finishConnectionDrag(event: Pick<PointerEvent, "clientX" | "clientY">) {
@@ -1432,6 +1431,7 @@ export class CanvasStageInteractionController {
   }
 
   readonly handleStagePointerDown = (event: CanvasStagePointerEvent<HTMLElement>) => {
+    if (this.connectFrom && this.adapter.closest(event.target, ".real-canvas-node, .canvas-group-frame")) return;
     this.bindings.dismissPendingGroup?.();
     if (this.pendingConnectionCreate) this.cancelPendingConnectionCreate();
     if (this.startPan(event)) return;

@@ -76,7 +76,7 @@ function createActions(): CanvasNodeCardActions {
     retryAudioNode: resolveNothing,
     retryVideoNode: resolveNothing,
     removeNode: () => undefined,
-    fitCanvasImageNodeFrame: () => undefined,
+    fitCanvasMediaNodeFrame: () => undefined,
   };
 }
 
@@ -135,6 +135,27 @@ describe("CanvasNodeCard render boundary", () => {
     await act(async () => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("reads original video proportions before selection and reloads them when the source changes", async () => {
+    const actions = createActions();
+    actions.fitCanvasMediaNodeFrame = vi.fn();
+    const node = createNode({ kind: "video", imageSrc: "blob:video" });
+    await act(async () => root.render(<CanvasNodeCard {...createProps(node, actions)} />));
+    const video = container.querySelector("video")!;
+    expect(video.preload).toBe("metadata");
+    Object.defineProperties(video, { videoWidth: { value: 1920 }, videoHeight: { value: 1080 } });
+    await act(async () => video.dispatchEvent(new Event("loadedmetadata")));
+    expect(actions.fitCanvasMediaNodeFrame).toHaveBeenCalledWith(node.id, 1920, 1080, "blob:video");
+    const next = { ...node, imageSrc: "blob:portrait" };
+    await act(async () => root.render(<CanvasNodeCard {...createProps(next, actions)} isSelected />));
+    const nextVideo = container.querySelector("video")!;
+    expect(nextVideo).not.toBe(video);
+    expect(nextVideo.preload).toBe("metadata");
+    Object.defineProperties(nextVideo, { videoWidth: { value: 720 }, videoHeight: { value: 1280 } });
+    await act(async () => nextVideo.dispatchEvent(new Event("loadedmetadata")));
+    expect(actions.fitCanvasMediaNodeFrame).toHaveBeenLastCalledWith(node.id, 720, 1280, "blob:portrait");
+    expect(container.querySelector(".node-resize-handle")?.getAttribute("title")).toBe("等比调整尺寸");
   });
 
   it("still completes a pending connection when the node is in connecting mode", async () => {

@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import json
 import re
+import struct
+import zlib
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
@@ -14,6 +16,7 @@ import requests
 
 from .config import Settings
 from .errors import SafeTaskError, safe_message
+from .image_requirements import require_canvas_image_parameter_support, with_canvas_image_requirements
 from .staged_inputs import JOB_WORKSPACE_FIELD, INPUT_STORAGE_KEY_FIELD, STAGED_INPUT_KEYS_FIELD, open_staged_input
 
 
@@ -39,9 +42,46 @@ MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\((data:image/[^)]+|https?://[^
 MOCK_PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
 )
+# Keep development placeholders within the same canvas limits as real image jobs.
+MOCK_PNG_MAX_EDGE = 3840
+MOCK_PNG_MAX_PIXELS = 8_294_400
+
+
+def mock_png_bytes(size: Any) -> bytes:
+    """Create a small solid PNG whose header matches an explicit request size."""
+    match = re.fullmatch(r"(\d+)x(\d+)", str(size or "").strip().lower())
+    if not match:
+        return MOCK_PNG_BYTES
+    width, height = (int(match.group(1)), int(match.group(2)))
+    if (
+        width <= 0
+        or height <= 0
+        or width > MOCK_PNG_MAX_EDGE
+        or height > MOCK_PNG_MAX_EDGE
+        or width * height > MOCK_PNG_MAX_PIXELS
+    ):
+        return MOCK_PNG_BYTES
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return (
+            struct.pack("!I", len(body))
+            + kind
+            + body
+            + struct.pack("!I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+        )
+
+    compressor = zlib.compressobj(level=1)
+    row = b"\x00" + b"\x24\x68\x48" * width
+    compressed = bytearray()
+    for _ in range(height):
+        compressed.extend(compressor.compress(row))
+    compressed.extend(compressor.flush())
+    header = struct.pack("!2I5B", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", bytes(compressed)) + chunk(b"IEND", b"")
 
 
 def generate_image(job_id: str, payload: dict[str, Any], settings: Settings, progress: ProgressFn) -> dict[str, Any]:
+    payload = with_canvas_image_requirements(payload)
     progress(15)
     if truthy(payload.get("force_error")) or truthy(payload.get("mock_error")):
         raise SafeTaskError("mock image provider failure", code="mock_provider_failure", retryable=True)
@@ -54,6 +94,7 @@ def generate_image(job_id: str, payload: dict[str, Any], settings: Settings, pro
 
 
 def edit_image(job_id: str, payload: dict[str, Any], settings: Settings, progress: ProgressFn) -> dict[str, Any]:
+    payload = with_canvas_image_requirements(payload)
     progress(15)
     if truthy(payload.get("force_error")) or truthy(payload.get("mock_error")):
         raise SafeTaskError("mock image edit failure", code="mock_provider_failure", retryable=True)
@@ -75,7 +116,7 @@ def write_mock_image(
     progress(45)
     output_dir = ensure_job_dir(settings.asset_storage_dir, job_id)
     output_path = output_dir / f"{operation}.png"
-    output_path.write_bytes(MOCK_PNG_BYTES)
+    output_path.write_bytes(mock_png_bytes(payload.get("size")))
     progress(90)
     return {
         "mode": "mock",
@@ -101,6 +142,7 @@ def call_openai_compatible_image(
 ) -> dict[str, Any]:
     base_url = str(provider.get("base_url", "")).rstrip("/") + "/"
     protocol = resolve_image_protocol(provider)
+    require_canvas_image_parameter_support(payload, protocol)
     endpoint = str(provider.get("endpoint") or default_image_endpoint(protocol, operation, provider, payload))
     url = provider_request_url(base_url, endpoint, provider)
     headers = provider_auth_headers(provider)

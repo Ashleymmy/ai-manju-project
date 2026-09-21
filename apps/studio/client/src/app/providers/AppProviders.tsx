@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import ErrorBoundary from "@/components/ErrorBoundary";
+import AppRecoveryBoundary from "./AppRecoveryBoundary";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
@@ -11,7 +11,7 @@ import { QueryProvider } from "./QueryProvider";
 export default function AppProviders({ children }: { children: ReactNode }) {
   return (
     <QueryProvider>
-      <ErrorBoundary>
+      <AppRecoveryBoundary>
         <ThemeProvider defaultTheme="dark">
           <AuthProvider>
             <TooltipProvider>
@@ -21,7 +21,7 @@ export default function AppProviders({ children }: { children: ReactNode }) {
             </TooltipProvider>
           </AuthProvider>
         </ThemeProvider>
-      </ErrorBoundary>
+      </AppRecoveryBoundary>
     </QueryProvider>
   );
 }

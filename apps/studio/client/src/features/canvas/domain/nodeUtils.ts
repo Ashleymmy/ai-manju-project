@@ -25,6 +25,7 @@ import type {
 import { assetIdFromNode, looksLikeImageSource } from "./nodes";
 import { isRecord, numberValue, stringValue } from "./value";
 import { workspaceScopeValue } from "./workspace";
+import { CANVAS_NODE_RESIZE_BOUNDS } from "./nodeResize";
 
 /** 空图片节点默认尺寸（约 4:3）。有图后按原图像素比适配。 */
 export const CANVAS_IMAGE_NODE_WIDTH = 320;
@@ -33,7 +34,8 @@ export const CANVAS_IMAGE_NODE_HEIGHT = 238;
 export const CANVAS_IMAGE_NODE_MAX_HEIGHT = 560;
 export const CANVAS_IMAGE_NODE_MIN_WIDTH = 120;
 export const CANVAS_IMAGE_NODE_MIN_HEIGHT = 90;
-const CANVAS_IMAGE_NODE_ASPECT_EPSILON = 0.02;
+/** Allow one rounded pixel when reading older saved frames. */
+const CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE = 1;
 
 /** 画布图片「详细参数」默认：1K、自适应、低。 */
 export const CANVAS_IMAGE_DEFAULT_RESOLUTION = "1K" as const;
@@ -51,7 +53,7 @@ export function canvasImageParamDefaults() {
 }
 
 export function fitCanvasImageNodeSize(naturalWidth: number, naturalHeight: number) {
-  if (!(naturalWidth > 0) || !(naturalHeight > 0)) {
+  if (!Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight) || !(naturalWidth > 0) || !(naturalHeight > 0)) {
     return { width: CANVAS_IMAGE_NODE_WIDTH, height: CANVAS_IMAGE_NODE_HEIGHT };
   }
   const scale = Math.min(
@@ -59,8 +61,8 @@ export function fitCanvasImageNodeSize(naturalWidth: number, naturalHeight: numb
     CANVAS_IMAGE_NODE_MAX_HEIGHT / naturalHeight,
   );
   return {
-    width: Math.max(CANVAS_IMAGE_NODE_MIN_WIDTH, Math.round(naturalWidth * scale)),
-    height: Math.max(CANVAS_IMAGE_NODE_MIN_HEIGHT, Math.round(naturalHeight * scale)),
+    width: naturalWidth * scale,
+    height: naturalHeight * scale,
   };
 }
 
@@ -76,19 +78,10 @@ export function canvasImageNodeNeedsFit(
   naturalWidth: number,
   naturalHeight: number,
 ) {
-  if (!(naturalWidth > 0) || !(naturalHeight > 0)) return false;
-  const fitted = fitCanvasImageNodeSize(naturalWidth, naturalHeight);
-  const nodeAspect = node.width / Math.max(1, node.height);
-  const imageAspect = fitted.width / Math.max(1, fitted.height);
-  if (Math.abs(nodeAspect - imageAspect) <= CANVAS_IMAGE_NODE_ASPECT_EPSILON) return false;
-  const storedWidth = numberValue(node.metadata?.naturalWidth);
-  const storedHeight = numberValue(node.metadata?.naturalHeight);
-  const sameBitmap = storedWidth != null
-    && storedHeight != null
-    && Math.abs(storedWidth - naturalWidth) <= 1
-    && Math.abs(storedHeight - naturalHeight) <= 1;
-  if (sameBitmap && !isDefaultCanvasImageNodeSize(node.width, node.height)) return false;
-  return true;
+  if (!Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight) || !(naturalWidth > 0) || !(naturalHeight > 0)) return false;
+  const aspect = naturalWidth / naturalHeight;
+  return Math.abs(node.width - node.height * aspect)
+    > CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE * Math.max(1, aspect);
 }
 
 export function applyCanvasImageNaturalSize<T extends {
@@ -96,13 +89,17 @@ export function applyCanvasImageNaturalSize<T extends {
   height: number;
   metadata?: Record<string, unknown>;
 }>(node: T, naturalWidth: number, naturalHeight: number): T {
-  if (!(naturalWidth > 0) || !(naturalHeight > 0)) return node;
+  if (!Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight) || !(naturalWidth > 0) || !(naturalHeight > 0)) return node;
   const needsFit = canvasImageNodeNeedsFit(node, naturalWidth, naturalHeight);
   const storedWidth = numberValue(node.metadata?.naturalWidth);
   const storedHeight = numberValue(node.metadata?.naturalHeight);
   const sameMeta = storedWidth === naturalWidth && storedHeight === naturalHeight;
   if (!needsFit && sameMeta) return node;
-  const fitted = needsFit ? fitCanvasImageNodeSize(naturalWidth, naturalHeight) : null;
+  // Repair stretched legacy frames without resetting correctly resized media on reload.
+  const scale = Math.min(node.width / naturalWidth, CANVAS_NODE_RESIZE_BOUNDS.maxWidth / naturalWidth, CANVAS_NODE_RESIZE_BOUNDS.maxHeight / naturalHeight);
+  const fitted = !needsFit ? null : isDefaultCanvasImageNodeSize(node.width, node.height)
+    ? fitCanvasImageNodeSize(naturalWidth, naturalHeight)
+    : { width: naturalWidth * scale, height: naturalHeight * scale };
   return {
     ...node,
     ...(fitted ? { width: fitted.width, height: fitted.height } : {}),

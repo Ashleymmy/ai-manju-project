@@ -71,16 +71,32 @@ describe("canvas node utilities", () => {
 
   it("fits image nodes to the source aspect instead of the default 4:3 frame", () => {
     expect(fitCanvasImageNodeSize(1024, 1024)).toEqual({ width: 320, height: 320 });
-    expect(fitCanvasImageNodeSize(768, 1024)).toEqual({ width: 320, height: 427 });
+    expect(fitCanvasImageNodeSize(768, 1024)).toEqual({ width: 320, height: 320 / 0.75 });
     expect(fitCanvasImageNodeSize(1920, 1080)).toEqual({ width: 320, height: 180 });
 
     const defaultFrame = { width: 320, height: 238, metadata: {} };
     const fitted = applyCanvasImageNaturalSize(defaultFrame, 768, 1024);
-    expect(fitted).toMatchObject({ width: 320, height: 427, metadata: { naturalWidth: 768, naturalHeight: 1024 } });
+    expect(fitted).toMatchObject({ width: 320, height: 320 / 0.75, metadata: { naturalWidth: 768, naturalHeight: 1024 } });
     expect(applyCanvasImageNaturalSize(fitted, 768, 1024)).toBe(fitted);
 
-    const userResized = { width: 400, height: 280, metadata: { naturalWidth: 768, naturalHeight: 1024 } };
+    const userResized = { width: 400, height: 400 / 0.75, metadata: { naturalWidth: 768, naturalHeight: 1024 } };
     expect(applyCanvasImageNaturalSize(userResized, 768, 1024)).toBe(userResized);
+  });
+
+  it("repairs stretched saved frames and preserves the repaired size on repeat loads", () => {
+    const node = { width: 600, height: 650, metadata: { naturalWidth: 1920, naturalHeight: 1080 } };
+    const repaired = applyCanvasImageNaturalSize(node, 1920, 1080);
+    expect(repaired).toMatchObject({ width: 600, height: 337.5 });
+    expect(applyCanvasImageNaturalSize(repaired, 1920, 1080)).toBe(repaired);
+    expect(applyCanvasImageNaturalSize(node, 0, 1080)).toBe(node);
+    expect(applyCanvasImageNaturalSize(node, Infinity, 1080)).toBe(node);
+  });
+
+  it.each([[4000, 200], [200, 4000]])("preserves extreme media proportions %s:%s", (width, height) => {
+    const fitted = fitCanvasImageNodeSize(width, height);
+    expect(fitted.width / fitted.height).toBeCloseTo(width / height, 8);
+    expect(fitted.width).toBeLessThanOrEqual(320);
+    expect(fitted.height).toBeLessThanOrEqual(560);
   });
 
   it("defaults canvas image params to 1K, auto size, and low quality", () => {

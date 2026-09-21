@@ -253,8 +253,6 @@ export function CanvasStage({
     toggleAgent,
     navigateFromMinimap,
     node: {
-      chooseNode,
-      applyNodeSelection,
       duplicateSelectedNode,
       openDirectorNode,
       openImageToolDialog,
@@ -273,10 +271,8 @@ export function CanvasStage({
       archiveCanvasTextNode,
       removeNode,
     },
-    activateConnectionMode,
     copySelectedNodes,
     openConnectSelection,
-    generateFromNode,
     renderCanvasSubmenu,
     copyCanvasImagePrompt,
     addNode,
@@ -291,7 +287,9 @@ export function CanvasStage({
   const connectionMenuRef = useRef<HTMLDivElement>(null);
   const displayEdges = useMemo(() => {
     const groupByNode = new Map<string, CanvasGroupData>();
-    groups.filter(group => !group.pending).forEach((group) => group.nodeIds.forEach((nodeId) => groupByNode.set(nodeId, group)));
+    groups.forEach((group) => group.nodeIds.forEach((nodeId) => {
+      if (!groupByNode.has(nodeId) || group.pending) groupByNode.set(nodeId, group);
+    }));
     const seen = new Set<string>();
     return edges.flatMap((edge) => {
       const fromGroup = groupByNode.get(edge.from);
@@ -315,7 +313,7 @@ export function CanvasStage({
           style={{ "--canvas-grid-size": `${40 * zoom / 100}px`, "--canvas-grid-x": `${panX}px`, "--canvas-grid-y": `${panY}px`, "--canvas-zoom": String(zoom) } as CSSProperties}
           onPointerDown={handleStagePointerDown}
           onPointerDownCapture={(event) => {
-            if (!groups.some((group) => group.pending)) return;
+            if (connectFrom || !groups.some((group) => group.pending)) return;
             const target = event.target instanceof Element ? event.target : null;
             if (target?.closest(".canvas-group-frame.pending, .canvas-group-pending-actions, .canvas-node-handle, .canvas-context-menu, .canvas-connection-create-menu")) return;
             dismissPendingGroup();
@@ -387,7 +385,7 @@ export function CanvasStage({
                       aria-hidden="true"
                     />
                   ))}
-                  {!group.pending ? (() => {
+                  {!groups.some(other => other.pending && other.id !== group.id && other.nodeIds.some(id => group.nodeIds.includes(id))) ? (() => {
                     const leftNode = groupConnectionNode(group, nodeMap, "left");
                     const rightNode = groupConnectionNode(group, nodeMap, "right");
                     return <>
@@ -398,8 +396,8 @@ export function CanvasStage({
                         type="button"
                         className={`canvas-group-connection-handle target canvas-node-handle ${leftNode && connectFrom === leftNode.id && connectHandleType === "target" ? "active" : ""}`}
                         data-connection-node-id={leftNode?.id || ""}
-                        aria-label="连接到分组"
-                        title="连接到分组"
+                        aria-label={group.pending ? "连接到选区" : "连接到分组"}
+                        title={group.pending ? "连接到选区" : "连接到分组"}
                         onClick={(event) => event.stopPropagation()}
                         onPointerDown={(event) => {
                           event.stopPropagation();
@@ -413,8 +411,8 @@ export function CanvasStage({
                         type="button"
                         className={`canvas-group-connection-handle source canvas-node-handle ${rightNode && connectFrom === rightNode.id && connectHandleType === "source" ? "active" : ""}`}
                         data-connection-node-id={rightNode?.id || ""}
-                        aria-label="从分组连接"
-                        title="从分组连接"
+                        aria-label={group.pending ? "从选区连接" : "从分组连接"}
+                        title={group.pending ? "从选区连接" : "从分组连接"}
                         onClick={(event) => event.stopPropagation()}
                         onPointerDown={(event) => {
                           event.stopPropagation();
@@ -556,13 +554,18 @@ export function CanvasStage({
               <div className={`canvas-context-menu-list${contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? " has-submenus" : ""}`}>
                 {contextMenu.nodeId ? (
                   <>
-                    <button className="full-outline" onClick={() => { chooseNode(contextMenu.nodeId!); setContextMenu(null); }}>选中节点</button>
-                    <button className="full-outline" onClick={() => { applyNodeSelection([contextMenu.nodeId!], contextMenu.nodeId!, true); activateConnectionMode(contextMenu.nodeId!); }}>从此节点连接</button>
+                    {contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? renderCanvasSubmenu("image-asset", <Images size={14} />, "素材与文件", (
+                      <>
+                        <button className="full-outline" onClick={() => { setImagePreviewNodeId(contextMenuNode.id); setContextMenu(null); }}>查看图片</button>
+                        <button className="full-outline" onClick={() => { void copyCanvasImagePrompt(contextMenuNode); setContextMenu(null); }}>复制提示词</button>
+                        <button className="full-outline" onClick={() => { setReplaceImageNodeId(contextMenuNode.id); replaceImageInputRef.current?.click(); setContextMenu(null); }}>替换图片</button>
+                        <button className="full-outline" onClick={() => { void archiveCanvasMediaNode(contextMenuNode); setContextMenu(null); }}>加入素材库</button>
+                      </>
+                    )) : null}
                     <button className="full-outline" onClick={() => { copySelectedNodes(); setContextMenu(null); }}>复制所选节点</button>
                     {selectedNodeIds.size >= 2 ? <button className="full-outline" onClick={() => { openConnectSelection(); setContextMenu(null); }}>连接所选节点到配置</button> : null}
                     <button className="full-outline" onClick={() => { void duplicateSelectedNode(contextMenu.nodeId!); setContextMenu(null); }}>复制节点</button>
                     {contextMenuNode?.kind === "director" ? <button className="full-outline" onClick={() => { void openDirectorNode(contextMenuNode); setContextMenu(null); }}>打开导演台</button> : null}
-                    {contextMenuNode?.kind !== "director" ? <button className="full-outline" onClick={() => { void generateFromNode(contextMenu.nodeId!); setContextMenu(null); }}>生成当前模式</button> : null}
                     {contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? (
                       <>
                         {renderCanvasSubmenu("image-edit", <Scissors size={14} />, "图片处理", (
@@ -586,14 +589,6 @@ export function CanvasStage({
                             <button className="full-outline" onClick={() => { toast.info("AI 超分依赖管理员配置的模型服务，本地暂未实现"); setContextMenu(null); }}>AI 超分</button>
                             <button className="full-outline" onClick={() => { void createImageReversePromptNodes(contextMenuNode); setContextMenu(null); }}>反推提示词</button>
                             <button className="full-outline" onClick={() => { setStoryboardNodeId(contextMenuNode.id); setContextMenu(null); }}>故事板导出</button>
-                          </>
-                        ))}
-                        {renderCanvasSubmenu("image-asset", <Images size={14} />, "素材与文件", (
-                          <>
-                            <button className="full-outline" onClick={() => { setImagePreviewNodeId(contextMenuNode.id); setContextMenu(null); }}>查看图片</button>
-                            <button className="full-outline" onClick={() => { void copyCanvasImagePrompt(contextMenuNode); setContextMenu(null); }}>复制提示词</button>
-                            <button className="full-outline" onClick={() => { setReplaceImageNodeId(contextMenuNode.id); replaceImageInputRef.current?.click(); setContextMenu(null); }}>替换图片</button>
-                            <button className="full-outline" onClick={() => { void archiveCanvasMediaNode(contextMenuNode); setContextMenu(null); }}>加入素材库</button>
                           </>
                         ))}
                       </>
@@ -629,10 +624,9 @@ export function CanvasStage({
                 <div><p className="eyebrow">CONNECT</p><h3>新建节点并连接</h3></div>
               </div>
               <div className="canvas-context-menu-list">
-                <button className="full-outline" onClick={() => createNodeFromConnectionDraft("text", pendingConnectionCreate)}>新建文本</button>
                 <button className="full-outline" onClick={() => createNodeFromConnectionDraft("image", pendingConnectionCreate)}>新建图片</button>
-                <button className="full-outline" onClick={() => createNodeFromConnectionDraft("config", pendingConnectionCreate)}>新建配置</button>
                 <button className="full-outline" onClick={() => createNodeFromConnectionDraft("video", pendingConnectionCreate)}>新建视频</button>
+                <button className="full-outline" onClick={() => createNodeFromConnectionDraft("text", pendingConnectionCreate)}>新建文本</button>
                 <button className="full-outline" onClick={() => createNodeFromConnectionDraft("audio", pendingConnectionCreate)}>新建音频</button>
                 <button className="full-outline danger" onClick={() => cancelPendingConnectionCreate()}>取消连接</button>
               </div>

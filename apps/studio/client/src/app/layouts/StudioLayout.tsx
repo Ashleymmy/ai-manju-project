@@ -89,7 +89,7 @@ const creationNav: NavItem[] = [
     disabled: true,
   },
   { label: "全部项目", href: "/projects", icon: FolderKanban, shortcut: "G P" },
-  { label: "画布工坊", href: "/canvas?resume=recent", icon: Compass, shortcut: "G C" },
+  { label: "当前任务", href: "/canvas?resume=recent", icon: Compass, shortcut: "G C" },
   { label: "3D 导演台", href: "/director", icon: Box },
   { label: "资产助手", href: "/comic-assets", icon: Clapperboard },
 ];

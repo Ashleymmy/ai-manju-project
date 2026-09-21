@@ -109,6 +109,9 @@ export function completeGeneratedVideoTarget(
       jobProgress: undefined,
       mimeType: persistentResult.mimeType || asset.content_type || "video/mp4",
       bytes: persistentResult.bytes || asset.size,
+      // The new file must provide its own dimensions, not inherit the previous result's.
+      naturalWidth: undefined,
+      naturalHeight: undefined,
       generatedAt: new Date().toISOString(),
     },
   } : node);
