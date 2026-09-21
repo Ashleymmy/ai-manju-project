@@ -13,12 +13,12 @@ export function modelName(model: string) {
 const SDVIDEO_MODEL_PREFIX = "sdvideo/";
 
 export function modelDisplayName(model: string, labels: Record<string, string> = {}) {
-  // Official endpoint IDs have no user-facing model identity; use their saved name.
-  if (modelName(model).startsWith("ep-")) {
-    return labels[model]?.trim() || modelName(model);
-  }
+  // Names are presentation only. Resolve them by the exact provider selector
+  // so another account's alias cannot replace this model's saved name.
+  const label = labels[model]?.trim();
+  if (label) return label;
   if (model.startsWith(SDVIDEO_MODEL_PREFIX)) {
-    return labels[model]?.trim() || model.slice(SDVIDEO_MODEL_PREFIX.length);
+    return model.slice(SDVIDEO_MODEL_PREFIX.length);
   }
   return modelName(model);
 }
@@ -38,10 +38,9 @@ export function modelOptions(models: string[], selected = "", labels: Record<str
   for (const value of models) {
     const name = modelName(value);
     if (!name || HIDDEN_IMAGE_MODEL_NAMES.has(name)) continue;
-    const label = modelDisplayName(value, labels);
-    if (!grouped.has(name)) grouped.set(name, { value, label });
-    if (selected && modelName(selected) === name) {
-      grouped.set(name, { value: selected, label });
+    const selector = selected && modelName(selected) === name ? selected : value;
+    if (!grouped.has(name) || value === selected) {
+      grouped.set(name, { value: selector, label: modelDisplayName(selector, labels) });
     }
   }
   return [...grouped.values()];

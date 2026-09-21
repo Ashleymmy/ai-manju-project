@@ -2,6 +2,19 @@ import { describe, expect, it } from "vitest";
 import { canvasGenerationModelOptions, canvasModelName } from "./generationModels";
 
 describe("canvas generation model choices", () => {
+  it("shows ChinaMobil aliases on the node chip and menu while retaining full selectors", () => {
+    const labels = {
+      "mobile::doubao-seedance-2-0-260128": "c20",
+      "mobile::doubao-seedance-2-0-fast-260128": "c20f",
+      "mobile::doubao-seedance-2-0-mini-260615": "c20m",
+      "mobile::doubao-seedance-2-5-260628": "c25",
+    };
+    const models = Object.keys(labels);
+    for (const [value, label] of Object.entries(labels)) {
+      expect(canvasModelName(value, labels)).toBe(label);
+      expect(canvasGenerationModelOptions(models, value, labels)).toEqual(Object.entries(labels).map(([value, label]) => ({ value, label })));
+    }
+  });
   it("shows SD-video names on both the node chip and its choices", () => {
     const model = "sdvideo/seedance-2.0-ark";
     const labels = { [model]: "Seedance 2.0 · 火山方舟官方" };

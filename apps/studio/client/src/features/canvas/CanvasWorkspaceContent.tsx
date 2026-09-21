@@ -4666,12 +4666,12 @@ export default function CanvasWorkspaceViewContent() {
           selectedGenerationModel={selectedGenerationModel}
           selectedGenerationModelLabel={canvasModelName(selectedGenerationModel, textModelLabels) || "选择模型"}
           generationModelOptions={selectedGenerationMode === "text"
-            ? canvasGenerationModelOptions(textModels, selectedGenerationModel)
+            ? canvasGenerationModelOptions(textModels, selectedGenerationModel, textModelLabels)
             : selectedGenerationMode === "image"
-              ? canvasGenerationModelOptions(modelCatalog?.models || [], selectedGenerationModel)
+              ? canvasGenerationModelOptions(modelCatalog?.models || [], selectedGenerationModel, modelCatalog?.labels)
               : selectedGenerationMode === "video"
                 ? canvasGenerationModelOptions(videoModels, selectedGenerationModel, textModelLabels)
-                : canvasGenerationModelOptions(audioModels, selectedGenerationModel)}
+                : canvasGenerationModelOptions(audioModels, selectedGenerationModel, textModelLabels)}
           selectedVideoConfig={selectedVideoConfig || null}
           selectedVideoSeedance={selectedVideoSeedance}
           selectedVideoDurations={selectedVideoConfig
