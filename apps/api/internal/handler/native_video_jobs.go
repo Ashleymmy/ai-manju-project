@@ -24,6 +24,26 @@ func (h *AIHandler) enqueueNativeVideo(c *gin.Context, body map[string]any) {
 	if !ok {
 		return
 	}
+	if len(seedanceAssetIDsFromPayload(body)) > 0 {
+		// Registered asset IDs belong to one provider account. A matching model
+		// on another supplier cannot reuse them, even during automatic failover.
+		selected, err := h.providerHandler.resolveProviderSelection(model.ModelCapabilityVideo, requested)
+		if err != nil {
+			response.Error(c, http.StatusBadRequest, errGenerationUnavailable.Error())
+			return
+		}
+		var scoped []modelSelection
+		for _, candidate := range candidates {
+			if candidate.Config.ID == selected.Config.ID {
+				scoped = append(scoped, candidate)
+			}
+		}
+		if len(scoped) == 0 {
+			response.Error(c, http.StatusBadRequest, errGenerationUnavailable.Error())
+			return
+		}
+		candidates = scoped
+	}
 	removeGenerationPrivateFields(body)
 	body["studio_model"] = requested
 	if err := h.prepareVideoAssetRegistration(c, body); err != nil {
