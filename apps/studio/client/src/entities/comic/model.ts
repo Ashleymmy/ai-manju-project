@@ -129,6 +129,7 @@ export type ComicGenerationBatch = {
 };
 
 export type ComicGenerationItem = {
+  config_snapshot?: { model?: string; model_selector?: string; size?: string; quality?: string; reference_asset_ids?: string[] };
   id: string;
   batch_id: string;
   comic_asset_id: string;

@@ -352,6 +352,7 @@ func TestAdminUpsertPlan(t *testing.T) {
 
 	plan, err := f.membershipRepo.UpsertPlan(model.MembershipPlan{
 		Code: model.PlanCodeMember198, Name: "会员198", PriceMonthCents: 19800, MonthlyCredits: 1000, Enabled: true,
+		ImageConcurrency: model.FreeImageConcurrency, VideoConcurrency: model.FreeVideoConcurrency, CreditDiscountBps: 10000, Features: model.JSONB(`{}`),
 	})
 	if err != nil {
 		t.Fatal(err)

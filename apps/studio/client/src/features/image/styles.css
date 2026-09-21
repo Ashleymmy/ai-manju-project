@@ -648,6 +648,15 @@
   margin-top: 25px;
   height: 49px;
 }
+/* 生成按钮旁的成本估算（约扣积分 · 成功才扣费） */
+.generate-cost-hint {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-top: 25px;
+  color: #8c8c8c;
+  font-size: 11px;
+  white-space: nowrap;
+}
 .result-actions {
   display: flex;
   gap: 8px;

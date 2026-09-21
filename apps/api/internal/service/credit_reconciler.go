@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/ai-manju/api/internal/model"
@@ -25,11 +26,14 @@ const (
 // reads the job's truth, and settles (success) or releases (failed/canceled)
 // through the engine's idempotent transitions. Repeats are always safe.
 type CreditReconciler struct {
-	credits  repository.CreditRepository
-	jobs     repository.JobRepository
-	engine   *CreditLedgerService
-	interval time.Duration
-	clock    func() time.Time
+	mu         sync.Mutex
+	cursorTime time.Time
+	cursorID   string
+	credits    repository.CreditRepository
+	jobs       repository.JobRepository
+	engine     *CreditLedgerService
+	interval   time.Duration
+	clock      func() time.Time
 }
 
 func NewCreditReconciler(credits repository.CreditRepository, jobs repository.JobRepository, engine *CreditLedgerService, interval time.Duration) *CreditReconciler {
@@ -75,14 +79,24 @@ func (r *CreditReconciler) Start(ctx context.Context) {
 // ReconcileOnce processes one batch. Exported for tests; returns how many
 // consumptions were settled and released.
 func (r *CreditReconciler) ReconcileOnce(ctx context.Context) (settled int, released int, err error) {
-	reserved, err := r.credits.ListReservedConsumptions(CreditReconcileBatchSize)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	reserved, err := r.credits.ListReservedConsumptionsAfter(r.cursorTime, r.cursorID, CreditReconcileBatchSize)
 	if err != nil {
 		return 0, 0, err
+	}
+	if len(reserved) == 0 && !r.cursorTime.IsZero() {
+		r.cursorTime, r.cursorID = time.Time{}, ""
+		reserved, err = r.credits.ListReservedConsumptionsAfter(r.cursorTime, r.cursorID, CreditReconcileBatchSize)
+		if err != nil {
+			return 0, 0, err
+		}
 	}
 	for _, consumption := range reserved {
 		if ctx.Err() != nil {
 			return settled, released, ctx.Err()
 		}
+		r.cursorTime, r.cursorID = consumption.CreatedAt, consumption.ID
 		job, jobErr := r.jobs.GetByID(consumption.JobID)
 		if jobErr != nil {
 			if errors.Is(jobErr, repository.ErrJobNotFound) {

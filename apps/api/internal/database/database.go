@@ -90,6 +90,8 @@ func openPostgres(dsn string, pool *PoolConfig) (*gorm.DB, error) {
 		&model.CreditGrant{},
 		&model.CreditLedgerEntry{},
 		&model.TaskConsumption{},
+		&model.ModelCostRate{},
+		&model.TaskActualCost{},
 		&model.CreditPackage{},
 		&model.Order{},
 		&model.InviteProfile{},

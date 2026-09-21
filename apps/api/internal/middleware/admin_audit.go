@@ -100,7 +100,7 @@ func auditTargetType(fullPath string) string {
 // auditTargetID takes the first route param that looks like an identifier.
 func auditTargetID(c *gin.Context) string {
 	for _, param := range c.Params {
-		if param.Key == "id" || strings.HasSuffix(param.Key, "_id") || strings.HasSuffix(param.Key, "Id") {
+		if param.Key == "id" || param.Key == "key" || strings.HasSuffix(param.Key, "_id") || strings.HasSuffix(param.Key, "Id") {
 			return param.Value
 		}
 	}

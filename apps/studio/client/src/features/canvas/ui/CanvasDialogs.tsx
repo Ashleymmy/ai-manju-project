@@ -1,3 +1,5 @@
+import { GenerationPrice } from "@/features/member";
+import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
 import {
   Check,
   Image as ImageIcon,
@@ -191,6 +193,7 @@ export function CanvasImageToolDialog({
           </div>
         </div>
         <DialogFooter>
+          {node && (dialog?.mode === "outpaint" || dialog?.mode === "angle") ? <CanvasGenerationPrice node={node} edit /> : <GenerationPrice kind="free" />}
           <button className="outline-button" type="button" onClick={onCancel} disabled={busy}><X size={15} /> 取消</button>
           <button className="vermilion-button" type="button" onClick={onRun} disabled={busy || !node || !preview}>
             <Check size={15} /> {busy ? "处理中…" : `执行${dialog ? canvasImageToolLabel(dialog.mode) : "处理"}`}

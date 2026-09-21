@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"time"
 
 	"github.com/ai-manju/api/internal/model"
@@ -8,13 +9,16 @@ import (
 )
 
 // SeedMembershipDefaults 启动播种（WP-M1 数据初始化）：两个已定稿付费档 +
-// 计费配置默认值。全部按唯一键幂等 upsert，重复启动无副作用。
+// 计费配置默认值。仅插入缺失项，不覆盖运营已保存的配置。
 //
 // 注意：¥1980 档的权益数值（月积分/并发/折扣）是待运营确认的占位种子，
 // 以「套餐配置管理」后台为最终事实源——文档要求定价运行时可配、严禁硬编码，
 // 这里的种子只是首次启动的初值。
 func SeedMembershipDefaults(memberships repository.MembershipRepository, billing repository.BillingRepository) error {
 	plans := []model.MembershipPlan{
+		{Code: model.PlanCodeInternal, Name: "内部成员（测试用户）", MonthlyCredits: 0,
+			ImageConcurrency: model.FreeImageConcurrency, VideoConcurrency: model.FreeVideoConcurrency,
+			CreditDiscountBps: 10000, Features: model.JSONB(`{}`), Enabled: false},
 		{
 			Code: model.PlanCodeMember198, Name: "198 会员",
 			PriceMonthCents: 19800, PriceYearCents: 198000, // 年付 = 10 个月价（运营可调）
@@ -45,6 +49,11 @@ func SeedMembershipDefaults(memberships repository.MembershipRepository, billing
 		{ID: "pkg_64800", Name: "企业大包", Credits: 64800, PriceCents: 64800, SortOrder: 6, Enabled: true},
 	}
 	for _, pkg := range packages {
+		if _, err := billing.GetPackageByID(pkg.ID); err == nil {
+			continue
+		} else if !errors.Is(err, repository.ErrPackageNotFound) {
+			return err
+		}
 		if _, err := billing.UpsertPackage(pkg); err != nil {
 			return err
 		}

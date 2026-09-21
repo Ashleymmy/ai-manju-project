@@ -92,3 +92,5 @@ describe("Inspector connected thumbnails", () => {
     expect(preview).not.toHaveBeenCalled();
   });
 });
+
+vi.mock("@/features/member", async original => ({ ...(await original<typeof import("@/features/member")>()), GenerationPrice: () => <span>报价</span> }));

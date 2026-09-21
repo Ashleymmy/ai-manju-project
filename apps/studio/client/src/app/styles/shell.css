@@ -5,6 +5,8 @@
 .side-head { height: 82px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--line); }
 .brand-lockup { display: flex; align-items: center; gap: 11px; min-width: 0; overflow: hidden; }
 .brand-mark { width: 34px; height: 34px; object-fit: contain; flex: 0 0 auto; }
+/* cloudto 云格横版一体标识（含云形与字标，深底版） */
+.brand-logo-full { display: block; height: 30px; width: auto; object-fit: contain; flex: 0 0 auto; }
 .brand-type { display: flex; flex-direction: column; min-width: 108px; line-height: 1; }
 .brand-type strong { font-size: 15px; font-weight: 800; letter-spacing: -.04em; white-space: nowrap; }
 .brand-type span { margin-top: 5px; font-family: "IBM Plex Mono", monospace; font-size: var(--font-size-caption); letter-spacing: 0; color: #bebebe; white-space: nowrap; }
@@ -221,6 +223,13 @@
   height: 1.5px;
   border-radius: 2px;
   background: rgba(255, 255, 255, calc(0.45 + var(--bounded-effect) * 0.55));
+}
+/* cloudto 分组图标：继承 currentColor，随分组标题文字色变化 */
+.ln-group-icon {
+  flex: 0 0 auto;
+  margin-right: 7px;
+  color: #8fa5b8;
+  opacity: 0.9;
 }
 .ln-index {
   display: inline-grid;

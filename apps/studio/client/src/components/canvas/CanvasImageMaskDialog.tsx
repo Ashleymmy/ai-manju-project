@@ -17,6 +17,7 @@ export type CanvasImageMaskPayload = {
 };
 
 type Props = {
+  price?: React.ReactNode;
   dataUrl: string;
   open: boolean;
   busy?: boolean;
@@ -25,7 +26,7 @@ type Props = {
   onConfirm: (payload: CanvasImageMaskPayload) => void | Promise<void>;
 };
 
-export function CanvasImageMaskDialog({ dataUrl, open, busy = false, error = "", onClose, onConfirm }: Props) {
+export function CanvasImageMaskDialog({ price, dataUrl, open, busy = false, error = "", onClose, onConfirm }: Props) {
   const [imageSize, setImageSize] = useState({ width: 1, height: 1 });
   const [brushSize, setBrushSize] = useState(64);
   const [prompt, setPrompt] = useState("");
@@ -127,6 +128,7 @@ export function CanvasImageMaskDialog({ dataUrl, open, busy = false, error = "",
           </div>
         </div>
         <DialogFooter>
+          {price}
           <button type="button" className="outline-button" onClick={onClose} disabled={busy}><X size={15} /> 取消</button>
           <button type="button" className="vermilion-button" onClick={() => void submit()} disabled={busy || !hasPaint || !prompt.trim()}><Check size={15} /> {busy ? "生成中…" : "生成局部修改"}</button>
         </DialogFooter>

@@ -38,6 +38,11 @@ type MembershipRepository interface {
 	// ListActiveMemberships pages all active memberships (created_at ASC, id ASC)
 	// for the monthly-grant scheduler. offset 分页在发放幂等的前提下是安全的。
 	ListActiveMemberships(limit int, offset int) ([]model.UserMembership, error)
+	// ReplaceAdminMembership atomically retires the expected active term and
+	// installs a new term; the supplied ID makes response-loss retries safe.
+	ReplaceAdminMembership(next model.UserMembership, expectedID string) (model.UserMembership, error)
+	ScheduleMembership(next model.UserMembership, duration time.Duration, now time.Time) (model.UserMembership, error)
+	ActivateDueMemberships(now time.Time, limit int) error
 }
 
 type MemoryMembershipRepository struct {
@@ -55,17 +60,15 @@ func NewMemoryMembershipRepository() *MemoryMembershipRepository {
 	}
 }
 
-// SeedPlans 按 Code 幂等 upsert：已存在时保留 ID/CreatedAt，仅更新业务字段。
+// SeedPlans initializes missing codes without overwriting operator settings.
 func (r *MemoryMembershipRepository) SeedPlans(plans []model.MembershipPlan) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	now := time.Now().UTC()
 	for _, plan := range plans {
-		if existingID, ok := r.plansByCode[plan.Code]; ok {
-			existing := r.plans[existingID]
-			plan.ID = existing.ID
-			plan.CreatedAt = existing.CreatedAt
+		if _, ok := r.plansByCode[plan.Code]; ok {
+			continue
 		} else if plan.ID == "" {
 			plan.ID = "plan_" + randomRepositoryHex(12)
 			plan.CreatedAt = now
@@ -84,7 +87,7 @@ func (r *MemoryMembershipRepository) ListPlans(enabledOnly bool) ([]model.Member
 
 	plans := make([]model.MembershipPlan, 0, len(r.plans))
 	for _, plan := range r.plans {
-		if enabledOnly && !plan.Enabled {
+		if enabledOnly && (!plan.Enabled || plan.Code == model.PlanCodeInternal) {
 			continue
 		}
 		plans = append(plans, plan)
@@ -178,7 +181,7 @@ func (r *MemoryMembershipRepository) GetActiveMembership(userID string, now time
 	defer r.mu.RUnlock()
 
 	for _, m := range r.memberships {
-		if m.UserID == userID && m.Status == model.MembershipStatusActive && m.ExpiresAt.After(now) {
+		if m.UserID == userID && (m.Status == model.MembershipStatusActive || m.Status == model.MembershipStatusScheduled) && !m.StartedAt.After(now) && m.ExpiresAt.After(now) {
 			return m, nil
 		}
 	}
@@ -290,13 +293,6 @@ func NewGormMembershipRepository(db *gorm.DB) *GormMembershipRepository {
 	return &GormMembershipRepository{db: db}
 }
 
-// membershipPlanUpdatableColumns SeedPlans 冲突时更新的全字段（不含主键/唯一键）。
-var membershipPlanUpdatableColumns = []string{
-	"name", "price_month_cents", "price_year_cents", "monthly_credits",
-	"image_concurrency", "video_concurrency", "credit_discount_bps",
-	"priority_rank", "features", "enabled", "updated_at",
-}
-
 func (r *GormMembershipRepository) SeedPlans(plans []model.MembershipPlan) error {
 	now := time.Now().UTC()
 	for index := range plans {
@@ -311,10 +307,10 @@ func (r *GormMembershipRepository) SeedPlans(plans []model.MembershipPlan) error
 	if len(plans) == 0 {
 		return nil
 	}
-	// 按 code 幂等 upsert
+	// Existing operator configuration is preserved on restart.
 	return r.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "code"}},
-		DoUpdates: clause.AssignmentColumns(membershipPlanUpdatableColumns),
+		DoNothing: true,
 	}).Create(&plans).Error
 }
 
@@ -322,7 +318,7 @@ func (r *GormMembershipRepository) ListPlans(enabledOnly bool) ([]model.Membersh
 	var plans []model.MembershipPlan
 	query := r.db.Model(&model.MembershipPlan{})
 	if enabledOnly {
-		query = query.Where("enabled = ?", true)
+		query = query.Where("enabled = ? AND code <> ?", true, model.PlanCodeInternal)
 	}
 	err := query.Order("price_month_cents ASC, code ASC").Find(&plans).Error
 
@@ -384,7 +380,7 @@ func (r *GormMembershipRepository) CreateMembership(m model.UserMembership) (mod
 
 func (r *GormMembershipRepository) GetActiveMembership(userID string, now time.Time) (model.UserMembership, error) {
 	var m model.UserMembership
-	err := r.db.First(&m, "user_id = ? AND status = ? AND expires_at > ?", userID, model.MembershipStatusActive, now).Error
+	err := r.db.First(&m, "user_id = ? AND status IN ? AND started_at <= ? AND expires_at > ?", userID, []string{model.MembershipStatusActive, model.MembershipStatusScheduled}, now, now).Error
 
 	return m, mapMembershipGormError(err, ErrMembershipNotFound)
 }

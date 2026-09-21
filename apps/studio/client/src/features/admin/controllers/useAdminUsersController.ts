@@ -140,6 +140,7 @@ export function useAdminUsersController() {
           : current.map(item => (item.id === saved.id ? saved : item));
       });
       toast.success(dialogMode === "create" ? "用户已创建" : "用户已更新");
+      await queryClient.invalidateQueries({ queryKey: adminQueryKeys.memberUsers(1).slice(0, -1) });
       closeDialog(true);
     } catch (error) {
       setDialogErrors(current => ({

@@ -130,6 +130,7 @@ type CreditRepository interface {
 	// ListReservedConsumptions feeds the settlement reconciler: consumptions
 	// still holding a freeze, oldest first so a backlog drains in order.
 	ListReservedConsumptions(limit int) ([]model.TaskConsumption, error)
+	ListReservedConsumptionsAfter(createdAt time.Time, id string, limit int) ([]model.TaskConsumption, error)
 
 	// CreateGrantWithLedger inserts the grant and its ledger entry atomically.
 	// An empty PeriodKey gets a generated unique value so the unique index is
@@ -791,6 +792,10 @@ func (r *MemoryCreditRepository) Release(jobID string, now time.Time) (ReleaseOu
 				return ReleaseOutcome{}, ErrCreditGrantNotFound
 			}
 			grant.AmountFrozen -= item.Amount
+			if grant.Status == model.GrantStatusExpired || !grant.ExpiresAt.After(now) {
+				grant.AmountRemaining -= item.Amount
+				r.appendLedgerLocked(model.CreditLedgerEntry{UserID: grant.UserID, EntryType: model.LedgerTypeExpire, Amount: -item.Amount, Bucket: model.CreditBucketGrant, GrantID: grant.ID, JobID: jobID, PermanentAfter: account.PermanentBalance, GrantRemainingAfter: grant.AmountRemaining, OperatorID: "system", IdempotencyKey: "expire-release:" + jobID + ":" + grant.ID, CreatedAt: now})
+			}
 			// 冻结退回不改变 remaining；若批次已过期且不再有余量，标记过期。
 			if grant.AmountRemaining == 0 && grant.AmountFrozen == 0 && grant.Status == model.GrantStatusActive && !grant.ExpiresAt.After(now) {
 				grant.Status = model.GrantStatusExpired
@@ -844,9 +849,8 @@ func (r *MemoryCreditRepository) ExpireGrant(grantID string, now time.Time) (Exp
 			CreatedAt:           now,
 		})
 	}
-	if grant.AmountRemaining == 0 && grant.AmountFrozen == 0 {
-		grant.Status = model.GrantStatusExpired
-	}
+	// Even a fully frozen grant must remember that its remaining credit is void.
+	grant.Status = model.GrantStatusExpired
 	r.grants[grant.ID] = grant
 	return ExpireOutcome{Grant: grant, Deducted: deductible}, nil
 }

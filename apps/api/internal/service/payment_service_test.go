@@ -137,9 +137,19 @@ func TestPaymentRenewalExtendsMembership(t *testing.T) {
 	if _, err := svc.MarkPaid(second.ID); err != nil {
 		t.Fatal(err)
 	}
-	renewed, _ := memberships.GetActiveMembership("user_p4", time.Now().UTC())
+	current, err := memberships.GetActiveMembership("user_p4", time.Now().UTC())
+	if err != nil || current.ID != firstMembership.ID {
+		t.Fatal("renewal removed current-period benefits")
+	}
+	renewed, err := memberships.GetMembershipByOrderID(second.ID)
+	if err != nil || renewed.Status != model.MembershipStatusScheduled {
+		t.Fatal("renewal was not scheduled")
+	}
 	if !renewed.StartedAt.Equal(firstMembership.ExpiresAt) {
 		t.Fatalf("renewal started_at = %v, want 续接旧到期日 %v", renewed.StartedAt, firstMembership.ExpiresAt)
+	}
+	if _, err := memberships.GetActiveMembership("user_p4", firstMembership.ExpiresAt.Add(time.Second)); err != nil {
+		t.Fatal("renewed benefits not available at term start", err)
 	}
 }
 

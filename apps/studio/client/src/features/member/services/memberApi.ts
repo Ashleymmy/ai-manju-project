@@ -1,5 +1,11 @@
 import { request } from "@/shared/api/http";
 
+export type CreditQuote = { credits: number; params: { pricing_source?: string; per_second?: number; reference_per_second?: number; range_min?: number; range_max?: number } };
+
+export function fetchGenerationQuote(jobType: string, payload: Record<string, unknown>, signal?: AbortSignal) {
+  return request<CreditQuote>("/api/member/quote", { method: "POST", body: { job_type: jobType, payload }, signal });
+}
+
 import { MEMBER_PAGE_SIZE } from "../model/constants";
 import type {
   BillingOrder,

@@ -4605,6 +4605,8 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
 .node-card-tools.in-chips { padding-top: 0; }
 /* 閺佷即鍣?chip 娑撳海鏁撻幋鎰瘻闁筋喖鎮撶紒鍕礁缂?*/
 .node-card-primary { display: flex; align-items: center; gap: 6px; }
+.node-generation-count { justify-content: center; min-width: 46px; padding: 0 12px; font-variant-numeric: tabular-nums; }
+.node-send-button-compact { width: 30px; min-width: 30px; height: 30px; min-height: 30px; padding: 0; border-radius: 50%; background: linear-gradient(180deg, #fbf8f1 0%, #e6e2d6 100%); }
 /* 鐟欏棝顣剁€涙劖膩瀵繐绐樼粩鐘辩瑐缁夎鍩屽Λ鈧弻銉ユ珤閺嶅洭顣界悰宀嬬礄鐠愬瓨鐖ｆ０妯哄礁娓氀嶇礉鐏忓繋绔撮崣鍑ょ礆 */
 .inspector-title-row { display: flex; align-items: center; gap: 8px; }
 .inspector-floating .inspector-submode-badge {
@@ -4770,6 +4772,8 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   box-sizing: border-box;
   flex-wrap: nowrap;
   gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
   max-height: none;
   padding: 12px 16px;
   border-radius: 12px;
@@ -4777,7 +4781,7 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
 }
 .inspector-group .inspector-head { display: none; }
-.inspector-group .inspector-block { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 0; }
+.inspector-group .inspector-block { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 0; }
 .inspector-group .inspector-block .field-label { margin: 0; white-space: nowrap; }
 .inspector-group .inspector-block input:not([type="color"]) { width: 110px; margin: 0; }
 .inspector-group .full-outline { width: auto; flex: 0 0 auto; margin: 0 0 0 6px; min-height: 34px; padding: 0 11px; white-space: nowrap; }
@@ -4801,9 +4805,11 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   box-shadow: 0 0 0 2px rgba(255, 255, 255, .2), inset 0 0 0 1px rgba(0, 0, 0, .2);
 }
 .canvas-focus .inspector-panel.inspector-group .full-outline { margin-top: 0; }
+.canvas-group-price-pop { max-height: 320px; overflow-y: auto; }
+.canvas-group-price-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 6px 0; font-size: var(--font-size-small); }
+.canvas-group-price-row > span:first-child { overflow-wrap: anywhere; }
 @media (max-width: 760px) {
   .canvas-focus .inspector-panel.inspector-group {
-    overflow: visible;
     gap: 6px;
     padding: 8px 10px;
   }

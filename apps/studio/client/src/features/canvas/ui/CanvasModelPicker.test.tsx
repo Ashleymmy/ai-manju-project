@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CanvasModelPicker } from "./CanvasModelPicker";
+import { canvasModelName, canvasVideoModelOptions } from "../domain/generationModels";
 
 describe("canvas model menu dismissal", () => {
   let container: HTMLDivElement;
@@ -104,6 +105,23 @@ describe("canvas model menu dismissal", () => {
     expect(menu()).toBeNull();
     await open();
     await render(true, "image-2");
+    expect(menu()).toBeNull();
+  });
+
+  it("allows an existing video node to explicitly select ChinaMobil instead of hiding it behind the old channel", async () => {
+    const old = "old::doubao-seedance-2-0-fast-260128";
+    const mobile = "mobile::doubao-seedance-2-0-fast-260128";
+    const labels = { [mobile]: "c20f" };
+    const choices = canvasVideoModelOptions([old, mobile], old, labels, { [old]: "火山", [mobile]: "ChinaMobil" });
+    await act(async () => root.render(<CanvasModelPicker active value={old} label={canvasModelName(old, labels)} options={choices} onSelect={onSelect} />));
+    await open();
+    const buttons = [...menu()!.querySelectorAll("button")];
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0].classList.contains("active")).toBe(true);
+    expect(onSelect).not.toHaveBeenCalled();
+    const target = buttons.find(button => button.textContent === "c20f · ChinaMobil")!;
+    await act(async () => target.click());
+    expect(onSelect).toHaveBeenCalledWith(mobile);
     expect(menu()).toBeNull();
   });
 });

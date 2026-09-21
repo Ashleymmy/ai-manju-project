@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { useLocation } from "wouter";
 
 import { useAuth } from "@/contexts/AuthContext";
+import PageLoader from "@/components/PageLoader";
 import { isAdminTierRole, type AuthUser } from "@/entities/auth";
 
 type AuthGuardProps = {
@@ -68,20 +69,7 @@ export default function AuthGuard({ children, requiredRole }: AuthGuardProps) {
   }, [navigate, redirectTarget]);
 
   if (loading) {
-    return (
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "center",
-        height: "100vh", background: "#0f1117",
-        color: "#666", fontSize: 13, fontFamily: "var(--font-mono, 'IBM Plex Mono', monospace)",
-        gap: 10,
-      }}>
-        <span style={{
-          width: 8, height: 8, borderRadius: "50%", background: "#E9513E",
-          display: "inline-block", opacity: 0.9,
-        }} />
-        连接工作区…
-      </div>
-    );
+    return <PageLoader />;
   }
 
   if (redirectTarget || !user) return null;

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ai-manju/api/internal/auth"
@@ -185,6 +186,10 @@ func (h *AdminBillingHandler) UpsertPlan(c *gin.Context) {
 	if req.Enabled != nil {
 		plan.Enabled = *req.Enabled
 	}
+	if err := validateAdminPlan(plan); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	updated, err := h.memberships.UpsertPlan(plan)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, err.Error())
@@ -244,6 +249,10 @@ func (h *AdminBillingHandler) UpsertPackage(c *gin.Context) {
 	if req.SortOrder != nil {
 		pkg.SortOrder = *req.SortOrder
 	}
+	if strings.TrimSpace(pkg.Name) == "" || pkg.Credits <= 0 || pkg.Credits > maxAdminTestCredits || pkg.PriceCents < 0 || pkg.PriceCents > maxAdminTestCredits || pkg.SortOrder < 0 {
+		response.Error(c, http.StatusBadRequest, "invalid package name, credits, price or sort order")
+		return
+	}
 	updated, err := h.billing.UpsertPackage(pkg)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, err.Error())
@@ -265,6 +274,7 @@ func (h *AdminBillingHandler) ListConfigs(c *gin.Context) {
 // adminEditableConfigKeys UpsertConfig 白名单（model.BillingConfigKey* 常量）；
 // 白名单外的 key 一律 400，防止管理端写入业务代码不识别的配置。
 var adminEditableConfigKeys = map[string]bool{
+	model.BillingConfigKeyModelPrices:      true,
 	model.BillingConfigKeyRegisterBonus:    true,
 	model.BillingConfigKeyRegisterBonusTTL: true,
 	model.BillingConfigKeyInviteRewards:    true,
@@ -272,6 +282,11 @@ var adminEditableConfigKeys = map[string]bool{
 	model.BillingConfigKeyActivity:         true,
 	model.BillingConfigKeyPricingRules:     true,
 	model.BillingConfigKeyGiftPacks:        true,
+}
+
+// ModelPrices returns the effective catalog, including defaults before the first save.
+func (h *AdminBillingHandler) ModelPrices(c *gin.Context) {
+	response.OK(c, service.LoadModelCreditPrices(h.billing))
 }
 
 type adminConfigUpdateRequest struct {
@@ -292,6 +307,10 @@ func (h *AdminBillingHandler) UpsertConfig(c *gin.Context) {
 	}
 	if len(req.Value) == 0 {
 		response.Error(c, http.StatusBadRequest, "value is required")
+		return
+	}
+	if err := validateBillingConfig(key, req.Value); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	operator := auth.MustCurrentUser(c)

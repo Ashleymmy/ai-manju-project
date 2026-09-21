@@ -1,3 +1,5 @@
+import { GenerationPrice } from "@/features/member";
+import type { VideoGenerationConfig } from "../services/generationGateway";
 import { FileText, Image as ImageIcon, Loader2, Music2, Plus, Send, Upload, Video, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -27,6 +29,7 @@ const TOKEN_PATTERN = /@\[ref:([^\]]+)\]/g;
 const MENTION_MENU_HEIGHT = 260;
 
 export function Composer({
+  config,
   prompt,
   onPromptChange,
   references,
@@ -49,6 +52,7 @@ export function Composer({
   onOpenMedia,
   thumbUrlFor,
 }: {
+  config?: VideoGenerationConfig;
   prompt: string;
   onPromptChange: (value: string) => void;
   references: WorkbenchReference[];
@@ -278,6 +282,7 @@ export function Composer({
               }}
             />
           </label>
+          {config && <GenerationPrice kind="video" model={config.model} resolution={config.resolution} seconds={config.seconds} audio={config.generateAudio} referenceVideos={references.filter(item => item.kind === "video").length} />}
           <button
             type="button"
             className="wb-send"

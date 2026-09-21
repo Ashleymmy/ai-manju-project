@@ -1,0 +1,29 @@
+.model-prices-panel { min-width: 0; }
+.model-prices-panel p { line-height: 1.7; font-size: 13px; }
+.model-prices-panel .admin-panel-head p { color: #bec7c8; margin: 8px 0; }
+.model-prices-note { padding: 12px 14px; border: 1px solid var(--line); border-radius: 6px; color: #c4cdce; background: #1b2325; }
+.model-prices-note p { margin: 0; }
+.model-prices-note a { color: #b5d5ff; text-decoration: underline; text-underline-offset: 3px; }
+.model-prices-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 20px; margin: 24px 0; }
+.model-prices-tabs { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 6px; }
+.model-prices-tabs button { padding: 8px 14px; background: transparent; color: #c4cdce; border: none; border-radius: 4px; cursor: pointer; }
+.model-prices-tabs button[aria-pressed="true"] { background: #344249; color: #fff; }
+.model-prices-selector { display: grid; gap: 6px; flex: 1; min-width: 200px; font-size: 13px; }
+.model-prices-selector select { background: #20292c; border: 1px solid #5b6669; color: #edf1f1; padding: 10px; border-radius: 5px; width: 100%; }
+.model-prices-reference { display: flex; align-items: center; gap: 16px; margin: 16px 0; font-size: 14px; }
+.model-prices-reference small { display: block; color: #b7c2c4; margin-top: 4px; }
+.model-prices-reference input { max-width: 120px; }
+.model-prices-scroll { max-width: 100%; overflow-x: auto; margin: 20px 0; }
+.model-prices-scroll table { width: 100%; border-collapse: collapse; text-align: left; }
+.model-prices-scroll caption { text-align: left; color: #e4ebeb; padding: 0 0 12px; font-size: 14px; }
+.model-prices-scroll th, .model-prices-scroll td { padding: 12px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.model-prices-scroll thead { background: #20292c; color: #c4cdce; }
+.model-prices-scroll input { min-width: 85px; font-variant-numeric: tabular-nums; }
+.model-prices-panel input:disabled { opacity: .8; }
+.model-prices-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
+.model-prices-footer > div { display: flex; gap: 8px; flex-wrap: wrap; }
+.model-prices-footer button { display: inline-flex; align-items: center; gap: 6px; }
+.model-prices-panel button:disabled { opacity: .5; cursor: not-allowed; }
+.model-prices-panel button:focus-visible, .model-prices-selector select:focus-visible { outline: 2px solid #b5d5ff; outline-offset: 3px; }
+.model-prices-error { color: #ffc1b8; }
+@media (max-width: 640px) { .model-prices-reference { align-items: start; flex-direction: column; } }

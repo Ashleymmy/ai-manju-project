@@ -108,12 +108,15 @@ test("switching studio pages and returning from the canvas does not crash", asyn
     "/assets",
   ]) {
     await test.step(`navigate to ${path}`, async () => {
-      await page.locator(`a[href="${path}"]`).first().click();
+      if (path === "/profile") {
+        await page.getByTitle("账号与余额", { exact: true }).click();
+        await page.getByRole("dialog", { name: "账号与余额", exact: true }).getByRole("button", { name: "个人主页", exact: true }).click();
+      } else {
+        await page.locator(`a[href="${path}"]`).first().click();
+      }
       await expect(page).toHaveURL(new RegExp(`${path}$`));
       await expect(page.locator(".main-stage")).toBeVisible();
-      await expect(page.getByText("连接工作区…", { exact: true })).toHaveCount(
-        0
-      );
+      await expect(page.locator(".page-loader")).toHaveCount(0);
       await page.evaluate(
         () =>
           new Promise<void>(resolve =>
@@ -128,6 +131,12 @@ test("switching studio pages and returning from the canvas does not crash", asyn
         throw new Error(
           (await page.locator("#root").innerText()) + "\n" + errors.join("\n")
         );
+      if (path === "/profile") {
+        const memberDialog = page.getByRole("dialog", { name: "会员中心", exact: true });
+        await expect(memberDialog.getByRole("heading", { name: "个人主页", exact: true })).toBeVisible();
+        await memberDialog.getByRole("button", { name: "关闭会员中心", exact: true }).click();
+        await expect(memberDialog).toHaveCount(0);
+      }
     });
   }
   await page.locator('a[href="/canvas?resume=recent"]').click();
@@ -196,7 +205,7 @@ test("page errors preserve navigation, support retry and retain diagnostics", as
   });
   await page.getByRole("button", { name: "重试此页面", exact: true }).click();
   await expect(errorHeading).toHaveCount(0);
-  await expect(page.getByText("连接工作区…", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".page-loader")).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__recoveryDocument)).toBe(
     "same document"
   );

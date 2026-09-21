@@ -580,6 +580,13 @@ func (r *GormCreditRepository) Release(jobID string, now time.Time) (ReleaseOutc
 			}
 			grant.AmountFrozen -= item.Amount
 			// 冻结退回不动 remaining；批次已过期且无剩余时直接标记过期。
+			if grant.Status == model.GrantStatusExpired || !grant.ExpiresAt.After(now) {
+				grant.AmountRemaining -= item.Amount
+				entry := model.CreditLedgerEntry{ID: "led_" + randomRepositoryHex(12), UserID: grant.UserID, EntryType: model.LedgerTypeExpire, Amount: -item.Amount, Bucket: model.CreditBucketGrant, GrantID: grant.ID, JobID: jobID, PermanentAfter: account.PermanentBalance, GrantRemainingAfter: grant.AmountRemaining, OperatorID: "system", IdempotencyKey: "expire-release:" + jobID + ":" + grant.ID, CreatedAt: now}
+				if err := tx.Create(&entry).Error; err != nil {
+					return err
+				}
+			}
 			if grant.AmountRemaining == 0 && grant.AmountFrozen == 0 && grant.Status == model.GrantStatusActive && !grant.ExpiresAt.After(now) {
 				grant.Status = model.GrantStatusExpired
 			}
@@ -612,6 +619,19 @@ func (r *GormCreditRepository) Release(jobID string, now time.Time) (ReleaseOutc
 func (r *GormCreditRepository) ExpireGrant(grantID string, now time.Time) (ExpireOutcome, error) {
 	var outcome ExpireOutcome
 	err := r.db.Transaction(func(tx *gorm.DB) error {
+		// Match Reserve/Settle/Release lock order: account, then grant. Acquiring
+		// the grant first can deadlock against a task completing at expiry.
+		var initial model.CreditGrant
+		if err := tx.First(&initial, "id = ?", grantID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrCreditGrantNotFound
+			}
+			return err
+		}
+		account, err := lockAccountForUpdate(tx, initial.UserID, now)
+		if err != nil {
+			return err
+		}
 		var grant model.CreditGrant
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&grant, "id = ?", grantID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -635,10 +655,6 @@ func (r *GormCreditRepository) ExpireGrant(grantID string, now time.Time) (Expir
 				outcome = ExpireOutcome{Grant: grant, AlreadyExpired: true}
 				return nil
 			}
-			account, err := lockAccountForUpdate(tx, grant.UserID, now)
-			if err != nil {
-				return err
-			}
 			grant.AmountRemaining = grant.AmountFrozen
 			entry := model.CreditLedgerEntry{
 				ID:                  "led_" + randomRepositoryHex(12),
@@ -657,9 +673,7 @@ func (r *GormCreditRepository) ExpireGrant(grantID string, now time.Time) (Expir
 				return err
 			}
 		}
-		if grant.AmountRemaining == 0 && grant.AmountFrozen == 0 {
-			grant.Status = model.GrantStatusExpired
-		}
+		grant.Status = model.GrantStatusExpired
 		if err := tx.Save(&grant).Error; err != nil {
 			return err
 		}

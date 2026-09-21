@@ -609,6 +609,22 @@
   padding: 10px 0;
   border-bottom: 1px solid #f1f1f3;
 }
+.hub-model-toolbar,
+.hub-model-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 14px 0;
+}
+.hub-model-toolbar .hub-search {
+  flex: 1;
+  min-width: min(240px, 100%);
+}
+.hub-model-pagination {
+  font-size: 13px;
+}
 .hub-model-entry code {
   flex: 1;
   min-width: 0;

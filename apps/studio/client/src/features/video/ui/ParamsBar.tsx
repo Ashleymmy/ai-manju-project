@@ -1,5 +1,6 @@
-import { modelOptions } from "@/shared/lib/modelSelection";
+import { videoModelOptions } from "@/shared/lib/modelSelection";
 import { VideoDurationInput } from "@/shared/ui/VideoDurationInput";
+import type { PricingRulesConfig } from "@/features/member";
 
 import {
   isSeedanceFastVideoModel,
@@ -14,15 +15,19 @@ import {
 export function ParamsBar({
   models,
   labels,
+  providerNames,
   config,
   onChange,
   disabled,
+  pricingRules,
 }: {
   models: string[];
   labels: Record<string, string>;
+  providerNames?: Record<string, string>;
   config: VideoGenerationConfig;
   onChange: (config: VideoGenerationConfig) => void;
   disabled: boolean;
+  pricingRules?: PricingRulesConfig;
 }) {
   const normalized = normalizeVideoGenerationConfig(config);
   /* 未配置模型时也按 Seedance 展示（比例/30s 时长档位）；配上 OpenAI 兼容模型后自动切回尺寸/20s */
@@ -30,7 +35,6 @@ export function ParamsBar({
   const fastSeedance = isSeedanceFastVideoModel(normalized.model);
   const ratios = seedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes;
   const durations = seedance ? videoModelSettings.seedanceDurations : videoModelSettings.openAiDurations;
-
   const patch = (partial: Partial<VideoGenerationConfig>) => onChange(normalizeVideoGenerationConfig({ ...normalized, ...partial }));
 
   return (
@@ -44,7 +48,7 @@ export function ParamsBar({
         >
           {!models.length ? <option value="">未配置</option> : null}
           {/* 展示模型名称，option value 保留完整调用标识。 */}
-          {modelOptions(models, normalized.model, labels).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+          {videoModelOptions(models, normalized.model, labels, providerNames).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
         </select>
       </div>
       <div className="wb-param-group">
@@ -97,6 +101,7 @@ export function ParamsBar({
           >水印</button>
         </div>
       </div>
+
     </div>
   );
 }

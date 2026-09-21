@@ -111,6 +111,11 @@ for (const zoom of [50, 80, 100]) {
     await frame.getByRole("button", { name: "组成分组", exact: true }).click();
     await expect(page.locator(".canvas-group-frame.pending")).toHaveCount(0);
     await expect(page.locator(".canvas-group-connection-handle")).toHaveCount(2);
+    const inspector = page.locator(".inspector-group");
+    await inspector.getByRole("button", { name: "积分明细", exact: true }).click();
+    await expect(page.locator(".canvas-group-price-row")).toHaveCount(2);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".canvas-group-price-pop")).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("confirmed-group.png") });
     const target = (await page.locator('[data-node-id="target"]').boundingBox())!;
     const confirmedPort = page.getByRole("button", { name: "从分组连接", exact: true });

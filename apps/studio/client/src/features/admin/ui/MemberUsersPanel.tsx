@@ -1,4 +1,9 @@
-import { Coins, KeyRound, RefreshCcw } from "lucide-react";
+import { Coins, KeyRound, RefreshCcw, Plus, UserCog, BadgeCheck } from "lucide-react";
+import { useState } from "react";
+import type { AdminUsersController } from "../controllers/useAdminUsersController";
+import type { AdminMemberUser } from "../model/memberAdmin";
+import { MembershipDialog } from "./MembershipDialog";
+import { UsersPanel } from "./UsersPanel";
 
 import {
   Dialog,
@@ -28,10 +33,15 @@ import { AdminPagination, AdminQueryState } from "./components/adminBits";
 export function MemberUsersPanel({
   controller,
   readOnly,
+  usersController,
+  superAdmin = false,
 }: {
   controller: MemberUsersController;
   readOnly: boolean;
+  usersController?: AdminUsersController;
+  superAdmin?: boolean;
 }) {
+  const [membershipTarget, setMembershipTarget] = useState<AdminMemberUser | null>(null);
   const {
     adjustBusy,
     adjustDraft,
@@ -65,10 +75,11 @@ export function MemberUsersPanel({
       <div className="admin-panel-head">
         <div>
           <p className="eyebrow">MEMBERS / {total}</p>
-          <h2>会员用户</h2>
-          <small>双余额、会员等级与累计充值一览；等级/状态筛选作用于当前页。</small>
+          <h2>成员管理</h2>
+          <small>统一管理账号、权限、会员与积分；筛选覆盖全部成员。</small>
         </div>
         <div className="monitor-actions">
+          {!readOnly && usersController && <button className="vermilion-button" onClick={usersController.openCreateDialog}><Plus size={14} /> 创建成员</button>}
           <select value={memberLevel} onChange={event => setMemberLevel(event.target.value)} aria-label="会员等级">
             {MEMBER_LEVEL_OPTIONS.map(option => (
               <option key={option.value} value={option.value}>{option.label}</option>
@@ -84,6 +95,7 @@ export function MemberUsersPanel({
           </button>
         </div>
       </div>
+      <div className="member-filters admin-filter-bar"><Input aria-label="搜索成员" placeholder="搜索账号、昵称或成员 ID" value={controller.search} onChange={e => controller.setSearch(e.target.value)} onKeyDown={e => { if (e.key === "Enter") controller.applySearch(); }} /><button className="outline-button small" onClick={controller.applySearch}>查询</button></div>
 
       <AdminQueryState
         isPending={isPending}
@@ -98,7 +110,7 @@ export function MemberUsersPanel({
             <span>用户</span>
             <span>会员等级</span>
             <span>会员到期</span>
-            <span>状态</span>
+            <span>角色 / 状态</span>
             <span>永久积分</span>
             <span>限时积分</span>
             <span>注册</span>
@@ -115,6 +127,7 @@ export function MemberUsersPanel({
               <span>{memberLevelLabel(user.member_level)}</span>
               <span>{user.member_expires_at ? formatDateTime(user.member_expires_at) : "—"}</span>
               <span>
+                <small>{user.role || "member"}</small>
                 <StatusPill tone={adminUserStatusTone(user.status)}>
                   {adminUserStatusLabel(user.status)}
                 </StatusPill>
@@ -126,6 +139,8 @@ export function MemberUsersPanel({
               <span className="member-cell-num">{formatCents(user.total_recharge_cents)}</span>
               {!readOnly ? (
                 <span className="admin-row-actions">
+                  {usersController && (superAdmin || user.role === "member") && <button type="button" title="编辑账号与权限" aria-label={`编辑账号 ${user.username}`} onClick={() => usersController.openEditDialog({ id: user.user_id, username: user.username, display_name: user.display_name, role: user.role || "member", status: user.status === "active" ? "active" : "disabled" })}><UserCog size={14} /></button>}
+                  {superAdmin && <button type="button" title="变更会员等级" aria-label={`变更会员 ${user.username}`} onClick={() => setMembershipTarget(user)}><BadgeCheck size={14} /></button>}
                   <button
                     type="button"
                     title="调积分"
@@ -236,6 +251,8 @@ export function MemberUsersPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {usersController && !readOnly && <UsersPanel controller={usersController} dialogsOnly canAssignRoles={superAdmin} />}
+      {membershipTarget && superAdmin && <MembershipDialog key={membershipTarget.user_id} target={membershipTarget} onClose={() => setMembershipTarget(null)} onSaved={reload} />}
     </section>
   );
 }

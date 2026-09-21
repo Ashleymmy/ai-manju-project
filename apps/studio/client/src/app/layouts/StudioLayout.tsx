@@ -1,3 +1,4 @@
+import { CreditBalance } from "@/features/member";
 import {
   Box,
   ChevronRight,
@@ -14,7 +15,6 @@ import {
   Library,
   LogOut,
   MoreHorizontal,
-  PanelRight,
   Pencil,
   Puzzle,
   RadioTower,
@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Tag,
   Terminal,
+  UserRound,
   Video,
   Wallet,
   WandSparkles,
@@ -66,7 +67,7 @@ import { StudioCommandPalette } from "./StudioCommandPalette";
 import { createAndOpenProject } from "@/features/projects";
 */
 
-const logoUrl = "/logo.png";
+// 站内标识已切换到 cloudto 云格资产包（/public/cloudto/），不再引用旧 /logo.png。
 const railGroupsStorageKey = "ai-manju:rail-open-groups";
 
 type Icon = typeof Grid2X2;
@@ -116,8 +117,7 @@ const libraryNav: NavItem[] = [
 ];
 
 const systemNav: NavItem[] = [
-  { label: "个人主页", href: "/profile", icon: PanelRight },
-  { label: "会员中心", href: "/member", icon: Crown },
+  // 个人主页与会员中心均从右上角用户卡 popover 进入（账号中心弹窗），不放侧边导航。
   { label: "渲染队列", href: "/queue", icon: RadioTower },
   { label: "偏好设置", href: "/settings", icon: Settings2 },
 ];
@@ -231,14 +231,12 @@ function normalizeShellPath(locationPath: string) {
 function BrandMark() {
   return (
     <div className="brand-lockup">
-      <span className="brand-symbol">
-        <img className="brand-mark" src={logoUrl} alt="AI 漫工坊" />
-        <i />
-      </span>
-      <div className="brand-type">
-        <strong>AI 漫工坊</strong>
-        <span>MANHUA STUDIO</span>
-      </div>
+      {/* cloudto 云格横版标识（云形 + 字标一体，深底版） */}
+      <img
+        className="brand-logo-full"
+        src="/cloudto/logos/svg/logo-horizontal-on-dark.svg"
+        alt="cloudto 云格"
+      />
     </div>
   );
 }
@@ -247,7 +245,7 @@ export function LineNav({
   groups,
   currentPath,
 }: {
-  groups: Array<{ id: string; title: string; items: NavItem[] }>;
+  groups: Array<{ id: string; title: string; icon?: string; items: NavItem[] }>;
   currentPath: string;
 }) {
   const [openGroups, setOpenGroups] = useState<string[]>(() => {
@@ -410,6 +408,16 @@ export function LineNav({
               aria-expanded={open}
             >
               <span className="ln-marker" aria-hidden="true" />
+              {group.icon ? (
+                <svg
+                  className="ln-group-icon"
+                  width="15"
+                  height="15"
+                  aria-hidden="true"
+                >
+                  <use href={`/cloudto/icons/sprite.svg#${group.icon}`} />
+                </svg>
+              ) : null}
               <span className="ln-label">{group.title}</span>
               <ChevronRight
                 size={13}
@@ -485,9 +493,9 @@ function SideRail({
     ? [...systemNav, adminNavItem]
     : systemNav;
   const groups = [
-    { id: "creation", title: "制作桌", items: creationNav },
-    { id: "library", title: "素材与语言", items: libraryNav },
-    { id: "system", title: "系统", items: systemItems },
+    { id: "creation", title: "制作桌", icon: "ct-canvas", items: creationNav },
+    { id: "library", title: "素材与语言", icon: "ct-library", items: libraryNav },
+    { id: "system", title: "系统", icon: "ct-settings", items: systemItems },
   ];
   return (
     <aside className={`side-rail ${collapsed ? "is-collapsed" : ""}`}>
@@ -729,6 +737,9 @@ function TopUserCard() {
                 <button type="button" onClick={startRename}>
                   <Pencil size={13} /> 修改昵称
                 </button>
+                <button type="button" onClick={() => goMember("/profile")}>
+                  <UserRound size={13} /> 个人主页
+                </button>
                 <button type="button" onClick={() => goMember("/member")}>
                   <Crown size={13} /> 会员中心
                 </button>
@@ -836,6 +847,7 @@ function TopBar({ path }: { path: string; runningJobs?: number }) {
           <Plus size={17} /> 新建画布
         </button>
         */}
+        <CreditBalance />
         <TopUserCard />
       </div>
     </header>

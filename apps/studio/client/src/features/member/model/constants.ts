@@ -8,6 +8,9 @@
 /** 积分兑换基准：1 元 = 100 积分（接口 credits_per_yuan 兜底值）。 */
 export const CREDITS_PER_YUAN_FALLBACK = 100;
 
+/** Refresh active price displays after another administrator changes the catalog. */
+export const PRICE_REFRESH_INTERVAL_MS = 30_000;
+
 /** 直购积分滑杆范围（TapNow 参考图 8：500–500,000）。 */
 export const RECHARGE_SLIDER_MIN = 500;
 export const RECHARGE_SLIDER_MAX = 500_000;

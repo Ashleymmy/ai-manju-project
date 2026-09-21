@@ -9,8 +9,8 @@ import {
   ScrollText,
   ServerCog,
   Settings2,
+  Coins,
   ShoppingCart,
-  UserCog,
   Users,
 } from "lucide-react";
 
@@ -26,6 +26,7 @@ export type AdminTab =
   | "orders"
   | "consumptions"
   | "plans-config"
+  | "model-prices"
   | "dashboard"
   | "invites"
   | "audit-logs";
@@ -42,24 +43,25 @@ export const adminTabPaths: Record<AdminTab, string> = {
   orders: "/admin/orders",
   consumptions: "/admin/consumptions",
   "plans-config": "/admin/plans-config",
+  "model-prices": "/admin/model-prices",
   dashboard: "/admin/dashboard",
   invites: "/admin/invites",
   "audit-logs": "/admin/audit-logs",
 };
 
 export const adminTabs = [
-  ["users", "用户", Users],
+  ["users", "成员管理", Users],
   ["providers", "模型接入", ServerCog],
   ["announcements", "系统公告", Bell],
   ["monitoring", "运行监控", Activity],
   ["seedance", "Seedance 素材", Database],
   /* ---- WP-M7 会员系统后台 8 模块 ---- */
   ["dashboard", "运营看板", LayoutDashboard],
-  ["member-users", "会员用户", UserCog],
   ["credit-ledger", "积分流水", ScrollText],
   ["orders", "订单管理", ShoppingCart],
-  ["consumptions", "任务消耗", Gauge],
+  ["consumptions", "消耗与成本", Gauge],
   ["plans-config", "套餐配置", Settings2],
+  ["model-prices", "模型积分定价", Coins],
   ["invites", "邀请记录", Gift],
   ["audit-logs", "审计日志", History],
 ] as const;
@@ -75,6 +77,7 @@ export function adminTabFromLocation(pathname: string, hash: string): AdminTab {
   if (pathname === "/admin/orders") return "orders";
   if (pathname === "/admin/consumptions") return "consumptions";
   if (pathname === "/admin/plans-config") return "plans-config";
+  if (pathname === "/admin/model-prices") return "model-prices";
   if (pathname === "/admin/dashboard") return "dashboard";
   if (pathname === "/admin/invites") return "invites";
   if (pathname === "/admin/audit-logs") return "audit-logs";

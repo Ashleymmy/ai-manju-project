@@ -34,6 +34,22 @@ func NewBillingHooks(pricer *CreditPricer, engine *CreditLedgerService, gate *En
 	return &BillingHooks{pricer: pricer, engine: engine, gate: gate}
 }
 
+// ConcurrentLimitForJob supplies the limit for the atomic count-and-create.
+// The earlier gate remains a fast rejection path, not the enforcement boundary.
+func (h *BillingHooks) ConcurrentLimitForJob(userID, jobType string) (int, error) {
+	if h.gate == nil {
+		return 0, nil
+	}
+	switch jobType {
+	case model.JobTypeImageGenerate, model.JobTypeImageEdit:
+		return h.gate.ImageConcurrency(userID)
+	case model.JobTypeVideoGenerate:
+		return h.gate.VideoConcurrency(userID)
+	default:
+		return 0, nil
+	}
+}
+
 // NormalizePayloadForJob 非会员的视频生成强制 watermark=true（文档：会员权益
 // 去除品牌水印；免费用户保留水印）。
 func (h *BillingHooks) NormalizePayloadForJob(userID string, jobType string, payload model.JSONB) (model.JSONB, error) {

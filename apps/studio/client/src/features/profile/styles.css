@@ -49,6 +49,8 @@
   .profile-prompt-grid { grid-template-columns: 1fr; }
 }
 /* ---- 闂佹澘绉堕悿鍡涘垂鐎ｎ喓鈧妫冮姀銈嗘嚈婵犲ň鈧彃鐦滈柛鏍ф惈閻撴瑧鈧妫勭€规娊鏁嶉崼婵嗗緭濞?feature-page 濞ｅ洦绻冪€?1480px 闂傚啫鎳撻鎵偓纭呮鐎规娊鏁?---- */
+/* 嵌入账号中心弹窗时：去掉页面级容器约束，让内容自适应弹窗面板宽度。 */
+.profile-embedded { display: block; min-width: 0; }
 .feature-page.profile-page { max-width: none; }
 /* 濞戞搩浜欏Ч澶嬬▔婵犳哎鈧宕橀崨鏉戝姤閻庡湱鎳撳▍鎺撴交濡粯绠掑☉鎾亾閻?1400px 闂傚嫭鍔曢鏃堟晬鐏炶偐顏辨鐐跺煐閺備礁顕ｉ埀?*/
 .feature-page.profile-page .profile-workspace { max-width: none; }

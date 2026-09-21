@@ -1,0 +1,35 @@
+/* 页面级加载动画容器（cloudto 云格页面切换流光）。深色全屏居中，
+   与 studio 底色一致避免闪屏；图形尺寸按包文档建议（切换版内部图形 66px 起）。 */
+.page-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: #0a0a0a;
+}
+.page-loader-mark {
+  display: block;
+  width: 132px;
+  height: auto;
+}
+/* 页面内容加载期间保留外层导航可用。 */
+.page-loader-contained {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  min-height: 50vh;
+}
+.page-loader-text {
+  margin: 0;
+  color: #8c8c8c;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* SVG 内部已处理 reduced-motion，此处仅保留容器静态呈现。 */
+}

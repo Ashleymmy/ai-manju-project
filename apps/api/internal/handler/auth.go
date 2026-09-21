@@ -322,6 +322,10 @@ func (h *AuthHandler) CreateUser(c *gin.Context) {
 	}
 
 	role := normalizeRole(req.Role)
+	if operator, ok := auth.CurrentUser(c); ok && operator.Role != model.UserRoleSuperAdmin && role != model.UserRoleMember {
+		response.Error(c, http.StatusForbidden, "only super administrators may assign administrator roles")
+		return
+	}
 	status := normalizeStatus(req.Status)
 	passwordHash, err := auth.HashPassword(req.Password)
 	if err != nil {
@@ -373,6 +377,12 @@ func (h *AuthHandler) UpdateUser(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
+	}
+	if operator, ok := auth.CurrentUser(c); ok && operator.Role != model.UserRoleSuperAdmin {
+		if current.Role != model.UserRoleMember || (req.Role != nil && normalizeRole(*req.Role) != model.UserRoleMember) {
+			response.Error(c, http.StatusForbidden, "only super administrators may manage administrator accounts")
+			return
+		}
 	}
 
 	if req.DisplayName != nil {

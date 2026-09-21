@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 250" role="img" aria-label="cloudto 云格" ><defs>
+    <linearGradient id="ct-gradient" x1="0" y1="0" x2="1" y2="0.8"><stop stop-color="#65C9F4"/><stop offset=".48" stop-color="#6387FF"/><stop offset="1" stop-color="#A879F5"/></linearGradient>
+    <linearGradient id="ct-soft" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#65C9F4" stop-opacity=".2"/><stop offset="1" stop-color="#A879F5" stop-opacity=".06"/></linearGradient>
+    </defs><g transform="translate(6 12) scale(.96)"><path class="" d="M85 77 C87 35 112 25 145 25 C197 25 216 104 153 104 H73 C5 104 5 198 73 198 H236 C269 198 269 150 236 150 H96" pathLength="810" fill="none" stroke="url(#ct-gradient)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/><circle class="" cx="310" cy="150" r="21" fill="#A879F5"/></g><g transform="translate(385 24) scale(1.36)"><g fill="none" stroke="#F4F6FF" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M44 42 C32 24 7 34 7 55 C7 78 32 82 44 68 M63 14 V75"/>
+    <ellipse cx="102" cy="55" rx="23" ry="22"/>
+    <path d="M143 34 V56 C143 84 187 84 187 56 V34 M249 14 V75 M249 55 C249 25 203 25 203 55 C203 85 249 85 249 55 M277 18 V61 Q277 78 291 74 M265 35 H294"/>
+    <ellipse cx="332" cy="55" rx="23" ry="22"/></g></g><g transform="translate(392 160) scale(1.5)"><g fill="none" stroke="#F4F6FF" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 6 H32 M3 18 H36 M18 19 L6 37 L32 35 M26 27 L37 39"/>
+    <path d="M60 3 V41 M50 14 H70 M60 16 L49 31 M61 20 L69 27 M81 3 L73 15 M79 8 H94 Q87 22 72 26 M76 12 Q84 22 98 25 M76 28 H94 V41 H76 Z"/></g></g></svg>

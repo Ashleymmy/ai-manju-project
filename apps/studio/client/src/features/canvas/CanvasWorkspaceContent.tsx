@@ -1,3 +1,5 @@
+import { CanvasPricingContext, CanvasGenerationPrice } from "./ui/CanvasGenerationPrice";
+import { CreditBalance } from "@/features/member";
 import { registerCanvasImageAsset, registrationProviderId, savedSeedanceRegistration, seedanceRegistrationKey, seedanceRegistrationPhase, seedanceRegistrationSource, type SeedanceRegistrationState } from "./services/seedanceRegistration";
 import { pickDefaultImageModel, resolveModel } from "@/shared/lib/modelSelection";
 import { canvasImageGenerationSettings } from "./domain/imageGenerationSettings";
@@ -97,7 +99,7 @@ import {
   type SeedanceAsset,
 } from "@/entities/asset";
 import { cancelJob, getJobs } from "@/entities/job";
-import { canvasGenerationModelOptions, canvasModelName } from "./domain/generationModels";
+import { canvasGenerationModelOptions, canvasModelName, canvasVideoModelOptions } from "./domain/generationModels";
 import type { CanvasLibraryCategory } from "./domain/assetFolders";
 import { archiveCanvasMediaAsset, resolveCanvasArchiveFolder } from "./services/assetArchive";
 import type { PromptPreset } from "@/entities/prompt";
@@ -567,6 +569,7 @@ export default function CanvasWorkspaceViewContent() {
   const [audioModels, setAudioModels] = useState<string[]>([]);
   const [audioModel, setAudioModel] = useState("");
   const [textModelLabels, setTextModelLabels] = useState<Record<string, string>>({});
+  const [modelProviderNames, setModelProviderNames] = useState<Record<string, string>>({});
   const [promptPresets, setPromptPresets] = useState<PromptPreset[]>([]);
   const [wheelZoomRequiresCtrl, setWheelZoomRequiresCtrl] = useState(true);
   const runningNodeIdValues = useCanvasStore((state) => state.generation.runningNodeIds);
@@ -1335,6 +1338,7 @@ export default function CanvasWorkspaceViewContent() {
           setVideoModels(catalog.videoModels);
           setAudioModels(catalog.audioModels);
           setTextModelLabels(catalog.modelLabels);
+          setModelProviderNames(catalog.modelProviderNames);
           setTextModel((current) => resolveModel(catalog.textModels, current || preferredTextModel) || catalog.defaultTextModel);
           setVideoModel((current) => resolveModel(catalog.videoModels, current || preferredVideoModel) || catalog.defaultVideoModel);
           setAudioModel((current) => resolveModel(catalog.audioModels, current || preferredAudioModel) || catalog.defaultAudioModel);
@@ -4205,6 +4209,7 @@ export default function CanvasWorkspaceViewContent() {
             </button>
             <div className="scope-switch canvas-scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => void switchCanvasScope(item.value)} disabled={switching}>{item.label}</button>)}</div>
             <div className="canvas-head-actions canvas-project-list-actions">
+              <CreditBalance />
               {projects.length ? <button className="outline-button small" onClick={() => setSelectedProjectIds(projects.every((project) => selectedProjectIds.has(project.id)) ? new Set() : new Set(projects.map((project) => project.id)))} disabled={switching || projectArchiveBusy || projectBatchBusy}><Check size={15} /> {projects.every((project) => selectedProjectIds.has(project.id)) ? "取消全选" : "全选"}</button> : null}
               {selectedProjectIds.size ? <button className="outline-button small" onClick={() => void exportSelectedCanvasProjects()} disabled={switching || projectArchiveBusy || projectBatchBusy}><Download size={15} /> {projectBatchBusy ? "处理中" : `导出选中（${selectedProjectIds.size}）`}</button> : null}
               {selectedProjectIds.size ? <button className="outline-button small danger" onClick={() => openProjectBatchDelete(selectedProjectIds)} disabled={switching || projectArchiveBusy || projectBatchBusy}><Trash2 size={15} /> 删除选中</button> : null}
@@ -4333,6 +4338,7 @@ export default function CanvasWorkspaceViewContent() {
   });
 
   return (
+    <CanvasPricingContext.Provider value={{ imageModel, videoModel, nodes, references: mentionReferencesForNode }}>
     <div className="canvas-page real-canvas-page">
       <Dialog open={Boolean(registrationTarget)} onOpenChange={(open) => { if (!open && !registrationBusy) setRegistrationTarget(null); }}>
         <DialogContent showCloseButton={!registrationBusy}>
@@ -4451,6 +4457,7 @@ export default function CanvasWorkspaceViewContent() {
           </div>
         </div>
         <div className="canvas-head-actions">
+          <CreditBalance />
           <button className="outline-button small canvas-home-button" onClick={() => navigate("/dashboard")} title="返回首页" aria-label="返回首页"><Home size={15} /> 首页</button>
           {/* 空间切换是"离开当前画布"的导航出口：项目加载中/未确认时直接回列表页，不参与保存门禁，避免按钮卡死 */}
           {/* "团队空间"已全局暂时隐藏：team 入口在 scopeOptions 数组定义处注释掉了，恢复见该处 */}
@@ -4666,12 +4673,12 @@ export default function CanvasWorkspaceViewContent() {
           selectedGenerationModel={selectedGenerationModel}
           selectedGenerationModelLabel={canvasModelName(selectedGenerationModel, textModelLabels) || "选择模型"}
           generationModelOptions={selectedGenerationMode === "text"
-            ? canvasGenerationModelOptions(textModels, selectedGenerationModel)
+            ? canvasGenerationModelOptions(textModels, selectedGenerationModel, textModelLabels)
             : selectedGenerationMode === "image"
-              ? canvasGenerationModelOptions(modelCatalog?.models || [], selectedGenerationModel)
+              ? canvasGenerationModelOptions(modelCatalog?.models || [], selectedGenerationModel, modelCatalog?.labels)
               : selectedGenerationMode === "video"
-                ? canvasGenerationModelOptions(videoModels, selectedGenerationModel, textModelLabels)
-                : canvasGenerationModelOptions(audioModels, selectedGenerationModel)}
+                ? canvasVideoModelOptions(videoModels, selectedGenerationModel, textModelLabels, modelProviderNames)
+                : canvasGenerationModelOptions(audioModels, selectedGenerationModel, textModelLabels)}
           selectedVideoConfig={selectedVideoConfig || null}
           selectedVideoSeedance={selectedVideoSeedance}
           selectedVideoDurations={selectedVideoConfig
@@ -4800,6 +4807,7 @@ export default function CanvasWorkspaceViewContent() {
             onConfirm: annotateCanvasImage,
           },
           mask: {
+            price: imageMaskNode ? <CanvasGenerationPrice node={imageMaskNode} edit /> : undefined,
             dataUrl: imageMaskPreview, open: Boolean(imageMaskNode && imageMaskPreview),
             busy: imageToolBusy, error: imageToolError,
             onClose: () => { setImageMaskNodeId(""); setImageToolError(""); },
@@ -4881,6 +4889,7 @@ export default function CanvasWorkspaceViewContent() {
         }}
       />
     </div>
+    </CanvasPricingContext.Provider>
   );
 }
 

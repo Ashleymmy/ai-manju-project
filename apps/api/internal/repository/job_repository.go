@@ -21,6 +21,8 @@ type JobRepository interface {
 	DelayBridge(id string, until time.Time) error
 	ResumeReconciledExternal(id string, taskID string) (model.Job, error)
 	Create(job model.Job) (model.Job, error)
+	// CreateWithinLimit counts and inserts atomically across API replicas.
+	CreateWithinLimit(job model.Job, limit int) (model.Job, error)
 	GetByID(id string) (model.Job, error)
 	GetByIdempotencyKey(key string) (model.Job, error)
 	GetByExternalTaskID(provider string, externalTaskID string, userID string) (model.Job, error)
@@ -57,6 +59,10 @@ func NewMemoryJobRepository() *MemoryJobRepository {
 func (r *MemoryJobRepository) Create(job model.Job) (model.Job, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.createJobLocked(job)
+}
+
+func (r *MemoryJobRepository) createJobLocked(job model.Job) (model.Job, error) {
 
 	if existingID := r.byKey[job.IdempotencyKey]; existingID != "" {
 		return r.jobs[existingID], nil

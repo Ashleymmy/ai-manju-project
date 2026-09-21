@@ -11,6 +11,8 @@ export function useMemberOverviewQuery(active = true) {
     queryFn: fetchMemberOverview,
     placeholderData: previous => previous,
     enabled: active,
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
   });
 }
 

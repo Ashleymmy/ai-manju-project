@@ -31,19 +31,24 @@
 | `/member/usage` | 消耗明细 + 积分流水双 tab（状态胶囊、4 维筛选、分页） |
 | `/member/invite` | 邀请有礼（邀请码/复制链接/规则/记录/累计） |
 | `/member/pricing` | 定价规则（6 条基础规则 + 三类单价表 + 套餐对比） |
+| `/member/gifts` | 礼包超市（配置驱动货架 + 空态「礼包筹备中」） |
 | canvas 占位 chip | 「1:1」静态文案 → 定价规则页链接 |
+
+后台 `/admin` 新增 8 个 tab：会员用户 / 积分流水 / 订单（含退款）/ 任务消耗 / 套餐配置 / 运营看板 / 邀请记录 / 审计日志（auditor 角色只读隐藏写操作）。
+账号区（左下用户卡）新增 popover：会员徽标 + 双余额两行 + 会员中心入口。
 
 ## 待办
 
 | 项 | 状态 |
 |---|---|
-| WP-M7 后台 8 模块前端面板 | 实施中（子代理） |
-| 礼包超市 `/member/gifts` 页 + 账号下拉双余额 popover | 实施中（子代理） |
-| WP-M13 `image4`/`image5` 单价大表人工核对 | **待人工**（OCR 无法可靠还原合并单元格表格） |
+| ~~WP-M7 后台 8 模块前端面板~~ | ✅ 已完成（2026-09-18） |
+| ~~礼包超市 `/member/gifts` 页 + 账号下拉双余额 popover~~ | ✅ 已完成（2026-09-18） |
+| ~~WP-M13 `image4`/`image5` 单价大表人工核对~~ | ✅ 已由词级坐标重建解决（见 PRICING-DATA §7/§8；image5 多档区分维度建议人工抽查一次） |
 | WP-M12 账号池 + 厂商择路 | **用户决定搁置**（上线前置条件，上线前必须解决） |
 | WP-M16 用量热力图 | backlog（第一期不做） |
 | 支付宝/微信真实渠道 | 待商户凭证；`PaymentService.RegisterChannel` 接入点已留 |
 | Gorm 语义套件实测 | 需 `TEST_DATABASE_URL`；`go test ./internal/repository/ -run Gorm` |
+| `normalizeRole` 角色创建 | ✅ 已修复（2026-09-18）：后台可建 ops_admin/auditor 账号 |
 
 ## 启用步骤（部署时）
 

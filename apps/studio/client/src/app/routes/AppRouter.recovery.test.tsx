@@ -100,7 +100,8 @@ describe("page switch error containment", () => {
     expect(container.querySelector("nav")).toBe(nav);
     await click("加载页");
     expect(container.querySelector("nav")).not.toBeNull();
-    expect(container.textContent).toContain("连接工作区");
+    expect(container.querySelector('main [role="status"]')?.textContent).toContain("正在加载");
+    expect(container.querySelector('main .page-loader-contained')).not.toBeNull();
     // Navigate away before a slow page resolves; its late completion must not replace the current route.
     await click("工作台");
     await act(async () => resolvePage({ default: () => <p>过期页面</p> }));

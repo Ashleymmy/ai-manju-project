@@ -1,3 +1,4 @@
+import { GenerationPrice } from "@/features/member";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AgentReferenceStrip } from "@/features/canvas/agent/AgentReferenceStrip";
 import { applyAgentReferencesToOps, canvasAgentReferences, describeAgentReferences, persistableAgentReferences, type AgentReference } from "@/features/canvas/agent/references";
@@ -922,6 +923,7 @@ export default function AgentPanel({
           setOpenMenu(null);
         }
       }}>
+      <span title="Agent 对话免费；图片和视频任务按对应模型计费"><GenerationPrice kind="free" /></span>
       <div className="agent-panel-resizer" onPointerDown={startResize} />
 
       {/* 顶部工具栏：左侧切换对话，右侧历史记录 / 文件 / 设置 / 关闭 */}

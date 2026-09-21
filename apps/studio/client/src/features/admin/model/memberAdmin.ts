@@ -5,8 +5,7 @@
  * 金额一律 cents，展示前经 formatCents（复用 member feature 的 model/format）。
  *
  * 契约缺口（已记录，本期不改后端）：
- * 1. GET /admin/member-users 无会员等级/账号状态查询参数 —— 这两个筛选在
- *    前端按当前页数据过滤。
+ * 1. GET /admin/member-users 在服务端按会员等级、账号状态与关键词筛选后分页。
  * 2. consumptions 响应里的 stats 由 repository.ConsumptionStats 直接序列化
  *    （Go struct 无 json tag），键为 PascalCase —— normalizeConsumptionStats
  *    同时兼容 PascalCase / snake_case 两种键名。
@@ -22,6 +21,11 @@ import { createRandomUUID } from "@/shared/lib/cryptoRandomUuid";
 
 /** 模块1 会员用户列表行（AdminMemberUserRow）。 */
 export type AdminMemberUser = {
+	role?: "member" | "super_admin" | "ops_admin" | "auditor";
+	membership_id?: string;
+	plan_id?: string;
+	plan_code?: string;
+	test_credits?: number;
   user_id: string;
   username: string;
   display_name?: string;
@@ -196,6 +200,7 @@ export const ADJUST_NONCE_PREFIX = "adj";
 
 /** 模块1 会员等级筛选（契约缺口 1：前端按当前页过滤）。 */
 export const MEMBER_LEVEL_OPTIONS = [
+	{ value: "internal_test", label: "内部成员（测试用户）" },
   { value: "", label: "全部等级" },
   { value: "member", label: "会员" },
   { value: "free", label: "非会员" },
@@ -274,7 +279,7 @@ export const ADMIN_EDITABLE_CONFIGS = [
   { key: "invite_rewards", label: "邀请奖励", schema: "json", hint: '{"inviter":2000,"invitee":500,"first_charge_bonus":1000}' },
   { key: "invite_reward_ttl_days", label: "邀请奖励有效期（天）", schema: "int", hint: "整数天数，如 30" },
   { key: "activity_discount", label: "限时活动", schema: "json", hint: '{"enabled":true,"starts_at":"...","ends_at":"...","discount_bps":8000,"applies_to":["image"]}' },
-  { key: "pricing_rules", label: "定价规则", schema: "json", hint: '{"image":{"small_512":20,"standard_1024":50,"large":80},...}' },
+  { key: "pricing_rules", label: "基础兜底定价（模型单价见模型积分定价页）", schema: "json", hint: '{"image":{"small_512":20,"standard_1024":50,"large":80},...}' },
   { key: "gift_packs", label: "礼包超市货架", schema: "json", hint: '[{"id":"...","name":"...","price_cents":9900,"credits":1000,"enabled":true,"sort_order":1}]' },
 ] as const;
 

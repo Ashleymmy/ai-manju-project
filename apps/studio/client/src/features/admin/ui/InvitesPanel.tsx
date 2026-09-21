@@ -3,10 +3,6 @@ import { Gift, RefreshCcw } from "lucide-react";
 import {
   formatCredits,
   formatDateTime,
-  INVITE_REWARD_FIRST_CHARGE,
-  INVITE_REWARD_INVITEE,
-  INVITE_REWARD_INVITER,
-  INVITE_REWARD_TTL_DAYS,
   StatusPill,
 } from "@/features/member";
 
@@ -16,7 +12,7 @@ import { AdminPagination, AdminQueryState } from "./components/adminBits";
 
 /**
  * 模块7 邀请记录面板：全量列表 + 分页 + 奖励规则提示卡。
- * 提示卡数值为兜底默认值；现行规则以后台 billing_configs["invite_rewards"] 为准。
+ * 现行奖励由后台配置维护，不将前端默认常量展示为运营数据。
  */
 export function InvitesPanel({ controller }: { controller: InvitesController }) {
   const { isError, isPending, items, page, reload, setPage, total, totalPages } = controller;
@@ -36,12 +32,11 @@ export function InvitesPanel({ controller }: { controller: InvitesController }) 
 
       <div className="member-card member-rules admin-invite-rules">
         <p className="eyebrow">
-          <Gift size={12} /> 奖励规则（默认）
+          <Gift size={12} /> 奖励规则
         </p>
         <ul className="member-rule-list">
-          <li>邀请人每位好友注册得 {formatCredits(INVITE_REWARD_INVITER)} 积分，被邀请人得 {formatCredits(INVITE_REWARD_INVITEE)} 积分。</li>
-          <li>好友完成首次充值，邀请人额外得 {formatCredits(INVITE_REWARD_FIRST_CHARGE)} 积分（未首充前奖励保持「待发放」）。</li>
-          <li>奖励积分 {INVITE_REWARD_TTL_DAYS} 天有效；现行数值以后台「套餐配置 → invite_rewards」为准。</li>
+          <li>每次邀请的奖励金额以以下记录为准，历史记录保留创建时的规则快照。</li>
+          <li>现行邀请奖励与有效期可在「套餐配置」的 invite_rewards 和 invite_reward_ttl_days 中查看、调整。</li>
         </ul>
       </div>
 

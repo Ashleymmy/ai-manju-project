@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VideoWorkbenchConversation } from "../repositories/conversationRepository";
 
@@ -27,6 +28,7 @@ import VideoWorkbenchView from "./VideoWorkbenchView";
 
 let root: Root;
 let container: HTMLDivElement;
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 const originalText = "让 @[ref:hero] 在雨中转身";
 function conversations(): VideoWorkbenchConversation[] {
   return [{ id: "conversation", title: "原任务", createdAt: 1, updatedAt: 1, messages: [
@@ -57,7 +59,7 @@ afterEach(async () => {
   vi.resetAllMocks();
   vi.unstubAllGlobals();
 });
-async function render() { await act(async () => root.render(<VideoWorkbenchView ownerId="owner" />)); }
+async function render() { await act(async () => root.render(<QueryClientProvider client={queryClient}><VideoWorkbenchView ownerId="owner" /></QueryClientProvider>)); }
 async function edit() { await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="重新编辑提示词和参考素材"]')!.click()); }
 
 describe("视频历史消息重新编辑", () => {

@@ -992,6 +992,20 @@
   padding-left: 2px;
 }
 
+/* 参数条上的约扣积分显示（约扣 X 积分 · 成功才扣费） */
+.wb-cost-value {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(31, 162, 220, 0.35);
+  border-radius: 7px;
+  background: rgba(31, 162, 220, 0.08);
+  color: #a9d7f2;
+  font: 12px "IBM Plex Mono", monospace;
+  width: fit-content;
+}
+
 .wb-param-group select {
   min-height: 28px;
   padding: 0 8px;

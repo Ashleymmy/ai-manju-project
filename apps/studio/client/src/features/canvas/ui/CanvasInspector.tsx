@@ -1,3 +1,4 @@
+import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
 import { CanvasSeedanceRegistrationButton } from "./CanvasSeedanceRegistrationButton";
 import type { SeedanceRegistrationState } from "../services/seedanceRegistration";
 import {
@@ -29,7 +30,6 @@ import {
   UserRoundCog,
   WandSparkles,
   X,
-  Zap,
 } from "lucide-react";
 import { useRef, type CSSProperties, type PointerEvent, type RefObject } from "react";
 import { toast } from "sonner";
@@ -356,6 +356,19 @@ export function CanvasInspector({
                   ))}
                 </div>
               </div>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button type="button" className="full-outline">积分明细</button>
+                </PopoverTrigger>
+                <PopoverContent className="node-pop canvas-group-price-pop" side="bottom" align="start">
+                  <h4>分组积分明细</h4>
+                  {nodes.filter(node => selectedGroup.nodeIds.includes(node.id)).map(node => (
+                    <div className="canvas-group-price-row" key={node.id}>
+                      <span>{node.title}</span><CanvasGenerationPrice node={node} />
+                    </div>
+                  ))}
+                </PopoverContent>
+              </Popover>
               <button className="full-outline" onClick={() => void runCanvasGroupGeneration(selectedGroup.id)} disabled={Boolean(runningGroupId)}>{runningGroupId === selectedGroup.id ? <Loader2 className="spin" size={16} /> : <WandSparkles size={16} />} 批量执行分组</button>
               <button className="full-outline" onClick={() => ungroupCanvasGroup(selectedGroup.id)}><Ungroup size={16} /> 解散分组</button>
             </>
@@ -538,10 +551,9 @@ export function CanvasInspector({
                   </PopoverContent>
                 </Popover>
                 <div className="node-card-primary">
-                  {/* 数量/积分 chip 挪到生成按钮旁 */}
                   <Popover key={`${selectedNode.id}:count`} active={inspectorOpen && !projectActionDisabled}>
                     <PopoverTrigger asChild>
-                      <button type="button" className="node-chip node-credit-chip" title="生成数量与积分消耗（1:1）"><Zap size={12} /> ×{imageCountFromNode(selectedNode)}</button>
+                      <button type="button" className="node-chip node-credit-chip node-generation-count" title="生成数量 · 积分按类型与规格计费，成功才扣费">×{imageCountFromNode(selectedNode)}<span className="sr-only">生成数量</span></button>
                     </PopoverTrigger>
                     <PopoverContent className="node-pop-card" align="end" sideOffset={8}>
                       <p className="eyebrow">数量 / 积分</p>
@@ -553,6 +565,7 @@ export function CanvasInspector({
                       <p className="node-pop-hint">积分按类型与规格计费，成功才扣费。<a href="/member/pricing" style={{ color: "#44a5c7" }}>查看定价规则</a></p>
                     </PopoverContent>
                   </Popover>
+                  <CanvasGenerationPrice node={selectedNode} compact />
                   {selectedNode.kind === "director" ? (
                     <button className="node-send-button" onClick={() => void openDirectorNode(selectedNode)}><ArrowRight size={15} /> 导演台</button>
                   ) : runningNodeIds.has(selectedNode.id) ? (
@@ -568,7 +581,7 @@ export function CanvasInspector({
                       else void retryTextNode(selectedNode);
                     }}><RotateCcw size={14} /> 重试</button>
                   ) : (
-                    <button className="node-send-button" onClick={() => void generateFromNode()}><ArrowUp size={15} /> 生成</button>
+                    <button className="node-send-button node-send-button-compact" onClick={() => void generateFromNode()} aria-label="生成" title="生成"><ArrowUp size={15} /></button>
                   )}
                 </div>
               </div>

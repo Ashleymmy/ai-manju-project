@@ -10,7 +10,7 @@ export type AdminUser = {
   id: string;
   username: string;
   display_name?: string;
-  role: "super_admin" | "member";
+  role: "super_admin" | "ops_admin" | "auditor" | "member";
   status: "active" | "disabled" | "suspended";
   created_at?: string;
   updated_at?: string;

@@ -2,6 +2,7 @@ import { resolveModel } from "@/shared/lib/modelSelection";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 
 import {
   ensureSeedanceAssetsActive,
@@ -15,7 +16,8 @@ import {
   type SeedanceAsset,
 } from "@/entities/asset";
 import { cancelJob } from "@/entities/job";
-import { publicApiError } from "@/shared/api/errors";
+
+import { publicApiError, toastGenerationError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 
 import {
@@ -80,8 +82,12 @@ type SubmitPayload = {
 
 export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   const repositoryRef = useRef<ReturnType<typeof createCloudConversationRepository> | null>(null);
+  const [, navigate] = useLocation();
+  // 定价规则（参数栏展示约扣积分；pricing_rules 缺失时按文档默认值兜底）。
+
   const [models, setModels] = useState<string[]>([]);
   const [labels, setLabels] = useState<Record<string, string>>({});
+  const [providerNames, setProviderNames] = useState<Record<string, string>>({});
   const [config, setConfig] = useState<VideoGenerationConfig>({ model: "", size: "1280x720", resolution: "720p", seconds: "6", generateAudio: true, watermark: false });
   const [conversations, setConversations] = useState<VideoWorkbenchConversation[]>([]);
   const [currentId, setCurrentId] = useState("");
@@ -151,6 +157,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
         if (!mountedRef.current) return;
         setModels(catalog.videoModels);
         setLabels(catalog.modelLabels || {});
+        setProviderNames(catalog.modelProviderNames || {});
         const selected = catalog.defaultVideoModel || catalog.videoModels[0] || "";
         if (selected) setConfig((current) => normalizeVideoGenerationConfig({ ...current, model: resolveModel(catalog.videoModels, current.model) || selected }));
       } catch (error) {
@@ -519,7 +526,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
       const errorText = publicApiError(error, "视频生成失败");
       patchMessage(conversationId, message.id, { taskStatus: "failed", taskError: errorText });
       setRuntime(message.id, { status: "failed", error: errorText });
-      toast.error(errorText);
+      toastGenerationError(error, "视频生成失败", () => navigate("/member/plans"));
     } finally {
       pollingRef.current.delete(message.id);
     }
@@ -897,6 +904,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
                   setModels(catalog.videoModels);
                   setConfig(current => normalizeVideoGenerationConfig({ ...current, model: resolveModel(catalog.videoModels, current.model) || catalog.defaultVideoModel }));
                   setLabels(catalog.modelLabels || {});
+                  setProviderNames(catalog.modelProviderNames || {});
                 }).catch((error) => toast.error(publicApiError(error, "读取视频模型失败")))}
               ><RefreshCcw size={13} /></button>
             </div>
@@ -916,6 +924,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
           </section>
           <section className="wb-editor-column">
             <Composer
+              config={effectiveConfig}
               prompt={prompt}
               onPromptChange={setPrompt}
               references={references}
@@ -951,6 +960,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
             <ParamsBar
               models={models}
               labels={labels}
+              providerNames={providerNames}
               config={config}
               onChange={setConfig}
               disabled={!ready}

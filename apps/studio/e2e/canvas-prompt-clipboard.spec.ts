@@ -7,7 +7,7 @@ const prompt = "四个不一样的苹果@[node:reference-a]@[node:reference-b]\n
 for (const kind of ["config", "image", "video", "text"]) {
   test(`copies references into a ${kind} node, supports cut/paste and survives reload`, async ({ page, context }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://localhost:3100" });
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(testInfo.project.use.baseURL!).origin });
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     const project = { id: "prompt-clipboard-qa", title: "Prompt clipboard QA", scope: "personal", owner_id: "qa" };

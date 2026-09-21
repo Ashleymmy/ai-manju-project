@@ -6,6 +6,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// chinaMobilTokenSpacePresetID identifies the independent, API-key-based channel.
+const chinaMobilTokenSpacePresetID = "chinamobil_tokenspace"
+
 type providerPreset struct {
 	ID                 string               `json:"id"`
 	Name               string               `json:"name"`
@@ -106,6 +109,27 @@ func modelProviderPresets() []providerPreset {
 				"TokenHub 文档不包含 /v1/asset/*；volcano_asset_* 仅作为部署方另行提供的可选兼容代理。",
 				"生成时素材引用格式为 asset://{AssetID}；引用前建议确认 GetAsset 返回 Status=Active。",
 				"终端用户首次使用 TokenSpace 素材库前需访问 /material/init，填写上级代理提供的 API 地址与 API Key。",
+			},
+		},
+		{
+			ID:           chinaMobilTokenSpacePresetID,
+			Name:         "ChinaMobil（tokenspace）",
+			Description:  "独立 TokenSpace 视频通道。视频生成与素材注册共用此 Provider 的 API Key，素材库走 /api/material，不使用火山 AK/SK。",
+			ProviderType: model.ModelProviderTypeVolcengineArk,
+			Mode:         model.ModelProviderModeOpenAICompatible,
+			BaseURL:      "https://api.tokenspace.net.cn/api/v3",
+			AuthType:     model.ModelProviderAuthTypeBearer,
+			Capabilities: []string{model.ModelCapabilityVideo},
+			ModelsByCapability: map[string][]string{
+				model.ModelCapabilityVideo: {"doubao-seedance-2-5-260628", "doubao-seedance-2-0-260128", "doubao-seedance-2-0-fast-260128", "doubao-seedance-2-0-mini-260615"},
+			},
+			Defaults:          map[string]string{model.ModelCapabilityVideo: "doubao-seedance-2-0-260128"},
+			EndpointOverrides: tokenSpacePresetEndpointOverrides(),
+			Notes: []string{
+				"填写新通道的 API Key；生成与素材注册均使用此 Key，与现有 sdvideo Provider 独立。",
+				"素材注册选择本 Provider；素材组和 asset://{AssetID} 按 Provider 隔离，不能直接复用其他账号的素材。",
+				"素材通过 /api/material?Action=CreateAsset 注册，GetAsset 返回 Active 后可引用生成。",
+				"终端用户首次使用素材库如需初始化，请访问 https://api.tokenspace.net.cn/material/init。",
 			},
 		},
 		{
@@ -262,7 +286,16 @@ func providerPresetsResponse() gin.H {
 }
 
 func seedancePresetEndpointOverrides() map[string]string {
-	overrides := map[string]string{
+	overrides := tokenSpacePresetEndpointOverrides()
+	for key, value := range service.DefaultVolcanoAssetEndpointOverrides {
+		overrides[key] = value
+	}
+	return overrides
+}
+
+// TokenSpace uses Bearer /api/material actions, never volcano_asset_* endpoints.
+func tokenSpacePresetEndpointOverrides() map[string]string {
+	return map[string]string{
 		"video_create":      "/contents/generations/tasks",
 		"video_get":         "/contents/generations/tasks/{id}",
 		"material_base_url": "https://api.tokenspace.net.cn/api/material",
@@ -276,10 +309,6 @@ func seedancePresetEndpointOverrides() map[string]string {
 		"material_get_asset":                      "?Action=GetAsset",
 		"material_delete_asset":                   "?Action=DeleteAsset",
 	}
-	for key, value := range service.DefaultVolcanoAssetEndpointOverrides {
-		overrides[key] = value
-	}
-	return overrides
 }
 
 func officialSeedancePresetEndpointOverrides() map[string]string {
