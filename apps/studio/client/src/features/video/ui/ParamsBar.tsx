@@ -1,4 +1,4 @@
-import { modelOptions } from "@/shared/lib/modelSelection";
+import { videoModelOptions } from "@/shared/lib/modelSelection";
 import { VideoDurationInput } from "@/shared/ui/VideoDurationInput";
 import type { PricingRulesConfig } from "@/features/member";
 
@@ -15,6 +15,7 @@ import {
 export function ParamsBar({
   models,
   labels,
+  providerNames,
   config,
   onChange,
   disabled,
@@ -22,6 +23,7 @@ export function ParamsBar({
 }: {
   models: string[];
   labels: Record<string, string>;
+  providerNames?: Record<string, string>;
   config: VideoGenerationConfig;
   onChange: (config: VideoGenerationConfig) => void;
   disabled: boolean;
@@ -46,7 +48,7 @@ export function ParamsBar({
         >
           {!models.length ? <option value="">未配置</option> : null}
           {/* 展示模型名称，option value 保留完整调用标识。 */}
-          {modelOptions(models, normalized.model, labels).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+          {videoModelOptions(models, normalized.model, labels, providerNames).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
         </select>
       </div>
       <div className="wb-param-group">

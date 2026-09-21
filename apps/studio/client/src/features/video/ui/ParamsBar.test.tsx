@@ -15,7 +15,7 @@ describe("video model selector", () => {
     expect(html).toContain('value="sdvideo/vidu-q3">Vidu Q3</option>');
     expect(html).not.toContain(">sdvideo/");
   });
-  it("shows the actual model once and keeps saved routing without showing supplier aliases", () => {
+  it("keeps all video provider routes and aliases alongside an older saved selection", () => {
     const html = renderToStaticMarkup(<ParamsBar
       models={["a::wan3.0-video", "b::wan3.0-video", "a::sora-2"]}
       labels={{ "a::wan3.0-video": "供应商甲别名", "b::wan3.0-video": "供应商乙别名" }}
@@ -24,6 +24,7 @@ describe("video model selector", () => {
     />);
     expect(html.match(/>wan3\.0-video<\/option>/g)).toHaveLength(1);
     expect(html).toContain('value="removed::wan3.0-video" selected=""');
-    expect(html).not.toContain("供应商");
+    expect(html).toContain('value="a::wan3.0-video">供应商甲别名</option>');
+    expect(html).toContain('value="b::wan3.0-video">供应商乙别名</option>');
   });
 });

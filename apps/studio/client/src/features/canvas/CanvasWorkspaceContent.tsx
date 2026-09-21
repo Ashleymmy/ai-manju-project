@@ -99,7 +99,7 @@ import {
   type SeedanceAsset,
 } from "@/entities/asset";
 import { cancelJob, getJobs } from "@/entities/job";
-import { canvasGenerationModelOptions, canvasModelName } from "./domain/generationModels";
+import { canvasGenerationModelOptions, canvasModelName, canvasVideoModelOptions } from "./domain/generationModels";
 import type { CanvasLibraryCategory } from "./domain/assetFolders";
 import { archiveCanvasMediaAsset, resolveCanvasArchiveFolder } from "./services/assetArchive";
 import type { PromptPreset } from "@/entities/prompt";
@@ -569,6 +569,7 @@ export default function CanvasWorkspaceViewContent() {
   const [audioModels, setAudioModels] = useState<string[]>([]);
   const [audioModel, setAudioModel] = useState("");
   const [textModelLabels, setTextModelLabels] = useState<Record<string, string>>({});
+  const [modelProviderNames, setModelProviderNames] = useState<Record<string, string>>({});
   const [promptPresets, setPromptPresets] = useState<PromptPreset[]>([]);
   const [wheelZoomRequiresCtrl, setWheelZoomRequiresCtrl] = useState(true);
   const runningNodeIdValues = useCanvasStore((state) => state.generation.runningNodeIds);
@@ -1337,6 +1338,7 @@ export default function CanvasWorkspaceViewContent() {
           setVideoModels(catalog.videoModels);
           setAudioModels(catalog.audioModels);
           setTextModelLabels(catalog.modelLabels);
+          setModelProviderNames(catalog.modelProviderNames);
           setTextModel((current) => resolveModel(catalog.textModels, current || preferredTextModel) || catalog.defaultTextModel);
           setVideoModel((current) => resolveModel(catalog.videoModels, current || preferredVideoModel) || catalog.defaultVideoModel);
           setAudioModel((current) => resolveModel(catalog.audioModels, current || preferredAudioModel) || catalog.defaultAudioModel);
@@ -4670,7 +4672,7 @@ export default function CanvasWorkspaceViewContent() {
             : selectedGenerationMode === "image"
               ? canvasGenerationModelOptions(modelCatalog?.models || [], selectedGenerationModel, modelCatalog?.labels)
               : selectedGenerationMode === "video"
-                ? canvasGenerationModelOptions(videoModels, selectedGenerationModel, textModelLabels)
+                ? canvasVideoModelOptions(videoModels, selectedGenerationModel, textModelLabels, modelProviderNames)
                 : canvasGenerationModelOptions(audioModels, selectedGenerationModel, textModelLabels)}
           selectedVideoConfig={selectedVideoConfig || null}
           selectedVideoSeedance={selectedVideoSeedance}

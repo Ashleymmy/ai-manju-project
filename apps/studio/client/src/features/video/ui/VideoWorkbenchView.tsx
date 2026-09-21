@@ -87,6 +87,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
 
   const [models, setModels] = useState<string[]>([]);
   const [labels, setLabels] = useState<Record<string, string>>({});
+  const [providerNames, setProviderNames] = useState<Record<string, string>>({});
   const [config, setConfig] = useState<VideoGenerationConfig>({ model: "", size: "1280x720", resolution: "720p", seconds: "6", generateAudio: true, watermark: false });
   const [conversations, setConversations] = useState<VideoWorkbenchConversation[]>([]);
   const [currentId, setCurrentId] = useState("");
@@ -156,6 +157,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
         if (!mountedRef.current) return;
         setModels(catalog.videoModels);
         setLabels(catalog.modelLabels || {});
+        setProviderNames(catalog.modelProviderNames || {});
         const selected = catalog.defaultVideoModel || catalog.videoModels[0] || "";
         if (selected) setConfig((current) => normalizeVideoGenerationConfig({ ...current, model: resolveModel(catalog.videoModels, current.model) || selected }));
       } catch (error) {
@@ -902,6 +904,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
                   setModels(catalog.videoModels);
                   setConfig(current => normalizeVideoGenerationConfig({ ...current, model: resolveModel(catalog.videoModels, current.model) || catalog.defaultVideoModel }));
                   setLabels(catalog.modelLabels || {});
+                  setProviderNames(catalog.modelProviderNames || {});
                 }).catch((error) => toast.error(publicApiError(error, "读取视频模型失败")))}
               ><RefreshCcw size={13} /></button>
             </div>
@@ -957,6 +960,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
             <ParamsBar
               models={models}
               labels={labels}
+              providerNames={providerNames}
               config={config}
               onChange={setConfig}
               disabled={!ready}

@@ -1,7 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { modelDisplayName, modelName, modelOptions, resolveModel } from "./modelSelection";
+import { modelDisplayName, modelName, modelOptions, resolveModel, videoModelOptions } from "./modelSelection";
 
 describe("shared generation model selection", () => {
+  it("keeps video accounts selectable even with identical model IDs or aliases", () => {
+    const company = "company::doubao-seedance-2-0-fast-260128";
+    const mobile = "mobile::doubao-seedance-2-0-fast-260128";
+    const names = { [company]: "火山", [mobile]: "ChinaMobil" };
+    expect(videoModelOptions([company, mobile, mobile], company, { [mobile]: "c20f" }, names)).toEqual([
+      { value: company, label: "doubao-seedance-2-0-fast-260128 · 火山" },
+      { value: mobile, label: "c20f · ChinaMobil" },
+    ]);
+    expect(videoModelOptions([company, mobile], company, { [company]: "Fast", [mobile]: "Fast" }, names)).toEqual([
+      { value: company, label: "Fast · 火山" }, { value: mobile, label: "Fast · ChinaMobil" },
+    ]);
+    expect(videoModelOptions([mobile], company, { [mobile]: "c20f" })).toEqual([
+      { value: company, label: "doubao-seedance-2-0-fast-260128" }, { value: mobile, label: "c20f" },
+    ]);
+  });
   it("uses the selected provider's alias regardless of catalog order without changing routing", () => {
     const models = ["company::doubao-seedance-2-0-260128", "mobile::doubao-seedance-2-0-260128"];
     const labels = { [models[0]]: "Company 2.0", [models[1]]: " c20 " };

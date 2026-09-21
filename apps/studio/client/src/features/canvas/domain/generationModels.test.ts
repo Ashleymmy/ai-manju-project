@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canvasGenerationModelOptions, canvasModelName } from "./generationModels";
+import { canvasGenerationModelOptions, canvasModelName, canvasVideoModelOptions } from "./generationModels";
 
 describe("canvas generation model choices", () => {
   it("shows ChinaMobil aliases on the node chip and menu while retaining full selectors", () => {
@@ -10,9 +10,12 @@ describe("canvas generation model choices", () => {
       "mobile::doubao-seedance-2-5-260628": "c25",
     };
     const models = Object.keys(labels);
+    const legacy = models.map(value => value.replace("mobile::", "legacy::"));
     for (const [value, label] of Object.entries(labels)) {
       expect(canvasModelName(value, labels)).toBe(label);
-      expect(canvasGenerationModelOptions(models, value, labels)).toEqual(Object.entries(labels).map(([value, label]) => ({ value, label })));
+      const options = canvasVideoModelOptions([...legacy, ...models], legacy[0], labels);
+      expect(options).toHaveLength(8);
+      expect(options).toContainEqual({ value, label });
     }
   });
   it("shows SD-video names on both the node chip and its choices", () => {

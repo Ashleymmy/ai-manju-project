@@ -46,6 +46,25 @@ export function modelOptions(models: string[], selected = "", labels: Record<str
   return [...grouped.values()];
 }
 
+/** Video asset libraries belong to provider accounts: never merge their selectors. */
+export function videoModelOptions(
+  models: string[],
+  selected = "",
+  labels: Record<string, string> = {},
+  providerNames: Record<string, string> = {},
+) {
+  const values = [...new Set(models.filter(value => modelName(value)))];
+  // Keep the saved route visible until the user explicitly chooses a new one.
+  if (selected && !values.includes(selected)) values.unshift(selected);
+  const counts = new Map<string, number>();
+  for (const value of values) counts.set(modelName(value), (counts.get(modelName(value)) || 0) + 1);
+  return values.map(value => {
+    const label = modelDisplayName(value, labels);
+    const provider = providerNames[value]?.trim();
+    return { value, label: provider && (counts.get(modelName(value)) || 0) > 1 ? `${label} · ${provider}` : label };
+  });
+}
+
 /** A removed supplier does not invalidate a model still offered by another. */
 export function resolveModel(models: string[], requested: string) {
   const name = modelName(requested);
