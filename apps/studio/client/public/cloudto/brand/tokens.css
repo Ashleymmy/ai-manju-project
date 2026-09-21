@@ -1,0 +1,12 @@
+:root {
+  --ct-cyan: #65C9F4;
+  --ct-blue: #6387FF;
+  --ct-violet: #A879F5;
+  --ct-ink: #202632;
+  --ct-muted: #737C90;
+  --ct-paper: #F7F8FC;
+  --ct-night: #10131F;
+  --ct-gradient: linear-gradient(125deg,#65C9F4 0%,#6387FF 48%,#A879F5 100%);
+  --ct-radius: 16px;
+  --ct-ease: cubic-bezier(.16,1,.3,1);
+}

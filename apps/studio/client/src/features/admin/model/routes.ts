@@ -10,7 +10,6 @@ import {
   ServerCog,
   Settings2,
   ShoppingCart,
-  UserCog,
   Users,
 } from "lucide-react";
 
@@ -48,17 +47,16 @@ export const adminTabPaths: Record<AdminTab, string> = {
 };
 
 export const adminTabs = [
-  ["users", "用户", Users],
+  ["users", "成员管理", Users],
   ["providers", "模型接入", ServerCog],
   ["announcements", "系统公告", Bell],
   ["monitoring", "运行监控", Activity],
   ["seedance", "Seedance 素材", Database],
   /* ---- WP-M7 会员系统后台 8 模块 ---- */
   ["dashboard", "运营看板", LayoutDashboard],
-  ["member-users", "会员用户", UserCog],
   ["credit-ledger", "积分流水", ScrollText],
   ["orders", "订单管理", ShoppingCart],
-  ["consumptions", "任务消耗", Gauge],
+  ["consumptions", "消耗与成本", Gauge],
   ["plans-config", "套餐配置", Settings2],
   ["invites", "邀请记录", Gift],
   ["audit-logs", "审计日志", History],

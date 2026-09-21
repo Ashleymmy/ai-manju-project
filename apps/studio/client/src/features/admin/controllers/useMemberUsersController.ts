@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { publicApiError } from "@/shared/api/errors";
@@ -32,10 +32,13 @@ export function useMemberUsersController(active: boolean) {
   const [page, setPage] = useState(1);
   const [memberLevel, setMemberLevel] = useState("");
   const [status, setStatus] = useState("");
+	const [search, setSearch] = useState("");
+	const [appliedSearch, setAppliedSearch] = useState("");
+	const adjustmentAttempt = useRef<{ fingerprint: string; nonce: string } | null>(null);
 
   const listQuery = useQuery({
-    queryKey: adminQueryKeys.memberUsers(page),
-    queryFn: () => listAdminMemberUsers(page),
+    queryKey: [...adminQueryKeys.memberUsers(page), memberLevel, status, appliedSearch],
+    queryFn: () => listAdminMemberUsers(page, undefined, { search: appliedSearch, level: memberLevel, status }),
     placeholderData: previous => previous,
     enabled: active,
   });
@@ -49,16 +52,7 @@ export function useMemberUsersController(active: boolean) {
   const [resetBusy, setResetBusy] = useState(false);
   const [resetError, setResetError] = useState("");
 
-  /** 当前页内的等级/状态过滤（服务端分页保持不变）。 */
-  const rows = useMemo(() => {
-    const items = listQuery.data?.items || [];
-    return items.filter(item => {
-      if (memberLevel === "member" && !item.member_level) return false;
-      if (memberLevel === "free" && item.member_level) return false;
-      if (status && item.status !== status) return false;
-      return true;
-    });
-  }, [listQuery.data?.items, memberLevel, status]);
+  const rows = listQuery.data?.items || [];
 
   const total = listQuery.data?.total ?? 0;
   const pageSize = listQuery.data?.page_size ?? 20;
@@ -69,6 +63,7 @@ export function useMemberUsersController(active: boolean) {
     setAdjustTarget(user);
     setAdjustDraft({ delta: "", reason: "" });
     setAdjustErrors({});
+    adjustmentAttempt.current = null;
   };
 
   const closeAdjustDialog = (force = false) => {
@@ -92,10 +87,12 @@ export function useMemberUsersController(active: boolean) {
     }
     setAdjustBusy(true);
     try {
+		const fingerprint = JSON.stringify([adjustTarget.user_id, delta, adjustDraft.reason.trim()]);
+		if (adjustmentAttempt.current?.fingerprint !== fingerprint) adjustmentAttempt.current = { fingerprint, nonce: createAdjustNonce() };
       await adjustMemberUserCredits(adjustTarget.user_id, {
         delta,
         reason: adjustDraft.reason.trim(),
-        nonce: createAdjustNonce(),
+        nonce: adjustmentAttempt.current.nonce,
       });
       toast.success(`已为用户 ${adjustTarget.username} 调整积分 ${delta > 0 ? "+" : ""}${delta}`);
       closeAdjustDialog(true);
@@ -160,9 +157,11 @@ export function useMemberUsersController(active: boolean) {
     resetTarget,
     rows,
     setAdjustDraft,
-    setMemberLevel,
+    setMemberLevel: (value: string) => { setMemberLevel(value); setPage(1); },
     setPage,
-    setStatus,
+    setStatus: (value: string) => { setStatus(value); setPage(1); },
+	search, setSearch,
+	applySearch: () => { setAppliedSearch(search.trim()); setPage(1); },
     status,
     submitAdjust,
     total,

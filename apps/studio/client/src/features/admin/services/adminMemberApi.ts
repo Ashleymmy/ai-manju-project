@@ -26,10 +26,14 @@ import {
 
 /* ---- 模块1 用户会员管理 ---- */
 
-export function listAdminMemberUsers(page: number, pageSize = ADMIN_LIST_PAGE_SIZE) {
+export function listAdminMemberUsers(page: number, pageSize = ADMIN_LIST_PAGE_SIZE, filters?: { search?: string; level?: string; status?: string }) {
   return request<Partial<AdminPaged<AdminMemberUser>>>("/api/admin/member-users", {
-    query: { page, page_size: pageSize },
+    query: { page, page_size: pageSize, ...filters },
   }).then(raw => normalizeAdminPaged<AdminMemberUser>(raw));
+}
+
+export function changeMemberMembership(userId: string, body: { plan_id: string; expected_membership_id: string; expires_at?: string; test_credits?: number; reason: string; nonce: string }) {
+  return request(`/api/admin/member-users/${encodeURIComponent(userId)}/membership`, { method: "PUT", body });
 }
 
 /** 调积分：delta 有符号（正增负减），nonce 为幂等键（前端自动生成 UUID）。 */

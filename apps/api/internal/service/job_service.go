@@ -129,7 +129,7 @@ func (s *JobService) CreateExternal(input ExternalJobInput) (EnqueueJobResult, e
 		BridgeMetadata:   model.JSONB("{}"),
 		BridgeState:      "pending",
 	}
-	created, err := s.repo.Create(job)
+	created, err := s.createWithBillingAdmission(job)
 	if err != nil {
 		if s.billing != nil {
 			s.billing.ReleaseForJob(jobID)
@@ -251,7 +251,7 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 		MaxAttempts:    maxAttempts,
 		Progress:       0,
 	}
-	created, err := s.repo.Create(job)
+	created, err := s.createWithBillingAdmission(job)
 	if err != nil {
 		if s.billing != nil {
 			s.billing.ReleaseForJob(jobID)
@@ -309,6 +309,21 @@ func (s *JobService) GetForUser(id string, userID string) (model.Job, error) {
 		return model.Job{}, repository.ErrJobNotFound
 	}
 	return job, nil
+}
+
+func (s *JobService) createWithBillingAdmission(job model.Job) (model.Job, error) {
+	if limits, ok := s.billing.(interface {
+		ConcurrentLimitForJob(string, string) (int, error)
+	}); ok {
+		limit, err := limits.ConcurrentLimitForJob(job.UserID, job.Type)
+		if err != nil {
+			return model.Job{}, err
+		}
+		if limit > 0 {
+			return s.repo.CreateWithinLimit(job, limit)
+		}
+	}
+	return s.repo.Create(job)
 }
 
 func (s *JobService) CancelForUser(id string, userID string) (model.Job, error) {

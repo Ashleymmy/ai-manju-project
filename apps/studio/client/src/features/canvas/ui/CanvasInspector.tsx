@@ -540,7 +540,7 @@ export function CanvasInspector({
                   {/* 数量/积分 chip 挪到生成按钮旁 */}
                   <Popover key={`${selectedNode.id}:count`} active={inspectorOpen && !projectActionDisabled}>
                     <PopoverTrigger asChild>
-                      <button type="button" className="node-chip node-credit-chip" title="生成数量与积分消耗（1:1）"><Zap size={12} /> ×{imageCountFromNode(selectedNode)}</button>
+                      <button type="button" className="node-chip node-credit-chip" title="生成数量 · 积分按类型与规格计费，成功才扣费"><Zap size={12} /> ×{imageCountFromNode(selectedNode)}</button>
                     </PopoverTrigger>
                     <PopoverContent className="node-pop-card" align="end" sideOffset={8}>
                       <p className="eyebrow">数量 / 积分</p>

@@ -165,8 +165,14 @@ func (s *CreditLedgerService) Grant(input GrantInput) (repository.GrantOutcome, 
 // 30-day anniversary cycle (见 model.CreditMembershipPeriodDays 注释，防月末
 // 双发窗口)。period key pins one grant per membership per period，31 天有效期。
 func (s *CreditLedgerService) GrantMonthlyMembershipCredits(membership model.UserMembership, plan model.MembershipPlan) (repository.GrantOutcome, error) {
+	if membership.Status != model.MembershipStatusActive || s.now().Before(membership.StartedAt) || !s.now().Before(membership.ExpiresAt) {
+		return repository.GrantOutcome{}, nil
+	}
+	if plan.Code == model.PlanCodeInternal && membership.MonthlyCreditsOverride != nil {
+		plan.MonthlyCredits = *membership.MonthlyCreditsOverride
+	}
 	if plan.MonthlyCredits <= 0 {
-		return repository.GrantOutcome{}, ErrInvalidCreditAmount
+		return repository.GrantOutcome{}, nil
 	}
 	periodIndex := MembershipPeriodIndex(membership.StartedAt, s.now())
 	if periodIndex < 0 {
@@ -194,6 +200,9 @@ func MembershipPeriodIndex(startedAt time.Time, now time.Time) int {
 // GrantRegisterBonus implements 新用户注册赠 1000 体验积分（可配置）.
 func (s *CreditLedgerService) GrantRegisterBonus(userID string) (repository.GrantOutcome, error) {
 	amount := s.configInt(model.BillingConfigKeyRegisterBonus, defaultRegisterBonusCredits)
+	if amount == 0 {
+		return repository.GrantOutcome{}, nil
+	}
 	ttlDays := s.configInt(model.BillingConfigKeyRegisterBonusTTL, defaultRegisterBonusTTLDays)
 	return s.Grant(GrantInput{
 		UserID:     userID,
@@ -250,15 +259,17 @@ func (s *CreditLedgerService) SweepExpiredMemberships(limit int) (int, error) {
 	}
 	swept := 0
 	for _, membership := range memberships {
+		// Keep the active row discoverable until every grant has been swept.
+		// Replaying a partially completed sweep is safe through grant idempotency.
+		if err := s.ExpireMembershipGrants(membership.ID); err != nil {
+			return swept, err
+		}
 		changed, err := s.memberships.UpdateMembershipStatus(membership.ID, model.MembershipStatusActive, model.MembershipStatusExpired)
 		if err != nil {
 			return swept, err
 		}
 		if !changed {
 			continue
-		}
-		if err := s.ExpireMembershipGrants(membership.ID); err != nil {
-			return swept, err
 		}
 		swept++
 	}
@@ -401,7 +412,7 @@ func (s *CreditLedgerService) configInt(key string, fallback int64) int64 {
 		return fallback
 	}
 	var value int64
-	if err := json.Unmarshal(config.Value, &value); err != nil || value <= 0 {
+	if err := json.Unmarshal(config.Value, &value); err != nil || value < 0 {
 		return fallback
 	}
 	return value

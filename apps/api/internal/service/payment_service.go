@@ -120,7 +120,7 @@ func (s *PaymentService) CreateOrder(input CreateOrderInput) (model.Order, model
 		if err != nil {
 			return model.Order{}, nil, ErrBillingItemNotFound
 		}
-		if !plan.Enabled {
+		if !plan.Enabled || plan.Code == model.PlanCodeInternal {
 			return model.Order{}, nil, ErrBillingItemNotFound
 		}
 		order.PlanID = plan.ID
@@ -216,21 +216,12 @@ func (s *PaymentService) fulfill(order model.Order) error {
 		if order.OrderType == model.OrderTypeMemberYearly {
 			periodDays = MembershipYearlyPeriodDays
 		}
-		// 续费：已有活跃会员则在到期后续接，否则立即生效。
-		startedAt := now
-		if existing, err := s.memberships.GetActiveMembership(order.UserID, now); err == nil && existing.ExpiresAt.After(now) {
-			startedAt = existing.ExpiresAt
-			// 续接前先将旧会员标记过期（active 唯一约束），新周期接续。
-			if _, err := s.memberships.UpdateMembershipStatus(existing.ID, model.MembershipStatusActive, model.MembershipStatusExpired); err != nil {
-				return err
-			}
-		}
-		membership, err := s.memberships.CreateMembership(model.UserMembership{
+		// Queue future terms without taking away the current membership.
+		membership, err := s.memberships.ScheduleMembership(model.UserMembership{
 			UserID: order.UserID, PlanID: plan.ID, Status: model.MembershipStatusActive,
 			Source: model.MembershipSourcePurchase, OrderID: order.ID,
-			StartedAt: startedAt, ExpiresAt: startedAt.Add(time.Duration(periodDays) * 24 * time.Hour),
 			CreatedAt: now, UpdatedAt: now,
-		})
+		}, time.Duration(periodDays)*24*time.Hour, now)
 		if err != nil {
 			return err
 		}

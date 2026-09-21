@@ -10,9 +10,14 @@ const (
 	// 2026-09-17 定稿：只开 ¥198 / ¥1980 两档；其余档位草案一律不进库。
 	PlanCodeMember198  = "member_198"
 	PlanCodeMember1980 = "member_1980"
+	// PlanCodeInternal is an admin-only testing tier, never sold publicly.
+	PlanCodeInternal = "internal_test"
 
 	// MembershipStatusActive grants benefits while ExpiresAt is in the future.
 	MembershipStatusActive = "active"
+	// MembershipStatusScheduled is a prepaid term that starts after the current
+	// one. It must not replace current benefits or receive credits early.
+	MembershipStatusScheduled = "scheduled"
 	// MembershipStatusExpired means the term ended; granted monthly credits for
 	// the final period are swept by the ledger engine.
 	MembershipStatusExpired = "expired"
@@ -49,7 +54,7 @@ type MembershipPlan struct {
 	CreditDiscountBps int       `json:"credit_discount_bps" gorm:"not null;default:10000"`
 	PriorityRank      int       `json:"priority_rank" gorm:"not null;default:0"` // 排队优先级，大者靠前
 	Features          JSONB     `json:"features" gorm:"type:jsonb"`              // {"remove_watermark":true,"commercial":true,"agent_free":true,...}
-	Enabled           bool      `json:"enabled" gorm:"not null;default:true"`
+	Enabled           bool      `json:"enabled" gorm:"not null"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
@@ -59,14 +64,16 @@ type MembershipPlan struct {
 // index (WHERE status='active') created in database.go because AutoMigrate
 // cannot express it, and the Memory repository enforces the same rule.
 type UserMembership struct {
-	ID        string    `json:"id" gorm:"primaryKey"`
-	UserID    string    `json:"user_id" gorm:"not null;index"`
-	PlanID    string    `json:"plan_id" gorm:"not null;index"`
-	Status    string    `json:"status" gorm:"not null;index"`
-	Source    string    `json:"source" gorm:"not null"`
-	OrderID   string    `json:"order_id" gorm:"index"` // 来源订单，可空
-	StartedAt time.Time `json:"started_at" gorm:"not null"`
-	ExpiresAt time.Time `json:"expires_at" gorm:"not null;index"` // 到期判断的唯一事实源
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	// MonthlyCreditsOverride is an operator-assigned quota for internal testers.
+	MonthlyCreditsOverride *int64    `json:"monthly_credits_override,omitempty"`
+	ID                     string    `json:"id" gorm:"primaryKey"`
+	UserID                 string    `json:"user_id" gorm:"not null;index"`
+	PlanID                 string    `json:"plan_id" gorm:"not null;index"`
+	Status                 string    `json:"status" gorm:"not null;index"`
+	Source                 string    `json:"source" gorm:"not null"`
+	OrderID                string    `json:"order_id" gorm:"index"` // 来源订单，可空
+	StartedAt              time.Time `json:"started_at" gorm:"not null"`
+	ExpiresAt              time.Time `json:"expires_at" gorm:"not null;index"` // 到期判断的唯一事实源
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }

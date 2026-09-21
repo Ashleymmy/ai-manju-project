@@ -2,6 +2,7 @@ import { resolveModel } from "@/shared/lib/modelSelection";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 
 import {
   ensureSeedanceAssetsActive,
@@ -15,7 +16,8 @@ import {
   type SeedanceAsset,
 } from "@/entities/asset";
 import { cancelJob } from "@/entities/job";
-import { publicApiError } from "@/shared/api/errors";
+import { estimateVideoCredits, usePricingQuery } from "@/features/member";
+import { publicApiError, toastGenerationError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 
 import {
@@ -80,6 +82,9 @@ type SubmitPayload = {
 
 export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   const repositoryRef = useRef<ReturnType<typeof createCloudConversationRepository> | null>(null);
+  const [, navigate] = useLocation();
+  // 定价规则（参数栏展示约扣积分；pricing_rules 缺失时按文档默认值兜底）。
+  const pricingQuery = usePricingQuery();
   const [models, setModels] = useState<string[]>([]);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [config, setConfig] = useState<VideoGenerationConfig>({ model: "", size: "1280x720", resolution: "720p", seconds: "6", generateAudio: true, watermark: false });
@@ -519,7 +524,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
       const errorText = publicApiError(error, "视频生成失败");
       patchMessage(conversationId, message.id, { taskStatus: "failed", taskError: errorText });
       setRuntime(message.id, { status: "failed", error: errorText });
-      toast.error(errorText);
+      toastGenerationError(error, "视频生成失败", () => navigate("/member/plans"));
     } finally {
       pollingRef.current.delete(message.id);
     }
@@ -954,6 +959,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
               config={config}
               onChange={setConfig}
               disabled={!ready}
+              pricingRules={pricingQuery.data?.pricing_rules}
             />
           </section>
         </main>

@@ -1,6 +1,7 @@
 import { Activity, Check, Loader2, RefreshCcw, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { isReadOnlyAdminRole } from "@/entities/auth";
@@ -8,7 +9,6 @@ import { isReadOnlyAdminRole } from "@/entities/auth";
 import { useAdminUsersController } from "../controllers/useAdminUsersController";
 import { useAnnouncementsController } from "../controllers/useAnnouncementsController";
 import { useAuditLogsController } from "../controllers/useAuditLogsController";
-import { useConsumptionsController } from "../controllers/useConsumptionsController";
 import { useCreditLedgerController } from "../controllers/useCreditLedgerController";
 import { useDashboardController } from "../controllers/useDashboardController";
 import { useInvitesController } from "../controllers/useInvitesController";
@@ -26,7 +26,7 @@ import {
 } from "../model/routes";
 import { AnnouncementsPanel } from "./AnnouncementsPanel";
 import { AuditLogsPanel } from "./AuditLogsPanel";
-import { ConsumptionsPanel } from "./ConsumptionsPanel";
+import { UsagePanel } from "./UsagePanel";
 import { CreditLedgerPanel } from "./CreditLedgerPanel";
 import { DashboardPanel } from "./DashboardPanel";
 import { InvitesPanel } from "./InvitesPanel";
@@ -36,7 +36,6 @@ import { OrdersPanel } from "./OrdersPanel";
 import { PlansConfigPanel } from "./PlansConfigPanel";
 import { ProvidersPanel } from "./ProvidersPanel";
 import { SeedanceAssetsPanel } from "./SeedanceAssetsPanel";
-import { UsersPanel } from "./UsersPanel";
 
 export { adminTabFromLocation } from "../model/routes";
 export { clearProviderSensitiveInputState } from "../model/provider";
@@ -65,6 +64,7 @@ export default function AdminWorkspaceView() {
   const [manualReloading, setManualReloading] = useState(false);
   const tab = adminTabFromLocation(location.split("?")[0], hash);
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   /** auditor 只读：写按钮隐藏，写操作由后端 RequireAdmin 兜底 403。 */
   const readOnly = isReadOnlyAdminRole(user?.role);
 
@@ -74,10 +74,9 @@ export default function AdminWorkspaceView() {
   const monitoringController = useMonitoringController(tab === "monitoring");
   const seedanceController = useSeedanceAssetsController();
   /* ---- WP-M7 会员系统后台 8 模块（激活对应 tab 时才拉取） ---- */
-  const memberUsersController = useMemberUsersController(tab === "member-users");
+  const memberUsersController = useMemberUsersController(tab === "member-users" || tab === "users");
   const creditLedgerController = useCreditLedgerController(tab === "credit-ledger");
   const ordersController = useOrdersController(tab === "orders");
-  const consumptionsController = useConsumptionsController(tab === "consumptions");
   const plansConfigController = usePlansConfigController(tab === "plans-config");
   const dashboardController = useDashboardController(tab === "dashboard");
   const invitesController = useInvitesController(tab === "invites");
@@ -92,7 +91,6 @@ export default function AdminWorkspaceView() {
     memberUsersController.isPending ||
     creditLedgerController.isPending ||
     ordersController.isPending ||
-    consumptionsController.isPending ||
     plansConfigController.isPending ||
     dashboardController.isPending ||
     invitesController.isPending ||
@@ -116,7 +114,8 @@ export default function AdminWorkspaceView() {
         memberUsersController.reload(),
         creditLedgerController.reload(),
         ordersController.reload(),
-        consumptionsController.reload(),
+        queryClient.invalidateQueries({ queryKey: ["admin", "usage-report"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "cost-rates"] }),
         plansConfigController.reload(),
         dashboardController.reload(),
         invitesController.reload(),
@@ -128,7 +127,7 @@ export default function AdminWorkspaceView() {
   }, [
     announcementsController,
     auditLogsController,
-    consumptionsController,
+    queryClient,
     creditLedgerController,
     dashboardController,
     invitesController,
@@ -157,12 +156,12 @@ export default function AdminWorkspaceView() {
           <RefreshCcw size={15} /> 刷新
         </button>
       </div>
-      <div className="admin-workspace">
+      <div className={`admin-workspace${tab === "users" || tab === "member-users" || tab === "consumptions" ? " admin-workspace-wide" : ""}`}>
         <aside className="admin-nav">
           {adminTabs.map(([key, label, Icon]) => (
             <button
               key={key}
-              className={tab === key ? "selected" : ""}
+              className={tab === key || (tab === "member-users" && key === "users") ? "selected" : ""}
               onClick={() => navigate(adminTabPaths[key])}
             >
               <Icon size={17} />
@@ -176,9 +175,6 @@ export default function AdminWorkspaceView() {
               <Loader2 className="spin" size={26} />
               <p>正在读取管理数据…</p>
             </div>
-          ) : null}
-          {tab === "users" ? (
-            <UsersPanel controller={usersController} />
           ) : null}
           {tab === "providers" ? (
             <ProvidersPanel controller={providersController} />
@@ -195,8 +191,8 @@ export default function AdminWorkspaceView() {
           {tab === "dashboard" ? (
             <DashboardPanel controller={dashboardController} />
           ) : null}
-          {tab === "member-users" ? (
-            <MemberUsersPanel controller={memberUsersController} readOnly={readOnly} />
+          {tab === "member-users" || tab === "users" ? (
+            <MemberUsersPanel controller={memberUsersController} readOnly={readOnly} usersController={usersController} superAdmin={user?.role === "super_admin"} />
           ) : null}
           {tab === "credit-ledger" ? (
             <CreditLedgerPanel controller={creditLedgerController} />
@@ -205,7 +201,7 @@ export default function AdminWorkspaceView() {
             <OrdersPanel controller={ordersController} readOnly={readOnly} />
           ) : null}
           {tab === "consumptions" ? (
-            <ConsumptionsPanel controller={consumptionsController} />
+            <UsagePanel readOnly={readOnly} superAdmin={user?.role === "super_admin"} />
           ) : null}
           {tab === "plans-config" ? (
             <PlansConfigPanel controller={plansConfigController} readOnly={readOnly} />

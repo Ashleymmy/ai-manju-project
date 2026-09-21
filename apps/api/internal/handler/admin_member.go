@@ -66,7 +66,7 @@ func NewAdminMemberHandler(members *service.AdminMemberService, engine *service.
 // ListMemberUsers GET /api/admin/member-users?page=&page_size=
 func (h *AdminMemberHandler) ListMemberUsers(c *gin.Context) {
 	page, pageSize := parseAdminPagination(c)
-	rows, total, err := h.members.ListMemberUsers(page, pageSize)
+	rows, total, err := h.members.ListMemberUsers(page, pageSize, service.AdminMemberFilter{Search: strings.TrimSpace(c.Query("search")), Level: c.Query("level"), Status: c.Query("status")})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -83,6 +83,14 @@ type adminAdjustCreditsRequest struct {
 // AdjustCredits POST /api/admin/member-users/:id/credits/adjust
 // body {delta, reason, nonce}；nonce 必填做幂等键；delta==0 拒绝。
 func (h *AdminMemberHandler) AdjustCredits(c *gin.Context) {
+	if _, err := h.members.GetUser(c.Param("id")); err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			response.Error(c, http.StatusNotFound, "user not found")
+		} else {
+			response.Error(c, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
 	var req adminAdjustCreditsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())

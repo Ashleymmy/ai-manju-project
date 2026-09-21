@@ -3,6 +3,7 @@ import { Route, Switch, useLocation } from "wouter";
 
 import AuthGuard from "@/components/AuthGuard";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import PageLoader from "@/components/PageLoader";
 
 import { appRoutes, type AppRoute, type RouteLayout } from "./routes";
 import { loadRouteModule } from "./loadRouteModule";
@@ -12,12 +13,7 @@ const CanvasLayout = lazy(() => loadRouteModule(() => import("../layouts/CanvasL
 const NotFoundRoute = lazy(() => loadRouteModule(() => import("./NotFoundRoute")));
 
 function RouteLoading() {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#0f1117", color: "#666", fontSize: 13, fontFamily: "var(--font-mono, 'IBM Plex Mono', monospace)", gap: 10 }}>
-      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#E9513E", display: "inline-block", opacity: 0.9 }} />
-      连接工作区…
-    </div>
-  );
+  return <PageLoader />;
 }
 
 function RouteLayoutBoundary({ layout, children }: { layout: RouteLayout; children: ReactNode }) {

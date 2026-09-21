@@ -1,0 +1,32 @@
+{
+  "name": "cloudto 云格",
+  "short_name": "云格",
+  "description": "无限画布，由 AI 延展更多可能",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F7F8FC",
+  "theme_color": "#6387FF",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "../app-icons/png/app-gradient-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "../app-icons/png/app-gradient-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "../app-icons/png/app-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

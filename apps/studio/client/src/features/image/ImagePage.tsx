@@ -38,7 +38,8 @@ import {
 import { createProject } from "@/entities/project";
 import type { PromptPreset } from "@/entities/prompt";
 import { usePreferencesQuery } from "@/features/settings";
-import { publicApiError } from "@/shared/api/errors";
+import { estimateImageCredits, usePricingQuery } from "@/features/member";
+import { publicApiError, toastGenerationError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 import PromptLibraryDialog from "@/components/PromptLibraryDialog";
 import { CanvasImageAnnotationDialog } from "@/components/canvas/CanvasImageAnnotationDialog";
@@ -150,6 +151,8 @@ export function ImageWorkbenchView() {
   const [width, setWidth] = useState(1024);
   const [height, setHeight] = useState(1024);
   const [align16, setAlign16] = useState(true);
+  // 定价规则（生成按钮旁展示约扣积分；pricing_rules 缺失时按文档默认值兜底）。
+  const pricingQuery = usePricingQuery();
   const [prompt, setPrompt] = useState("雨夜，狭长街道，潮湿沥青反射红色招牌；人物在画面右侧停留，低机位缓慢推近，电影级冷暖对比。");
   const [promptPresets, setPromptPresets] = useState<PromptPreset[]>([]);
   const [promptLibraryOpen, setPromptLibraryOpen] = useState(false);
@@ -445,7 +448,7 @@ export function ImageWorkbenchView() {
       reloadHistory();
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") toast.info("已停止本次生成");
-      else toast.error(publicApiError(error, "图像生成失败"));
+      else toastGenerationError(error, "图像生成失败", () => navigate("/member/plans"));
     } finally {
       abortRef.current = null;
       setGenerating(false);
@@ -832,6 +835,11 @@ export function ImageWorkbenchView() {
         <div className="generate-row">
           <button className="vermilion-button generate-frame" disabled={generating || !model} onClick={() => void generate()}><WandSparkles size={17} /> {generating ? `生成中 ${jobProgress}% · ${elapsedSeconds}s` : references.length ? "生成编辑结果" : "生成关键帧"}</button>
           {generating && <button className="outline-button small" onClick={stopGeneration}><Square size={14} /> 停止</button>}
+          {!generating ? (
+            <small className="generate-cost-hint">
+              约 {estimateImageCredits(pricingQuery.data?.pricing_rules, width, height, count)} 积分 · 成功才扣费
+            </small>
+          ) : null}
         </div>
       </section>
       <aside className="generation-output">

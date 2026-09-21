@@ -91,7 +91,8 @@ func TestRegisterBonusConfigOverride(t *testing.T) {
 func TestMonthlyGrantIsIdempotentPerPeriod(t *testing.T) {
 	fx := newCreditEngineFixture(t)
 	plan := fx.plan()
-	membership := fx.activeMembership(t, "user_m", "ord_m1", fx.current.Add(30*24*time.Hour))
+	// The second monthly grant requires a term still active in its second month.
+	membership := fx.activeMembership(t, "user_m", "ord_m1", fx.current.Add(60*24*time.Hour))
 
 	first, err := fx.service.GrantMonthlyMembershipCredits(membership, plan)
 	if err != nil || !first.Created {

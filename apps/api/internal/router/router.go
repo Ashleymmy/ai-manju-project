@@ -93,6 +93,8 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	// 关闭时也必须可用（运营先行配置）。BILLING_ENABLED 只管用户侧扣费链路。
 	creditEngine := service.NewCreditLedgerService(repos.creditRepo, repos.membershipRepo, repos.billingRepo)
 	adminMemberService := service.NewAdminMemberService(repos.userRepo, repos.membershipRepo, repos.creditRepo, repos.billingRepo)
+	usageRepo := repository.NewUsageRepository(repos.jobRepo, repos.creditRepo, repos.monitoringRepo, repos.membershipRepo)
+	usageHandler := handler.NewAdminUsageHandler(usageRepo, service.NewAdminUsageService(usageRepo, repos.userRepo, repos.projectRepo, repos.membershipRepo))
 	adminMemberHandler := handler.NewAdminMemberHandler(adminMemberService, creditEngine, repos.inviteRepo)
 	adminBillingHandler := handler.NewAdminBillingHandler(creditEngine, repos.creditRepo, repos.billingRepo, repos.membershipRepo, repos.inviteRepo, repos.auditRepo, adminMemberService)
 	// WP-M8 收银台：mock 渠道仅非生产环境开放；支付宝/微信待商户凭证部署期接入。
@@ -293,12 +295,17 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 
 			// WP-M7 会员系统后台 8 模块（契约：docs/MEMBERSHIP-SYSTEM-WP-M7-API-CONTRACT.md）
 			admin.GET("/member-users", adminMemberHandler.ListMemberUsers)
+			admin.PUT("/member-users/:id/membership", adminMemberHandler.ChangeMembership(repos.membershipRepo))
 			admin.POST("/member-users/:id/credits/adjust", adminMemberHandler.AdjustCredits)
 			admin.POST("/member-users/:id/invite/reset", adminMemberHandler.ResetInviteCode)
 			admin.GET("/billing/ledger", adminBillingHandler.ListLedger)
 			admin.GET("/billing/orders", adminBillingHandler.ListOrders)
 			admin.POST("/billing/orders/:id/refund", adminBillingHandler.RefundOrder)
 			admin.GET("/billing/consumptions", adminBillingHandler.ListConsumptions)
+			admin.GET("/billing/usage", usageHandler.Report)
+			admin.GET("/billing/cost-rates", usageHandler.Rates)
+			admin.POST("/billing/cost-rates", usageHandler.AddRate)
+			admin.PUT("/billing/task-costs/:id", usageHandler.PutActualCost)
 			admin.GET("/billing/plans", adminBillingHandler.ListPlans)
 			admin.PUT("/billing/plans/:id", adminBillingHandler.UpsertPlan)
 			admin.GET("/billing/packages", adminBillingHandler.ListPackages)

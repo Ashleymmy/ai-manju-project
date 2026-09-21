@@ -19,8 +19,12 @@ import type { AdminUser } from "../services/adminApi";
 
 export function UsersPanel({
   controller,
+  dialogsOnly = false,
+  canAssignRoles = true,
 }: {
   controller: AdminUsersController;
+  dialogsOnly?: boolean;
+  canAssignRoles?: boolean;
 }) {
   const {
     busy,
@@ -40,7 +44,7 @@ export function UsersPanel({
 
   return (
     <>
-      <section className="real-admin-section">
+      {!dialogsOnly && <section className="real-admin-section">
         <div className="admin-panel-head">
           <div>
             <p className="eyebrow">IDENTITY / {users.length}</p>
@@ -89,7 +93,7 @@ export function UsersPanel({
             </div>
           ))}
         </div>
-      </section>
+      </section>}
 
       <Dialog
         open={dialogOpen}
@@ -174,10 +178,12 @@ export function UsersPanel({
                       role: event.target.value as AdminUser["role"],
                     }))
                   }
-                  disabled={dialogBusy}
+                  disabled={dialogBusy || !canAssignRoles}
                   className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                 >
                   <option value="member">member</option>
+                  <option value="ops_admin">ops_admin</option>
+                  <option value="auditor">auditor</option>
                   <option value="super_admin">super_admin</option>
                 </select>
               </label>

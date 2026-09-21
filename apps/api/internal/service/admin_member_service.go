@@ -1,6 +1,8 @@
 package service
 
 import (
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/ai-manju/api/internal/model"
@@ -34,6 +36,11 @@ func (s *AdminMemberService) SetClock(clock func() time.Time) {
 // AdminMemberUserRow 对应模块1 列表行：用户 ID/账号/昵称/会员等级/会员到期/
 // 账号状态/永久积分/限时积分/注册时间/最后登录/累计充值。
 type AdminMemberUserRow struct {
+	Role               string     `json:"role"`
+	MembershipID       string     `json:"membership_id"`
+	PlanID             string     `json:"plan_id"`
+	PlanCode           string     `json:"plan_code"`
+	TestCredits        *int64     `json:"test_credits,omitempty"`
 	UserID             string     `json:"user_id"`
 	Username           string     `json:"username"`
 	DisplayName        string     `json:"display_name"`
@@ -49,7 +56,11 @@ type AdminMemberUserRow struct {
 
 // ListMemberUsers composes the admin member list. 规模为当前量级设计：
 // 用户表全量读入后内存分页；会员/账户聚合成 map 一次查询。
-func (s *AdminMemberService) ListMemberUsers(page int, pageSize int) ([]AdminMemberUserRow, int64, error) {
+type AdminMemberFilter struct{ Search, Level, Status string }
+
+func (s *AdminMemberService) GetUser(id string) (model.User, error) { return s.users.GetUser(id) }
+
+func (s *AdminMemberService) ListMemberUsers(page int, pageSize int, filters ...AdminMemberFilter) ([]AdminMemberUserRow, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -57,7 +68,10 @@ func (s *AdminMemberService) ListMemberUsers(page int, pageSize int) ([]AdminMem
 	if err != nil {
 		return nil, 0, err
 	}
-	total := int64(len(users))
+	filter := AdminMemberFilter{}
+	if len(filters) > 0 {
+		filter = filters[0]
+	}
 
 	// 活跃会员一次取出，按 user_id 索引。
 	activeMemberships, err := s.memberships.ListActiveMemberships(0, 0)
@@ -65,20 +79,45 @@ func (s *AdminMemberService) ListMemberUsers(page int, pageSize int) ([]AdminMem
 		return nil, 0, err
 	}
 	planNames := map[string]string{}
+	planCodes := map[string]string{}
 	plans, err := s.memberships.ListPlans(false)
 	if err != nil {
 		return nil, 0, err
 	}
 	for _, plan := range plans {
 		planNames[plan.ID] = plan.Name
+		planCodes[plan.ID] = plan.Code
 	}
 	membershipByUser := map[string]model.UserMembership{}
 	now := s.clock()
 	for _, membership := range activeMemberships {
-		if membership.ExpiresAt.After(now) {
-			membershipByUser[membership.UserID] = membership
-		}
+		membershipByUser[membership.UserID] = membership
 	}
+	filtered := make([]model.User, 0, len(users))
+	for _, user := range users {
+		m, has := membershipByUser[user.ID]
+		active := has && !m.StartedAt.After(now) && m.ExpiresAt.After(now)
+		code := "free"
+		if active {
+			code = planCodes[m.PlanID]
+		}
+		if filter.Status != "" && user.Status != filter.Status {
+			continue
+		}
+		if filter.Level == "member" {
+			if !active || code == model.PlanCodeInternal {
+				continue
+			}
+		} else if filter.Level != "" && filter.Level != code {
+			continue
+		}
+		if filter.Search != "" && !strings.Contains(strings.ToLower(user.ID+" "+user.Username+" "+user.DisplayName), strings.ToLower(filter.Search)) {
+			continue
+		}
+		filtered = append(filtered, user)
+	}
+	users = filtered
+	total := int64(len(users))
 
 	start := (page - 1) * pageSize
 	if start >= len(users) {
@@ -92,24 +131,35 @@ func (s *AdminMemberService) ListMemberUsers(page int, pageSize int) ([]AdminMem
 	rows := make([]AdminMemberUserRow, 0, end-start)
 	for _, user := range users[start:end] {
 		row := AdminMemberUserRow{
+			Role:   user.Role,
 			UserID: user.ID, Username: user.Username, DisplayName: user.DisplayName,
 			Status: user.Status, RegisteredAt: user.CreatedAt, LastLoginAt: user.LastLoginAt,
 		}
 		if membership, ok := membershipByUser[user.ID]; ok {
-			row.MemberLevel = planNames[membership.PlanID]
-			expires := membership.ExpiresAt
-			row.MemberExpiresAt = &expires
+			row.MembershipID = membership.ID
+			if membership.ExpiresAt.After(now) && !membership.StartedAt.After(now) {
+				row.MemberLevel = planNames[membership.PlanID]
+				row.PlanID, row.PlanCode, row.TestCredits = membership.PlanID, planCodes[membership.PlanID], membership.MonthlyCreditsOverride
+				expires := membership.ExpiresAt
+				row.MemberExpiresAt = &expires
+			}
 		}
 		if account, err := s.credits.GetAccount(user.ID); err == nil {
 			row.PermanentBalance = account.PermanentBalance
+		} else if !errors.Is(err, repository.ErrCreditAccountNotFound) {
+			return nil, 0, err
 		}
 		if grants, err := s.credits.ListActiveGrants(user.ID, now); err == nil {
 			for _, grant := range grants {
 				row.LimitedBalance += grant.AmountRemaining - grant.AmountFrozen
 			}
+		} else {
+			return nil, 0, err
 		}
 		if sum, err := s.billing.SumPaidAmountByUser(user.ID); err == nil {
 			row.TotalRechargeCents = sum
+		} else {
+			return nil, 0, err
 		}
 		rows = append(rows, row)
 	}

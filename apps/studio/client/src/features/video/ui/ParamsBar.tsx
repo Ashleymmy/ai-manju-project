@@ -1,5 +1,6 @@
 import { modelOptions } from "@/shared/lib/modelSelection";
 import { VideoDurationInput } from "@/shared/ui/VideoDurationInput";
+import { estimateVideoCredits, type PricingRulesConfig } from "@/features/member";
 
 import {
   isSeedanceFastVideoModel,
@@ -17,12 +18,14 @@ export function ParamsBar({
   config,
   onChange,
   disabled,
+  pricingRules,
 }: {
   models: string[];
   labels: Record<string, string>;
   config: VideoGenerationConfig;
   onChange: (config: VideoGenerationConfig) => void;
   disabled: boolean;
+  pricingRules?: PricingRulesConfig;
 }) {
   const normalized = normalizeVideoGenerationConfig(config);
   /* 未配置模型时也按 Seedance 展示（比例/30s 时长档位）；配上 OpenAI 兼容模型后自动切回尺寸/20s */
@@ -30,6 +33,8 @@ export function ParamsBar({
   const fastSeedance = isSeedanceFastVideoModel(normalized.model);
   const ratios = seedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes;
   const durations = seedance ? videoModelSettings.seedanceDurations : videoModelSettings.openAiDurations;
+  const seconds = Number.parseInt(normalized.seconds, 10) || 0;
+  const costEstimate = seconds > 0 ? estimateVideoCredits(pricingRules, seconds, fastSeedance) : null;
 
   const patch = (partial: Partial<VideoGenerationConfig>) => onChange(normalizeVideoGenerationConfig({ ...normalized, ...partial }));
 
@@ -97,6 +102,12 @@ export function ParamsBar({
           >水印</button>
         </div>
       </div>
+      {costEstimate !== null ? (
+        <div className="wb-param-group wb-param-cost">
+          <span className="wb-param-label">约扣积分</span>
+          <span className="wb-cost-value">{costEstimate}</span>
+        </div>
+      ) : null}
     </div>
   );
 }

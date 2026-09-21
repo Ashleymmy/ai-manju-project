@@ -12,7 +12,7 @@ import (
 // Entitlement gate errors.
 var (
 	// ErrConcurrencyLimitExceeded 用户维度并发上限（会员权益：更高并发）。
-	ErrConcurrencyLimitExceeded = errors.New("concurrent task limit reached for current membership tier")
+	ErrConcurrencyLimitExceeded = repository.ErrJobConcurrencyLimit
 	// ErrAgentRequiresMember Agent 模式仅会员可用（文档：agent模式解锁且免费使用，非会员不开相关功能）。
 	ErrAgentRequiresMember = errors.New("agent mode requires an active membership")
 	// ErrMemberFeatureRequired 会员特权功能（去水印/商用授权/素材库等）。

@@ -12,13 +12,14 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/contexts/AuthContext";
 import type { PromptPreset } from "@/entities/prompt";
-import { useWorkspaceDashboardData } from "@/features/dashboard";
 import {
   settingsQueryKeys,
   updatePreferences,
   usePreferencesQuery,
 } from "@/features/settings";
 import { publicApiError } from "@/shared/api/errors";
+
+import { useProfileWorkspaceStats } from "./useProfileWorkspaceStats";
 
 import "./styles.css";
 
@@ -34,12 +35,12 @@ function priorityLabel(value: PromptPreset["priority"]) {
   return { pinned: "置顶", high: "高", normal: "普通", low: "低" }[value] ?? value;
 }
 
-export function ProfileView() {
+export function ProfileView({ embedded = false }: { embedded?: boolean }) {
   const queryClient = useQueryClient();
   const preferencesInitializedRef = useRef(false);
   const preferencesQuery = usePreferencesQuery();
   const { user } = useAuth();
-  const { data } = useWorkspaceDashboardData();
+  const stats = useProfileWorkspaceStats();
   const [preferences, setPreferences] = useState<PromptPreset[]>([]);
   const [activePresetId, setActivePresetId] = useState("");
   const [saving, setSaving] = useState(false);
@@ -75,9 +76,11 @@ export function ProfileView() {
     await persistProfilePresets([...preferences, preset], "个人提示词已创建");
   };
   const patchProfilePreset = (patch: Partial<PromptPreset>) => activePreset && setPreferences((items) => items.map((item) => item.id === activePreset.id ? { ...item, ...patch } : item));
-  return <div className="feature-page profile-page">
-    <SurfaceTitle eyebrow="PROFILE / YOU" title="个人主页" description="把常用模型、提示词预设和工作区状态集中放在一个页面里。"
-      actions={<button className="outline-button small" onClick={() => window.location.assign("/prompts")}>打开提示词库</button>} />
+  return <div className={embedded ? "profile-embedded" : "feature-page profile-page"}>
+    {!embedded ? (
+      <SurfaceTitle eyebrow="PROFILE / YOU" title="个人主页" description="把常用模型、提示词预设和工作区状态集中放在一个页面里。"
+        actions={<button className="outline-button small" onClick={() => window.location.assign("/prompts")}>打开提示词库</button>} />
+    ) : null}
     <div className="profile-workspace">
       <section className="profile-account-section">
         <div className="profile-account-card">
@@ -92,17 +95,17 @@ export function ProfileView() {
       <div className="profile-stats-row">
         <div className="profile-metric-card">
           <span className="metric-label">项目</span>
-          <b className="metric-value">{data.projects.total ?? "—"}</b>
+          <b className="metric-value">{stats.projects ?? "—"}</b>
           <small className="metric-unit">当前工作区项目总数</small>
         </div>
         <div className="profile-metric-card">
           <span className="metric-label">资产</span>
-          <b className="metric-value">{data.assets.total ?? "—"}</b>
+          <b className="metric-value">{stats.assets ?? "—"}</b>
           <small className="metric-unit">素材库资产总数</small>
         </div>
         <div className="profile-metric-card">
           <span className="metric-label">任务</span>
-          <b className="metric-value">{data.jobs.total ?? "—"}</b>
+          <b className="metric-value">{stats.jobs ?? "—"}</b>
           <small className="metric-unit">排队与运行中的生成任务</small>
         </div>
         <div className="profile-metric-card">

@@ -82,6 +82,9 @@ func (s *CreditScheduler) RunOnce(ctx context.Context) (SchedulerRunResult, erro
 	if err != nil {
 		return result, err
 	}
+	if err = s.memberships.ActivateDueMemberships(s.engine.now(), CreditSchedulerBatchSize); err != nil {
+		return result, err
+	}
 	if result.MonthlyGranted, err = s.grantMonthlyCredits(ctx); err != nil {
 		return result, err
 	}
