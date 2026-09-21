@@ -197,7 +197,7 @@ func (h *MemberHandler) PricingRules(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	payload := gin.H{"plans": plans, "packages": packages, "credits_per_yuan": model.CreditsPerYuan, "model_prices": service.DefaultModelCreditPrices()}
+	payload := gin.H{"plans": plans, "packages": packages, "credits_per_yuan": model.CreditsPerYuan, "model_prices": service.LoadModelCreditPrices(h.billing)}
 	if rules, err := h.billing.GetConfig(model.BillingConfigKeyPricingRules); err == nil {
 		payload["pricing_rules"] = rules.Value
 	}

@@ -274,6 +274,7 @@ func (h *AdminBillingHandler) ListConfigs(c *gin.Context) {
 // adminEditableConfigKeys UpsertConfig 白名单（model.BillingConfigKey* 常量）；
 // 白名单外的 key 一律 400，防止管理端写入业务代码不识别的配置。
 var adminEditableConfigKeys = map[string]bool{
+	model.BillingConfigKeyModelPrices:      true,
 	model.BillingConfigKeyRegisterBonus:    true,
 	model.BillingConfigKeyRegisterBonusTTL: true,
 	model.BillingConfigKeyInviteRewards:    true,
@@ -281,6 +282,11 @@ var adminEditableConfigKeys = map[string]bool{
 	model.BillingConfigKeyActivity:         true,
 	model.BillingConfigKeyPricingRules:     true,
 	model.BillingConfigKeyGiftPacks:        true,
+}
+
+// ModelPrices returns the effective catalog, including defaults before the first save.
+func (h *AdminBillingHandler) ModelPrices(c *gin.Context) {
+	response.OK(c, service.LoadModelCreditPrices(h.billing))
 }
 
 type adminConfigUpdateRequest struct {

@@ -12,7 +12,7 @@ export function ModelPricingTable({ prices }: { prices: MemberPricing["model_pri
     for (const [resolution, [base, reference, surcharge]] of Object.entries(resolutions)) {
       rows.push([model, resolution.toUpperCase(), model === "seedance-1.5-pro"
         ? `无声 ${base} / 有声 ${reference} 积分/秒`
-        : surcharge ? `${base} 积分/秒 + 参考视频 ${surcharge} 积分/秒`
+        : surcharge ? `无参考 ${base} / 有参考 ${reference} 积分/秒 + 参考视频 ${surcharge} 积分/秒`
         : `无参考视频 ${base} / 有参考视频 ${reference} 积分/秒`]);
     }
   }

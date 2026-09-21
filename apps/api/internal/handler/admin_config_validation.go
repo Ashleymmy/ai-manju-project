@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ai-manju/api/internal/model"
+	"github.com/ai-manju/api/internal/service"
 	"time"
 )
 
@@ -26,6 +27,9 @@ func validateBillingConfig(key string, raw json.RawMessage) error {
 		return m, nil
 	}
 	switch key {
+	case model.BillingConfigKeyModelPrices:
+		_, err := service.ParseModelCreditPrices(raw)
+		return err
 	case model.BillingConfigKeyRegisterBonus:
 		return integer(raw, 0, maxAdminTestCredits)
 	case model.BillingConfigKeyRegisterBonusTTL, model.BillingConfigKeyInviteRewardTTL:

@@ -34,6 +34,7 @@ import { MemberUsersPanel } from "./MemberUsersPanel";
 import { MonitoringPanel } from "./MonitoringPanel";
 import { OrdersPanel } from "./OrdersPanel";
 import { PlansConfigPanel } from "./PlansConfigPanel";
+import { ModelPricesPanel } from "./ModelPricesPanel";
 import { ProvidersPanel } from "./ProvidersPanel";
 import { SeedanceAssetsPanel } from "./SeedanceAssetsPanel";
 
@@ -116,6 +117,7 @@ export default function AdminWorkspaceView() {
         ordersController.reload(),
         queryClient.invalidateQueries({ queryKey: ["admin", "usage-report"] }),
         queryClient.invalidateQueries({ queryKey: ["admin", "cost-rates"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "model-prices"] }),
         plansConfigController.reload(),
         dashboardController.reload(),
         invitesController.reload(),
@@ -206,6 +208,7 @@ export default function AdminWorkspaceView() {
           {tab === "plans-config" ? (
             <PlansConfigPanel controller={plansConfigController} readOnly={readOnly} />
           ) : null}
+          {tab === "model-prices" ? <ModelPricesPanel readOnly={readOnly} /> : null}
           {tab === "invites" ? (
             <InvitesPanel controller={invitesController} />
           ) : null}

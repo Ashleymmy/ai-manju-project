@@ -279,7 +279,7 @@ export const ADMIN_EDITABLE_CONFIGS = [
   { key: "invite_rewards", label: "邀请奖励", schema: "json", hint: '{"inviter":2000,"invitee":500,"first_charge_bonus":1000}' },
   { key: "invite_reward_ttl_days", label: "邀请奖励有效期（天）", schema: "int", hint: "整数天数，如 30" },
   { key: "activity_discount", label: "限时活动", schema: "json", hint: '{"enabled":true,"starts_at":"...","ends_at":"...","discount_bps":8000,"applies_to":["image"]}' },
-  { key: "pricing_rules", label: "定价规则", schema: "json", hint: '{"image":{"small_512":20,"standard_1024":50,"large":80},...}' },
+  { key: "pricing_rules", label: "基础兜底定价（模型单价见模型积分定价页）", schema: "json", hint: '{"image":{"small_512":20,"standard_1024":50,"large":80},...}' },
   { key: "gift_packs", label: "礼包超市货架", schema: "json", hint: '[{"id":"...","name":"...","price_cents":9900,"credits":1000,"enabled":true,"sort_order":1}]' },
 ] as const;
 

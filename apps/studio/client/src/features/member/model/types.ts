@@ -124,13 +124,15 @@ export type ActivityConfig = {
 };
 
 /** GET /api/member/pricing 聚合响应。 */
-export type MemberPricing = {
-  model_prices?: {
+export type ModelCreditPrices = {
     images: Record<string, Record<string, number[]>>;
     videos: Record<string, Record<string, number[]>>;
     qualities: string[];
     image_reference: number;
-  };
+};
+
+export type MemberPricing = {
+  model_prices?: ModelCreditPrices;
   plans?: MembershipPlan[];
   packages?: CreditPackage[];
   credits_per_yuan?: number;

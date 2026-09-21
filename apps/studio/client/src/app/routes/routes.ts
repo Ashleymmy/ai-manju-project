@@ -78,6 +78,7 @@ const adminRoutes = [
   "/admin/orders",
   "/admin/consumptions",
   "/admin/plans-config",
+  "/admin/model-prices",
   "/admin/dashboard",
   "/admin/invites",
   "/admin/audit-logs",

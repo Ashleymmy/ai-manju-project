@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"time"
 
@@ -134,7 +135,7 @@ func (p *CreditPricer) QuoteForJob(jobType string, payload model.JSONB) (credits
 	if total, ok := p.modelPrice(jobType, body, params); ok {
 		// Keep fractional prices through the activity discount, then round once.
 		const creditPrecision int64 = 10000
-		scaled := p.applyActivityDiscount(int64(total*float64(creditPrecision)), taskType, params)
+		scaled := p.applyActivityDiscount(int64(math.Round(total*float64(creditPrecision))), taskType, params)
 		return roundCreditTotal(float64(scaled) / float64(creditPrecision)), taskType, params, true
 	}
 	if credits > 0 {
@@ -170,6 +171,9 @@ func isFastVideoPayload(body map[string]any) bool {
 // applyActivityDiscount scales the quote when a limited-time discount is
 // active for this task type (例如视频 Fast 五折活动).
 func (p *CreditPricer) applyActivityDiscount(credits int64, taskType string, params map[string]any) int64 {
+	if credits <= 0 {
+		return credits
+	}
 	config, err := p.billing.GetConfig(model.BillingConfigKeyActivity)
 	if err != nil {
 		return credits

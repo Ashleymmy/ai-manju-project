@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchGenerationQuote } from "../services/memberApi";
 import { useMemberOverviewQuery } from "../controllers/useMemberOverview";
 import { formatCredits } from "../model/format";
+import { PRICE_REFRESH_INTERVAL_MS } from "../model/constants";
 import "./generationPrice.css";
 
 export type GenerationPriceProps = {
@@ -36,6 +37,7 @@ function QuotedGenerationPrice({ kind = "image", model, size, quality, count = 1
     queryFn: ({ signal }) => fetchGenerationQuote(jobType, payload, signal),
     enabled: Boolean(model),
     staleTime: 15_000,
+    refetchInterval: PRICE_REFRESH_INTERVAL_MS,
     retry: 1,
   });
   let label = !model ? "选择模型后报价" : quote.isError ? "报价暂不可用" : "报价中…";
@@ -49,7 +51,7 @@ function QuotedGenerationPrice({ kind = "image", model, size, quality, count = 1
     } else if (params.reference_per_second) {
       label = `${params.per_second ?? "—"} 积分/秒 + 参考 ${params.reference_per_second} 积分/秒`;
       explanation = "参考视频时长尚未核定，总价待核算。";
-    } else if (params.per_second) label = `${params.per_second} 积分/秒 · 时长自动`;
+    } else if (params.per_second !== undefined) label = `${params.per_second} 积分/秒 · 时长自动`;
     else {
       label = `预估 ${formatCredits(credits * tasks)} 积分`;
       explanation = "当前模型或自动规格未匹配价目表，按现有基础规则预估；选择明确规格可获取模型报价。";

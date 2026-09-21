@@ -6,7 +6,7 @@ export type { MemberTab } from "./model/routes";
 export { discountLabel, formatCents, formatCredits, formatDateTime, daysUntil, taskTypeLabel } from "./model/format";
 export { memberQueryKeys } from "./model/queryKeys";
 export type { ConsumptionItem, MemberOverview } from "./model/types";
-export type { PricingRulesConfig } from "./model/types";
+export type { PricingRulesConfig, ModelCreditPrices } from "./model/types";
 // 供 admin 面板复用的展示组件与邀请奖励常量（架构守卫：跨 feature 必须走本文件）。
 export { EmptyBlock, ErrorBlock, LoadingBlock, StatusPill } from "./ui/components/memberBits";
 export {

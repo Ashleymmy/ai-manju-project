@@ -312,6 +312,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			admin.GET("/billing/packages", adminBillingHandler.ListPackages)
 			admin.PUT("/billing/packages/:id", adminBillingHandler.UpsertPackage)
 			admin.GET("/billing/configs", adminBillingHandler.ListConfigs)
+			admin.GET("/billing/model-prices", adminBillingHandler.ModelPrices)
 			admin.PUT("/billing/configs/:key", adminBillingHandler.UpsertConfig)
 			admin.GET("/billing/dashboard", adminBillingHandler.Dashboard)
 			admin.GET("/invites", adminBillingHandler.ListInvites)

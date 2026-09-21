@@ -87,7 +87,7 @@ func imageCreditResolution(size string) string {
 }
 
 func (p *CreditPricer) modelPrice(jobType string, body map[string]any, params map[string]any) (float64, bool) {
-	catalog := DefaultModelCreditPrices()
+	catalog := LoadModelCreditPrices(p.billing)
 	name := creditModelName(jsonString(body["model"]))
 	params["pricing_model"] = name
 	params["pricing_source"] = "legacy"

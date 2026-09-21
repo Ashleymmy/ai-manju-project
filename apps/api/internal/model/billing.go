@@ -34,7 +34,8 @@ const (
 	BillingConfigKeyInviteRewards    = "invite_rewards"          // {"inviter":2000,"invitee":500,"first_charge_bonus":1000}
 	BillingConfigKeyInviteRewardTTL  = "invite_reward_ttl_days"  // int，种子 30
 	BillingConfigKeyActivity         = "activity_discount"       // {"enabled":bool,"starts_at":ts,"ends_at":ts,"discount_bps":int,"applies_to":[...]}
-	BillingConfigKeyPricingRules     = "pricing_rules"           // 定价规则页内容（模型/分辨率 → 积分）
+	BillingConfigKeyPricingRules     = "pricing_rules"           // 基础兜底计费规则
+	BillingConfigKeyModelPrices      = "model_credit_prices"     // 管理员配置的模型积分价目表
 	BillingConfigKeyGiftPacks        = "gift_packs"              // 礼包超市货架：[{"id","name","description","cover","price_cents","credits"|"membership_days","enabled","sort_order"}]（WP-M15，内容后定，默认空货架）
 )
 
