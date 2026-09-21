@@ -64,6 +64,8 @@ const MIN_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 600_000;
 const MAX_CONCURRENCY = 8;
 const MAX_VIDEO_CONCURRENCY = 16;
+/** Limit rendered rows only; every configured model stays in the saved document. */
+const MODEL_PAGE_SIZE = 50;
 /** One form shared by the Studio host and standalone package. Secrets remain host-owned. */
 export function ProviderConfigForm({
   document,
@@ -98,6 +100,8 @@ export function ProviderConfigForm({
     : selected[0];
   const [newModel, setNewModel] = useState("");
   const [modelSearch, setModelSearch] = useState("");
+  const [modelPage, setModelPage] = useState(0);
+  const [modelNotice, setModelNotice] = useState("");
   const [expandedModel, setExpandedModel] = useState("");
   const [presetSearch, setPresetSearch] = useState("");
   const modelsByCapability = (config.models_by_capability || {}) as Partial<
@@ -113,6 +117,20 @@ export function ProviderConfigForm({
       ),
     ),
   ];
+  const modelQuery = modelSearch.trim().toLowerCase();
+  const matchingModelIDs = modelIDs.filter((id) =>
+    `${id} ${aliases[id] || ""}`.toLowerCase().includes(modelQuery),
+  );
+  const pageCount = Math.max(
+    1,
+    Math.ceil(matchingModelIDs.length / MODEL_PAGE_SIZE),
+  );
+  const currentPage = Math.min(modelPage, pageCount - 1);
+  const pageStart = currentPage * MODEL_PAGE_SIZE;
+  const visibleModelIDs = matchingModelIDs.slice(
+    pageStart,
+    pageStart + MODEL_PAGE_SIZE,
+  );
   const setModelList = (models: string[]) =>
     onChange({
       ...document,
@@ -127,6 +145,37 @@ export function ProviderConfigForm({
           : models[0] || "",
       },
     });
+  const addModels = () => {
+    const requested = [
+      ...new Set(
+        newModel
+          .split(/[,，;；\n]+/)
+          .map((id) => id.trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (!requested.length) {
+      setModelNotice("请输入有效的模型 ID。");
+      return;
+    }
+    const existing = new Set(modelIDs);
+    const added = requested.filter((id) => !existing.has(id));
+    const repeated = requested.length - added.length;
+    if (added.length) {
+      setModelList([...modelIDs, ...added]);
+      setModelSearch("");
+      setModelPage(Math.floor(modelIDs.length / MODEL_PAGE_SIZE));
+      setModelNotice(
+        `已添加 ${added.length} 个${capabilityLabels[currentCapability]}模型${repeated ? `，${repeated} 个已存在` : ""}，保存配置后生效。`,
+      );
+    } else {
+      // Show the existing row instead of silently clearing a duplicate ID.
+      setModelSearch(requested[0]);
+      setModelPage(0);
+      setModelNotice("模型已在当前类别中，已定位到该模型，无需重复添加。");
+    }
+    setNewModel("");
+  };
   if (document.adapter === "sdvideo") {
     const models = config.sdvideo_models as NonNullable<
       ProviderRecord["sdvideo_models"]
@@ -441,14 +490,36 @@ export function ProviderConfigForm({
                   onClick={() => {
                     setModelCapability(cap);
                     setNewModel("");
+                    setModelSearch("");
+                    setModelPage(0);
+                    setModelNotice("");
                   }}
                 >
                   {capabilityLabels[cap]}
                 </button>
               ))}
             </div>
+            <div className="hub-model-toolbar">
+              <label className="hub-search">
+                <Search size={16} />
+                <input
+                  type="search"
+                  aria-label="搜索已配置模型"
+                  placeholder="搜索模型名称或 ID…"
+                  value={modelSearch}
+                  onChange={(event) => {
+                    setModelSearch(event.target.value);
+                    setModelPage(0);
+                  }}
+                />
+              </label>
+              <span className="hub-help" role="status">
+                共 {modelIDs.length} 个{capabilityLabels[currentCapability]}模型
+                {modelQuery && ` · 匹配 ${matchingModelIDs.length} 个`}
+              </span>
+            </div>
             <div className="hub-model-table">
-              {modelIDs.map((id) => (
+              {visibleModelIDs.map((id) => (
                 <div
                   className="hub-model-entry"
                   key={`${currentCapability}/${id}`}
@@ -511,51 +582,74 @@ export function ProviderConfigForm({
                   尚未添加{capabilityLabels[currentCapability]}模型。
                 </p>
               )}
+              {!!modelIDs.length && !matchingModelIDs.length && (
+                <p className="hub-help">
+                  当前类别没有匹配的模型，可切换能力类别查找或手动添加。
+                </p>
+              )}
             </div>
+            {matchingModelIDs.length > MODEL_PAGE_SIZE && (
+              <nav className="hub-model-pagination" aria-label="模型分页">
+                <span className="hub-help">
+                  显示 {pageStart + 1}–
+                  {Math.min(
+                    pageStart + MODEL_PAGE_SIZE,
+                    matchingModelIDs.length,
+                  )}{" "}
+                  / {matchingModelIDs.length}
+                </span>
+                <div className="hub-actions">
+                  <button
+                    type="button"
+                    disabled={currentPage === 0}
+                    onClick={() => setModelPage(currentPage - 1)}
+                  >
+                    上一页
+                  </button>
+                  <span>
+                    {currentPage + 1} / {pageCount}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={currentPage === pageCount - 1}
+                    onClick={() => setModelPage(currentPage + 1)}
+                  >
+                    下一页
+                  </button>
+                </div>
+              </nav>
+            )}
             <div className="hub-add-model">
               <input
                 aria-label="新模型 ID"
                 placeholder="输入模型 ID，多个模型用逗号分隔"
                 value={newModel}
-                onChange={(event) => setNewModel(event.target.value)}
+                onChange={(event) => {
+                  setNewModel(event.target.value);
+                  setModelNotice("");
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
-                    if (newModel.trim()) {
-                      setModelList([
-                        ...new Set([
-                          ...modelIDs,
-                          ...newModel
-                            .split(/[,，;；\n]+/)
-                            .map((item) => item.trim())
-                            .filter(Boolean),
-                        ]),
-                      ]);
-                      setNewModel("");
-                    }
+                    if (!event.nativeEvent.isComposing && newModel.trim())
+                      addModels();
                   }
                 }}
               />
               <button
                 type="button"
                 disabled={!newModel.trim()}
-                onClick={() => {
-                  setModelList([
-                    ...new Set([
-                      ...modelIDs,
-                      ...newModel
-                        .split(/[,，;；\n]+/)
-                        .map((item) => item.trim())
-                        .filter(Boolean),
-                    ]),
-                  ]);
-                  setNewModel("");
-                }}
+                onClick={addModels}
               >
                 <Plus size={16} />
                 添加
               </button>
             </div>
+            {modelNotice && (
+              <p className="hub-help" role="status">
+                {modelNotice}
+              </p>
+            )}
             <label className="hub-checkbox-line">
               <input
                 type="checkbox"

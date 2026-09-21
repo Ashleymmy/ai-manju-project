@@ -1324,7 +1324,10 @@ func filterModelsByCapability(models []string, capability string) []string {
 }
 
 func isVideoModelName(name string) bool {
-	return strings.Contains(name, "seedance") || strings.Contains(name, "video") || strings.Contains(name, "sora") || strings.Contains(name, "veo") || strings.Contains(name, "kling") || strings.Contains(name, "wan") || strings.Contains(name, "hailuo") || strings.Contains(name, "happyhorse") || strings.Contains(name, "happy-horse") || strings.Contains(name, "omni")
+	// H3 is also published without a "hailuo" or "video" suffix. Match the
+	// video family, not the MiniMax vendor: M1/M2 and speech remain separate.
+	minimaxH3 := strings.Contains(strings.ReplaceAll(name, "_", "-"), "minimax-h3")
+	return minimaxH3 || strings.Contains(name, "seedance") || strings.Contains(name, "video") || strings.Contains(name, "sora") || strings.Contains(name, "veo") || strings.Contains(name, "kling") || strings.Contains(name, "wan") || strings.Contains(name, "hailuo") || strings.Contains(name, "happyhorse") || strings.Contains(name, "happy-horse") || strings.Contains(name, "omni")
 }
 
 func isSpeechSynthesisModelName(name string) bool {
