@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Coins } from "lucide-react";
 import { fetchGenerationQuote } from "../services/memberApi";
 import { useMemberOverviewQuery } from "../controllers/useMemberOverview";
 import { formatCredits } from "../model/format";
@@ -18,6 +19,8 @@ export type GenerationPriceProps = {
   referenceVideos?: number;
   /** Canvas/comic fan out into independent jobs, each rounded separately. */
   tasks?: number;
+  /** Compact toolbar presentation: icon plus value without the explanatory prefix. */
+  compact?: boolean;
 };
 
 
@@ -27,7 +30,7 @@ export function GenerationPrice(props: GenerationPriceProps) {
   return <QuotedGenerationPrice {...props} />;
 }
 
-function QuotedGenerationPrice({ kind = "image", model, size, quality, count = 1, references = 0, resolution, seconds, audio, referenceVideos = 0, tasks = 1 }: GenerationPriceProps) {
+function QuotedGenerationPrice({ kind = "image", model, size, quality, count = 1, references = 0, resolution, seconds, audio, referenceVideos = 0, tasks = 1, compact = false }: GenerationPriceProps) {
   const payload = kind === "image"
     ? { model, size, quality, n: count, references: Array.from({ length: references }, () => ({ field_name: "image" })) }
     : { model, resolution, duration: Number(seconds), generate_audio: audio, content: Array.from({ length: referenceVideos }, () => ({ type: "video_url" })) };
@@ -56,6 +59,18 @@ function QuotedGenerationPrice({ kind = "image", model, size, quality, count = 1
       label = `预估 ${formatCredits(credits * tasks)} 积分`;
       explanation = "当前模型或自动规格未匹配价目表，按现有基础规则预估；选择明确规格可获取模型报价。";
     }
+  }
+  if (compact) {
+    let compactLabel = "—";
+    if (quote.data?.params && Number.isFinite(quote.data.credits)) {
+      const { credits, params } = quote.data;
+      if (params.pricing_source === "membership_price_sheet") compactLabel = formatCredits(credits * tasks);
+      else if (params.range_min !== undefined && params.range_max !== undefined) compactLabel = `${formatCredits(params.range_min * tasks)}–${formatCredits(params.range_max * tasks)}`;
+      else if (params.reference_per_second) compactLabel = `${params.per_second ?? "—"}/秒`;
+      else if (params.per_second !== undefined) compactLabel = `${params.per_second}/秒`;
+      else compactLabel = formatCredits(credits * tasks);
+    }
+    return <span className="generation-price generation-price-compact" title={explanation} aria-label={label} aria-live="polite"><Coins size={13} aria-hidden="true" /><span>{compactLabel}</span></span>;
   }
   return <span className="generation-price" title={explanation} aria-live="polite">{label}</span>;
 }

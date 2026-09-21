@@ -30,7 +30,6 @@ import {
   UserRoundCog,
   WandSparkles,
   X,
-  Zap,
 } from "lucide-react";
 import { useRef, type CSSProperties, type PointerEvent, type RefObject } from "react";
 import { toast } from "sonner";
@@ -539,11 +538,9 @@ export function CanvasInspector({
                   </PopoverContent>
                 </Popover>
                 <div className="node-card-primary">
-                  <CanvasGenerationPrice node={selectedNode} />
-                  {/* 数量独立于本次积分报价 */}
                   <Popover key={`${selectedNode.id}:count`} active={inspectorOpen && !projectActionDisabled}>
                     <PopoverTrigger asChild>
-                      <button type="button" className="node-chip node-credit-chip" title="生成数量 · 积分按类型与规格计费，成功才扣费"><Zap size={12} /> ×{imageCountFromNode(selectedNode)}</button>
+                      <button type="button" className="node-chip node-credit-chip node-generation-count" title="生成数量 · 积分按类型与规格计费，成功才扣费">×{imageCountFromNode(selectedNode)}<span className="sr-only">生成数量</span></button>
                     </PopoverTrigger>
                     <PopoverContent className="node-pop-card" align="end" sideOffset={8}>
                       <p className="eyebrow">数量 / 积分</p>
@@ -555,6 +552,7 @@ export function CanvasInspector({
                       <p className="node-pop-hint">积分按类型与规格计费，成功才扣费。<a href="/member/pricing" style={{ color: "#44a5c7" }}>查看定价规则</a></p>
                     </PopoverContent>
                   </Popover>
+                  <CanvasGenerationPrice node={selectedNode} compact />
                   {selectedNode.kind === "director" ? (
                     <button className="node-send-button" onClick={() => void openDirectorNode(selectedNode)}><ArrowRight size={15} /> 导演台</button>
                   ) : runningNodeIds.has(selectedNode.id) ? (
@@ -570,7 +568,7 @@ export function CanvasInspector({
                       else void retryTextNode(selectedNode);
                     }}><RotateCcw size={14} /> 重试</button>
                   ) : (
-                    <button className="node-send-button" onClick={() => void generateFromNode()}><ArrowUp size={15} /> 生成</button>
+                    <button className="node-send-button node-send-button-compact" onClick={() => void generateFromNode()} aria-label="生成" title="生成"><ArrowUp size={15} /></button>
                   )}
                 </div>
               </div>

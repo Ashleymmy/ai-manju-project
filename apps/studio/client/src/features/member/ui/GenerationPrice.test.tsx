@@ -34,4 +34,17 @@ describe("creation credits", () => {
     expect(fetchGenerationQuote).not.toHaveBeenCalled();
     await act(async () => root.unmount()); client.clear();
   });
+
+  it("renders the compact generation toolbar price as an icon and value", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.mocked(fetchGenerationQuote).mockResolvedValue({ credits: 19, params: { pricing_source: "membership_price_sheet" } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div"); const root = createRoot(container);
+    await act(async () => { root.render(<QueryClientProvider client={client}><GenerationPrice compact model="gpt-image-2" size="1024x1024" quality="low" /></QueryClientProvider>); await new Promise(r => setTimeout(r, 20)); });
+    await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    expect(container.textContent).toContain("19");
+    expect(container.querySelector(".generation-price-compact svg")).not.toBeNull();
+    expect(container.textContent).not.toContain("预计");
+    await act(async () => root.unmount()); client.clear();
+  });
 });

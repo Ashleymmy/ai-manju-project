@@ -5590,6 +5590,8 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
 .node-card-tools.in-chips { padding-top: 0; }
 /* 閺佷即鍣?chip 娑撳海鏁撻幋鎰瘻闁筋喖鎮撶紒鍕礁缂?*/
 .node-card-primary { display: flex; align-items: center; gap: 6px; }
+.node-generation-count { justify-content: center; min-width: 46px; padding: 0 12px; font-variant-numeric: tabular-nums; }
+.node-send-button-compact { width: 30px; min-width: 30px; height: 30px; min-height: 30px; padding: 0; border-radius: 50%; background: linear-gradient(180deg, #fbf8f1 0%, #e6e2d6 100%); }
 /* 鐟欏棝顣剁€涙劖膩瀵繐绐樼粩鐘辩瑐缁夎鍩屽Λ鈧弻銉ユ珤閺嶅洭顣界悰宀嬬礄鐠愬瓨鐖ｆ０妯哄礁娓氀嶇礉鐏忓繋绔撮崣鍑ょ礆 */
 .inspector-title-row { display: flex; align-items: center; gap: 8px; }
 .inspector-floating .inspector-submode-badge {
