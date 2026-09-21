@@ -4197,12 +4197,12 @@ export default function CanvasWorkspaceViewContent() {
         <input ref={projectArchiveInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectArchiveBusy || projectBatchBusy} onChange={(event) => void importCanvasProjectArchive(event.target.files?.[0])} />
         <div className="page-content canvas-workspace-full">
           <div className="canvas-workspace-header">
-            <CreditBalance />
             <button className="outline-button small" onClick={() => navigate("/dashboard")} disabled={switching}>
               <ChevronLeft size={16} /> 返回
             </button>
             <div className="scope-switch canvas-scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => void switchCanvasScope(item.value)} disabled={switching}>{item.label}</button>)}</div>
             <div className="canvas-head-actions canvas-project-list-actions">
+              <CreditBalance />
               {projects.length ? <button className="outline-button small" onClick={() => setSelectedProjectIds(projects.every((project) => selectedProjectIds.has(project.id)) ? new Set() : new Set(projects.map((project) => project.id)))} disabled={switching || projectArchiveBusy || projectBatchBusy}><Check size={15} /> {projects.every((project) => selectedProjectIds.has(project.id)) ? "取消全选" : "全选"}</button> : null}
               {selectedProjectIds.size ? <button className="outline-button small" onClick={() => void exportSelectedCanvasProjects()} disabled={switching || projectArchiveBusy || projectBatchBusy}><Download size={15} /> {projectBatchBusy ? "处理中" : `导出选中（${selectedProjectIds.size}）`}</button> : null}
               {selectedProjectIds.size ? <button className="outline-button small danger" onClick={() => openProjectBatchDelete(selectedProjectIds)} disabled={switching || projectArchiveBusy || projectBatchBusy}><Trash2 size={15} /> 删除选中</button> : null}
@@ -4376,7 +4376,6 @@ export default function CanvasWorkspaceViewContent() {
       <input ref={projectArchiveInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectActionDisabled || projectArchiveBusy} onChange={(event) => void importCanvasProjectArchive(event.target.files?.[0])} />
       {createProjectDialog}
       <div className="canvas-heading">
-        <CreditBalance />
         <div className="page-intro">
           <div className="canvas-switcher-container">
             {projectTitleEditing ? (
@@ -4451,6 +4450,7 @@ export default function CanvasWorkspaceViewContent() {
           </div>
         </div>
         <div className="canvas-head-actions">
+          <CreditBalance />
           <button className="outline-button small canvas-home-button" onClick={() => navigate("/dashboard")} title="返回首页" aria-label="返回首页"><Home size={15} /> 首页</button>
           {/* 空间切换是"离开当前画布"的导航出口：项目加载中/未确认时直接回列表页，不参与保存门禁，避免按钮卡死 */}
           {/* "团队空间"已全局暂时隐藏：team 入口在 scopeOptions 数组定义处注释掉了，恢复见该处 */}
