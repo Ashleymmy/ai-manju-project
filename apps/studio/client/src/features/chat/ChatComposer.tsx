@@ -1,3 +1,4 @@
+import { GenerationPrice } from "@/features/member";
 import {
   ArrowUp,
   ChevronDown,
@@ -238,6 +239,7 @@ export default function ChatComposer() {
               <Mic size={14} />
             </button>
 
+            <GenerationPrice kind="free" />
             <button
               className="chat-send"
               type="button"

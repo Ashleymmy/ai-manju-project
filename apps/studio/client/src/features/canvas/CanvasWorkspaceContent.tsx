@@ -1,3 +1,5 @@
+import { CanvasPricingContext, CanvasGenerationPrice } from "./ui/CanvasGenerationPrice";
+import { CreditBalance } from "@/features/member";
 import { registerCanvasImageAsset, registrationProviderId, savedSeedanceRegistration, seedanceRegistrationKey, seedanceRegistrationPhase, seedanceRegistrationSource, type SeedanceRegistrationState } from "./services/seedanceRegistration";
 import { pickDefaultImageModel, resolveModel } from "@/shared/lib/modelSelection";
 import { canvasImageGenerationSettings } from "./domain/imageGenerationSettings";
@@ -4195,6 +4197,7 @@ export default function CanvasWorkspaceViewContent() {
         <input ref={projectArchiveInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectArchiveBusy || projectBatchBusy} onChange={(event) => void importCanvasProjectArchive(event.target.files?.[0])} />
         <div className="page-content canvas-workspace-full">
           <div className="canvas-workspace-header">
+            <CreditBalance />
             <button className="outline-button small" onClick={() => navigate("/dashboard")} disabled={switching}>
               <ChevronLeft size={16} /> 返回
             </button>
@@ -4328,6 +4331,7 @@ export default function CanvasWorkspaceViewContent() {
   });
 
   return (
+    <CanvasPricingContext.Provider value={{ imageModel, videoModel, nodes, references: mentionReferencesForNode }}>
     <div className="canvas-page real-canvas-page">
       <Dialog open={Boolean(registrationTarget)} onOpenChange={(open) => { if (!open && !registrationBusy) setRegistrationTarget(null); }}>
         <DialogContent showCloseButton={!registrationBusy}>
@@ -4372,6 +4376,7 @@ export default function CanvasWorkspaceViewContent() {
       <input ref={projectArchiveInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectActionDisabled || projectArchiveBusy} onChange={(event) => void importCanvasProjectArchive(event.target.files?.[0])} />
       {createProjectDialog}
       <div className="canvas-heading">
+        <CreditBalance />
         <div className="page-intro">
           <div className="canvas-switcher-container">
             {projectTitleEditing ? (
@@ -4795,6 +4800,7 @@ export default function CanvasWorkspaceViewContent() {
             onConfirm: annotateCanvasImage,
           },
           mask: {
+            price: imageMaskNode ? <CanvasGenerationPrice node={imageMaskNode} edit /> : undefined,
             dataUrl: imageMaskPreview, open: Boolean(imageMaskNode && imageMaskPreview),
             busy: imageToolBusy, error: imageToolError,
             onClose: () => { setImageMaskNodeId(""); setImageToolError(""); },
@@ -4876,6 +4882,7 @@ export default function CanvasWorkspaceViewContent() {
         }}
       />
     </div>
+    </CanvasPricingContext.Provider>
   );
 }
 

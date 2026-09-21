@@ -1,3 +1,4 @@
+import { GenerationPrice } from "@/features/member";
 import { modelName, modelOptions, resolveModel } from "@/shared/lib/modelSelection";
 import { ArrowDownToLine, ArrowUpRight, Check, ChevronRight, FileText, FolderOpen, Image as ImageIcon, Pencil, Plus, RefreshCcw, Search, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -887,6 +888,7 @@ export function ComicAssetsView() {
             {referenceAssets.length > 0 && <div className="comic-reference-chips">{referenceAssets.map((asset) => <span key={asset.id}>{asset.name}<button onClick={() => toggleReferenceAsset(asset)}><X size={11} /></button></span>)}</div>}
             {referencePickerOpen && <div className="reference-asset-picker"><div className="tag-search"><Search size={13} /><input value={referenceKeyword} onChange={(event) => setReferenceKeyword(event.target.value)} placeholder="搜索资产库图片" /></div><div className="comic-reference-candidates">{referenceCandidates.map((asset) => <button key={asset.id} className={referenceAssets.some((item) => item.id === asset.id) ? "selected" : ""} onClick={() => toggleReferenceAsset(asset)}>{asset.name}</button>)}{!referenceCandidates.length && <small>没有匹配的图片资产</small>}</div></div>}
           </div>
+          <GenerationPrice model={generationModel} size={generationSize} quality={generationQuality} references={referenceAssets.length} tasks={selectedProjectAssets.filter(asset => asset.prompt_status === "approved").length * generationVariants} />
           <button className="vermilion-button" onClick={() => void createGenerationBatch()} disabled={Boolean(promptBusy)}>{promptBusy === "batch-create" ? "正在创建批次…" : "创建批量生成"}</button>
           {batchDetail && <ComicBatchPanel detail={batchDetail} scope={scope}
             busy={Boolean(promptBusy)} error={batchQuery.error} refreshing={batchQuery.isFetching}

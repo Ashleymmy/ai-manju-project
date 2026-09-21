@@ -131,6 +131,12 @@ func (p *CreditPricer) QuoteForJob(jobType string, payload model.JSONB) (credits
 		params["resolution"] = strings.ToUpper(jsonString(body["resolution"]))
 	}
 
+	if total, ok := p.modelPrice(jobType, body, params); ok {
+		// Keep fractional prices through the activity discount, then round once.
+		const creditPrecision int64 = 10000
+		scaled := p.applyActivityDiscount(int64(total*float64(creditPrecision)), taskType, params)
+		return roundCreditTotal(float64(scaled) / float64(creditPrecision)), taskType, params, true
+	}
 	if credits > 0 {
 		credits = p.applyActivityDiscount(credits, taskType, params)
 	}

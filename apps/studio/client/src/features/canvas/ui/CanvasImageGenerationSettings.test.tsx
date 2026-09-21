@@ -65,3 +65,5 @@ describe("canvas image parameter controls", () => {
     expect(submit).toHaveBeenLastCalledWith({ size: "2352x1760", quality: "high", imageResolution: "2K" });
   });
 });
+
+vi.mock("@/features/member", async original => ({ ...(await original<typeof import("@/features/member")>()), GenerationPrice: () => <span>报价</span> }));

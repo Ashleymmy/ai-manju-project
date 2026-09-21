@@ -9,6 +9,7 @@ import (
 	"github.com/ai-manju/api/internal/auth"
 	"github.com/ai-manju/api/internal/config"
 	"github.com/ai-manju/api/internal/model"
+	"github.com/ai-manju/api/internal/provider"
 	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/response"
 	"github.com/ai-manju/api/internal/service"
@@ -27,6 +28,42 @@ type MemberHandler struct {
 
 func NewMemberHandler(engine *service.CreditLedgerService, credits repository.CreditRepository, memberships repository.MembershipRepository, billing repository.BillingRepository, invites *service.InviteService, cfg config.Config) *MemberHandler {
 	return &MemberHandler{engine: engine, credits: credits, memberships: memberships, billing: billing, invites: invites, cfg: cfg}
+}
+
+// Quote uses the same server-side price calculation as job reservation. The
+// payload contains parameters only; media contents are never needed for preview.
+func (h *MemberHandler) Quote(c *gin.Context) {
+	var input struct {
+		JobType string      `json:"job_type"`
+		Payload model.JSONB `json:"payload"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		response.Error(c, http.StatusBadRequest, "报价参数格式不正确")
+		return
+	}
+	if !service.ChargeableJobType(input.JobType) {
+		response.Error(c, http.StatusBadRequest, "不支持的报价类型")
+		return
+	}
+	if input.JobType == model.JobTypeImageGenerate || input.JobType == model.JobTypeImageEdit {
+		var body map[string]any
+		if json.Unmarshal(input.Payload, &body) != nil || body == nil {
+			response.Error(c, http.StatusBadRequest, "图片报价参数不能为空")
+			return
+		}
+		parameters, err := service.NormalizeImageGenerationParameters(stringFromAny(body["size"]), stringFromAny(body["quality"]), "")
+		if err != nil {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		body["size"], body["quality"] = parameters.Size, parameters.Quality
+		if input.JobType == model.JobTypeImageEdit && provider.IsGPTImage2Model(stringFromAny(body["model"])) {
+			body["n"] = 1
+		}
+		input.Payload, _ = json.Marshal(body)
+	}
+	credits, _, params, _ := service.NewCreditPricer(h.billing).QuoteForJob(input.JobType, input.Payload)
+	response.OK(c, gin.H{"credits": credits, "params": params})
 }
 
 // Overview 会员首页：当前会员 + 双余额（永久/限时）+ 最近到期 + 本月消耗统计。
@@ -160,7 +197,7 @@ func (h *MemberHandler) PricingRules(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	payload := gin.H{"plans": plans, "packages": packages, "credits_per_yuan": model.CreditsPerYuan}
+	payload := gin.H{"plans": plans, "packages": packages, "credits_per_yuan": model.CreditsPerYuan, "model_prices": service.DefaultModelCreditPrices()}
 	if rules, err := h.billing.GetConfig(model.BillingConfigKeyPricingRules); err == nil {
 		payload["pricing_rules"] = rules.Value
 	}

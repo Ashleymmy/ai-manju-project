@@ -16,7 +16,7 @@ import {
   type SeedanceAsset,
 } from "@/entities/asset";
 import { cancelJob } from "@/entities/job";
-import { estimateVideoCredits, usePricingQuery } from "@/features/member";
+
 import { publicApiError, toastGenerationError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 
@@ -84,7 +84,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   const repositoryRef = useRef<ReturnType<typeof createCloudConversationRepository> | null>(null);
   const [, navigate] = useLocation();
   // 定价规则（参数栏展示约扣积分；pricing_rules 缺失时按文档默认值兜底）。
-  const pricingQuery = usePricingQuery();
+
   const [models, setModels] = useState<string[]>([]);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [config, setConfig] = useState<VideoGenerationConfig>({ model: "", size: "1280x720", resolution: "720p", seconds: "6", generateAudio: true, watermark: false });
@@ -921,6 +921,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
           </section>
           <section className="wb-editor-column">
             <Composer
+              config={effectiveConfig}
               prompt={prompt}
               onPromptChange={setPrompt}
               references={references}
@@ -959,7 +960,6 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
               config={config}
               onChange={setConfig}
               disabled={!ready}
-              pricingRules={pricingQuery.data?.pricing_rules}
             />
           </section>
         </main>

@@ -1,3 +1,4 @@
+import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
 import { RetryImage } from "@/shared/ui/RetryImage";
 import { videoPosterUrl } from "@/shared/ui/VideoThumbnail";
 import { CanvasSeedanceRegistrationButton } from "./CanvasSeedanceRegistrationButton";
@@ -227,7 +228,7 @@ export function CanvasImageToolGrid({
       <button title="垂直翻转当前图片" onClick={() => void flipCanvasImageNode(node, "vertical")} disabled={imageToolBusy}><FlipVertical size={14} /> 垂直翻转</button>
       <button title="放大图片分辨率" onClick={() => openImageToolDialog(node.id, "upscale")} disabled={imageToolBusy}><ZoomIn size={14} /> 放大</button>
       <button title="压缩图片体积" onClick={() => openImageToolDialog(node.id, "compress")} disabled={imageToolBusy}><Minimize2 size={14} /> 压缩</button>
-      <button title="基于原图生成 2:1 全景图" onClick={() => void generatePanoramaCanvasImage(node)} disabled={imageToolBusy}><Images size={14} /> 全景图</button>
+      <button title="基于原图生成 2:1 全景图" onClick={() => void generatePanoramaCanvasImage(node)} disabled={imageToolBusy}><Images size={14} /> 全景图 <CanvasGenerationPrice node={node} edit panorama /></button>
       <button title="基于原图重新生成其他机位" onClick={() => openImageToolDialog(node.id, "angle")} disabled={imageToolBusy}><Camera size={14} /> 多角度</button>
       <button title="AI 超分依赖管理员配置的模型服务" onClick={() => toast.info("AI 超分依赖管理员配置的模型服务，本地暂未实现")}><Sparkles size={14} /> AI 超分</button>
       <button title="把所选图片排成故事板 PNG" onClick={() => generateStoryboard(node)} disabled={storyboardBusy}><GalleryHorizontalEnd size={14} /> 故事板</button>
@@ -574,7 +575,7 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
             }}
             onPointerDown={(event) => event.stopPropagation()}
           >
-            <RotateCcw size={12} /> 重试
+            <RotateCcw size={12} /> 重试 <CanvasGenerationPrice node={node} />
           </button>
         </div>
       ) : null}
@@ -651,7 +652,7 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
               <>
                 <button title="复制" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void duplicateSelectedNode(node.id); }}><Copy size={13} /></button>
                 {node.kind === "director" ? <button title="打开导演台" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void openDirectorNode(node); }}><ArrowRight size={13} /></button> : null}
-                {node.kind === "text" ? <button title="用文本生图" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void generateImageFromTextNode(node); }}><ImageIcon size={13} /></button> : null}
+                {node.kind === "text" ? <button title="用文本生图" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void generateImageFromTextNode(node); }}><ImageIcon size={13} /><CanvasGenerationPrice node={{ ...node, kind: "image", metadata: {} }} /></button> : null}
                 {node.kind === "text" ? (
                   <>
                     <button title="减小字号" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); adjustNodeFontSize(node, -2); }}><Minus size={13} /></button>
@@ -677,11 +678,11 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
                 {preview || node.kind === "text" ? <button title="加入素材库" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void (node.kind === "text" ? archiveCanvasTextNode(node) : archiveCanvasMediaNode(node)); }}><FolderOpen size={13} /></button> : null}
                 {preview ? <button title="下载" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void downloadNodeMedia(node); }}><Download size={13} /></button> : null}
                 {node.metadata?.status === "error" && generationModeFromNode(node) === "image" ? (
-                  <button title="重试生成" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void retryImageNode(node); }}><RotateCcw size={13} /></button>
+                  <button title="重试生成" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void retryImageNode(node); }}><RotateCcw size={13} /><CanvasGenerationPrice node={node} /></button>
                 ) : node.metadata?.status === "error" && generationModeFromNode(node) === "text" ? (
                   <button title="重试文本" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void retryTextNode(node); }}><RotateCcw size={13} /></button>
                 ) : node.metadata?.status === "error" && generationModeFromNode(node) === "video" ? (
-                  <button title="重试视频" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void retryVideoNode(node); }}><RotateCcw size={13} /></button>
+                  <button title="重试视频" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void retryVideoNode(node); }}><RotateCcw size={13} /><CanvasGenerationPrice node={node} /></button>
                 ) : node.metadata?.status === "error" && generationModeFromNode(node) === "audio" ? (
                   <button title="重试音频" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void retryAudioNode(node); }}><RotateCcw size={13} /></button>
                 ) : null}

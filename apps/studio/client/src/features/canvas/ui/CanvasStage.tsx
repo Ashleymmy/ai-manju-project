@@ -1,3 +1,4 @@
+import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
 import {
   Boxes,
   ClipboardPaste,
@@ -360,6 +361,7 @@ export function CanvasStage({
                       <Boxes size={14} />
                       <b>{group.title}</b>
                       <span>{group.nodeIds.length} 节点</span>
+                      <details className="canvas-group-prices" onPointerDown={event => event.stopPropagation()}><summary>积分明细</summary>{nodes.filter(node => group.nodeIds.includes(node.id)).map(node => <div key={node.id}>{node.title} · <CanvasGenerationPrice node={node} /></div>)}</details>
                       <div className="canvas-group-header-actions" onPointerDown={(event) => event.stopPropagation()}>
                         <button type="button" title="批量执行分组" onClick={() => topToolbar.onRunGroup(group.id)} disabled={topToolbar.groupRunning}>
                           {topToolbar.selectedGroupRunning ? <Loader2 className="spin" size={12} /> : <WandSparkles size={12} />}
@@ -562,7 +564,7 @@ export function CanvasStage({
                     {selectedNodeIds.size >= 2 ? <button className="full-outline" onClick={() => { openConnectSelection(); setContextMenu(null); }}>连接所选节点到配置</button> : null}
                     <button className="full-outline" onClick={() => { void duplicateSelectedNode(contextMenu.nodeId!); setContextMenu(null); }}>复制节点</button>
                     {contextMenuNode?.kind === "director" ? <button className="full-outline" onClick={() => { void openDirectorNode(contextMenuNode); setContextMenu(null); }}>打开导演台</button> : null}
-                    {contextMenuNode?.kind !== "director" ? <button className="full-outline" onClick={() => { void generateFromNode(contextMenu.nodeId!); setContextMenu(null); }}>生成当前模式</button> : null}
+                    {contextMenuNode?.kind !== "director" ? <button className="full-outline" onClick={() => { void generateFromNode(contextMenu.nodeId!); setContextMenu(null); }}>生成当前模式 {contextMenuNode && <CanvasGenerationPrice node={contextMenuNode} />}</button> : null}
                     {contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? (
                       <>
                         {renderCanvasSubmenu("image-edit", <Scissors size={14} />, "图片处理", (
@@ -581,7 +583,7 @@ export function CanvasStage({
                         ))}
                         {renderCanvasSubmenu("image-ai", <Sparkles size={14} />, "AI 生成", (
                           <>
-                            <button className="full-outline" onClick={() => { void generatePanoramaCanvasImage(contextMenuNode); setContextMenu(null); }}>生成全景图</button>
+                            <button className="full-outline" onClick={() => { void generatePanoramaCanvasImage(contextMenuNode); setContextMenu(null); }}>生成全景图 <CanvasGenerationPrice node={contextMenuNode} edit panorama /></button>
                             <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "angle"); setContextMenu(null); }}>AI 多角度</button>
                             <button className="full-outline" onClick={() => { toast.info("AI 超分依赖管理员配置的模型服务，本地暂未实现"); setContextMenu(null); }}>AI 超分</button>
                             <button className="full-outline" onClick={() => { void createImageReversePromptNodes(contextMenuNode); setContextMenu(null); }}>反推提示词</button>

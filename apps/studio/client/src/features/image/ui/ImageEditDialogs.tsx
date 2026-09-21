@@ -1,3 +1,4 @@
+import { GenerationPrice } from "@/features/member";
 import { Check, Crop, Expand, Loader2, X, ZoomIn } from "lucide-react";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
@@ -124,7 +125,7 @@ export function UpscaleDialog({
         <DialogFooter>
           <button type="button" className="outline-button" onClick={onClose} disabled={busy}><X size={15} /> 取消</button>
           <button type="button" className="vermilion-button" onClick={() => onRun(longEdge, algorithm)} disabled={busy}>
-            {busy ? <Loader2 className="spin" size={13} /> : <Check size={15} />} {busy ? "处理中…" : "开始超分"}
+            {busy ? <Loader2 className="spin" size={13} /> : <Check size={15} />} {busy ? "处理中…" : "开始超分"} <GenerationPrice kind="free" />
           </button>
         </DialogFooter>
       </DialogContent>
@@ -135,11 +136,14 @@ export function UpscaleDialog({
 /* ===================== 扩图（AI 外扩） ===================== */
 
 export function OutpaintDialog({
+  model, quality,
   open,
   busy,
   onClose,
   onRun,
 }: {
+  model?: string;
+  quality?: string;
   open: boolean;
   busy: boolean;
   onClose: () => void;
@@ -174,7 +178,7 @@ export function OutpaintDialog({
         <DialogFooter>
           <button type="button" className="outline-button" onClick={onClose} disabled={busy}><X size={15} /> 取消</button>
           <button type="button" className="vermilion-button" onClick={() => onRun({ top: top / 100, right: right / 100, bottom: bottom / 100, left: left / 100 }, prompt.trim() || "延展画面边缘，保持主体、光线、材质和画风一致")} disabled={busy}>
-            {busy ? <Loader2 className="spin" size={13} /> : <Check size={15} />} {busy ? "生成中…" : "开始扩图"}
+            {busy ? <Loader2 className="spin" size={13} /> : <Check size={15} />} {busy ? "生成中…" : "开始扩图"} <GenerationPrice model={model} quality={quality} size="auto" references={1} />
           </button>
         </DialogFooter>
       </DialogContent>

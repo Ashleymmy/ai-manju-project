@@ -1,4 +1,6 @@
 export { default } from "./MemberPage";
+export { GenerationPrice, CreditBalance } from "./ui/GenerationPrice";
+export type { GenerationPriceProps } from "./ui/GenerationPrice";
 export { memberTabFromLocation, memberTabPaths, memberTabs } from "./model/routes";
 export type { MemberTab } from "./model/routes";
 export { discountLabel, formatCents, formatCredits, formatDateTime, daysUntil, taskTypeLabel } from "./model/format";

@@ -1,6 +1,6 @@
 import { modelOptions } from "@/shared/lib/modelSelection";
 import { VideoDurationInput } from "@/shared/ui/VideoDurationInput";
-import { estimateVideoCredits, type PricingRulesConfig } from "@/features/member";
+import type { PricingRulesConfig } from "@/features/member";
 
 import {
   isSeedanceFastVideoModel,
@@ -33,9 +33,6 @@ export function ParamsBar({
   const fastSeedance = isSeedanceFastVideoModel(normalized.model);
   const ratios = seedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes;
   const durations = seedance ? videoModelSettings.seedanceDurations : videoModelSettings.openAiDurations;
-  const seconds = Number.parseInt(normalized.seconds, 10) || 0;
-  const costEstimate = seconds > 0 ? estimateVideoCredits(pricingRules, seconds, fastSeedance) : null;
-
   const patch = (partial: Partial<VideoGenerationConfig>) => onChange(normalizeVideoGenerationConfig({ ...normalized, ...partial }));
 
   return (
@@ -102,12 +99,7 @@ export function ParamsBar({
           >水印</button>
         </div>
       </div>
-      {costEstimate !== null ? (
-        <div className="wb-param-group wb-param-cost">
-          <span className="wb-param-label">约扣积分</span>
-          <span className="wb-cost-value">{costEstimate}</span>
-        </div>
-      ) : null}
+
     </div>
   );
 }

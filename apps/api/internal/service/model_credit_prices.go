@@ -1,0 +1,182 @@
+package service
+
+import (
+	"math"
+	"strings"
+
+	"github.com/ai-manju/api/internal/model"
+)
+
+// ModelCreditPrices is the confirmed 2026-09 membership price sheet. Prices are
+// credits, not supplier costs. Half credits are rounded only after summing a job.
+type ModelCreditPrices struct {
+	Images         map[string]map[string][]float64 `json:"images"`
+	Videos         map[string]map[string][]float64 `json:"videos"`
+	ImageReference float64                         `json:"image_reference"`
+	Qualities      []string                        `json:"qualities"`
+}
+
+// Video tuples are [without reference, with reference, reference-second surcharge].
+// Seedance 1.5 tuples instead select [silent, audio, 0].
+func DefaultModelCreditPrices() ModelCreditPrices {
+	return ModelCreditPrices{
+		Qualities: []string{"low", "medium", "high", "xhigh", "max"}, ImageReference: 20,
+		Images: map[string]map[string][]float64{
+			"gpt-image-2.5-sunburst": {"1k": {5, 10, 35, 60, 130}, "2k": {15, 30, 130, 230, 515}, "4k": {30, 65, 260, 460, 1030}},
+			"gpt-image-2.5-flare":    {"1k": {5, 10, 35, 60, 130}, "2k": {15, 30, 130, 230, 515}, "4k": {30, 65, 260, 460, 1030}},
+			"gpt-image-1":            {"1k": {8, 32, 120}, "2k": {20, 120, 480}, "4k": {28, 240, 1000}},
+			"gpt-image-1.5":          {"1k": {9, 36, 135}, "2k": {22.5, 135, 540}, "4k": {31.5, 270, 1125}},
+			"gpt-image-2":            {"1k": {10, 40, 150}, "2k": {25, 150, 600}, "4k": {35, 300, 1250}},
+		},
+		Videos: map[string]map[string][]float64{
+			"minimax-h3":        {"768p": {40, 40, 40}, "2k": {60, 60, 60}},
+			"seedance-1.5-pro":  {"480p": {10, 20, 0}, "720p": {20, 45, 0}, "1080p": {50, 100, 0}},
+			"seedance-2.0":      {"480p": {60, 80, 0}, "720p": {110, 160, 0}, "1080p": {300, 380, 0}, "4k": {600, 800, 0}},
+			"seedance-2.0-fast": {"480p": {20, 30, 0}, "720p": {45, 65, 0}, "1080p": {85, 105, 0}, "2k": {120, 140, 0}, "4k": {195, 215, 0}},
+			"seedance-2.0-mini": {"480p": {15, 20, 0}, "720p": {30, 40, 0}},
+			"seedance-2.5":      {"480p": {85, 85, 65}, "720p": {195, 195, 135}, "1080p": {485, 485, 325}},
+			"wan-3.0":           {"480p": {20, 20, 20}, "720p": {40, 40, 40}},
+			"wan-3.0-prime":     {"480p": {30, 30, 30}, "720p": {60, 60, 60}},
+		},
+	}
+}
+
+func creditModelName(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if parts := strings.Split(value, "::"); len(parts) > 1 {
+		value = parts[len(parts)-1]
+	}
+	value = strings.TrimPrefix(value, "sdvideo/")
+	value = strings.TrimPrefix(value, "doubao-")
+	value = strings.ReplaceAll(value, "seedance-2-0", "seedance-2.0")
+	value = strings.ReplaceAll(value, "seedance-1-5", "seedance-1.5")
+	value = strings.ReplaceAll(value, "seedance-2-5", "seedance-2.5")
+	value = strings.ReplaceAll(value, "wan3.0", "wan-3.0")
+	if value == "wan-3.0-video" {
+		return "wan-3.0"
+	}
+	if value == "wan-3.0-video-prime" {
+		return "wan-3.0-prime"
+	}
+	// Dated supplier IDs are aliases of the same published model.
+	for _, name := range []string{"seedance-2.0-fast", "seedance-2.0-mini", "seedance-2.0", "seedance-1.5-pro", "seedance-2.5"} {
+		if value == name || strings.HasPrefix(value, name+"-") {
+			return name
+		}
+	}
+	return value
+}
+
+func imageCreditResolution(size string) string {
+	size = strings.ToLower(size)
+	if size == "1k" || size == "2k" || size == "4k" {
+		return size
+	}
+	w, h, ok := parseImageGenerationDimensions(size)
+	if !ok || w <= 0 || h <= 0 {
+		return ""
+	}
+	// Pixel budgets match the canvas (16 px alignment can round just above 1 MP).
+	if w*h <= 1024*1024*105/100 {
+		return "1k"
+	}
+	if w*h <= 2048*2048*105/100 {
+		return "2k"
+	}
+	return "4k"
+}
+
+func (p *CreditPricer) modelPrice(jobType string, body map[string]any, params map[string]any) (float64, bool) {
+	catalog := DefaultModelCreditPrices()
+	name := creditModelName(jsonString(body["model"]))
+	params["pricing_model"] = name
+	params["pricing_source"] = "legacy"
+	if jobType == model.JobTypeImageGenerate || jobType == model.JobTypeImageEdit {
+		quality := jsonString(body["quality"])
+		if quality == "standard" {
+			quality = "low"
+		}
+		if quality == "hd" {
+			quality = "high"
+		}
+		resolution := imageCreditResolution(jsonString(body["size"]))
+		prices := catalog.Images[name][resolution]
+		index := -1
+		for i, q := range catalog.Qualities {
+			if q == quality {
+				index = i
+			}
+		}
+		refs := 0
+		if items, ok := body["references"].([]any); ok {
+			for _, item := range items {
+				if file, ok := item.(map[string]any); ok && jsonString(file["field_name"]) == "mask" {
+					continue
+				}
+				refs++
+			}
+		}
+		count := max(int64(1), jsonInt64(body["n"], 1))
+		params["quality"], params["resolution"], params["reference_count"] = quality, resolution, refs
+		if index < 0 || index >= len(prices) {
+			minimum, maximum := math.Inf(1), float64(0)
+			for res, variants := range catalog.Images[name] {
+				if resolution != "" && resolution != res {
+					continue
+				}
+				for i, price := range variants {
+					if index >= 0 && index != i {
+						continue
+					}
+					minimum, maximum = math.Min(minimum, price), math.Max(maximum, price)
+				}
+			}
+			if !math.IsInf(minimum, 1) {
+				params["range_min"] = roundCreditTotal((minimum + float64(refs)*catalog.ImageReference) * float64(count))
+				params["range_max"] = roundCreditTotal((maximum + float64(refs)*catalog.ImageReference) * float64(count))
+			}
+			return 0, false
+		}
+		params["pricing_source"] = "membership_price_sheet"
+		return (prices[index] + float64(refs)*catalog.ImageReference) * float64(count), true
+	}
+	resolution := strings.ToLower(jsonString(body["resolution"]))
+	prices := catalog.Videos[name][resolution]
+	if len(prices) != 3 {
+		return 0, false
+	}
+	hasRef := false
+	if content, ok := body["content"].([]any); ok {
+		for _, raw := range content {
+			if item, ok := raw.(map[string]any); ok && jsonString(item["type"]) == "video_url" {
+				hasRef = true
+			}
+		}
+	}
+	// Duration-based reference surcharges require measured media duration. Do not
+	// substitute an invented duration or silently omit that fee from an exact quote.
+	if hasRef && prices[2] > 0 {
+		params["per_second"] = prices[1]
+		params["reference_per_second"] = prices[2]
+		return 0, false
+	}
+	index := 0
+	if hasRef {
+		index = 1
+	}
+	if name == "seedance-1.5-pro" {
+		index = 0
+		if audio, _ := body["generate_audio"].(bool); audio {
+			index = 1
+		}
+	}
+	duration := jsonInt64(body["duration"], 0)
+	params["per_second"] = prices[index]
+	if duration <= 0 {
+		return 0, false
+	}
+	params["pricing_source"] = "membership_price_sheet"
+	return prices[index] * float64(duration), true
+}
+
+func roundCreditTotal(value float64) int64 { return int64(math.Ceil(value)) }

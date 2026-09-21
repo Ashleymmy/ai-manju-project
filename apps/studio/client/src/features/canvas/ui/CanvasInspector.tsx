@@ -1,3 +1,4 @@
+import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
 import { CanvasSeedanceRegistrationButton } from "./CanvasSeedanceRegistrationButton";
 import type { SeedanceRegistrationState } from "../services/seedanceRegistration";
 import {
@@ -355,6 +356,7 @@ export function CanvasInspector({
                   ))}
                 </div>
               </div>
+              <div className="text-xs">{nodes.filter(node => selectedGroup.nodeIds.includes(node.id)).map(node => <div key={node.id}>{node.title} · <CanvasGenerationPrice node={node} /></div>)}</div>
               <button className="full-outline" onClick={() => void runCanvasGroupGeneration(selectedGroup.id)} disabled={Boolean(runningGroupId)}>{runningGroupId === selectedGroup.id ? <Loader2 className="spin" size={16} /> : <WandSparkles size={16} />} 批量执行分组</button>
               <button className="full-outline" onClick={() => ungroupCanvasGroup(selectedGroup.id)}><Ungroup size={16} /> 解散分组</button>
             </>
@@ -537,7 +539,8 @@ export function CanvasInspector({
                   </PopoverContent>
                 </Popover>
                 <div className="node-card-primary">
-                  {/* 数量/积分 chip 挪到生成按钮旁 */}
+                  <CanvasGenerationPrice node={selectedNode} />
+                  {/* 数量独立于本次积分报价 */}
                   <Popover key={`${selectedNode.id}:count`} active={inspectorOpen && !projectActionDisabled}>
                     <PopoverTrigger asChild>
                       <button type="button" className="node-chip node-credit-chip" title="生成数量 · 积分按类型与规格计费，成功才扣费"><Zap size={12} /> ×{imageCountFromNode(selectedNode)}</button>

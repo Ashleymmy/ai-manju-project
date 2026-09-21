@@ -135,3 +135,5 @@ describe("comic creation uses the real catalog and analysis workflow", () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull();
   });
 });
+
+vi.mock("@/features/member", async original => ({ ...(await original<typeof import("@/features/member")>()), GenerationPrice: () => <span>报价</span> }));

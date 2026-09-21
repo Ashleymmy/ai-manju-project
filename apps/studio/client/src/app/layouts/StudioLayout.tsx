@@ -1,3 +1,4 @@
+import { CreditBalance } from "@/features/member";
 import {
   Box,
   ChevronRight,
@@ -846,6 +847,7 @@ function TopBar({ path }: { path: string; runningJobs?: number }) {
           <Plus size={17} /> 新建画布
         </button>
         */}
+        <CreditBalance />
         <TopUserCard />
       </div>
     </header>

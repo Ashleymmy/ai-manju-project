@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { GenerationPrice } from "@/features/member";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { getAssetContentObjectUrl } from "@/entities/asset";
@@ -116,11 +117,13 @@ function ComicOutputImage({
 }
 
 function ComicBatchItem({
+  batch,
   item,
   scope,
   busy,
   onRetry,
 }: {
+  batch: ComicBatchDetail["batch"];
   item: ComicGenerationItem;
   scope: WorkspaceScope;
   busy: boolean;
@@ -196,7 +199,7 @@ function ComicBatchItem({
       )}
       {item.status === "failed" && (
         <button className="comic-item-retry" disabled={busy} onClick={onRetry}>
-          重试此项
+          重试此项 <ComicItemPrice item={item} batch={batch} />
         </button>
       )}
     </article>
@@ -284,7 +287,7 @@ export function ComicBatchPanel({
             disabled={busy || batch.status === "stopping"}
             onClick={onRetryFailed}
           >
-            重试失败
+            重试失败（逐项计费，见下方）
           </button>
         )}
         <button disabled={busy || refreshing} onClick={onRefresh}>
@@ -294,6 +297,7 @@ export function ComicBatchPanel({
       <div className="comic-batch-result-list">
         {items.map(item => (
           <ComicBatchItem
+            batch={batch}
             key={item.id}
             item={item}
             scope={scope}
@@ -304,4 +308,9 @@ export function ComicBatchPanel({
       </div>
     </section>
   );
+}
+
+function ComicItemPrice({ item, batch }: { item: ComicGenerationItem; batch: ComicBatchDetail["batch"] }) {
+  const snapshot = item.config_snapshot;
+  return <GenerationPrice model={snapshot?.model || batch.model} size={snapshot?.size ?? batch.size} quality={snapshot?.quality ?? batch.quality} references={snapshot?.reference_asset_ids?.length ?? 0} />;
 }

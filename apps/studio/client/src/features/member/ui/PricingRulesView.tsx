@@ -1,3 +1,4 @@
+import { ModelPricingTable } from "./ModelPricingTable";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
@@ -37,13 +38,6 @@ export function PricingRulesView({ pricingQuery }: { pricingQuery: UseQueryResul
   const pricing = pricingQuery.data;
   if (!pricing) return <LoadingBlock />;
 
-  const rules = pricing.pricing_rules;
-  const imageSmall = rules?.image?.small_512 || DEFAULT_PRICING.image.small_512;
-  const imageStandard = rules?.image?.standard_1024 || DEFAULT_PRICING.image.standard_1024;
-  const imageLarge = rules?.image?.large || DEFAULT_PRICING.image.large;
-  const videoFast = rules?.video_fast?.per_second || DEFAULT_PRICING.videoFastPerSecond;
-  const videoStandard = rules?.video_standard?.per_second || DEFAULT_PRICING.videoStandardPerSecond;
-  const agentStoryboard = rules?.agent_skill?.per_call || DEFAULT_PRICING.agentStoryboard;
   const plans = (pricing.plans || []).filter(plan => plan.enabled);
   const creditsPerYuan = pricing.credits_per_yuan || 100;
 
@@ -57,47 +51,8 @@ export function PricingRulesView({ pricingQuery }: { pricingQuery: UseQueryResul
         </ol>
       </RuleSection>
 
-      <RuleSection title="图片资产生成（按张计费）">
-        <div className="member-table">
-          <div className="member-table-head member-price-row">
-            <span>图片类型</span>
-            <span>规格</span>
-            <span>消耗积分/张</span>
-          </div>
-          {[
-            ["普通漫剧图", "512 × 512", imageSmall],
-            ["高清漫剧图", "1024 × 1024", imageStandard],
-            ["角色多视角图", "1024 × 1024", imageLarge],
-            ["风格迁移", "1024 × 1024", DEFAULT_PRICING.styleTransfer],
-          ].map(([name, spec, price]) => (
-            <div key={String(name)} className="member-table-row member-price-row">
-              <span>{name}</span>
-              <span>{spec}</span>
-              <span className="member-cell-num">{formatCredits(price as number)}</span>
-            </div>
-          ))}
-        </div>
-      </RuleSection>
-
-      <RuleSection title="视频渲染（按秒计费）">
-        <div className="member-table">
-          <div className="member-table-head member-price-row">
-            <span>视频模型</span>
-            <span>分辨率</span>
-            <span>消耗积分/秒</span>
-          </div>
-          {[
-            ["漫剧 Fast 快速渲染", "720P / 1080P", videoFast],
-            ["漫剧标准版", "720P / 1080P", videoStandard],
-          ].map(([name, spec, price]) => (
-            <div key={String(name)} className="member-table-row member-price-row">
-              <span>{name}</span>
-              <span>{spec}</span>
-              <span className="member-cell-num">{formatCredits(price as number)}</span>
-            </div>
-          ))}
-        </div>
-        <p className="member-tip">示例：10 秒 Fast-720P 视频 = {formatCredits(videoFast * 10)} 积分。</p>
+      <RuleSection title="模型积分价目表">
+        <ModelPricingTable prices={pricing.model_prices} />
       </RuleSection>
 
       <RuleSection title="Agent / 技能调用（按次计费）">
@@ -109,8 +64,8 @@ export function PricingRulesView({ pricingQuery }: { pricingQuery: UseQueryResul
           </div>
           {[
             ["智能剧本创作", "剧本生成与润色", "免费使用"],
-            ["漫剧导演 Agent 生成分镜节点树", "每次调用", `${formatCredits(agentStoryboard)} / 次`],
-            ["剧本直出美术资产提示词", "每次调用", `${formatCredits(DEFAULT_PRICING.agentPrompt)} / 次`],
+            ["漫剧导演 Agent 生成分镜节点树", "每次调用", "免费"],
+            ["剧本直出美术资产提示词", "每次调用", "免费"],
             ["角色音色定制", "每个角色", `${formatCredits(DEFAULT_PRICING.agentVoice)} / 次`],
             ["一键导入剪映 / 剪映精剪 / 成品输出", "导出能力", "免费使用"],
           ].map(([name, spec, price]) => (

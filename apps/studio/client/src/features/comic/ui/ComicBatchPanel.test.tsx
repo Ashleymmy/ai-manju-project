@@ -132,3 +132,4 @@ describe("comic batch feedback", () => {
     expect(container.querySelector("img")).not.toBeNull();
   });
 });
+vi.mock("@/features/member", async original => ({ ...(await original<typeof import("@/features/member")>()), GenerationPrice: () => <span>报价</span> }));

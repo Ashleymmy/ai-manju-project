@@ -38,7 +38,7 @@ import {
 import { createProject } from "@/entities/project";
 import type { PromptPreset } from "@/entities/prompt";
 import { usePreferencesQuery } from "@/features/settings";
-import { estimateImageCredits, usePricingQuery } from "@/features/member";
+import { GenerationPrice } from "@/features/member";
 import { publicApiError, toastGenerationError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 import PromptLibraryDialog from "@/components/PromptLibraryDialog";
@@ -152,7 +152,7 @@ export function ImageWorkbenchView() {
   const [height, setHeight] = useState(1024);
   const [align16, setAlign16] = useState(true);
   // 定价规则（生成按钮旁展示约扣积分；pricing_rules 缺失时按文档默认值兜底）。
-  const pricingQuery = usePricingQuery();
+
   const [prompt, setPrompt] = useState("雨夜，狭长街道，潮湿沥青反射红色招牌；人物在画面右侧停留，低机位缓慢推近，电影级冷暖对比。");
   const [promptPresets, setPromptPresets] = useState<PromptPreset[]>([]);
   const [promptLibraryOpen, setPromptLibraryOpen] = useState(false);
@@ -837,13 +837,13 @@ export function ImageWorkbenchView() {
           {generating && <button className="outline-button small" onClick={stopGeneration}><Square size={14} /> 停止</button>}
           {!generating ? (
             <small className="generate-cost-hint">
-              约 {estimateImageCredits(pricingQuery.data?.pricing_rules, width, height, count)} 积分 · 成功才扣费
+              <GenerationPrice model={model} size={workbenchRequestSize(size, snapPixelSizeForModel(model, clampImagePixelSize({ width, height }, align16)).width, snapPixelSizeForModel(model, clampImagePixelSize({ width, height }, align16)).height, align16)} quality={resolveImageWorkbenchRequestOptions(size, quality).quality} count={count} references={references.length} /> · 成功才扣费
             </small>
           ) : null}
         </div>
       </section>
       <aside className="generation-output">
-        <div className="output-heading"><div><p className="eyebrow">RESULTS / {String(result.length).padStart(2, "0")}</p><h3>{generating ? "任务执行中" : result.length ? "本次落点" : "等待落点"}</h3>{jobId && <small>JOB · {jobId}</small>}</div>{result.length > 0 && !generating && <button className="outline-button small" onClick={() => void generate(1)}><RefreshCcw size={13} /> 重试一张</button>}</div>
+        <div className="output-heading"><div><p className="eyebrow">RESULTS / {String(result.length).padStart(2, "0")}</p><h3>{generating ? "任务执行中" : result.length ? "本次落点" : "等待落点"}</h3>{jobId && <small>JOB · {jobId}</small>}</div>{result.length > 0 && !generating && <button className="outline-button small" onClick={() => void generate(1)}><RefreshCcw size={13} /> 重试一张 <GenerationPrice model={model} size={workbenchRequestSize(size, snapPixelSizeForModel(model, clampImagePixelSize({ width, height }, align16)).width, snapPixelSizeForModel(model, clampImagePixelSize({ width, height }, align16)).height, align16)} quality={resolveImageWorkbenchRequestOptions(size, quality).quality} count={1} references={references.length} /></button>}</div>
         {generating ? (
           <div className="result-stage generating">
             <div className="generation-waiting">
@@ -903,7 +903,7 @@ export function ImageWorkbenchView() {
       />
     )}
     <UpscaleDialog open={upscaleOpen} busy={editBusy} onClose={() => setUpscaleOpen(false)} onRun={(targetLongEdge, algorithm) => void runUpscale(targetLongEdge, algorithm)} />
-    <OutpaintDialog open={outpaintOpen} busy={generating} onClose={() => setOutpaintOpen(false)} onRun={(margins, promptText) => void runOutpaint(margins, promptText)} />
+    <OutpaintDialog model={model} quality={quality} open={outpaintOpen} busy={generating} onClose={() => setOutpaintOpen(false)} onRun={(margins, promptText) => void runOutpaint(margins, promptText)} />
     <CropDialog open={cropOpen} imageUrl={editUrl} busy={editBusy} onClose={() => setCropOpen(false)} onRun={(rect) => void runCrop(rect)} />
     <HistoryPreviewDialog
       asset={historyPreview}

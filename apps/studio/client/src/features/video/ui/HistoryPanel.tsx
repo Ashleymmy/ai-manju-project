@@ -1,3 +1,4 @@
+import { VideoRetryPrice } from "./VideoRetryPrice";
 import { Film, RotateCcw } from "lucide-react";
 
 import type {
@@ -41,7 +42,7 @@ export function HistoryPanel({
             </button>
             {message.taskStatus === "failed" || message.taskStatus === "canceled" ? (
               <button type="button" className="outline-button small" onClick={() => onRetry(conversation.id, message)}>
-                <RotateCcw size={13} /> 重试
+                <RotateCcw size={13} /> 重试 <VideoRetryPrice message={message} messages={conversation.messages} />
               </button>
             ) : null}
           </div>

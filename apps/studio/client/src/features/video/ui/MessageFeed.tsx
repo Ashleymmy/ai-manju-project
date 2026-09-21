@@ -1,3 +1,4 @@
+import { VideoRetryPrice } from "./VideoRetryPrice";
 import { VideoThumbnail } from "@/shared/ui/VideoThumbnail";
 import { Download, Film, Image as ImageIcon, Loader2, Music2, Pencil, RotateCcw, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -66,6 +67,7 @@ export function MessageFeed({
         />
       ) : (
         <SystemTaskCard
+          messages={messages}
           key={message.id}
           message={message}
           runtime={taskRuntime[message.id] || {}}
@@ -114,6 +116,7 @@ function UserBubble({
 }
 
 function SystemTaskCard({
+  messages,
   message,
   runtime,
   resultUrlFor,
@@ -122,6 +125,7 @@ function SystemTaskCard({
   onRetry,
   onDownload,
 }: {
+  messages: VideoWorkbenchMessage[];
   message: VideoWorkbenchMessage;
   runtime: WorkbenchTaskRuntime;
   resultUrlFor: (message: VideoWorkbenchMessage) => string;
@@ -164,10 +168,10 @@ function SystemTaskCard({
         {status === "failed" ? (
           <div className="wb-task-error">
             <p>{runtime.error || message.taskError || "视频生成失败"}</p>
-            <button type="button" onClick={() => onRetry(message)}><RotateCcw size={12} /> 重试</button>
+            <button type="button" onClick={() => onRetry(message)}><RotateCcw size={12} /> 重试 <VideoRetryPrice message={message} messages={messages} /></button>
           </div>
         ) : null}
-        {status === "canceled" ? <div className="wb-task-error"><p>任务已取消</p><button type="button" onClick={() => onRetry(message)}><RotateCcw size={12} /> 重试</button></div> : null}
+        {status === "canceled" ? <div className="wb-task-error"><p>任务已取消</p><button type="button" onClick={() => onRetry(message)}><RotateCcw size={12} /> 重试 <VideoRetryPrice message={message} messages={messages} /></button></div> : null}
         {status === "succeeded" && videoUrl ? (
           <div className="wb-task-video" onClick={() => onOpenMedia(videoUrl, "video")} role="button" tabIndex={0}
             onKeyDown={(event) => { if (event.key === "Enter") onOpenMedia(videoUrl, "video"); }}>

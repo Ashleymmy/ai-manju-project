@@ -281,6 +281,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			memberRoutes.GET("/consumptions", memberHandler.ListMyConsumptions)
 			memberRoutes.GET("/invite", memberHandler.InviteOverview)
 			memberRoutes.GET("/pricing", memberHandler.PricingRules)
+			memberRoutes.POST("/quote", memberHandler.Quote)
 			memberRoutes.GET("/gifts", memberHandler.GiftPacks)
 			memberRoutes.POST("/redeem", redemptionHandler.Redeem)
 		}
