@@ -1,4 +1,5 @@
 import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
+import { imageModelSupportsDetail } from "@/entities/model/imageProtocol";
 import { CanvasSeedanceRegistrationButton } from "./CanvasSeedanceRegistrationButton";
 import type { SeedanceRegistrationState } from "../services/seedanceRegistration";
 import {
@@ -505,13 +506,13 @@ export function CanvasInspector({
                           </button>
                         </div>
                       </div>
-                      <div className="param-group"><span className="param-group-label">精细度</span>
+                      {imageModelSupportsDetail(selectedGenerationModel) ? <div className="param-group"><span className="param-group-label">精细度</span>
                         <div className="param-segments">
                           {[["low", "低"], ["medium", "中"], ["high", "高"]].map(([value, label]) => (
                             <button key={value} type="button" className={qualityFromNode(selectedNode) === value ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), quality: value } })}>{label}</button>
                           ))}
                         </div>
-                      </div>
+                      </div> : <p className="param-group-label">此模型自动控制精细度，可调整分辨率和比例。</p>}
                     </> : null}
                     {selectedVideoConfig ? <>
                       <div className="param-group"><span className="param-group-label">时长 <b>{selectedVideoConfig.seconds === "-1" ? "自动" : `${selectedVideoConfig.seconds} 秒`}</b></span>

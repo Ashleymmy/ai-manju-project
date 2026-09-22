@@ -1,6 +1,7 @@
 import { modelDisplayName, pickDefaultImageModel, visibleImageModels } from "@/shared/lib/modelSelection";
 import { request } from "@/shared/api/http";
 import { replaceVideoModelProtocols } from "./videoProtocol";
+import { replaceImageModelProtocols } from "./imageProtocol";
 
 import type {
   AiModelsResponse,
@@ -14,6 +15,7 @@ export async function fetchModelCatalog(): Promise<ModelCatalog> {
   const data = await request<AiModelsResponse>("/api/ai/models");
   const modelLabels = normalizeStringRecord(data.model_labels);
   replaceVideoModelProtocols(data.video_model_protocols, modelLabels);
+  replaceImageModelProtocols(data.image_model_protocols);
   const models = normalizeModelList(data.models);
   const textModels = normalizeModelList(
     data.text_models ?? data.models
@@ -78,6 +80,7 @@ export async function fetchImageModelCatalog(
 ): Promise<CapabilityModelCatalog> {
   const { normalizeMetadata = true } = options;
   const data = await request<AiModelsResponse>("/api/ai/models");
+  replaceImageModelProtocols(data.image_model_protocols);
   const defaultModel = normalizeModelValue(data.default_image_model);
   const models = visibleImageModels(normalizeModelList([
     ...(data.image_models || []),

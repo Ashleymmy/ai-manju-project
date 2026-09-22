@@ -608,7 +608,7 @@ export class CanvasGenerationJobsController {
           requestPrompt: diversifyCanvasBatchImagePrompt(prompt, slot.index, slot.count, seed),
           seed,
           model: modelFromNode(target, this.bindings.getImageModel()),
-          ...canvasImageGenerationSettings(target),
+          ...canvasImageGenerationSettings(target, undefined, modelFromNode(target, this.bindings.getImageModel())),
           referenceFiles: files,
         });
       } finally {
@@ -1047,7 +1047,7 @@ export class CanvasGenerationJobsController {
       ? Array.from({ length: count - 1 }, () => this.services.createId())
       : [];
     const targetIds = [rootId, ...childIds];
-    const { size, quality, imageResolution } = canvasImageGenerationSettings(sourceNode);
+    const { size, quality, imageResolution } = canvasImageGenerationSettings(sourceNode, undefined, model);
     const generationRevisions = reuseSourceNode
       ? appendCanvasGenerationRevision(sourceNode, this.services.createId())
       : sourceNode.metadata?.generationRevisions;
@@ -1068,7 +1068,7 @@ export class CanvasGenerationJobsController {
     // The request keeps the clicked settings, while choices edited during
     // reference loading remain available for the user's next generation.
     const currentSourceNode = this.bindings.getNodes().find(node => node.id === sourceNode.id) || sourceNode;
-    const currentImageSettings = canvasImageGenerationSettings(currentSourceNode);
+    const currentImageSettings = canvasImageGenerationSettings(currentSourceNode, undefined, modelFromNode(currentSourceNode, model));
     const rootNode: CanvasNodeData = {
       ...(reuseSourceNode ? sourceNode : {
         id: rootId,
@@ -1924,7 +1924,7 @@ export class CanvasGenerationJobsController {
           scope,
           prompt: stringValue(node.metadata?.prompt) || node.content,
           model: modelFromNode(node, this.bindings.getImageModel()),
-          ...canvasImageGenerationSettings(node),
+          ...canvasImageGenerationSettings(node, undefined, modelFromNode(node, this.bindings.getImageModel())),
           referenceFiles: [],
           existingJobId: jobId,
         });

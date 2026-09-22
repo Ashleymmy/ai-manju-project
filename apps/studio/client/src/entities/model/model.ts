@@ -14,6 +14,7 @@ export type AiModelsResponse = {
   model_labels?: Record<string, string>;
   model_provider_names?: Record<string, string>;
   video_model_protocols?: Record<string, "seedance" | "openai">;
+  image_model_protocols?: Record<string, string>;
 };
 
 export type CapabilityModelCatalog = {

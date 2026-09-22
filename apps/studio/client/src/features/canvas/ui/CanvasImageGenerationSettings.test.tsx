@@ -10,7 +10,7 @@ describe("canvas image parameter controls", () => {
   let root: Root;
   let container: HTMLDivElement;
   const submit = vi.fn();
-  function Harness() {
+  function Harness({ model = "gpt-image-2" }: { model?: string }) {
     const [node, setNode] = useState<CanvasNodeData>({
       id: "character", kind: "image", title: "人物", content: "发丝清晰", x: 0, y: 0, width: 320, height: 240,
       metadata: { imageResolution: "1K", size: "auto", quality: "low" },
@@ -18,11 +18,11 @@ describe("canvas image parameter controls", () => {
     const actions = {
       node: { mentionReferencesForNode: () => [] },
       updateNode: (_id: string, patch: Partial<CanvasNodeData>) => setNode(current => ({ ...current, ...patch })),
-      generateFromNode: () => submit(canvasImageGenerationSettings(node)),
+      generateFromNode: () => submit(canvasImageGenerationSettings(node, undefined, model)),
     } as unknown as CanvasInspectorProps["actions"];
     return <CanvasInspector panelRef={createRef()} selectedNode={node} inspectorOpen projectActionDisabled={false}
       selectedPanelStyle={{ display: "block" }} nodes={[node]} edges={[]} previews={{}} visiblePromptPresets={[]}
-      imageToolBusy={false} storyboardBusy={false} selectedGenerationMode="image" selectedGenerationModel="gpt-image-2"
+      imageToolBusy={false} storyboardBusy={false} selectedGenerationMode="image" selectedGenerationModel={model}
       selectedGenerationModelLabel="GPT Image" generationModelOptions={[]} selectedVideoConfig={null}
       selectedVideoSeedance={false} selectedVideoDurations={[]} selectedVideoResolutions={[]} selectedVideoRatios={[]}
       selectedAudioConfig={null} audioVoiceOptions={[]} audioFormatOptions={[]} runningGroupId="" runningNodeIds={new Set()}
@@ -63,6 +63,15 @@ describe("canvas image parameter controls", () => {
     expect(document.body.textContent).toContain("请求尺寸：2304 × 1728 px");
     await act(async () => generate!.click());
     expect(submit).toHaveBeenLastCalledWith({ size: "2304x1728", quality: "high", imageResolution: "2K" });
+  });
+  it("shows automatic detail for Nano Banana while keeping resolution controls", async () => {
+    await act(async () => root.render(<Harness model="sx::gemini-3-pro-image" />));
+    await click("参数");
+    expect(document.body.textContent).toContain("此模型自动控制精细度");
+    expect(Array.from(document.querySelectorAll("button")).some(item => item.textContent?.trim() === "高")).toBe(false);
+    await click("2K");
+    await act(async () => container.querySelector<HTMLButtonElement>(".node-send-button")!.click());
+    expect(submit).toHaveBeenLastCalledWith({ size: "2048x2048", quality: "auto", imageResolution: "2K" });
   });
 });
 

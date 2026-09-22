@@ -22,5 +22,5 @@ export function CanvasGenerationPrice({ node, edit = false, panorama = false, co
   const tasks = retry ? node.metadata?.isBatchRoot
     ? context.nodes.filter(item => (item.id === node.id || node.metadata?.batchChildIds?.includes(item.id)) && item.metadata?.status === "error").length : 1
     : imageCountFromNode(node);
-  return <GenerationPrice model={modelFromNode(node, context.imageModel)} {...canvasImageGenerationSettings(node, panorama ? "2:1" : undefined)} references={edit ? 1 : retry ? node.metadata?.referenceInputs?.length ?? 0 : refs.filter(ref => ref.kind === "image").length} tasks={edit ? 1 : tasks} compact={compact} />;
+  return <GenerationPrice model={modelFromNode(node, context.imageModel)} {...canvasImageGenerationSettings(node, panorama ? "2:1" : undefined, modelFromNode(node, context.imageModel))} references={edit ? 1 : retry ? node.metadata?.referenceInputs?.length ?? 0 : refs.filter(ref => ref.kind === "image").length} tasks={edit ? 1 : tasks} compact={compact} />;
 }
