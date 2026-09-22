@@ -22,6 +22,7 @@ from .provider import (
     provider_retry_after_seconds,
 )
 from .staged_inputs import INPUT_STORAGE_KEY_FIELD, open_staged_input, resolve_legacy_asset_path, resolve_output_dir, validate_staged_input
+from .video_h3 import h3_provider, h3_request_body, is_h3_reference_model
 
 
 ProgressFn = Callable[[int], None]
@@ -40,7 +41,7 @@ VIDEO_CANCEL_TIMEOUT_SECONDS = 10
 NATIVE_VIDEO_MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
 NATIVE_VIDEO_RESPONSE_MAX_DEPTH = 16
 VIDEO_SUCCESS_STATUSES = {"completed", "succeeded", "success", "done"}
-VIDEO_FAILURE_STATUSES = {"failed", "cancelled", "canceled", "expired", "rejected"}
+VIDEO_FAILURE_STATUSES = {"failed", "failure", "cancelled", "canceled", "expired", "rejected"}
 VIDEO_REQUEST_FIELDS = ("model", "prompt", "seconds", "size", "resolution_name", "preset")
 # Native request allowlist excludes job bookkeeping and supplier credentials.
 NATIVE_VIDEO_REQUEST_FIELDS = ("model", "prompt", "content", "ratio", "resolution", "duration", "generate_audio", "watermark", "seed", "camera_fixed", "return_last_frame", "service_tier", "execution_expires_after", "draft")
@@ -52,6 +53,9 @@ def generate_video(job_id: str, payload: dict[str, Any], settings: Settings, pro
         raise SafeTaskError("video provider is not configured", code="provider_not_configured", retryable=False)
 
     assert isinstance(provider, dict)
+    h3 = is_h3_reference_model(str(provider.get("model") or ""))
+    if h3:
+        provider = h3_provider(provider)
     base_url = str(provider.get("base_url") or "").rstrip("/") + "/"
     create_endpoint = str(provider.get("endpoint") or "v1/videos").strip()
     create_url = provider_request_url(base_url, create_endpoint, provider)
@@ -67,11 +71,14 @@ def generate_video(job_id: str, payload: dict[str, Any], settings: Settings, pro
     native = provider.get("video_protocol") == "seedance"
     if provider.get("video_request_error"):
         raise SafeTaskError("video reference mode unsupported", code="provider_bad_request", retryable=False)
-    parts = [] if native else video_request_parts(payload, provider, settings)
+    body = h3_request_body(payload, provider, settings) if h3 else None
+    parts = [] if native or h3 else video_request_parts(payload, provider, settings)
 
     progress(VIDEO_CREATE_PROGRESS)
     try:
-        if native:
+        if h3:
+            response = requests.post(create_url, headers=create_headers, json=body, timeout=timeout)
+        elif native:
             body = provider.get("video_request_body") or {key: payload[key] for key in NATIVE_VIDEO_REQUEST_FIELDS if key in payload}
             body = {**body, "model": provider.get("model")}
             response = requests.post(create_url, headers=create_headers, json=body, timeout=timeout)
@@ -175,7 +182,7 @@ def download_video_result(
     ensure_video_response(response, "video provider content", retryable=False)
 
     content_type = str(response.headers.get("Content-Type") or video_content_type(task) or "video/mp4").split(";", 1)[0].strip().lower()
-    if provider.get("video_protocol") == "seedance" and not content_type.startswith("video/") and content_type != "application/octet-stream":
+    if provider.get("video_protocol") in {"seedance", "zizi_h3"} and not content_type.startswith("video/") and content_type != "application/octet-stream":
         response.close()
         raise SafeTaskError("video provider returned invalid content", code="provider_invalid_response", retryable=False)
     output_dir = ensure_job_dir(settings.asset_storage_dir, job_id)
@@ -186,7 +193,7 @@ def download_video_result(
             if callable(chunks):
                 for chunk in chunks(chunk_size=VIDEO_DOWNLOAD_CHUNK_BYTES):
                     if chunk:
-                        if provider.get("video_protocol") == "seedance" and stream.tell() + len(chunk) > NATIVE_VIDEO_MAX_DOWNLOAD_BYTES:
+                        if provider.get("video_protocol") in {"seedance", "zizi_h3"} and stream.tell() + len(chunk) > NATIVE_VIDEO_MAX_DOWNLOAD_BYTES:
                             raise SafeTaskError("video provider output too large", code="provider_output_too_large", retryable=False)
                         stream.write(chunk)
                         progress(VIDEO_DOWNLOAD_PROGRESS)
@@ -378,6 +385,9 @@ def video_extension(content_type: str) -> str:
 
 
 def cancel_provider_video_task(task_id: str, provider: dict[str, Any], base_url: str, headers: dict[str, str], timeout: float) -> None:
+    if provider.get("video_protocol") == "zizi_h3":
+        # This API does not document cancellation; never POST to a guessed path.
+        return
     timeout = min(timeout, VIDEO_CANCEL_TIMEOUT_SECONDS)
     endpoint = video_endpoint(provider, "video_cancel", "videos/{id}/cancel", task_id)
     url = provider_request_url(base_url, endpoint, provider)

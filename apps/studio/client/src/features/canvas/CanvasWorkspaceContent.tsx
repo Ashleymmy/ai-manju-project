@@ -116,6 +116,7 @@ import { ProjectCoverPickerDialog } from "@/components/ProjectCoverPickerDialog"
 import { getPreferences } from "@/features/settings";
 import {
   isLongSeedanceVideoModel,
+  h3VideoSettings,
   isSeedanceVideoModel,
   videoModelSettings,
 } from "@/features/video";
@@ -965,6 +966,7 @@ export default function CanvasWorkspaceViewContent() {
     ? videoConfigFromNode(selectedNode, videoModel)
     : null;
   const selectedVideoSeedance = Boolean(selectedVideoConfig && isSeedanceVideoModel(selectedVideoConfig.model));
+  const selectedVideoH3 = h3VideoSettings(selectedVideoConfig?.model || "");
   const selectedAudioConfig = selectedNode && selectedGenerationMode === "audio"
     ? audioConfigFromNode(selectedNode, audioModel)
     : null;
@@ -4681,15 +4683,15 @@ export default function CanvasWorkspaceViewContent() {
                 : canvasGenerationModelOptions(audioModels, selectedGenerationModel, textModelLabels)}
           selectedVideoConfig={selectedVideoConfig || null}
           selectedVideoSeedance={selectedVideoSeedance}
-          selectedVideoDurations={selectedVideoConfig
+          selectedVideoDurations={selectedVideoH3?.durations ?? (selectedVideoConfig
             ? selectedVideoSeedance
               ? isLongSeedanceVideoModel(selectedVideoConfig.model)
                 ? videoModelSettings.seedanceLongDurations
                 : videoModelSettings.seedanceDurations
               : videoModelSettings.openAiDurations
-            : []}
-          selectedVideoResolutions={selectedVideoSeedance ? videoModelSettings.seedanceResolutions : videoModelSettings.openAiResolutions}
-          selectedVideoRatios={selectedVideoSeedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes.map(sizeToRatioLabel)}
+            : [])}
+          selectedVideoResolutions={selectedVideoH3?.resolutions ?? (selectedVideoSeedance ? videoModelSettings.seedanceResolutions : videoModelSettings.openAiResolutions)}
+          selectedVideoRatios={selectedVideoH3?.ratios ?? (selectedVideoSeedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes.map(sizeToRatioLabel))}
           selectedAudioConfig={selectedAudioConfig || null}
           audioVoiceOptions={audioVoiceOptions}
           audioFormatOptions={audioFormatOptions}

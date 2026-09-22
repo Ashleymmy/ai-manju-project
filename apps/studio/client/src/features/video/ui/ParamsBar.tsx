@@ -3,6 +3,7 @@ import { VideoDurationInput } from "@/shared/ui/VideoDurationInput";
 import type { PricingRulesConfig } from "@/features/member";
 
 import {
+  h3VideoSettings,
   isSeedanceFastVideoModel,
   isSeedanceVideoModel,
   normalizeVideoGenerationConfig,
@@ -33,8 +34,9 @@ export function ParamsBar({
   /* 未配置模型时也按 Seedance 展示（比例/30s 时长档位）；配上 OpenAI 兼容模型后自动切回尺寸/20s */
   const seedance = !normalized.model || isSeedanceVideoModel(normalized.model);
   const fastSeedance = isSeedanceFastVideoModel(normalized.model);
-  const ratios = seedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes;
-  const durations = seedance ? videoModelSettings.seedanceDurations : videoModelSettings.openAiDurations;
+  const h3 = h3VideoSettings(normalized.model);
+  const ratios = h3 ? ["1280x720", "720x1280"] : seedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes;
+  const durations = h3?.durations ?? (seedance ? videoModelSettings.seedanceDurations : videoModelSettings.openAiDurations);
   const patch = (partial: Partial<VideoGenerationConfig>) => onChange(normalizeVideoGenerationConfig({ ...normalized, ...partial }));
 
   return (
@@ -68,7 +70,7 @@ export function ParamsBar({
       <div className="wb-param-group">
         <span className="wb-param-label">分辨率</span>
         <div className="wb-segments">
-          {videoModelSettings.seedanceResolutions.map((resolution) => (
+          {(h3?.resolutions ?? videoModelSettings.seedanceResolutions).map((resolution) => (
             <button
               key={resolution}
               type="button"
@@ -84,7 +86,7 @@ export function ParamsBar({
         <VideoDurationInput value={normalized.seconds} durations={durations} continuous={seedance}
           disabled={disabled} onChange={seconds => patch({ seconds })} />
       </div>
-      <div className="wb-param-group">
+      {!h3 && <div className="wb-param-group">
         <span className="wb-param-label">开关</span>
         <div className="wb-segments">
           <button
@@ -100,7 +102,7 @@ export function ParamsBar({
             onClick={() => patch({ watermark: !normalized.watermark })}
           >水印</button>
         </div>
-      </div>
+      </div>}
 
     </div>
   );
