@@ -87,7 +87,7 @@ func NewModelProviderHandler(repo repository.ModelProviderRepository, secretBox 
 // HTTP response, allowing server-side schedulers to reuse the same encrypted
 // provider configuration as interactive image generation.
 func (h *ModelProviderHandler) ResolveBackgroundImageJob(requestedModel string, jobTypes ...string) (BackgroundImageJobResolution, error) {
-	candidates, err := h.generationCandidates(model.ModelCapabilityImage, requestedModel)
+	candidates, err := h.forUser(model.User{}).generationCandidates(model.ModelCapabilityImage, requestedModel)
 	if err != nil {
 		return BackgroundImageJobResolution{}, err
 	}
@@ -108,6 +108,7 @@ func (h *ModelProviderHandler) Presets(c *gin.Context) {
 }
 
 func (h *ModelProviderHandler) List(c *gin.Context) {
+	h = h.forRequest(c)
 	configs, err := h.normalizedProviders()
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, err.Error())
@@ -131,6 +132,7 @@ func (h *ModelProviderHandler) List(c *gin.Context) {
 }
 
 func (h *ModelProviderHandler) Create(c *gin.Context) {
+	h = h.forRequest(c)
 	config := defaultModelProviderConfig()
 	config.ID = "provider_" + randomHexString(8)
 	var req modelProviderRequest
@@ -157,7 +159,7 @@ func (h *ModelProviderHandler) Create(c *gin.Context) {
 	}
 	saved, err := h.repo.UpsertModelProvider(config)
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, err.Error())
+		writeModelProviderRepoError(c, err)
 		return
 	}
 	if err := h.enforceDefaultProviderUniqueness(saved); err != nil {
@@ -168,6 +170,7 @@ func (h *ModelProviderHandler) Create(c *gin.Context) {
 }
 
 func (h *ModelProviderHandler) GetByID(c *gin.Context) {
+	h = h.forRequest(c)
 	if h.handleSDVideoModel(c, "get") {
 		return
 	}
@@ -188,6 +191,7 @@ func (h *ModelProviderHandler) PutByID(c *gin.Context) {
 }
 
 func (h *ModelProviderHandler) Delete(c *gin.Context) {
+	h = h.forRequest(c)
 	if h.handleSDVideoModel(c, "delete") {
 		return
 	}
@@ -208,6 +212,7 @@ func (h *ModelProviderHandler) Delete(c *gin.Context) {
 }
 
 func (h *ModelProviderHandler) Get(c *gin.Context) {
+	h = h.forRequest(c)
 	config, err := h.repo.GetDefaultModelProvider()
 	if err != nil {
 		if errors.Is(err, repository.ErrModelProviderNotFound) {
@@ -226,9 +231,10 @@ func (h *ModelProviderHandler) Put(c *gin.Context) {
 }
 
 func (h *ModelProviderHandler) putProvider(c *gin.Context, id string) {
+	h = h.forRequest(c)
 	current, err := h.repo.GetModelProvider(id)
 	if err != nil && !errors.Is(err, repository.ErrModelProviderNotFound) {
-		response.Error(c, http.StatusInternalServerError, err.Error())
+		writeModelProviderRepoError(c, err)
 		return
 	}
 	if errors.Is(err, repository.ErrModelProviderNotFound) {
@@ -417,8 +423,13 @@ func (h *ModelProviderHandler) LoadConfigForModel(c *gin.Context, capability str
 }
 
 func (h *ModelProviderHandler) loadConfigForUse(c *gin.Context, capability string, requestedModel string) (modelSelection, bool) {
+	h = h.forRequest(c)
 	selection, err := h.resolveProviderSelection(capability, requestedModel)
 	if err != nil {
+		if errors.Is(err, repository.ErrModelProviderAccessDenied) {
+			response.Error(c, http.StatusForbidden, err.Error())
+			return modelSelection{}, false
+		}
 		if errors.Is(err, repository.ErrModelProviderNotFound) {
 			response.Error(c, http.StatusBadRequest, provider.ErrProviderNotConfigured.Error())
 			return modelSelection{}, false
@@ -444,9 +455,10 @@ func (h *ModelProviderHandler) loadConfigForUse(c *gin.Context, capability strin
 }
 
 func (h *ModelProviderHandler) loadConfigForRequest(c *gin.Context, id string) (model.ModelProviderConfig, string, bool) {
+	h = h.forRequest(c)
 	config, err := h.configForRequestBase(id)
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, err.Error())
+		writeModelProviderRepoError(c, err)
 		return model.ModelProviderConfig{}, "", false
 	}
 	req, hasBody, err := decodeOptionalModelProviderRequest(c)
@@ -800,6 +812,8 @@ func supportedDefaultModel(config model.ModelProviderConfig, capability string) 
 }
 
 func (h *ModelProviderHandler) AggregatedModels(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
+	h = h.forRequest(c)
 	configs, err := h.normalizedProviders()
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, err.Error())
@@ -814,6 +828,8 @@ func (h *ModelProviderHandler) AggregatedModels(c *gin.Context) {
 // providers remain available and the video list simply omits the remote
 // namespace until it recovers.
 func (h *ModelProviderHandler) AggregatedModelsWithSDVideo(c *gin.Context, client *sdvideo.Client) {
+	c.Header("Cache-Control", "private, no-store")
+	h = h.forRequest(c)
 	configs, err := h.normalizedProviders()
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, err.Error())
@@ -884,7 +900,7 @@ func (h *ModelProviderHandler) normalizedProviders() ([]model.ModelProviderConfi
 	if len(configs) == 0 {
 		config, err := h.repo.GetDefaultModelProvider()
 		if err != nil {
-			if errors.Is(err, repository.ErrModelProviderNotFound) {
+			if errors.Is(err, repository.ErrModelProviderNotFound) || errors.Is(err, repository.ErrModelProviderAccessDenied) {
 				return []model.ModelProviderConfig{}, nil
 			}
 			return nil, err
@@ -1272,6 +1288,10 @@ func readableErrorMessage(info providerErrorInfo) string {
 }
 
 func writeModelProviderRepoError(c *gin.Context, err error) {
+	if errors.Is(err, repository.ErrModelProviderAccessDenied) {
+		response.Error(c, http.StatusForbidden, err.Error())
+		return
+	}
 	if errors.Is(err, repository.ErrModelProviderNotFound) {
 		response.Error(c, http.StatusNotFound, err.Error())
 		return

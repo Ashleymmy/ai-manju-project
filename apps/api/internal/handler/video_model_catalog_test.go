@@ -60,6 +60,8 @@ func TestVideoDurationCatalogMatchesDocumentedModelLimits(t *testing.T) {
 		min, max  float64
 		automatic bool
 	}{
+		{"zzdh-minimax-h3-限时优惠-多参考图生-480p", 1, 15, false},
+		{"zzdh-minimax-h3-限时优惠-多参考图生-768p", 1, 15, false},
 		{"doubao-seedance-2-5-260628", 4, 30, true},
 		{"seedance-2.0-fast", 4, 15, true},
 		{"doubao-seedance-2-0-mini-260615", 4, 15, true},

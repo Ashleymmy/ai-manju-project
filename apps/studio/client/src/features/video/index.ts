@@ -1,6 +1,7 @@
 export { default } from "./VideoPage";
 export {
   createVideoGenerationTask,
+  h3VideoSettings,
   isLongSeedanceVideoModel,
   isSeedanceVideoModel,
   normalizeVideoGenerationConfig,

@@ -78,6 +78,16 @@ def delete(key: str) -> None:
     _bucket().delete_object(_key(key))
 
 
+def signed_reference_url(key: str) -> str | None:
+    """Use the existing private object; local-only installations embed bytes."""
+    if not enabled():
+        return None
+    from .supabase_storage import REFERENCE_URL_LIFETIME, SupabaseStorage
+    if os.getenv("ASSET_STORAGE_BACKEND") == "supabase":
+        return SupabaseStorage().signed_url(_key(key))
+    return _bucket().sign_url("GET", _key(key), REFERENCE_URL_LIFETIME)
+
+
 def probe() -> None:
     if os.getenv("ASSET_STORAGE_BACKEND") == "supabase":
         from .supabase_storage import SupabaseStorage

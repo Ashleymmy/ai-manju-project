@@ -128,6 +128,12 @@ func (s *SeedanceAssetService) ForProvider(providerID string) *SeedanceAssetServ
 	return &copy
 }
 
+func (s *SeedanceAssetService) ForUser(user model.User) *SeedanceAssetService {
+	copy := *s
+	copy.providerRepo = repository.ForUserModelProviders(s.providerRepo, user)
+	return &copy
+}
+
 func (s *SeedanceAssetService) ForOwner(ownerID string) *SeedanceAssetService {
 	copy := *s
 	copy.ownerID = strings.TrimSpace(ownerID)
@@ -135,6 +141,11 @@ func (s *SeedanceAssetService) ForOwner(ownerID string) *SeedanceAssetService {
 }
 
 func (s *SeedanceAssetService) ownsAsset(asset model.SeedanceAsset) bool {
+	if asset.ProviderID != "" {
+		if _, err := s.providerRepo.GetModelProvider(asset.ProviderID); errors.Is(err, repository.ErrModelProviderAccessDenied) {
+			return false
+		}
+	}
 	return (s.providerID == "" || asset.ProviderID == s.providerID) && (s.ownerID == "" || asset.CreatedBy == s.ownerID)
 }
 
@@ -243,6 +254,11 @@ func (s *SeedanceAssetService) Readiness() SeedanceAssetReadiness {
 }
 
 func (s *SeedanceAssetService) ListAssets(input SeedanceAssetListInput) (SeedanceAssetListResult, error) {
+	if s.providerID != "" {
+		if _, err := s.providerRepo.GetModelProvider(s.providerID); errors.Is(err, repository.ErrModelProviderAccessDenied) {
+			return SeedanceAssetListResult{}, err
+		}
+	}
 	items, total, err := s.assetRepo.ListAssets(repository.SeedanceAssetFilter{
 		ProviderID: s.providerID,
 		CreatedBy:  s.ownerID,
@@ -859,6 +875,11 @@ func (s *SeedanceAssetService) upsertMaterialAssetFromRemote(assetProvider seeda
 }
 
 func (s *SeedanceAssetService) loadSeedanceAssetProvider() (seedanceAssetProvider, error) {
+	if s.providerID != "" {
+		if _, err := s.providerRepo.GetModelProvider(s.providerID); err != nil && !errors.Is(err, repository.ErrModelProviderNotFound) {
+			return seedanceAssetProvider{}, err
+		}
+	}
 	configs, err := s.providerRepo.ListModelProviders()
 	if err != nil {
 		return seedanceAssetProvider{}, err

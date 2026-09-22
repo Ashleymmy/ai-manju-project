@@ -66,11 +66,14 @@ async function setup(page: Page, zoom: number) {
   const notice = page.getByRole("button", { name: "知道了", exact: true });
   if (await notice.isVisible()) await notice.click();
   const select = async () => {
+    const closeInspector = page.getByRole("button", { name: "关闭面板", exact: true });
+    if (await closeInspector.isVisible()) await closeInspector.click();
     const a = (await page.locator('[data-node-id="a"]').boundingBox())!;
     const b = (await page.locator('[data-node-id="b"]').boundingBox())!;
-    await page.mouse.move(a.x - 30, a.y - 40);
+    // Start on empty canvas: readable titles can extend above/left of a zoomed node.
+    await page.mouse.move(b.x + b.width + 15, b.y + b.height + 15);
     await page.mouse.down();
-    await page.mouse.move(b.x + b.width + 15, b.y + b.height + 15, { steps: 12 });
+    await page.mouse.move(a.x - 30, a.y - 40, { steps: 12 });
     await page.mouse.up();
     await expect(page.locator(".canvas-group-frame.pending")).toBeVisible();
     await expect(page.locator('.real-canvas-node[data-node-id="a"] .canvas-node-handle')).toHaveCount(0);

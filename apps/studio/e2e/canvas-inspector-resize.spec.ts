@@ -1,5 +1,10 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+async function closeInitialInspector(page: Page) {
+  const close = page.getByRole("button", { name: "关闭面板", exact: true });
+  if (await close.isVisible()) await close.click();
+}
+
 async function drag(page: Page, handle: Locator, dx: number, dy: number) {
   const box = (await handle.boundingBox())!;
   const x = box.x + box.width / 2;
@@ -18,7 +23,8 @@ test("inspector resizes in three directions, expands its editor and restores sav
   let snapshot: any = {
     schema: "ai-manhua-studio-canvas", version: 3,
     nodes: [
-      { id: "reference", kind: "text", title: "参考", content: "人物三视图", x: 50, y: 50, width: 180, height: 120 },
+      // This node supplies mention content; keep its toolbar outside the resize scenarios.
+      { id: "reference", kind: "text", title: "参考", content: "人物三视图", x: -500, y: -500, width: 180, height: 120 },
       { id: "image", kind: "image", title: "提示词面板缩放", content: "", x: 450, y: 60, width: 320, height: 180,
         metadata: { composerContent: "@[node:reference] 人物展示以正常姿态展示，以左边为大头特写，中间为人物三视图，并加入不同表情。\n" + "保持角色一致，镜头缓慢推进，人物自然转身。\n".repeat(80) } },
     ],
@@ -103,7 +109,7 @@ test("inspector resizes in three directions, expands its editor and restores sav
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.locator('[data-node-id="image"] .node-float-label').click();
   await expect.poll(async () => (await panel.boundingBox())!.height).toBeCloseTo(scaled.height, 0);
-  expect((await panel.boundingBox())!.width).toBeCloseTo(scaled.width, 0);
+  await expect.poll(async () => (await panel.boundingBox())!.width).toBeCloseTo(scaled.width, 0);
   // A shorter viewport must keep the controls and resize handles reachable.
   await page.setViewportSize({ width: 800, height: 500 });
   await expect(panel.getByRole("button", { name: "拖动自由调整面板大小", exact: true })).toBeInViewport();
@@ -117,7 +123,7 @@ test("inspector resizes in three directions, expands its editor and restores sav
       metadata: { ...node.metadata, promptPanelWidth: 340, promptPanelHeight: 320 } } : node) };
     await page.goto(`/canvas/${project.id}?scope=personal`, { waitUntil: "domcontentloaded" });
     await expect(page.locator('[data-node-id="image"]')).toBeVisible();
-    await page.getByRole("button", { name: "关闭面板", exact: true }).click();
+    await closeInitialInspector(page);
     await page.locator('[data-node-id="image"] .node-float-label').click();
     await panel.evaluate(async element => { await Promise.all(element.getAnimations().map(animation => animation.finished)); });
     const narrow = (await panel.boundingBox())!;
@@ -147,8 +153,7 @@ test("inspector resizes in three directions, expands its editor and restores sav
         metadata: { ...node.metadata, generationMode: "video" } } : node) };
     await page.goto(`/canvas/${project.id}?scope=personal`, { waitUntil: "domcontentloaded" });
     await expect(page.locator('[data-node-id="image"]')).toBeVisible();
-    const close = page.getByRole("button", { name: "关闭面板", exact: true });
-    await close.click();
+    await closeInitialInspector(page);
     await page.locator('[data-node-id="image"] .node-float-label').click();
     await expect(page.locator('.canvas-bottom-tools b')).toHaveText(`${zoom}%`);
     await expect.poll(async () => {
@@ -166,7 +171,7 @@ test("inspector resizes in three directions, expands its editor and restores sav
       metadata: { ...node.metadata, generationMode: "image", promptPanelWidth: 560, promptPanelHeight: 320 } } : node) };
   await page.goto(`/canvas/${project.id}?scope=personal`, { waitUntil: "domcontentloaded" });
   await expect(page.locator('[data-node-id="image"]')).toBeVisible();
-  await page.getByRole("button", { name: "关闭面板", exact: true }).click();
+  await closeInitialInspector(page);
   await page.locator('[data-node-id="image"] .node-float-label').click();
   await panel.evaluate(async element => { await Promise.all(element.getAnimations().map(animation => animation.finished)); });
   const gap = async () => {
@@ -185,7 +190,7 @@ test("inspector resizes in three directions, expands its editor and restores sav
   await expect.poll(() => metadata().promptPanelWidth).toBeCloseTo(expanded.width, 0);
   await page.screenshot({ path: testInfo.outputPath("right-edge-panel-adjacent.png") });
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: "关闭面板", exact: true }).click();
+  await closeInitialInspector(page);
   await page.locator('[data-node-id="image"] .node-float-label').click();
   await expect.poll(gap).toBeCloseTo(12, 0);
   await expect.poll(async () => (await panel.boundingBox())!.width).toBeCloseTo(expanded.width, 0);
@@ -196,7 +201,7 @@ test("inspector resizes in three directions, expands its editor and restores sav
     metadata: { ...node.metadata, promptPanelWidth: 600, promptPanelHeight: 500 } } : node) };
   await page.goto(`/canvas/${project.id}?scope=personal`, { waitUntil: "domcontentloaded" });
   await expect(page.locator('[data-node-id="image"]')).toBeVisible();
-  await page.getByRole("button", { name: "关闭面板", exact: true }).click();
+  await closeInitialInspector(page);
   await page.locator('[data-node-id="image"] .node-float-label').click();
   await expect.poll(async () => {
     const p = (await panel.boundingBox())!, n = (await page.locator('[data-node-id="image"]').boundingBox())!;

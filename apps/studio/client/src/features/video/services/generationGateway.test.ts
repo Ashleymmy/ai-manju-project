@@ -4,6 +4,7 @@ import { replaceVideoModelDurations } from "@/entities/model/videoDuration";
 import {
   createVideoGenerationTask,
   fetchVideoModelCatalog,
+  h3VideoSettings,
   isSeedanceVideoModel,
   normalizeVideoGenerationConfig,
   pollVideoGenerationTask,
@@ -233,6 +234,30 @@ describe("video API", () => {
     expect(body.get("size")).toBe("1280x720");
     expect(body.getAll("input_reference[]")).toEqual([reference]);
     expect(task).toEqual({ id: "video-job", provider: "openai", model: config.model });
+  });
+
+  it.each(["480p", "768p"])("submits all nine H3 references with fixed %s settings", async resolution => {
+    const model = `zizi::zzdh-minimax-h3-限时优惠-多参考图生-${resolution}`;
+    replaceVideoModelDurations({ [model]: Array.from({ length: 15 }, (_, i) => i + 1) });
+    const file = new File(["image"], "ref.png", { type: "image/png" });
+    const image = { id: "ref", kind: "image" as const, file, name: file.name, mime: file.type, bytes: file.size, width: 1280, height: 720 };
+    const refs = { images: Array.from({ length: 9 }, () => ({ ...image })), videos: [], audios: [] };
+    vi.mocked(fetch).mockResolvedValueOnce(apiResponse({ job_id: "h3" }));
+    await expect(createVideoGenerationTask({ ...config, model, seconds: "30" }, "镜头", refs)).rejects.toThrow("时长不在当前模型支持范围内");
+    expect(fetch).not.toHaveBeenCalled();
+    const normalized = normalizeVideoGenerationConfig({ ...config, model, seconds: "30", size: "9:16" });
+    expect(normalized.seconds).toBe("15");
+    await createVideoGenerationTask(normalized, "镜头", refs);
+    const body = vi.mocked(fetch).mock.calls[0][1]?.body as FormData;
+    expect(body.getAll("input_reference[]")).toHaveLength(9);
+    expect(body.get("seconds")).toBe("15");
+    expect(body.get("resolution_name")).toBe(resolution);
+    expect(body.get("size")).toBe("720x1280");
+    expect(h3VideoSettings(model)).toEqual({ resolutions: [resolution], ratios: ["16:9", "9:16"] });
+    await expect(createVideoGenerationTask({ ...config, model }, "缺图")).rejects.toThrow("至少 1 张");
+    await expect(createVideoGenerationTask({ ...config, model }, "超限", { ...refs, images: [...refs.images, image] })).rejects.toThrow("最多 9 张");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(normalizeVideoGenerationConfig({ ...config, model, seconds: "1", generateAudio: true })).toMatchObject({ seconds: "1", resolution, generateAudio: false });
   });
 
   it("passes asset references through the Seedance content contract", async () => {

@@ -172,6 +172,7 @@ const seedance25ReferenceLimits = {
 } as const;
 
 export function videoReferenceLimitsForModel(model: string) {
+  if (h3VideoSettings(model)) return { ...videoReferenceLimits, images: 9, videos: 0, audios: 0 };
   const name = modelOptionName(model);
   // Labels identify opaque Ark endpoints, never override an explicit 2.0/Wan ID.
   const versionName = name.startsWith("ep-") ? videoModelLabel(model) || "" : name;
@@ -185,6 +186,12 @@ export const videoModelSettings = {
   openAiSizes: ["1280x720", "720x1280", "1024x1024", "1792x1024", "1024x1792", "auto"],
   openAiResolutions: ["480p", "720p", "1080p"],
 } as const;
+
+// Zizi's promotional H3 multi-image variants, per its model specification.
+export function h3VideoSettings(model: string) {
+  const match = modelOptionName(model).match(/^zzdh-minimax-h3-限时优惠-多参考图生-(480p|768p)$/i);
+  return match ? { resolutions: [match[1].toLowerCase()], ratios: ["16:9", "9:16"] } : null;
+}
 
 export function modelOptionName(value: string) {
   const trimmed = String(value || "").trim();
@@ -215,6 +222,17 @@ export function isLongSeedanceVideoModel(model: string) {
 }
 
 export function normalizeVideoGenerationConfig(config: VideoGenerationConfig): VideoGenerationConfig {
+  const h3 = h3VideoSettings(config.model);
+  if (h3) {
+    const ratio = normalizeSeedanceRatio(config.size);
+    return {
+      ...config, model: config.model.trim(),
+      size: ["9:16", "3:4", "2:3"].includes(ratio) ? "720x1280" : "1280x720",
+      resolution: h3.resolutions[0],
+      seconds: normalizeVideoDuration(config.model, config.seconds),
+      generateAudio: false, watermark: false,
+    };
+  }
   // 未选择模型时保留工作台默认比例；时长能力始终来自模型目录。
   const seedance = !config.model.trim() || isSeedanceVideoModel(config.model);
   return {
@@ -314,6 +332,8 @@ export function validateVideoGenerationReferences(
 ) {
   const seedance = isSeedanceVideoModel(model);
   const limits = videoReferenceLimitsForModel(model);
+  const h3 = h3VideoSettings(model);
+  if (h3 && !references.images.length) throw new Error("H3 多参考图生需要至少 1 张参考图片");
   if (references.images.length > limits.images) throw new Error(`参考图片最多 ${limits.images} 张`);
   if (references.videos.length > limits.videos) throw new Error(`参考视频最多 ${limits.videos} 个`);
   if (references.audios.length > limits.audios) throw new Error(`参考音频最多 ${limits.audios} 个`);
@@ -321,7 +341,7 @@ export function validateVideoGenerationReferences(
     if (references.videos.length || references.audios.length) {
       throw new Error("OpenAI-compatible 视频模型仅支持参考图片，请移除参考视频/音频或切换 Seedance/Wan 模型");
     }
-    if (references.images.length > videoReferenceLimits.openAiImages) {
+    if (!h3 && references.images.length > videoReferenceLimits.openAiImages) {
       throw new Error("OpenAI-compatible 视频模型最多支持 7 张参考图片");
     }
   }
@@ -398,7 +418,7 @@ async function createOpenAiVideoTask(
   if (references.videos.length || references.audios.length) {
     throw new Error("OpenAI-compatible 视频模型仅支持参考图片，请移除参考视频/音频或切换 Seedance/Wan 模型");
   }
-  if (references.images.length > videoReferenceLimits.openAiImages) {
+  if (!h3VideoSettings(config.model) && references.images.length > videoReferenceLimits.openAiImages) {
     throw new Error("OpenAI-compatible 视频模型最多支持 7 张参考图片");
   }
   const body = new FormData();

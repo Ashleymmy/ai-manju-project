@@ -13,7 +13,7 @@ import httpx
 
 from worker import object_storage
 from worker.errors import SafeTaskError
-from worker.supabase_storage import SupabaseStorage
+from worker.supabase_storage import REFERENCE_URL_LIFETIME, SupabaseStorage
 
 
 def token(**changes):
@@ -123,6 +123,46 @@ class SupabaseStorageTests(unittest.TestCase):
             object_storage.probe()
             for method in ("upload", "download", "delete", "probe"):
                 getattr(factory.return_value, method).assert_called_once()
+
+    def test_signed_reference_uses_public_origin_and_exact_object(self):
+        key = "jobs/inputs/personal/u/batch/ref.png"
+        path = "/object/sign/studio-test-assets/" + key
+        for prefix in ("", "/storage/v1", "https://storage.invalid/storage/v1"):
+            def handle(request):
+                self.assertEqual(request.method, "POST")
+                self.assertEqual(request.url.path, "/storage/v1" + path)
+                self.assertEqual(json.loads(request.content), {"expiresIn": REFERENCE_URL_LIFETIME})
+                return httpx.Response(200, json={"signedURL": prefix + path + "?token=scoped-token"})
+            with self.subTest(prefix=prefix), patch.dict(os.environ, {"STUDIO_SUPABASE_PUBLIC_URL": "http://media.example"}):
+                store = SupabaseStorage(httpx.MockTransport(handle))
+                self.assertEqual(store.signed_url(key), "http://media.example/storage/v1" + path + "?token=scoped-token")
+
+    def test_signed_reference_rejects_mismatched_or_external_response(self):
+        path = "/object/sign/studio-test-assets/ref.png"
+        invalid = ["https://evil.example" + path + "?token=secret", "//evil.example" + path + "?token=secret",
+                   path.replace("ref.png", "other.png") + "?token=secret", path, path + "?token=",
+                   path + "?token=secret&token=other", path + "?token=secret&download=1",
+                   path + "?token=secret#fragment", "https://user@storage.invalid" + path + "?token=secret"]
+        for value in invalid:
+            with self.subTest(value=value), patch.dict(os.environ, {"STUDIO_SUPABASE_PUBLIC_URL": "http://media.example"}):
+                store = SupabaseStorage(httpx.MockTransport(lambda r: httpx.Response(200, json={"signedURL": value})))
+                with self.assertRaises(SafeTaskError) as error: store.signed_url("ref.png")
+                self.assertNotIn("secret", str(error.exception))
+
+    def test_signing_never_falls_back_to_internal_origin(self):
+        for public in ("", "http://user:password@media.example", "http://media.example/path", "http://media.example/?token=secret"):
+            with patch.dict(os.environ, {"STUDIO_SUPABASE_PUBLIC_URL": public}):
+                store = SupabaseStorage()
+                with patch.object(store, "_client") as client, self.assertRaises(SafeTaskError): store.signed_url("ref.png")
+                client.assert_not_called()
+
+    def test_signed_url_dispatch_and_local_fallback(self):
+        with patch("worker.supabase_storage.SupabaseStorage") as factory:
+            factory.return_value.signed_url.return_value = "http://media.example/ref.png?token=test"
+            self.assertEqual(object_storage.signed_reference_url("ref.png"), factory.return_value.signed_url.return_value)
+            factory.return_value.signed_url.assert_called_once_with("ref.png")
+        with patch.dict(os.environ, {"ASSET_STORAGE_BACKEND": "local"}):
+            self.assertIsNone(object_storage.signed_reference_url("ref.png"))
 
 
 if __name__ == "__main__":

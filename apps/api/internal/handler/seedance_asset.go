@@ -24,7 +24,7 @@ func NewSeedanceAssetHandler(assets *service.SeedanceAssetService, cfg config.Co
 }
 
 func (h *SeedanceAssetHandler) assetsForRequest(c *gin.Context) *service.SeedanceAssetService {
-	scoped := h.assets.ForProvider(c.Query("provider_id"))
+	scoped := h.assets.ForUser(auth.MustCurrentUser(c)).ForProvider(c.Query("provider_id"))
 	if strings.HasPrefix(c.FullPath(), "/api/ai/") && strings.TrimSpace(c.Query("provider_id")) != "" {
 		scoped = scoped.ForOwner(auth.MustCurrentUser(c).ID)
 	}
@@ -298,6 +298,9 @@ func splitCSV(value string) []string {
 
 func writeSeedanceAssetError(c *gin.Context, err error) {
 	status := http.StatusBadGateway
+	if errors.Is(err, repository.ErrModelProviderAccessDenied) {
+		status = http.StatusForbidden
+	}
 	if errors.Is(err, repository.ErrSeedanceAssetNotFound) || errors.Is(err, repository.ErrSeedanceAssetTagNotFound) {
 		status = http.StatusNotFound
 	}

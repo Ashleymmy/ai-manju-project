@@ -115,6 +115,7 @@ import { useProjectCoverUrls } from "@/features/projects";
 import { ProjectCoverPickerDialog } from "@/components/ProjectCoverPickerDialog";
 import { getPreferences } from "@/features/settings";
 import {
+  h3VideoSettings,
   isSeedanceVideoModel,
   videoModelSettings,
 } from "@/features/video";
@@ -969,6 +970,7 @@ export default function CanvasWorkspaceViewContent() {
     ? videoConfigFromNode(selectedNode, videoModel)
     : null;
   const selectedVideoSeedance = Boolean(selectedVideoConfig && isSeedanceVideoModel(selectedVideoConfig.model));
+  const selectedVideoH3 = h3VideoSettings(selectedVideoConfig?.model || "");
   const selectedAudioConfig = selectedNode && selectedGenerationMode === "audio"
     ? audioConfigFromNode(selectedNode, audioModel)
     : null;
@@ -4710,10 +4712,10 @@ export default function CanvasWorkspaceViewContent() {
           selectedVideoDurations={selectedVideoConfig
             ? videoModelDurations(selectedVideoConfig.model)
             : []}
-          selectedVideoResolutions={selectedVideoSeedance ? videoModelSettings.seedanceResolutions : videoModelSettings.openAiResolutions}
-          selectedVideoRatios={selectedVideoSeedance
+          selectedVideoResolutions={selectedVideoH3?.resolutions ?? (selectedVideoSeedance ? videoModelSettings.seedanceResolutions : videoModelSettings.openAiResolutions)}
+          selectedVideoRatios={selectedVideoH3?.ratios ?? (selectedVideoSeedance
             ? videoModelSettings.seedanceRatios.filter(ratio => ratio !== "adaptive")
-            : videoModelSettings.openAiSizes.filter(size => size !== "auto").map(sizeToRatioLabel)}
+            : videoModelSettings.openAiSizes.filter(size => size !== "auto").map(sizeToRatioLabel))}
           selectedAudioConfig={selectedAudioConfig || null}
           audioVoiceOptions={audioVoiceOptions}
           audioFormatOptions={audioFormatOptions}

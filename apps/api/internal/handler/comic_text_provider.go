@@ -9,7 +9,7 @@ import (
 
 // GenerateBackgroundText shares same-model retries with interactive text requests.
 func (h *ModelProviderHandler) GenerateBackgroundText(ctx context.Context, requestedModel string, request provider.TextGenerationRequest) (provider.TextResponse, error) {
-	candidates, err := h.generationCandidates(model.ModelCapabilityText, requestedModel)
+	candidates, err := h.forUser(model.User{}).generationCandidates(model.ModelCapabilityText, requestedModel)
 	if err != nil {
 		return provider.TextResponse{}, err
 	}

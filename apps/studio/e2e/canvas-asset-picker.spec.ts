@@ -139,8 +139,9 @@ for (const viewport of [
       await dialog.getByRole("button", { name: "插入 2 个资产", exact: true }).click();
       await expect(dialog).toBeHidden();
       await expect(page.locator(".real-canvas-node")).toHaveCount(2);
-      await expect(page.locator(".real-canvas-node").getByText("Asset 00", { exact: true })).toHaveCount(1);
-      await expect(page.locator(".real-canvas-node").getByText("Asset 59", { exact: true })).toHaveCount(1);
+      // Long node titles are shortened visually; the hover title retains the asset name.
+      await expect(page.locator(".real-canvas-node").getByTitle("Asset 00（双击重命名节点）", { exact: true })).toHaveCount(1);
+      await expect(page.locator(".real-canvas-node").getByTitle("Asset 59（双击重命名节点）", { exact: true })).toHaveCount(1);
       expect(errors).toEqual([]);
     } finally { releaseImages(); }
   });

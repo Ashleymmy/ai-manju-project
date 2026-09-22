@@ -20,6 +20,8 @@ var documentedVideoDurations = []struct {
 	model  *regexp.Regexp
 	values []float64
 }{
+	// Zizi H3 multi-image variants publish a 1–15 second range at both resolutions.
+	{regexp.MustCompile(`^zzdh-minimax-h3-限时优惠-多参考图生-(480p|768p)$`), integerVideoDurations(1, 15, false)},
 	{regexp.MustCompile(`^(doubao-)?seedance-2-5($|-)`), integerVideoDurations(4, 30, true)},
 	{regexp.MustCompile(`^(doubao-)?seedance-2-0($|-)`), integerVideoDurations(4, 15, true)},
 	{regexp.MustCompile(`^(doubao-)?seedance-1-5-pro($|-)`), integerVideoDurations(4, 12, true)},

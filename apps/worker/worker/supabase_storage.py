@@ -10,7 +10,7 @@ import ssl
 import tempfile
 import time
 from pathlib import Path
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import httpx
 
@@ -20,6 +20,8 @@ STORAGE_ROLE = "studio_storage_service"
 TOKEN_MAX_LIFETIME = 300
 TRANSFER_CHUNK_BYTES = 1024 * 1024
 REQUEST_TIMEOUT = 120
+# Reference links remain valid for one full media submission/polling window.
+REFERENCE_URL_LIFETIME = 15 * 60
 
 
 def _secret(name: str) -> str:
@@ -174,6 +176,33 @@ class SupabaseStorage:
                 if self._status(response) != 404: self._check(response)
         except httpx.HTTPError:
             raise SafeTaskError("Storage delete unavailable", code="storage_unavailable", retryable=True) from None
+
+    def signed_url(self, key: str) -> str:
+        """Sign the exact object, then expose only the configured public origin."""
+        public = os.getenv("STUDIO_SUPABASE_PUBLIC_URL", "").rstrip("/")
+        origin = urlsplit(public)
+        if (origin.scheme not in {"http", "https"} or not origin.hostname or origin.username is not None
+                or origin.password is not None or origin.path or origin.query or origin.fragment):
+            raise SafeTaskError("Public Storage origin required", code="storage_configuration", retryable=False)
+        expected = "/storage/v1/object/sign/" + self._target(key)
+        try:
+            with self._client() as client:
+                response = client.post(self.origin + expected, json={"expiresIn": REFERENCE_URL_LIFETIME})
+                self._check(response)
+                data = response.json()
+            signed = urlsplit(data["signedURL"])
+            query = parse_qs(signed.query, keep_blank_values=True)
+            allowed_paths = {unquote(expected), unquote(expected.removeprefix("/storage/v1"))}
+            if (signed.username is not None or signed.fragment or unquote(signed.path) not in allowed_paths
+                    or (signed.netloc and f"{signed.scheme}://{signed.netloc}" not in {self.origin, public})
+                    or (signed.scheme and not signed.netloc)
+                    or set(query) != {"token"} or len(query["token"]) != 1 or not query["token"][0]):
+                raise ValueError()
+            return public + expected + "?" + signed.query
+        except httpx.HTTPError:
+            raise SafeTaskError("Storage signing unavailable", code="storage_unavailable", retryable=True) from None
+        except (KeyError, ValueError, TypeError, AttributeError):
+            raise SafeTaskError("Invalid Storage signing response", code="storage_unavailable", retryable=False) from None
 
     def probe(self):
         try:

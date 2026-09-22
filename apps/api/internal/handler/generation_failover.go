@@ -10,6 +10,7 @@ import (
 
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/provider"
+	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/response"
 	"github.com/gin-gonic/gin"
 )
@@ -76,8 +77,12 @@ func isUnsupportedToolChoiceError(err error) bool {
 // candidates must explicitly advertise the same model and capability; aliases do
 // not identify interchangeable models. Secrets travel only in queue kwargs.
 func (h *ModelProviderHandler) LoadGenerationCandidates(c *gin.Context, capability, requestedModel string) ([]modelSelection, bool) {
-	candidates, err := h.generationCandidates(capability, requestedModel)
+	candidates, err := h.forRequest(c).generationCandidates(capability, requestedModel)
 	if err != nil {
+		if errors.Is(err, repository.ErrModelProviderAccessDenied) {
+			response.Error(c, http.StatusForbidden, err.Error())
+			return nil, false
+		}
 		response.Error(c, http.StatusBadRequest, errGenerationUnavailable.Error())
 		return nil, false
 	}
@@ -87,6 +92,10 @@ func (h *ModelProviderHandler) LoadGenerationCandidates(c *gin.Context, capabili
 // Shared by HTTP handlers and background comic workflows.
 func (h *ModelProviderHandler) generationCandidates(capability, requestedModel string) ([]modelSelection, error) {
 	first, selectionErr := h.resolveProviderSelection(capability, requestedModel)
+	// An explicit forbidden supplier must not turn into an automatic fallback.
+	if errors.Is(selectionErr, repository.ErrModelProviderAccessDenied) {
+		return nil, selectionErr
+	}
 	configs, err := h.normalizedProviders()
 	if err != nil {
 		return nil, errGenerationUnavailable

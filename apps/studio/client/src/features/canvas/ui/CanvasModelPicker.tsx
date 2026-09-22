@@ -7,7 +7,7 @@ type Props = {
   active: boolean;
   value: string;
   label: string;
-  options: Array<{ value: string; label: string }>;
+  options: Array<{ value: string; label: string; disabled?: boolean }>;
   onSelect: (value: string) => void;
 };
 
@@ -25,7 +25,7 @@ export function CanvasModelPicker({ active, value, label, options, onSelect }: P
         <p className="eyebrow">模型</p>
         <div className="node-pop-scroll">
           {options.map(option => (
-            <button key={option.value} type="button" className={value === option.value ? "node-pop-item active" : "node-pop-item"}
+            <button key={option.value} type="button" disabled={option.disabled} className={`${value === option.value ? "node-pop-item active" : "node-pop-item"} disabled:opacity-40 disabled:cursor-not-allowed`}
               onClick={() => { onSelect(option.value); setOpen(false); }}>{option.label}</button>
           ))}
         </div>

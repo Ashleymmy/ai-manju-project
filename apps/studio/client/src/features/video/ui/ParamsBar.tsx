@@ -4,6 +4,7 @@ import { VideoDurationInput } from "@/shared/ui/VideoDurationInput";
 import type { PricingRulesConfig } from "@/features/member";
 
 import {
+  h3VideoSettings,
   isSeedanceFastVideoModel,
   isSeedanceVideoModel,
   normalizeVideoGenerationConfig,
@@ -33,7 +34,8 @@ export function ParamsBar({
   const normalized = normalizeVideoGenerationConfig(config);
   const seedance = !normalized.model || isSeedanceVideoModel(normalized.model);
   const fastSeedance = isSeedanceFastVideoModel(normalized.model);
-  const ratios = seedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes;
+  const h3 = h3VideoSettings(normalized.model);
+  const ratios = h3 ? ["1280x720", "720x1280"] : seedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes;
   const durations = videoModelDurations(normalized.model);
   const patch = (partial: Partial<VideoGenerationConfig>) => onChange(normalizeVideoGenerationConfig({ ...normalized, ...partial }));
 
@@ -48,7 +50,7 @@ export function ParamsBar({
         >
           {!models.length ? <option value="">未配置</option> : null}
           {/* 展示模型名称，option value 保留完整调用标识。 */}
-          {videoModelOptions(models, normalized.model, labels, providerNames).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+          {videoModelOptions(models, normalized.model, labels, providerNames).map(({ value, label, disabled }) => <option key={value} value={value} disabled={disabled}>{label}</option>)}
         </select>
       </div>
       <div className="wb-param-group">
@@ -68,7 +70,7 @@ export function ParamsBar({
       <div className="wb-param-group">
         <span className="wb-param-label">分辨率</span>
         <div className="wb-segments">
-          {videoModelSettings.seedanceResolutions.map((resolution) => (
+          {(h3?.resolutions ?? videoModelSettings.seedanceResolutions).map((resolution) => (
             <button
               key={resolution}
               type="button"
@@ -84,7 +86,7 @@ export function ParamsBar({
         <VideoDurationInput value={normalized.seconds} durations={durations}
           disabled={disabled} onChange={seconds => patch({ seconds })} />
       </div>
-      <div className="wb-param-group">
+      {!h3 && <div className="wb-param-group">
         <span className="wb-param-label">开关</span>
         <div className="wb-segments">
           <button
@@ -100,7 +102,7 @@ export function ParamsBar({
             onClick={() => patch({ watermark: !normalized.watermark })}
           >水印</button>
         </div>
-      </div>
+      </div>}
 
     </div>
   );

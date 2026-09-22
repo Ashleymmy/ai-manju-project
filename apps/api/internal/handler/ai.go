@@ -559,14 +559,18 @@ func (h *AIHandler) SeedanceTaskCreate(c *gin.Context) {
 		h.createSDVideoTask(c, body)
 		return
 	}
-	if err := h.ensureSeedanceAssetsActive(c.Request.Context(), body, auth.MustCurrentUser(c).ID); err != nil {
+	// Authorize before any material lookup or upstream request, including stale canvas selections.
+	if _, ok := h.providerHandler.LoadGenerationCandidates(c, model.ModelCapabilityVideo, firstNonEmpty(stringFromAny(body["model"]), c.Query("model"))); !ok {
+		return
+	}
+	if err := h.ensureSeedanceAssetsActive(c.Request.Context(), body, auth.MustCurrentUser(c)); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	h.enqueueNativeVideo(c, body)
 }
 
-func (h *AIHandler) ensureSeedanceAssetsActive(ctx context.Context, payload map[string]any, ownerID string) error {
+func (h *AIHandler) ensureSeedanceAssetsActive(ctx context.Context, payload map[string]any, user model.User) error {
 	assetIDs := seedanceAssetIDsFromPayload(payload)
 	if len(assetIDs) == 0 {
 		return nil
@@ -574,9 +578,9 @@ func (h *AIHandler) ensureSeedanceAssetsActive(ctx context.Context, payload map[
 	if h.seedanceAssets != nil {
 		if providerID, _ := decodeProviderModel(stringFromAny(payload["model"])); providerID != "" {
 			// Provider-bound assets must never fall back to a different account's library.
-			return h.seedanceAssets.ForProvider(providerID).ForOwner(ownerID).EnsureAssetsActive(ctx, assetIDs)
+			return h.seedanceAssets.ForUser(user).ForProvider(providerID).ForOwner(user.ID).EnsureAssetsActive(ctx, assetIDs)
 		}
-		err := h.seedanceAssets.EnsureAssetsActive(ctx, assetIDs)
+		err := h.seedanceAssets.ForUser(user).EnsureAssetsActive(ctx, assetIDs)
 		if err == nil {
 			return nil
 		}
@@ -585,7 +589,7 @@ func (h *AIHandler) ensureSeedanceAssetsActive(ctx context.Context, payload map[
 		}
 	}
 	if h.materials != nil {
-		return h.materials.EnsureAssetsActive(ctx, assetIDs)
+		return h.materials.ForUser(user).EnsureAssetsActive(ctx, assetIDs)
 	}
 	return nil
 }

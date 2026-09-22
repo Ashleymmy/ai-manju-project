@@ -14,7 +14,7 @@ describe("shared generation model selection", () => {
       { value: company, label: "Fast · 火山" }, { value: mobile, label: "Fast · ChinaMobil" },
     ]);
     expect(videoModelOptions([mobile], company, { [mobile]: "c20f" })).toEqual([
-      { value: company, label: "doubao-seedance-2-0-fast-260128" }, { value: mobile, label: "c20f" },
+      { value: company, label: "doubao-seedance-2-0-fast-260128（当前不可用）", disabled: true }, { value: mobile, label: "c20f" },
     ]);
   });
   it("uses the selected provider's alias regardless of catalog order without changing routing", () => {

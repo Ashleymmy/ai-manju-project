@@ -54,14 +54,18 @@ export function videoModelOptions(
   providerNames: Record<string, string> = {},
 ) {
   const values = [...new Set(models.filter(value => modelName(value)))];
-  // Keep the saved route visible until the user explicitly chooses a new one.
+  // Preserve a saved route for context, but never let an absent/unauthorized
+  // catalog entry become selectable again merely because it was saved earlier.
   if (selected && !values.includes(selected)) values.unshift(selected);
   const counts = new Map<string, number>();
   for (const value of values) counts.set(modelName(value), (counts.get(modelName(value)) || 0) + 1);
   return values.map(value => {
     const label = modelDisplayName(value, labels);
     const provider = providerNames[value]?.trim();
-    return { value, label: provider && (counts.get(modelName(value)) || 0) > 1 ? `${label} · ${provider}` : label };
+    const displayLabel = provider && (counts.get(modelName(value)) || 0) > 1 ? `${label} · ${provider}` : label;
+    return models.includes(value)
+      ? { value, label: displayLabel }
+      : { value, label: `${displayLabel}（当前不可用）`, disabled: true };
   });
 }
 

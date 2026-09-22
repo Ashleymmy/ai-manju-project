@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/ai-manju/api/internal/auth"
 	"github.com/ai-manju/api/internal/response"
 	"github.com/ai-manju/api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -84,7 +85,7 @@ func (h *SeedanceMaterialHandler) EnsureActive(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "asset_id is required")
 		return
 	}
-	if err := h.materials.EnsureAssetsActive(c.Request.Context(), assetIDs); err != nil {
+	if err := h.materials.ForUser(auth.MustCurrentUser(c)).EnsureAssetsActive(c.Request.Context(), assetIDs); err != nil {
 		writeMaterialError(c, err)
 		return
 	}
@@ -92,7 +93,7 @@ func (h *SeedanceMaterialHandler) EnsureActive(c *gin.Context) {
 }
 
 func (h *SeedanceMaterialHandler) call(c *gin.Context, action string, payload map[string]any) {
-	result, err := h.materials.Call(c.Request.Context(), service.SeedanceMaterialRequest{
+	result, err := h.materials.ForUser(auth.MustCurrentUser(c)).Call(c.Request.Context(), service.SeedanceMaterialRequest{
 		Action:  action,
 		Payload: payload,
 	})

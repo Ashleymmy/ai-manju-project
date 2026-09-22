@@ -59,6 +59,12 @@ func NewSeedanceMaterialService(repo repository.ModelProviderRepository, secretB
 	}
 }
 
+func (s *SeedanceMaterialService) ForUser(user model.User) *SeedanceMaterialService {
+	copy := *s
+	copy.repo = repository.ForUserModelProviders(s.repo, user)
+	return &copy
+}
+
 func (s *SeedanceMaterialService) Call(ctx context.Context, input SeedanceMaterialRequest) (map[string]any, error) {
 	config, apiKey, err := s.loadMaterialProvider()
 	if err != nil {
