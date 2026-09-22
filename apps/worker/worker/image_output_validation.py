@@ -21,6 +21,8 @@ IMAGE_PROBE_TIMEOUT_SECONDS = 15
 IMAGE_DOWNLOAD_TIMEOUT_SECONDS = 60
 IMAGE_DOWNLOAD_CHUNK_BYTES = 64 * 1024
 IMAGE_DOWNLOAD_MAX_BYTES = 50 * 1024 * 1024
+# Providers may round the scaled short edge to an integer pixel.
+IMAGE_ASPECT_ROUNDING_PIXELS = 1
 
 
 class ImageOutputValidationError(ImageParameterError):
@@ -51,13 +53,24 @@ def validate_canvas_image_outputs(payload: dict[str, Any], result: dict[str, Any
         if not path.is_relative_to(settings.asset_storage_dir.resolve()) or not path.is_file():
             raise invalid_output()
         width, height = read_image_dimensions(path, settings)
-        if (width, height) != expected:
+        if not meets_requested_dimensions(width, height, expected):
             # Do not resize/crop the file or automatically charge for another generation.
             raise ImageOutputValidationError(
                 f"图片尺寸不符合所选参数：要求 {expected[0]}×{expected[1]} px，实际返回 {width}×{height} px。请更换模型或调整参数后重试。",
                 code="image_output_size_mismatch", retryable=False,
             )
         output.update(width=width, height=height)
+
+
+def meets_requested_dimensions(width: int, height: int, expected: tuple[int, int]) -> bool:
+    expected_width, expected_height = expected
+    if width < expected_width or height < expected_height:
+        return False
+    # Compare cross-products to avoid floating-point ratio errors. This permits
+    # larger originals, with at most one pixel of rounding on the short edge.
+    return abs(width * expected_height - height * expected_width) <= (
+        IMAGE_ASPECT_ROUNDING_PIXELS * max(expected_width, expected_height)
+    )
 
 
 def invalid_output() -> ImageOutputValidationError:

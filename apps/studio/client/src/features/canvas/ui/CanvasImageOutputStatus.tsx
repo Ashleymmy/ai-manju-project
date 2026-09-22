@@ -29,8 +29,8 @@ export function CanvasImageOutputStatus({ node }: { node: CanvasNodeData }) {
   if (width === requestedWidth && height === requestedHeight) return null;
   return (
     <p role="status" className="px-3 py-2 text-xs text-amber-300">
-      生成服务返回了 {width} × {height} px，未达到本次要求的 {requestedWidth} ×{" "}
-      {requestedHeight} px。 原图已保留，可更换模型或重新生成。
+      原图实际尺寸为 {width} × {height} px，本次请求尺寸为 {requestedWidth} ×{" "}
+      {requestedHeight} px。原图已保留，未缩放或裁剪。
     </p>
   );
 }

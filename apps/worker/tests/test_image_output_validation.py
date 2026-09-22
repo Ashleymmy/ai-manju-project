@@ -26,7 +26,7 @@ def png_bytes(width, height):
 
 class ImageOutputValidationTest(unittest.TestCase):
     def test_remote_original_is_downloaded_and_checked_before_registration(self):
-        for dimensions in ((1024, 1024), (1536, 1024)):
+        for dimensions in ((1024, 1024), (1254, 1254), (1536, 1024)):
             with self.subTest(dimensions=dimensions), tempfile.TemporaryDirectory() as tmp:
                 store = FakeStore()
                 remote = {"base_url": "https://provider.example/v1", "model": "image", "auth_type": "none"}
@@ -43,7 +43,7 @@ class ImageOutputValidationTest(unittest.TestCase):
                      patch.object(tasks, "register_result_assets", side_effect=lambda _s, _j, result, *_: result) as register, \
                      patch.object(provider.requests, "post", return_value=generated) as post, \
                      patch("worker.image_output_validation.requests.get", return_value=response) as get:
-                    if dimensions == (1024, 1024):
+                    if dimensions in ((1024, 1024), (1254, 1254)):
                         tasks.execute_job(FakeTask(0), "job_remote", payload, provider.generate_image, "image")
                         output = store.results[0]["outputs"][0]
                         self.assertEqual((output["width"], output["height"]), dimensions)
@@ -93,11 +93,16 @@ class ImageOutputValidationTest(unittest.TestCase):
             self.assertEqual(store.results, [])
             self.assertEqual(store.final_errors[0]["code"], "image_parameters_unsupported")
 
-    def test_only_original_pixels_matching_request_can_succeed(self):
+    def test_original_resolution_and_aspect_ratio_must_meet_request(self):
         for operation in (provider.generate_image, provider.edit_image):
-            for requested, actual in (("1024x1024", (1024, 1024)), ("2304x1728", (2304, 1728)),
-                                      ("3840x2160", (3840, 2160)), ("1024x1024", (1536, 1024)),
-                                      ("2048x2048", (1024, 1024))):
+            for requested, actual, accepted in (
+                ("1024x1024", (1024, 1024), True), ("2304x1728", (2304, 1728), True),
+                ("3840x2160", (3840, 2160), True), ("1024x1024", (1254, 1254), True),
+                ("1280x720", (1672, 941), True), ("720x1280", (941, 1672), True),
+                ("1280x720", (2560, 1440), True), ("1280x720", (1672, 943), False),
+                ("1024x1024", (1536, 1024), False), ("2048x2048", (1024, 1024), False),
+                ("1280x720", (1279, 720), False),
+            ):
                 with self.subTest(operation=operation.__name__, requested=requested, actual=actual), tempfile.TemporaryDirectory() as tmp:
                     settings = test_settings(tmp)
                     store = FakeStore()
@@ -112,7 +117,7 @@ class ImageOutputValidationTest(unittest.TestCase):
                          patch.object(tasks, "provider_gate_from_payload", return_value=None), \
                          patch.object(tasks, "register_result_assets", side_effect=lambda _s, _j, result, *_: result) as register, \
                          patch.object(provider.requests, "post", return_value=response) as post:
-                        if requested == f"{actual[0]}x{actual[1]}":
+                        if accepted:
                             tasks.execute_job(FakeTask(0), "job_dimensions", payload, operation, "image")
                             self.assertEqual(len(store.results), 1)
                             self.assertEqual(store.results[0]["outputs"][0]["width"], actual[0])
@@ -130,7 +135,7 @@ class ImageOutputValidationTest(unittest.TestCase):
                         sent = post.call_args.kwargs.get("json") or post.call_args.kwargs["data"]
                         self.assertEqual(sent["size"], requested)
                         self.assertEqual(sent["quality"], "high")
-                        # A failed result's original file remains intact for diagnosis, never resized.
+                        # Successful and failed originals remain byte-for-byte intact, never resized.
                         self.assertIn(output, [path.read_bytes() for path in Path(tmp).rglob("*.png")])
 
     def test_unreadable_empty_and_timeout_results_fail_without_retries(self):

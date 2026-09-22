@@ -7,6 +7,24 @@ import { CanvasImageOutputStatus } from "./CanvasImageOutputStatus";
 
 describe("actual image output dimensions", () => {
   afterEach(() => vi.unstubAllGlobals());
+  it("describes a larger rounded original without claiming it failed or requesting regeneration", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<CanvasImageOutputStatus node={{
+        kind: "image",
+        metadata: { status: "success", requestedImageSize: "1280x720", naturalWidth: 1672, naturalHeight: 941 },
+      } as CanvasNodeData} />));
+      expect(container.textContent).toContain("1672 × 941 px");
+      expect(container.textContent).toContain("1280 × 720 px");
+      expect(container.textContent).toContain("未缩放或裁剪");
+      expect(container.textContent).not.toMatch(/未达到|重新生成/);
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
   it("reports a landscape return for a square request, using submitted rather than edited settings", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const container = document.createElement("div");
