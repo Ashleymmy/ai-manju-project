@@ -10,8 +10,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { buildPromptLibraryEntries, filterPromptLibraryEntries } from "@/lib/prompt-library";
-import { listAllSystemPrompts, type PromptPreset, type SystemPrompt } from "@/entities/prompt";
+import { buildPromptLibraryEntries } from "@/lib/prompt-library";
+import { getPromptLibrary, type PromptPreset, type SystemPrompt } from "@/entities/prompt";
 import { getPreferences, updatePreferences } from "@/features/settings";
 import { publicApiError } from "@/shared/api/errors";
 import { MAX_PROMPT_PRESET_FILE_BYTES, mergePromptPresetImport, parsePromptPresetFile, serializePromptPresetFile } from "@/features/prompts/model/presetTransfer";
@@ -29,6 +29,12 @@ const priorityOptions: Array<{ value: PromptPreset["priority"]; label: string }>
   { value: "low", label: "低" },
 ];
 
+// Read only one page at a time; briefly reuse public results when switching tabs.
+const PUBLIC_PAGE_SIZE = 20;
+const PUBLIC_CACHE_MS = 60_000;
+// Avoid a request for every keystroke while retaining a search over the whole catalog.
+const PUBLIC_SEARCH_DELAY_MS = 300;
+
 function priorityRank(value: PromptPreset["priority"]) {
   return { pinned: 0, high: 1, normal: 2, low: 3 }[value] ?? 2;
 }
@@ -39,64 +45,122 @@ function priorityLabel(value: PromptPreset["priority"]) {
 
 export default function PromptLibraryDialog({ open, onOpenChange, onSelect }: PromptLibraryDialogProps) {
   const [mode, setMode] = useState<"personal" | "public">("personal");
-  const [systemPrompts, setSystemPrompts] = useState<SystemPrompt[]>([]);
   const [personalPrompts, setPersonalPrompts] = useState<PromptPreset[]>([]);
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [loaded, setLoaded] = useState(false);
+  const [publicSearch, setPublicSearch] = useState("");
+  const [publicRequest, setPublicRequest] = useState({ page: 1, keyword: "" });
+  const [personalLoading, setPersonalLoading] = useState(true);
+  const [personalLoaded, setPersonalLoaded] = useState(false);
+  const [publicItems, setPublicItems] = useState<SystemPrompt[]>([]);
+  const [publicTotal, setPublicTotal] = useState(0);
+  const [publicLoadingState, setPublicLoadingState] = useState(false);
+  const [publicLoaded, setPublicLoaded] = useState(false);
+  const [publicError, setPublicError] = useState("");
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [personalError, setPersonalError] = useState("");
-  const [error, setError] = useState("");
   const [activeId, setActiveId] = useState("");
   const importInputRef = useRef<HTMLInputElement>(null);
   const savingRef = useRef(false);
   const importingRef = useRef(false);
-  const loadIdRef = useRef(0);
-  const busy = loading || !loaded || saving || importing;
+  const personalLoadIdRef = useRef(0);
+  const publicLoadIdRef = useRef(0);
+  const publicAbortRef = useRef<AbortController | null>(null);
+  const publicCacheRef = useRef(new Map<string, { items: SystemPrompt[]; total: number; expiresAt: number }>());
+  const busy = personalLoading || !personalLoaded || saving || importing;
   const active = personalPrompts.find((item) => item.id === activeId) || personalPrompts[0];
 
-  const publicEntries = useMemo(
-    () => filterPromptLibraryEntries(buildPromptLibraryEntries(systemPrompts, []), query),
-    [query, systemPrompts],
-  );
+  const publicLoading = publicLoadingState || publicSearch.trim() !== publicRequest.keyword || (mode === "public" && !publicLoaded && !publicError);
+  const publicEntries = buildPromptLibraryEntries(publicItems, []);
+
+  useEffect(() => {
+    const keyword = publicSearch.trim();
+    if (keyword === publicRequest.keyword) return;
+    const timer = window.setTimeout(() => setPublicRequest({ page: 1, keyword }), PUBLIC_SEARCH_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [publicSearch, publicRequest.keyword]);
+
+  const loadPublic = useCallback((force = false) => {
+    const key = `${publicRequest.page}:${publicRequest.keyword}`;
+    const cached = publicCacheRef.current.get(key);
+    if (!force && cached && cached.expiresAt > Date.now()) {
+      publicLoadIdRef.current++;
+      publicAbortRef.current?.abort();
+      setPublicLoadingState(false);
+      setPublicItems(cached.items);
+      setPublicTotal(cached.total);
+      setPublicLoaded(true);
+      setPublicError("");
+      return;
+    }
+    const loadId = ++publicLoadIdRef.current;
+    publicAbortRef.current?.abort();
+    const controller = new AbortController();
+    publicAbortRef.current = controller;
+    setPublicLoadingState(true);
+    setPublicLoaded(false);
+    setPublicError("");
+    getPromptLibrary(publicRequest.page, PUBLIC_PAGE_SIZE, { keyword: publicRequest.keyword }, controller.signal).then((result) => {
+      if (loadId !== publicLoadIdRef.current) return;
+      const items = result.items || [];
+      const total = result.total || 0;
+      publicCacheRef.current.set(key, { items, total, expiresAt: Date.now() + PUBLIC_CACHE_MS });
+      setPublicItems(items);
+      setPublicTotal(total);
+      setPublicLoaded(true);
+    }).catch((reason) => {
+      if (loadId !== publicLoadIdRef.current || controller.signal.aborted) return;
+      setPublicItems([]);
+      setPublicTotal(0);
+      setPublicError(publicApiError(reason, "读取公共提示词库失败"));
+    }).finally(() => {
+      if (loadId === publicLoadIdRef.current) setPublicLoadingState(false);
+    });
+  }, [publicRequest]);
 
   const visiblePersonal = useMemo(() => personalPrompts
     .filter((item) => !query.trim() || item.title.includes(query.trim()) || item.prompt.includes(query.trim()) || item.tags.some((tag) => tag.includes(query.trim())))
     .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.sort_order - b.sort_order || a.title.localeCompare(b.title, "zh-CN")), [personalPrompts, query]);
 
-  const reload = useCallback(() => {
-    const loadId = ++loadIdRef.current;
-    setLoading(true);
-    setLoaded(false);
-    setError("");
+  const reloadPersonal = useCallback(() => {
+    const loadId = ++personalLoadIdRef.current;
+    setPersonalLoading(true);
+    setPersonalLoaded(false);
     setPersonalError("");
-    Promise.allSettled([listAllSystemPrompts(), getPreferences()]).then(([systemResult, personalResult]) => {
-      if (loadId !== loadIdRef.current) return;
-      if (systemResult.status === "fulfilled") setSystemPrompts(systemResult.value);
-      else {
-        setSystemPrompts([]);
-        setError(publicApiError(systemResult.reason, "读取公共提示词库失败"));
-      }
-      if (personalResult.status === "fulfilled") {
-        const list = personalResult.value.canvas?.promptPresets || [];
-        setPersonalPrompts(list);
-        setLoaded(true);
-        setActiveId((current) => list.some((item) => item.id === current) ? current : list[0]?.id || "");
-      } else {
-        setPersonalPrompts([]);
-        setPersonalError(publicApiError(personalResult.reason, "读取个人预设失败"));
-      }
-    }).finally(() => { if (loadId === loadIdRef.current) setLoading(false); });
+    getPreferences().then((preferences) => {
+      if (loadId !== personalLoadIdRef.current) return;
+      const list = preferences.canvas?.promptPresets || [];
+      setPersonalPrompts(list);
+      setPersonalLoaded(true);
+      setActiveId((current) => list.some((item) => item.id === current) ? current : list[0]?.id || "");
+    }).catch((reason) => {
+      if (loadId !== personalLoadIdRef.current) return;
+      setPersonalPrompts([]);
+      setPersonalError(publicApiError(reason, "读取个人预设失败"));
+    }).finally(() => {
+      if (loadId === personalLoadIdRef.current) setPersonalLoading(false);
+    });
   }, []);
 
   useEffect(() => {
-    if (open) void reload();
-    return () => { loadIdRef.current++; };
-  }, [open, reload]);
+    if (!open) return;
+    void reloadPersonal();
+    return () => {
+      personalLoadIdRef.current++;
+    };
+  }, [open, reloadPersonal]);
+
+  useEffect(() => {
+    if (!open || mode !== "public") return;
+    loadPublic();
+    return () => {
+      publicLoadIdRef.current++;
+      publicAbortRef.current?.abort();
+    };
+  }, [open, mode, loadPublic]);
 
   const persist = async (next: PromptPreset[], message: string) => {
-    if (!loaded || loading || savingRef.current) return null;
+    if (!personalLoaded || personalLoading || savingRef.current) return null;
     savingRef.current = true;
     setSaving(true);
     try {
@@ -164,7 +228,7 @@ export default function PromptLibraryDialog({ open, onOpenChange, onSelect }: Pr
   };
 
   const importPresets = async (file: File) => {
-    if (!loaded || loading || savingRef.current || importingRef.current) return;
+    if (!personalLoaded || personalLoading || savingRef.current || importingRef.current) return;
     importingRef.current = true;
     setImporting(true);
     try {
@@ -203,12 +267,12 @@ export default function PromptLibraryDialog({ open, onOpenChange, onSelect }: Pr
           <>
             <div className="tag-search">
               <Search size={15} />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、正文、分类或标签" autoFocus />
+              <input value={publicSearch} onChange={(event) => setPublicSearch(event.target.value)} placeholder="搜索标题、正文、分类或标签" autoFocus />
             </div>
             <div className="prompt-library-list">
-              {loading ? <div className="empty-output"><Loader2 className="spin" size={24} /><p>正在读取提示词库…</p></div> : null}
-              {!loading && error ? <div className="empty-output"><p>{error}</p></div> : null}
-              {!loading && !error && publicEntries.map((item) => (
+              {publicLoading ? <div className="empty-output"><Loader2 className="spin" size={24} /><p>正在读取提示词库…</p></div> : null}
+              {!publicLoading && publicError ? <div className="empty-output"><p role="alert">{publicError}</p><button className="outline-button small" onClick={() => loadPublic(true)}>重新加载</button></div> : null}
+              {!publicLoading && !publicError && publicEntries.map((item) => (
                 <button key={item.id} type="button" onClick={() => { onSelect(item.prompt); onOpenChange(false); }}>
                   <BookOpen size={16} />
                   <span>
@@ -218,7 +282,12 @@ export default function PromptLibraryDialog({ open, onOpenChange, onSelect }: Pr
                   <i>{item.category || "系统"}</i>
                 </button>
               ))}
-              {!loading && !error && !publicEntries.length ? <div className="empty-output"><p>没有匹配的提示词</p></div> : null}
+              {!publicLoading && !publicError && !publicEntries.length ? <div className="empty-output"><p>没有匹配的提示词</p></div> : null}
+            </div>
+            <div className="prompt-library-personal-actions" aria-label="公共提示词分页">
+              <button className="outline-button small" disabled={publicLoading || publicRequest.page === 1} onClick={() => setPublicRequest((current) => ({ ...current, page: current.page - 1 }))}>上一页</button>
+              <span>第 {publicRequest.page} 页{!publicLoading && !publicError ? ` · 共 ${publicTotal} 条` : ""}</span>
+              <button className="outline-button small" disabled={publicLoading || !!publicError || publicRequest.page * PUBLIC_PAGE_SIZE >= publicTotal} onClick={() => setPublicRequest((current) => ({ ...current, page: current.page + 1 }))}>下一页</button>
             </div>
           </>
         ) : (
@@ -238,7 +307,7 @@ export default function PromptLibraryDialog({ open, onOpenChange, onSelect }: Pr
                 }} />
               </div>
               <div className="prompt-library-personal-items">
-                {loading ? <div className="prompt-library-loading"><Loader2 className="spin" size={16} /> 读取中…</div> : personalError ? <div className="empty-output"><p role="alert">{personalError}</p><button className="outline-button small" onClick={reload}>重新加载</button></div> : visiblePersonal.length ? visiblePersonal.map((preset) => (
+                {personalLoading ? <div className="prompt-library-loading"><Loader2 className="spin" size={16} /> 读取中…</div> : personalError ? <div className="empty-output"><p role="alert">{personalError}</p><button className="outline-button small" onClick={reloadPersonal}>重新加载</button></div> : visiblePersonal.length ? visiblePersonal.map((preset) => (
                   <div key={preset.id} className={active?.id === preset.id ? "preset-item active" : "preset-item"} onClick={() => setActiveId(preset.id)}>
                     <div className="preset-item-head">
                       <span className={`status-chip ${preset.priority === "pinned" ? "sand" : "blue"}`}>{priorityLabel(preset.priority)}</span>
@@ -266,7 +335,7 @@ export default function PromptLibraryDialog({ open, onOpenChange, onSelect }: Pr
                     <button className="vermilion-button" disabled={busy} onClick={saveActive}><Check size={15} /> {saving ? "保存中…" : "保存预设"}</button>
                   </div>
                 </>
-              ) : <div className="empty-output"><p>暂无预设，点击「新建预设」开始。</p></div>}
+              ) : <div className="empty-output"><p>{personalLoading ? "正在读取个人预设…" : personalError ? "读取失败，请点击「重新加载」重试。" : "暂无预设，点击「新建预设」开始。"}</p></div>}
             </section>
           </div>
         )}

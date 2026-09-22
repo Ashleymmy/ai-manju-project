@@ -50,7 +50,7 @@ func TestSDVideoCatalogAndSubmissionShareCreationPolicy(t *testing.T) {
 					return
 				}
 				_ = json.NewEncoder(w).Encode(gin.H{"success": true, "data": gin.H{"items": []gin.H{
-					{"key": "seedance-2.5", "id": "ep-upstream", "name": "Seedance 2.5", "available": true, "enabled": true},
+					{"key": "seedance-2.5", "id": "ep-upstream", "name": "Seedance 2.5", "available": true, "enabled": true, "durations": []int{5, 10, 25}},
 					{"key": "seedance-2.0", "id": "ep-20", "name": "Seedance 2.0", "available": true, "enabled": true},
 					{"key": "seedance-2.0-ark", "id": "ep-official", "available": false, "enabled": true, "disabled_reason": "provider_credentials_missing"},
 				}}})
@@ -112,11 +112,17 @@ func TestSDVideoCatalogAndSubmissionShareCreationPolicy(t *testing.T) {
 			if data["default_video_model"] != defaultModel {
 				t.Fatalf("default = %v, want %s", data["default_video_model"], defaultModel)
 			}
+			if len(tc.wantModels) > 0 {
+				durations := data["video_model_durations"].(map[string]any)["sdvideo/seedance-2.5"]
+				if !reflect.DeepEqual(durations, []any{float64(5), float64(10), float64(25)}) {
+					t.Fatalf("live durations lost: %v", durations)
+				}
+			}
 			if len(data["text_models"].([]any)) != 1 {
 				t.Fatal("text models were affected by video policy")
 			}
 			if tc.want25Error != nil {
-				for _, field := range []string{"models", "model_labels", "model_provider_names"} {
+				for _, field := range []string{"models", "model_labels", "model_provider_names", "video_model_durations"} {
 					raw, _ := json.Marshal(data[field])
 					if strings.Contains(string(raw), "sdvideo/seedance-2.5") {
 						t.Fatalf("blocked model leaked into %s", field)

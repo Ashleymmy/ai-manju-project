@@ -77,15 +77,15 @@ import { publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 
 import {
-  assetPackageUploadMetadata,
-  createAssetPackage,
-  readAssetPackage,
+  readAssetPackageContents,
 } from "./model/assetPackage";
+import { AssetPackageImportSession, type PackageImportProgress } from "./model/importAssetPackage";
 import { isAssetFavorited, nextAssetReaction } from "./model/reactions";
 import { formatTrashCountdown, isTrashCountdownUrgent, remainingTrashDays } from "./model/trashRetention";
 import { AssetSelectionArea } from "./ui/AssetSelectionArea";
 import { AssetBulkTagsDialog } from "./ui/AssetBulkTagsDialog";
 import { AssetBulkDetailsPanel } from "./ui/AssetBulkDetailsPanel";
+import { AssetTransferStatus } from "./ui/AssetTransferStatus";
 import { updateAssetCategories } from "./model/bulkCategory";
 import { AssetPreviewLightbox } from "./ui/AssetPreviewLightbox";
 import { AssetThumbnail } from "./ui/AssetThumbnail";
@@ -226,6 +226,13 @@ export function AssetLibraryView() {
   const [exportBusy, setExportBusy] = useState("");
   const [packageBusy, setPackageBusy] = useState("");
   const packageInputRef = useRef<HTMLInputElement>(null);
+  const importSessionRef = useRef<AssetPackageImportSession | null>(null);
+  const importControllerRef = useRef<AbortController | null>(null);
+  const packageReadingRef = useRef(false);
+  const [importProgress, setImportProgress] = useState<PackageImportProgress | null>(null);
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
+  const [showExportTasks, setShowExportTasks] = useState(false);
+  useEffect(() => () => { importControllerRef.current?.abort(); }, []);
   const [noteDraft, setNoteDraft] = useState("");
   const [detailName, setDetailName] = useState("");
   const [detailCategory, setDetailCategory] = useState<AssetCategory | "">("");
@@ -749,20 +756,11 @@ export function AssetLibraryView() {
       } else {
         await createAssetExport({
           selection_mode: "filter",
-          filter: {
-            folderId: activeFolderId || undefined,
-            includeDescendants: true,
-            smartView: smartViewQuery,
-            category,
-            sourceType,
-            keyword: debouncedKeyword.trim() || undefined,
-            tagIds: selectedTagIds,
-            tagMatch,
-            sort: "created_at_desc",
-          },
+          filter: query,
         }, scope);
       }
       toast.success("导出任务已创建");
+      setShowExportTasks(true);
       void reloadExports();
     } catch (error) {
       toast.error(publicApiError(error, "创建导出任务失败"));
@@ -772,53 +770,51 @@ export function AssetLibraryView() {
   };
 
   const exportAssetPackage = async () => {
-    if (!bulkIds.length) return;
-    setPackageBusy("export");
+    await createExport("selected");
+  };
+
+  const runPackageImport = async (session: AssetPackageImportSession) => {
+    if (importControllerRef.current) return;
+    const controller = new AbortController();
+    importControllerRef.current = controller;
+    setPackageBusy("import");
     try {
-      const targets = assets.filter((asset) => bulkIds.includes(asset.id));
-      const items = await Promise.all(targets.map(async (asset) => {
-        let objectUrl = "";
-        try {
-          objectUrl = await getAssetContentObjectUrl(asset.id, scope);
-          return { asset, blob: await fetch(objectUrl).then((response) => response.blob()) };
-        } catch {
-          return { asset, blob: null };
-        } finally {
-          if (objectUrl) URL.revokeObjectURL(objectUrl);
-        }
-      }));
-      const zip = await createAssetPackage(items);
-      downloadBlob(zip, `资产包-${new Date().toISOString().slice(0, 10)}.zip`);
-      toast.success(`已导出 ${items.filter((item) => item.blob).length} 个资产`);
+      await session.run(setImportProgress, controller.signal);
+      if (session.completed.size === session.contents.items.filter(item => item.file).length) {
+        importSessionRef.current = null;
+      }
     } catch (error) {
-      toast.error(publicApiError(error, "导出资产包失败"));
+      const message = controller.signal.aborted ? "导入已暂停，可继续导入" : publicApiError(error, "导入失败，可重试");
+      setImportProgress(current => ({ phase: message, completed: session.completed.size,
+        total: session.contents.items.filter(item => item.file).length, failures: current?.failures || [] }));
+      if (!controller.signal.aborted) toast.error(message);
     } finally {
+      importControllerRef.current = null;
       setPackageBusy("");
+      void invalidateAssetScope(queryClient, session.scope);
+      refresh();
     }
   };
 
   const importAssetPackage = async (file: File) => {
+    if (packageReadingRef.current || importControllerRef.current) return;
+    packageReadingRef.current = true;
     setPackageBusy("import");
+    setImportProgress({ phase: "检查资产包…", completed: 0, total: 0, failures: [] });
+    setImportWarnings([]);
+    importSessionRef.current = null;
     try {
-      const items = await readAssetPackage(file);
-      const uploadable = items.filter((item) => item.file);
-      if (!uploadable.length) throw new Error("资产包中没有可导入的文件");
-      let succeeded = 0;
-      for (const item of uploadable) {
-        try {
-          await uploadAsset(item.file as File, assetPackageUploadMetadata(item.asset, activeFolderId || undefined), scope);
-          succeeded += 1;
-        } catch (error) {
-          toast.error(`${item.asset.name}：${publicApiError(error, "导入失败")}`);
-        }
-      }
-      if (succeeded) {
-        toast.success(`已导入 ${succeeded} 个资产`);
-        refresh();
-      }
+      const contents = await readAssetPackageContents(file);
+      const session = new AssetPackageImportSession(contents, scope, activeFolderId || undefined);
+      importSessionRef.current = session;
+      setImportWarnings(contents.warnings);
+      await runPackageImport(session);
     } catch (error) {
-      toast.error(publicApiError(error, "读取资产包失败"));
+      const message = publicApiError(error, "读取资产包失败");
+      setImportProgress({ phase: message, completed: 0, total: 0, failures: [] });
+      toast.error(message);
     } finally {
+      packageReadingRef.current = false;
       setPackageBusy("");
     }
   };
@@ -961,8 +957,19 @@ export function AssetLibraryView() {
           <input className="asset-date-input" type="date" value={createdTo} onChange={(event) => setCreatedTo(event.target.value)} title="创建时间止" />
           <button className="outline-button small" disabled={uploading} onClick={() => fileInputRef.current?.click()}><Upload size={15} /> {uploading ? "上传中…" : "导入资产"}</button>
         </div>
-        <div className="asset-bulk-bar"><label><input type="checkbox" checked={assets.length > 0 && selectedIds.length === assets.length} onChange={(event) => setSelectedIds(event.target.checked ? assets.map((asset) => asset.id) : [])} /> 本页全选</label><span aria-live="polite">已选 {bulkIds.length} 项</span><button disabled={!bulkIds.length} onClick={() => setSelectedIds([])}>取消选择</button><select className="asset-move-folder-select" aria-label="移动到目录" title="仅显示一级、二级文件夹" value={visibleMoveFolderId} onChange={(event) => setMoveFolderId(event.target.value)}><option value="">移动到目录…</option>{moveFolderRows.map(({ folder }) => <option key={folder.id} value={folder.id}>{folderPathLabel(navigationFolders, folder.id)}</option>)}</select><button onClick={() => void moveSelectedAssets()} disabled={!visibleMoveFolderId || !bulkIds.length}>移动</button><button onClick={() => void deleteOrRestore()} disabled={!bulkIds.length}>{smartView === "trash" ? "恢复" : "删除"}</button>{smartView === "trash" && <button onClick={() => void permanentDeleteSelected()} disabled={!bulkIds.length}>永久删除</button>}{smartView === "trash" && <button onClick={() => void emptyTrash()}>清空回收站</button>}<button className="asset-bulk-tags-trigger" onClick={() => setBulkTagTarget({ ids: [...bulkIds], scope })} disabled={!bulkIds.length || smartView === "trash"}><Tag size={14} /> 批量标签</button><button onClick={() => void createExport("selected")} disabled={exportBusy === "selected" || !bulkIds.length}>导出选中</button><button onClick={() => void createExport("filter")} disabled={exportBusy === "filter"}>导出筛选</button><button onClick={() => void createExport("folder")} disabled={!activeFolderId || exportBusy === "folder"}>导出目录</button><button onClick={() => void exportAssetPackage()} disabled={!bulkIds.length || packageBusy === "export"}>{packageBusy === "export" ? "打包中…" : "打包选中"}</button><button onClick={() => packageInputRef.current?.click()} disabled={packageBusy === "import"}>{packageBusy === "import" ? "导入中…" : "导入资产包"}</button></div>
+        <div className="asset-bulk-bar"><label><input type="checkbox" checked={assets.length > 0 && selectedIds.length === assets.length} onChange={(event) => setSelectedIds(event.target.checked ? assets.map((asset) => asset.id) : [])} /> 本页全选</label><span aria-live="polite">已选 {bulkIds.length} 项</span><button disabled={!bulkIds.length} onClick={() => setSelectedIds([])}>取消选择</button><select className="asset-move-folder-select" aria-label="移动到目录" title="仅显示一级、二级文件夹" value={visibleMoveFolderId} onChange={(event) => setMoveFolderId(event.target.value)}><option value="">移动到目录…</option>{moveFolderRows.map(({ folder }) => <option key={folder.id} value={folder.id}>{folderPathLabel(navigationFolders, folder.id)}</option>)}</select><button onClick={() => void moveSelectedAssets()} disabled={!visibleMoveFolderId || !bulkIds.length}>移动</button><button onClick={() => void deleteOrRestore()} disabled={!bulkIds.length}>{smartView === "trash" ? "恢复" : "删除"}</button>{smartView === "trash" && <button onClick={() => void permanentDeleteSelected()} disabled={!bulkIds.length}>永久删除</button>}{smartView === "trash" && <button onClick={() => void emptyTrash()}>清空回收站</button>}<button className="asset-bulk-tags-trigger" onClick={() => setBulkTagTarget({ ids: [...bulkIds], scope })} disabled={!bulkIds.length || smartView === "trash"}><Tag size={14} /> 批量标签</button><button onClick={() => void createExport("selected")} disabled={exportBusy === "selected" || !bulkIds.length}>导出选中</button><button onClick={() => void createExport("filter")} disabled={exportBusy === "filter"}>导出筛选</button><button onClick={() => void createExport("folder")} disabled={!activeFolderId || exportBusy === "folder"}>导出目录</button><button onClick={() => void exportAssetPackage()} disabled={!bulkIds.length || exportBusy === "selected"}>打包选中</button><button onClick={() => packageInputRef.current?.click()} disabled={packageBusy === "import"}>{packageBusy === "import" ? "导入中…" : "导入资产包"}</button><button onClick={() => setShowExportTasks(value => !value)}>{showExportTasks ? "收起导出任务" : "导出任务"}</button></div>
         {uploadPreviews.some(item => item.scope === scope) && <div className="asset-thumb-grid" aria-label="正在上传的素材">{uploadPreviews.filter(item => item.scope === scope).map(item => <article key={item.id} className="library-asset"><div className="library-asset-preview">{item.url ? <img src={item.url} alt={item.name} /> : <div className="empty-output"><Upload size={22} /></div>}<div><b>{item.name}</b><small>上传中…</small></div></div></article>)}</div>}
+        <AssetTransferStatus
+          batches={showExportTasks ? exportBatches.slice(0, 5) : []}
+          progress={importProgress} warnings={importWarnings} importing={packageBusy === "import"}
+          canPause={Boolean(importControllerRef.current)}
+          canRetry={Boolean(importSessionRef.current && importProgress?.phase !== "导入完成")}
+          onRetry={() => { if (importSessionRef.current) void runPackageImport(importSessionRef.current); }}
+          onPause={() => importControllerRef.current?.abort()}
+          onDismiss={() => { setImportProgress(null); setImportWarnings([]); }}
+          onDownload={batch => { void downloadAssetExport(batch.id, scope).then(blob => downloadBlob(blob, batch.file_name || `${batch.id}.zip`)).catch(error => toast.error(publicApiError(error, "下载失败"))); }}
+          onCancel={batch => { void cancelAssetExport(batch.id, scope).then(reloadExports).catch(error => toast.error(publicApiError(error, "取消失败"))); }}
+        />
         <p className="asset-selection-hint">按住鼠标左键拖动框选 · Ctrl / ⌘ / Shift 可追加选择 · 双击预览</p>
         {loading ? <div className="empty-output"><Loader2 className="spin" size={26} /><p>正在读取资产…</p></div> : assets.length ? <AssetSelectionArea key={`${scope}:${page}:${activeFolderId}:${smartView}`} selectedIds={selectedIds} onSelectionChange={setSelectedIds}><div className="asset-thumb-grid">{assets.map((asset) => {
           const favorited = isAssetFavorited(asset.user_state?.reaction);

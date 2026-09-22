@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PromptPreset } from "@/entities/prompt";
 import { MAX_PROMPT_PRESET_FILE_BYTES, parsePromptPresetFile, serializePromptPresetFile } from "@/features/prompts/model/presetTransfer";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), system: vi.fn(), download: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), publicLibrary: vi.fn(), download: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock("@/features/settings", () => ({ getPreferences: mocks.get, updatePreferences: mocks.save }));
-vi.mock("@/entities/prompt", () => ({ listAllSystemPrompts: mocks.system }));
+vi.mock("@/entities/prompt", () => ({ getPromptLibrary: mocks.publicLibrary }));
 vi.mock("file-saver", () => ({ saveAs: mocks.download }));
 vi.mock("sonner", () => ({ toast: { success: mocks.success, error: mocks.error, info: mocks.info } }));
 import PromptLibraryDialog from "./PromptLibraryDialog";
@@ -49,7 +49,7 @@ describe("canvas prompt library file transfer", () => {
     vi.clearAllMocks();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     stored = [existing];
-    mocks.system.mockResolvedValue([]);
+    mocks.publicLibrary.mockResolvedValue({ items: [], total: 0 });
     mocks.get.mockImplementation(async () => ({ canvas: { promptPresets: stored } }));
     mocks.save.mockImplementation(async payload => { stored = payload.canvas.promptPresets; return payload; });
     container = document.createElement("div");
@@ -139,6 +139,28 @@ describe("canvas prompt library file transfer", () => {
     await act(async () => button("重新加载").click());
     expect(button("一键导入").disabled).toBe(false);
     expect(rows()).toEqual([existing.title]);
+  });
+
+  it("shows personal presets without waiting for the public catalog, then loads the catalog on demand", async () => {
+    let resolvePublic!: (result: { items: unknown[]; total: number }) => void;
+    mocks.publicLibrary.mockImplementationOnce(() => new Promise(resolve => { resolvePublic = resolve; }));
+    await render();
+
+    expect(rows()).toEqual([existing.title]);
+    expect(button("一键导入").disabled).toBe(false);
+    expect(mocks.publicLibrary).not.toHaveBeenCalled();
+
+    await act(async () => button("公共库").click());
+    expect(mocks.publicLibrary).toHaveBeenCalledOnce();
+    expect(mocks.publicLibrary).toHaveBeenCalledWith(1, 20, { keyword: "" }, expect.any(AbortSignal));
+    expect(document.querySelector(".prompt-library-list")?.textContent).toContain("正在读取提示词库");
+
+    await act(async () => resolvePublic({ items: [{ id: "public", title: "公共预设", prompt: "明亮棚拍", tags: [], category: "系统" }], total: 1 }));
+    expect(document.querySelector(".prompt-library-list")?.textContent).toContain("公共预设");
+
+    await act(async () => button("个人预设").click());
+    await act(async () => button("公共库").click());
+    expect(mocks.publicLibrary).toHaveBeenCalledOnce();
   });
 
   it("allows importing into an empty library and refuses to export incomplete drafts", async () => {

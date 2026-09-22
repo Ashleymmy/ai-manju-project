@@ -130,7 +130,7 @@
   border-radius: 3px;
   color: #a1a1a1;
 }.folder-row .folder-toggle:not(.placeholder):hover { background: rgba(255, 255, 255, 0.1); color: #fff; }.folder-row .folder-toggle svg { transition: transform 0.15s ease; }.folder-row .folder-toggle svg.open { transform: rotate(90deg); }.folder-row .folder-icon { flex: 0 0 auto; color: #979797; }.folder-row.selected .folder-icon { color: #f2f1ed; }.folder-row .folder-name {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

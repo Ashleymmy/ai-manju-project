@@ -8,7 +8,7 @@ export const folder = (id: string, parent_id: string, name: string, extra: Parti
 });
 const folders = [
   folder("system", "", "系统归档", { system_key: "system_root" }),
-  folder("canvas", "system", "画布工坊", { sort_order: 40 }),
+  folder("canvas", "system", "画布工坊", { system_key: "canvas", sort_order: 40 }),
   folder("mine", "canvas", "未命名画布1", { system_key: "canvas_project", source_ref_id: "project-1" }),
   folder("same-title", "canvas", "未命名画布1", { system_key: "canvas_project", source_ref_id: "project-2" }),
   folder("roles", "mine", "角色", { sort_order: 10 }),
@@ -30,9 +30,9 @@ const references = buildCanvasMentionReferences("target", nodes, edges, [
 const library: CanvasMentionLibraryState = { ...emptyCanvasMentionLibrary("project-1"), folders };
 
 describe("canvas mention library navigation", () => {
-  it("prioritizes incoming nodes, the exact linked folder, favorites and promoted archive folders", () => {
+  it("lists only direct predecessors before the library entries", () => {
     expect(buildCanvasMentionLibraryMenu(references, "", "root", library).map(item => item.id)).toEqual([
-      "node:source", "node:ancestor", "folder:mine", "favorites", "folder:unfiled", "folder:canvas", "folder:custom",
+      "node:source", "folder:mine", "favorites", "folder:canvas", "library",
     ]);
   });
 
@@ -43,9 +43,38 @@ describe("canvas mention library navigation", () => {
     ]);
   });
 
-  it("keeps other folders hierarchical and does not repeat the current project", () => {
-    expect(buildCanvasMentionLibraryMenu([], "", "root", library).map(item => item.id)).toEqual(["folder:mine", "favorites", "folder:unfiled", "folder:canvas", "folder:custom"]);
+  it("shows top-level other-material folders without repeating the current project", () => {
+    expect(buildCanvasMentionLibraryMenu([], "", "root", library).map(item => item.id)).toEqual(["folder:mine", "favorites", "folder:canvas", "library"]);
+    expect(buildCanvasMentionLibraryMenu([], "", "library", library).map(item => item.id)).toEqual(["folder:unfiled", "folder:custom"]);
     expect(buildCanvasMentionLibraryMenu([], "", "folder:canvas", library).map(item => item.id)).toEqual(["folder:same-title"]);
+  });
+
+  it("lists system and user folders inside the grouped asset view", () => {
+    const view: CanvasMentionLibraryState = {
+      ...library, target: "library", assetIds: ["role"], hasMore: true,
+      folders: [...folders,
+        folder("upload", "system", "手动上传", { sort_order: 20 }),
+        folder("workbench", "system", "生图工作台", { sort_order: 30 }),
+        folder("comic", "system", "漫剧资产助手", { sort_order: 50 }),
+        folder("custom-2", "", "额外素材", { kind: "user" }),
+      ],
+    };
+    expect(buildCanvasMentionLibraryMenu([], "", "root", view).map(item => item.id)).toEqual(["folder:mine", "favorites", "folder:canvas", "library"]);
+    expect(buildCanvasMentionLibraryMenu([], "", "library", view).map(item => item.id)).toEqual([
+      "folder:unfiled", "folder:upload", "folder:workbench", "folder:comic", "folder:custom-2", "folder:custom",
+    ]);
+    expect(buildCanvasMentionLibraryMenu(references, "", "library", view).map(item => item.id)).toEqual([
+      "node:source", "folder:unfiled", "folder:upload", "folder:workbench", "folder:comic", "folder:custom-2", "folder:custom",
+    ]);
+  });
+
+  it("keeps global search results accessible at both index levels and filters grouped folders", () => {
+    const rootView = { ...library, target: "root" as const, query: "角色", assetIds: ["role"] };
+    expect(buildCanvasMentionLibraryMenu(references, "角色", "root", rootView).map(item => item.id)).toContain("asset:role");
+    const otherView = { ...library, target: "library" as const, query: "角色", assetIds: ["role"] };
+    expect(buildCanvasMentionLibraryMenu(references, "角色", "library", otherView).map(item => item.id)).not.toContain("asset:role");
+    expect(buildCanvasMentionLibraryMenu([], "草稿", "library", library).map(item => item.id)).toEqual(["folder:custom"]);
+    expect(buildCanvasMentionLibraryMenu([], "", "root", { ...library, projectId: "new-project" }).map(item => item.id)).toEqual(["favorites", "folder:canvas", "library"]);
   });
 
   it("skips automatic dates while keeping categories, manually named dates and archived assets accessible", () => {
@@ -59,7 +88,7 @@ describe("canvas mention library navigation", () => {
       ],
     };
     expect(buildCanvasMentionLibraryMenu(references, "", "folder:mine", view).map(item => item.id)).toEqual([
-      "node:source", "node:ancestor", "folder:roles", "folder:scenes", "folder:props",
+      "node:source", "folder:roles", "folder:scenes", "folder:props",
       "folder:manual-day", "folder:nested", "folder:other", "asset:role", "asset:scene",
     ]);
     expect(view.folders.find(item => item.id === "nested")?.parent_id).toBe("day-1");
@@ -75,21 +104,30 @@ describe("canvas mention library navigation", () => {
     };
     expect(buildCanvasMentionLibraryMenu([], "", "folder:workbench", view)).toEqual([]);
     expect(buildCanvasMentionLibraryMenu(references, "", "folder:workbench", view).map(item => item.id)).toEqual([
-      "node:source", "node:ancestor", "asset:scene",
+      "node:source", "asset:scene",
     ]);
   });
 
   it("uses only the latest folder/favorites response, preserving other cached chips", () => {
     const view = { ...library, target: "folder:roles" as const, assetIds: ["role"] };
-    expect(buildCanvasMentionLibraryMenu(references, "", "folder:roles", view).map(item => item.id)).toEqual(["node:source", "node:ancestor", "asset:role"]);
+    expect(buildCanvasMentionLibraryMenu(references, "", "folder:roles", view).map(item => item.id)).toEqual(["node:source", "asset:role"]);
     expect(buildCanvasMentionLibraryMenu(references, "", "favorites", view).filter(item => item.kind === "reference" && item.reference.source === "asset")).toEqual([]);
-    expect(buildCanvasMentionLibraryMenu(references, "", "favorites", { ...view, target: "favorites", assetIds: ["scene"] }).map(item => item.id)).toEqual(["node:source", "node:ancestor", "asset:scene"]);
+    expect(buildCanvasMentionLibraryMenu(references, "", "favorites", { ...view, target: "favorites", assetIds: ["scene"] }).map(item => item.id)).toEqual(["node:source", "asset:scene"]);
   });
 
   it("handles cycles and missing edges while retaining old reference resolution", () => {
     const cyclic = buildCanvasMentionReferences("target", nodes, [...edges, { from: "target", to: "ancestor" }, { from: "missing", to: "target" }], [], "personal");
     const items = buildCanvasMentionLibraryMenu(cyclic, "", "root", library);
-    expect(items.filter(item => item.kind === "reference").map(item => item.id)).toEqual(["node:source", "node:ancestor"]);
+    expect(items.filter(item => item.kind === "reference").map(item => item.id)).toEqual(["node:source"]);
+    expect(cyclic.find(ref => ref.nodeId === "ancestor")?.active).toBe(true);
     expect(cyclic.find(ref => ref.nodeId === "downstream")?.active).toBe(true);
+  });
+
+  it("does not reveal earlier ancestors through search, but includes them when directly connected", () => {
+    expect(buildCanvasMentionLibraryMenu(references, "ancestor", "root", library).filter(item => item.kind === "reference")).toEqual([]);
+    const direct = buildCanvasMentionReferences("target", nodes, [...edges,
+      { from: "ancestor", to: "target" }, { from: "source", to: "target" },
+    ], [], "personal");
+    expect(buildCanvasMentionLibraryMenu(direct, "", "root", library).filter(item => item.kind === "reference").map(item => item.id)).toEqual(["node:source", "node:ancestor"]);
   });
 });

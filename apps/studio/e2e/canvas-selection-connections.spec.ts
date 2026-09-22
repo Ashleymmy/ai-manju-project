@@ -92,7 +92,7 @@ for (const zoom of [50, 80, 100]) {
     for (const [port, side] of [[left, "left"], [right, "right"]] as const) {
       const box = (await port.boundingBox())!;
       expect(Math.abs(box.y + box.height / 2 - (bounds.y + bounds.height / 2))).toBeLessThan(1);
-      expect(box.width).toBeCloseTo(22 * zoom / 100, 0);
+      expect(box.width).toBeCloseTo(22 * Math.max(1, zoom / 100), 0);
       if (side === "left") expect(box.x + box.width).toBeLessThan(bounds.x);
       else expect(box.x).toBeGreaterThan(bounds.x + bounds.width);
     }

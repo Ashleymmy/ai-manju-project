@@ -31,12 +31,24 @@ export function useInspectorResize({ panelRef, nodeId, limits, onResize }: Optio
     };
     const startX = event.clientX;
     const startY = event.clientY;
+    // Left/above panels expand away from the node, using their outer edges.
+    const style = getComputedStyle(panel);
+    const directionX = style.getPropertyValue("--inspector-resize-x").trim() === "-1" ? -1 : 1;
+    const directionY = style.getPropertyValue("--inspector-resize-y").trim() === "-1" ? -1 : 1;
+    const centerDistance = parseFloat(style.getPropertyValue("--inspector-resize-center-distance"));
+    const boundaryDistance = parseFloat(style.getPropertyValue("--inspector-resize-boundary-distance"));
+    const centered = Number.isFinite(centerDistance) && Number.isFinite(boundaryDistance);
     const pointerId = event.pointerId;
     const handle = event.currentTarget;
     const move = (next: globalThis.PointerEvent) => {
       if (next.pointerId !== pointerId || latest.current.nodeId !== nodeId) return;
+      const outwardX = (next.clientX - startX) * directionX;
+      // Centered panels grow on both sides until the opposite edge reaches the viewport.
+      // Invert that placement so the dragged edge stays under the pointer in both cases.
+      const width = centered ? Math.min((centerDistance + outwardX) * 2, boundaryDistance + outwardX)
+        : start.width + outwardX;
       latest.current.onResize(nodeId, resizeInspector(start, {
-        width: next.clientX - startX, height: next.clientY - startY,
+        width: width - start.width, height: (next.clientY - startY) * directionY,
       }, mode, dragLimits), mode);
     };
     const stop = () => {

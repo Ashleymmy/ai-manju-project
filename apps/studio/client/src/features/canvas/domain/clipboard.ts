@@ -1,3 +1,5 @@
+import { canvasNodeCopyTitle } from "./nodeTitles";
+
 /** Identifies the in-memory node copy without exposing node data to other apps. */
 export const CANVAS_CLIPBOARD_TOKEN_PREFIX = "ai-manju-canvas-nodes:";
 
@@ -34,12 +36,13 @@ const CANVAS_NODE_DUPLICATE_DETACHED_KEYS = [
 ] as const;
 
 /** 单节点复制只创建独立节点；原图的入线和出线均不复制。 */
-export function duplicateCanvasNode<TNode extends CanvasClipboardNode>(source: TNode, id: string): TNode {
+export function duplicateCanvasNode<TNode extends CanvasClipboardNode>(source: TNode, id: string, existing: readonly Pick<CanvasClipboardNode, "title">[] = [source]): TNode {
   const duplicate = structuredClone(source);
   duplicate.id = id;
-  duplicate.title = `${source.title} 副本`;
+  duplicate.title = canvasNodeCopyTitle(source.title, new Set(existing.map(node => node.title)));
   duplicate.x += CANVAS_NODE_DUPLICATE_OFFSET;
   duplicate.y += CANVAS_NODE_DUPLICATE_OFFSET;
+  duplicate.metadata = { ...duplicate.metadata, titleEdited: true };
   if (duplicate.metadata) {
     for (const key of CANVAS_NODE_DUPLICATE_DETACHED_KEYS) delete duplicate.metadata[key];
     if (duplicate.metadata.status === "loading") {
@@ -75,6 +78,7 @@ export function pasteCanvasClipboard<TNode extends CanvasClipboardNode, TEdge ex
   projectKey: string,
   center: { x: number; y: number },
   createId: () => string,
+  existing: readonly Pick<CanvasClipboardNode, "title">[] = [],
 ) {
   if (!clipboard?.nodes.length || !projectKey || clipboard.projectKey !== projectKey) return null;
 
@@ -89,16 +93,19 @@ export function pasteCanvasClipboard<TNode extends CanvasClipboardNode, TEdge ex
   const idMap = new Map<string, string>();
   clipboard.nodes.forEach((source) => idMap.set(source.id, createId()));
 
+  const usedTitles = new Set([...existing, ...clipboard.nodes].map(node => node.title));
   const nodes = clipboard.nodes.map((source) => {
     const node = structuredClone(source);
     const id = idMap.get(source.id)!;
+    const title = canvasNodeCopyTitle(node.title, usedTitles);
+    usedTitles.add(title);
     return {
       ...node,
       id,
-      title: node.title.endsWith(" 副本") ? node.title : `${node.title} 副本`,
+      title,
       x: Math.round(node.x + offsetX),
       y: Math.round(node.y + offsetY),
-      metadata: remapCanvasClipboardMetadata(node.metadata, idMap),
+      metadata: { ...remapCanvasClipboardMetadata(node.metadata, idMap), titleEdited: true },
     };
   });
 

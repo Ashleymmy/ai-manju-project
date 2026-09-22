@@ -1,4 +1,5 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
+import { ensureUniqueCanvasNodeTitles } from "../domain/nodeTitles";
 import type { WorkspaceScope } from "@/shared/config";
 import { fitCanvasGroupsToNodes, type CanvasGroupData } from "@/features/canvas/domain/groups";
 import type {
@@ -170,9 +171,10 @@ function mergeInitialState(initialState: CanvasStoreInitialState): CanvasStoreSl
 
 // Apply geometry in the same transaction as node edits, generation, hydration
 // and undo/redo, so frames and their saved snapshots cannot lag behind members.
-function fitCanvasGraph(graph: CanvasGraphSlice): CanvasGraphSlice {
-  const groups = fitCanvasGroupsToNodes(graph.groups, graph.nodes);
-  return groups === graph.groups ? graph : { ...graph, groups };
+function fitCanvasGraph(graph: CanvasGraphSlice, previous?: CanvasGraphSlice): CanvasGraphSlice {
+  const nodes = ensureUniqueCanvasNodeTitles(graph.nodes, previous?.nodes);
+  const groups = fitCanvasGroupsToNodes(graph.groups, nodes);
+  return groups === graph.groups && nodes === graph.nodes ? graph : { ...graph, nodes, groups };
 }
 
 export function createCanvasStore(initialState: CanvasStoreInitialState = {}): CanvasStoreApi {
@@ -187,7 +189,7 @@ export function createCanvasStore(initialState: CanvasStoreInitialState = {}): C
           const next = resolveCanvasStateUpdate(update, current);
           if (Object.is(current, next)) return state;
           if (slice === "graph" && (field === "nodes" || field === "groups")) {
-            return { ...state, graph: fitCanvasGraph({ ...state.graph, [field]: next }) };
+            return { ...state, graph: fitCanvasGraph({ ...state.graph, [field]: next }, state.graph) };
           }
           return {
             ...state,
@@ -205,7 +207,7 @@ export function createCanvasStore(initialState: CanvasStoreInitialState = {}): C
             : transaction;
           return {
             ...state,
-            graph: patch.graph ? fitCanvasGraph({ ...state.graph, ...patch.graph }) : state.graph,
+            graph: patch.graph ? fitCanvasGraph({ ...state.graph, ...patch.graph }, state.graph) : state.graph,
             viewport: patch.viewport ? { ...state.viewport, ...patch.viewport } : state.viewport,
             session: patch.session ? { ...state.session, ...patch.session } : state.session,
             generation: patch.generation ? { ...state.generation, ...patch.generation } : state.generation,

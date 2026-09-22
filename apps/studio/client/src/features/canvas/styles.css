@@ -3056,8 +3056,9 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
 /* ---- Canvas: 閻熸瑥妫濋。鍫曟嚍閸屾粌浠柟鎼簻瑜板洩銇愰幘鍐差枀閻㈩垎鍕樆闂?---- */
 .node-video-capture {
   position: absolute;
+  /* Keep frame capture above the native playback/fullscreen controls. */
+  top: 10px;
   right: 10px;
-  bottom: 42px;
   z-index: 8;
   display: inline-flex;
   align-items: center;
@@ -3493,12 +3494,30 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   justify-content: center;
 }
 /* ---- Canvas: 闁搞儱澧芥晶鏍ь啅閵夈儱寰旈柡鈧悷鏉跨仚閻炴稏鍔岀槐锟犳晬閸繍鍤犲缁樺姇瀵剟鎳撻崘銊︾1闁?---- */
+.canvas-image-tool-scroll {
+  /* Keep the heading/padding inside the available popover height. */
+  height: min(340px, calc(var(--radix-popover-content-available-height, 100dvh) - 44px));
+}
+.canvas-image-tool-scroll > [data-slot="scroll-area-viewport"] {
+  overscroll-behavior: contain;
+}
+.canvas-image-tool-scroll > [data-slot="scroll-area-scrollbar"] {
+  width: 8px;
+  /* Move into the popover padding without changing the tool row layout. */
+  transform: translateX(6px);
+  padding: 1px;
+  border: 0;
+  border-radius: 4px;
+  background: #292929;
+}
+.canvas-image-tool-scroll [data-slot="scroll-area-thumb"] { background: #707070; cursor: grab; }
+.canvas-image-tool-scroll [data-slot="scroll-area-thumb"]:hover { background: #919191; }
+.canvas-image-tool-scroll [data-slot="scroll-area-thumb"]:active { cursor: grabbing; }
 .canvas-image-tool-list {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  max-height: 340px;
-  overflow-y: auto;
+  padding-right: 12px;
 }
 .canvas-image-tool-list > button {
   display: flex;
@@ -4763,17 +4782,16 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   color: #fff;
 }
 
-/* Group controls stay lightweight: a compact horizontal floating bar keeps
-   the canvas visible while retaining the detailed node inspector separately. */
+/* Group controls grow with their contents and wrap within the stage width. */
 .canvas-focus .inspector-panel.inspector-group {
   bottom: auto;
   display: flex;
   align-items: center;
   box-sizing: border-box;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 10px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   max-height: none;
   padding: 12px 16px;
   border-radius: 12px;
@@ -4781,12 +4799,12 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
 }
 .inspector-group .inspector-head { display: none; }
-.inspector-group .inspector-block { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 0; }
+.inspector-group .inspector-block { display: flex; flex: 0 1 auto; min-width: 0; max-width: 100%; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 0; }
 .inspector-group .inspector-block .field-label { margin: 0; white-space: nowrap; }
-.inspector-group .inspector-block input:not([type="color"]) { width: 110px; margin: 0; }
+.inspector-group .inspector-block input:not([type="color"]) { width: 110px; min-width: 0; margin: 0; }
 .inspector-group .full-outline { width: auto; flex: 0 0 auto; margin: 0 0 0 6px; min-height: 34px; padding: 0 11px; white-space: nowrap; }
 .inspector-group .canvas-group-color-row { margin: 0; }
-.inspector-group .canvas-group-color-row { display: flex; align-items: center; gap: 5px; }
+.inspector-group .canvas-group-color-row { display: flex; flex-wrap: wrap; min-width: 0; align-items: center; gap: 5px; }
 .canvas-group-color-swatch {
   width: 20px;
   height: 20px;
@@ -4819,3 +4837,96 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   .inspector-group .canvas-group-color-row { gap: 3px; }
   .inspector-group .canvas-group-color-swatch { width: 16px; height: 16px; flex-basis: 16px; }
 }
+
+/* Keep node labels and controls at their normal screen size when zooming out.
+   Independent scale preserves the existing hover/entrance transforms. */
+.real-canvas-node,
+.canvas-group-frame {
+  --node-controls-scale: max(1, calc(100 / max(var(--canvas-zoom, 100), 5)));
+}
+.real-canvas-node:hover { z-index: 3; }
+.real-canvas-node.selected { z-index: 4; }
+.real-canvas-node > .node-float-label,
+.real-canvas-node > .node-toolbar-wrap,
+.real-canvas-node > .node-upload-pill {
+  scale: var(--node-controls-scale);
+  transform-origin: top left;
+}
+.real-canvas-node > .node-float-label {
+  top: calc(-10px * var(--node-controls-scale));
+  max-width: none;
+  border-radius: 3px;
+  background: #1c1c1c;
+}
+.real-canvas-node > .node-float-label > b { font-size: 12px; }
+.real-canvas-node > .node-toolbar-wrap { top: calc(-34px * var(--node-controls-scale)); }
+.real-canvas-node > .node-upload-pill { top: calc(-36px * var(--node-controls-scale)); }
+.real-canvas-node > .canvas-node-favorite,
+.real-canvas-node > .canvas-batch-child-tools,
+.real-canvas-node > .canvas-batch-badge,
+.real-canvas-node > .canvas-batch-primary,
+.real-canvas-node > .node-video-capture {
+  scale: var(--node-controls-scale);
+  transform-origin: top right;
+}
+.real-canvas-node > .node-resize-handle {
+  scale: var(--node-controls-scale);
+  transform-origin: bottom right;
+}
+.real-canvas-node > .canvas-node-handle {
+  scale: var(--node-controls-scale);
+}
+.real-canvas-node > .canvas-node-handle.target { left: calc(-23px * var(--node-controls-scale) - 11px); }
+.real-canvas-node > .canvas-node-handle.source { right: calc(-23px * var(--node-controls-scale) - 11px); }
+
+/* Stop compensating at the reference view's 45% zoom; below that the whole
+   toolbar shrinks with the canvas. Node labels retain their own size floor. */
+.canvas-group-frame {
+  --group-controls-zoom-floor: 45;
+  --group-controls-scale: max(1, calc(100 / max(var(--canvas-zoom, 100), var(--group-controls-zoom-floor))));
+  /* Member inset matches GROUP_HEADER_HEIGHT in domain/groups.ts. */
+  --group-member-top-inset: 46px;
+  /* Space for node labels above the first member, including a small gap. */
+  --group-label-clearance: 32px;
+  --group-header-height: 38px;
+  /* Toolbar's natural width; narrow groups reduce compensation to fit. */
+  --group-header-min-width: 320;
+  --group-header-scale: min(var(--group-controls-scale), calc(var(--canvas-group-width, 320) / var(--group-header-min-width)));
+  --group-frame-top-extension: 0px;
+  --canvas-group-header-offset: 0px;
+}
+.canvas-group-frame:not(.pending) {
+  --group-frame-top-extension: max(0px, calc(var(--group-label-clearance) * var(--node-controls-scale) + var(--group-header-height) * var(--group-header-scale) - var(--group-member-top-inset)));
+  margin-top: calc(-1 * var(--group-frame-top-extension));
+}
+.canvas-group-header {
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  width: calc((100% + 2px) / var(--group-header-scale));
+  min-width: 0;
+  height: var(--group-header-height);
+  margin: 0;
+  border-radius: 10px 10px 0 0;
+  white-space: nowrap;
+  scale: var(--group-header-scale);
+  transform-origin: top left;
+  transform: none;
+}
+.canvas-group-header > b { flex: 1; max-width: 160px; font-size: 12px; }
+.canvas-group-header > svg,
+.canvas-group-header-actions { flex-shrink: 0; }
+.canvas-group-header-actions button { width: 28px; height: 28px; }
+.canvas-group-pending-actions {
+  top: calc(100% + 8px * var(--group-controls-scale));
+  scale: var(--group-controls-scale);
+  transform-origin: top left;
+}
+.canvas-group-connection-handle,
+.canvas-group-corner { scale: var(--group-controls-scale); }
+.canvas-group-connection-handle {
+  /* Retain the member frame's connection anchors when adding title space. */
+  top: calc(50% + var(--group-frame-top-extension) / 2);
+}
+.canvas-group-connection-handle.target { left: calc(-23px * var(--group-controls-scale) - 11px); }
+.canvas-group-connection-handle.source { right: calc(-23px * var(--group-controls-scale) - 11px); }

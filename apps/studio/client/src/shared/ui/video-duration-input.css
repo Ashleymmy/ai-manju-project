@@ -1,6 +1,11 @@
 .video-duration-input { min-width: 160px; width: 100%; }
 .video-duration-input input { display: block; width: 100%; margin: 6px 0; accent-color: var(--foreground, #e6e6e6); cursor: pointer; }
-.video-duration-input-caption { display: flex; justify-content: space-between; color: var(--muted-foreground, #999); font-size: 11px; }
+.video-duration-input-caption { display: grid; grid-template-columns: 1fr 1fr 1fr; color: var(--muted-foreground, #999); font-size: 11px; }
+.video-duration-input-caption > :nth-child(2) { text-align: center; }
+.video-duration-input-caption > :last-child { text-align: right; }
+.video-duration-input-note { margin: 6px 0 0; color: var(--muted-foreground, #999); font-size: 11px; }
+.video-duration-input-choices { display: flex; gap: 6px; }
+.video-duration-input input[type="number"] { padding: 4px 8px; border: 1px solid #444; border-radius: 6px; background: transparent; color: inherit; }
 .video-duration-input button { margin-top: 8px; padding: 3px 8px; border: 1px solid #444; border-radius: 6px; color: inherit; background: transparent; font-size: 11px; cursor: pointer; }
 .video-duration-input button.active { border-color: currentColor; background: #ffffff12; }
 .video-duration-input :disabled { cursor: default; opacity: .5; }

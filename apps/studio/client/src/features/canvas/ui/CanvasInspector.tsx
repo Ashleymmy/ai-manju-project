@@ -66,7 +66,7 @@ import { CanvasModelPicker } from "./CanvasModelPicker";
 import { CanvasImageOutputStatus } from "./CanvasImageOutputStatus";
 import { CanvasCopyPromptButton } from "./CanvasCopyPromptButton";
 import { CanvasInspectorResizeHandles } from "./CanvasInspectorResizeHandles";
-import { savedInspectorHeight, type InspectorResizeMode } from "../domain/inspectorSize";
+import type { InspectorResizeMode } from "../domain/inspectorSize";
 
 type PromptPresetView = {
   id: string;
@@ -300,7 +300,6 @@ export function CanvasInspector({
     startPanelResize,
   } = actions;
   const promptReferences = selectedNode ? mentionReferencesForNode(selectedNode.id) : [];
-  const hasCustomHeight = Boolean(savedInspectorHeight(selectedNode?.metadata?.promptPanelHeight));
   const connectedSources = selectedNode
     ? edges
       .filter((edge) => edge.to === selectedNode.id)
@@ -309,7 +308,7 @@ export function CanvasInspector({
       .filter((node, index, list) => list.findIndex((item) => item.id === node.id) === index)
     : [];
   return (
-        <aside ref={panelRef} className={`inspector-panel canvas-floating-inspector${selectedNode && !selectedGroup ? " inspector-floating" : ""}${hasCustomHeight && !selectedGroup ? " inspector-sized" : ""}${selectedGroup ? " inspector-group" : ""}${selectedNode?.metadata?.canvasOrigin === "imported" ? " inspector-imported-node" : ""}`} data-canvas-ui data-canvas-no-zoom style={selectedNode && !selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedPanelStyle ? selectedPanelStyle : { display: "none" }) : selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedGroupPanelStyle ? selectedGroupPanelStyle : { display: "none" }) : { display: "none" }} onClick={(event) => event.stopPropagation()}>
+        <aside ref={panelRef} className={`inspector-panel canvas-floating-inspector${selectedNode && !selectedGroup ? " inspector-floating inspector-sized" : ""}${selectedGroup ? " inspector-group" : ""}${selectedNode?.metadata?.canvasOrigin === "imported" ? " inspector-imported-node" : ""}`} data-canvas-ui data-canvas-no-zoom style={selectedNode && !selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedPanelStyle ? selectedPanelStyle : { display: "none" }) : selectedGroup ? (inspectorOpen && !projectActionDisabled && selectedGroupPanelStyle ? selectedGroupPanelStyle : { display: "none" }) : { display: "none" }} onClick={(event) => event.stopPropagation()}>
           <div className="inspector-head">
             <div><p className="eyebrow">INSPECTOR</p><div className="inspector-title-row"><h3>{selectedGroup?.title || selectedNode?.title || "未选择节点"}</h3>{selectedNode && !selectedGroup && selectedNode.kind === "video" ? <span className="video-submode-badge inspector-submode-badge">{VIDEO_SUBMODES.find((sub) => sub.value === videoSubModeFromNode(selectedNode))?.label || "文生视频"}</span> : null}</div></div>
             {selectedNode && !selectedGroup ? (
@@ -404,8 +403,8 @@ export function CanvasInspector({
                   key={selectedNode.id}
                   editorRef={promptEditorRef}
                   className="prompt-copy node-card-prompt"
-                  autoGrow={!hasCustomHeight}
-                  style={hasCustomHeight ? { height: "100%" } : undefined}
+                  autoGrow={false}
+                  style={{ height: "100%" }}
                   value={promptTextFromNode(selectedNode)}
                   references={promptReferences}
                   mentionLibrary={mentionLibrary}
@@ -516,7 +515,6 @@ export function CanvasInspector({
                     {selectedVideoConfig ? <>
                       <div className="param-group"><span className="param-group-label">时长 <b>{selectedVideoConfig.seconds === "-1" ? "自动" : `${selectedVideoConfig.seconds} 秒`}</b></span>
                         <VideoDurationInput value={selectedVideoConfig.seconds} durations={selectedVideoDurations}
-                          continuous={selectedVideoSeedance}
                           onChange={seconds => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), seconds } })} />
                       </div>
                       <div className="param-group"><span className="param-group-label">分辨率</span>

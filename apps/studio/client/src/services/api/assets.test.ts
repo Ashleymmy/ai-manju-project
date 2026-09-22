@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getAssetContentBlob } from "@/entities/asset";
+import { createAssetExport, getAssetContentBlob } from "@/entities/asset";
 
 import {
   bindAssetTags,
@@ -28,6 +28,12 @@ function apiResponse(data: unknown) {
 }
 
 describe("asset API client", () => {
+  it("serializes export filters with the same scope, dates, media type and tags as the library", async () => {
+    await createAssetExport({ selection_mode: "filter", filter: { folderId: "folder", includeDescendants: true, type: "video", sourceType: "canvas", tagIds: ["tag"], tagMatch: "and", includeTagDescendants: true, createdFrom: "2026-09-01T00:00:00Z", createdTo: "2026-09-22T00:00:00Z", sort: "name_desc" } }, "team");
+    const [url, options] = vi.mocked(fetch).mock.calls[0];
+    expect(new URL(String(url)).searchParams.get("scope")).toBe("team");
+    expect(JSON.parse(String(options?.body))).toEqual({ selection_mode: "filter", filter: { folder_id: "folder", include_descendants: true, type: "video", source_type: "canvas", tag_ids: ["tag"], tag_match: "and", include_tag_descendants: true, created_from: "2026-09-01T00:00:00Z", created_to: "2026-09-22T00:00:00Z", sort: "name_desc" } });
+  });
   it("requests original bytes without a thumbnail transform and retains scope and cancellation", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(new Uint8Array([1, 2, 3]), { headers: { "Content-Type": "image/png" } }));
     const abort = new AbortController();

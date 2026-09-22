@@ -421,11 +421,15 @@ describe("canvas mention folder popup", () => {
   const library: CanvasMentionLibraryState = {
     ...emptyCanvasMentionLibrary("project-1"),
     folders: [
-      folder("root", "", "系统归档", { system_key: "system_root" }), folder("canvas", "root", "画布工坊", { sort_order: 40 }),
+      folder("root", "", "系统归档", { system_key: "system_root" }), folder("canvas", "root", "画布工坊", { system_key: "canvas", sort_order: 40 }),
       folder("mine", "canvas", "第一集分镜", { system_key: "canvas_project", source_ref_id: "project-1" }),
       folder("roles", "mine", "角色", { sort_order: 10 }), folder("scenes", "mine", "场景", { sort_order: 20 }), folder("props", "mine", "道具", { sort_order: 30 }),
       folder("other", "mine", "其他", { sort_order: 70 }),
       folder("unfiled", "root", "未分类", { sort_order: 10 }),
+      folder("upload", "root", "手动上传", { sort_order: 20 }),
+      folder("workbench", "root", "生图工作台", { sort_order: 30 }),
+      folder("comic", "root", "漫剧资产助手", { system_key: "comic", sort_order: 50 }),
+      folder("custom", "", "自建素材", { kind: "user" }),
     ],
   };
   const menuReferences: CanvasMentionReference[] = [
@@ -437,7 +441,7 @@ describe("canvas mention folder popup", () => {
     const [catalog, setCatalog] = useState(library);
     const load = (query: string, target: CanvasMentionLibraryTarget = "root", more = false) => {
       requests(query, target, more);
-      setCatalog({ ...library, target, query, assetIds: target === "folder:roles" || target === "favorites" ? ["hero"] : [] });
+      setCatalog({ ...library, target, query, assetIds: target === "folder:roles" || target === "favorites" || target === "library" ? ["hero"] : [] });
     };
     return <CanvasResourceMentionTextarea value={value} onChange={setValue} references={menuReferences} mentionLibrary={catalog} onMentionQueryChange={load} />;
   }
@@ -470,7 +474,7 @@ describe("canvas mention folder popup", () => {
   });
 
   it("renders the requested order and navigates folders without changing the prompt", async () => {
-    expect(rows()).toEqual(["前置文本", "第一集分镜", "收藏夹", "未分类", "画布工坊"]);
+    expect(rows()).toEqual(["前置文本", "第一集分镜", "收藏夹", "画布工坊", "其他素材"]);
     await click("第一集分镜");
     expect(rows()).toEqual(["前置文本", "角色", "场景", "道具", "其他"]);
     expect(container.querySelector("textarea")!.value).toBe("@");
@@ -487,7 +491,7 @@ describe("canvas mention folder popup", () => {
     await press("Enter");
     expect(rows()).toContain("角色");
     await press("Escape");
-    expect(rows()).toEqual(["前置文本", "第一集分镜", "收藏夹", "未分类", "画布工坊"]);
+    expect(rows()).toEqual(["前置文本", "第一集分镜", "收藏夹", "画布工坊", "其他素材"]);
     await click("收藏夹");
     expect(rows()).toEqual(["前置文本", "主角设定"]);
     expect(requests).toHaveBeenLastCalledWith("", "favorites", false);
@@ -502,14 +506,26 @@ describe("canvas mention folder popup", () => {
     expect(container.querySelector("textarea")!.value).toBe("@");
   });
 
-  it("opens promoted archive children directly and returns to the first level in one step", async () => {
-    expect(document.querySelector(".canvas-mention-menu")?.textContent).not.toContain("其他资产库");
-    expect(document.querySelector(".canvas-mention-menu")?.textContent).not.toContain("系统归档");
-    expect(rows()).toContain("未分类");
+  it("groups source folders and custom roots, navigates real folders and returns one level at a time", async () => {
+    expect(rows()).toEqual(["前置文本", "第一集分镜", "收藏夹", "画布工坊", "其他素材"]);
+    await click("画布工坊");
+    expect(rows()).toEqual(["前置文本"]);
+    await press("Escape");
+    await click("其他素材");
+    expect(rows()).toEqual(["前置文本", "未分类", "手动上传", "生图工作台", "资产助手", "自建素材"]);
+    expect(requests).toHaveBeenLastCalledWith("", "library", false);
+    expect(document.querySelector(".canvas-mention-menu")?.textContent).toContain("未分类");
+    expect(document.querySelector(".canvas-mention-menu")?.textContent).toContain("手动上传");
+    expect(document.querySelector(".canvas-mention-menu")?.textContent).toContain("生图工作台");
+    await click("资产助手");
+    expect(requests).toHaveBeenLastCalledWith("", "folder:comic", false);
+    expect(document.querySelector(".canvas-mention-back")?.textContent).toContain("资产助手");
+    expect(document.querySelector(".canvas-mention-menu")?.textContent).not.toContain("漫剧资产助手");
+    await press("Escape");
     await click("未分类");
     expect(requests).toHaveBeenLastCalledWith("", "folder:unfiled", false);
-    expect(document.querySelector(".canvas-mention-menu")?.textContent).toContain("此文件夹暂无匹配的素材");
-    await click("返回");
-    expect(rows()).toEqual(["前置文本", "第一集分镜", "收藏夹", "未分类", "画布工坊"]);
+    await press("Escape");
+    expect(rows()).toEqual(["前置文本", "未分类", "手动上传", "生图工作台", "资产助手", "自建素材"]);
+    expect(container.querySelector("textarea")!.value).toBe("@");
   });
 });

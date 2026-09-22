@@ -4,7 +4,7 @@ import { visibleCanvasAssetFolders } from "./assetFolders";
 import { filterCanvasMentionReferences, type CanvasMentionReference } from "./mentions";
 
 /** Virtual views never become API folder IDs. Only folder:<server ID> does. */
-export type CanvasMentionLibraryTarget = "root" | "favorites" | `folder:${string}`;
+export type CanvasMentionLibraryTarget = "root" | "library" | "favorites" | `folder:${string}`;
 export type CanvasMentionLibraryState = {
   projectId: string;
   scope: WorkspaceScope;
@@ -24,6 +24,10 @@ export type CanvasMentionLibraryItem =
 /** Shared request defaults for the mention browser. */
 export const CANVAS_MENTION_PAGE_SIZE = 100;
 export const CANVAS_MENTION_SEARCH_DELAY_MS = 240;
+/** Group all remaining folders behind one entry so the first level stays compact. */
+const OTHER_MATERIALS_LABEL = "其他素材";
+/** The picker lists only nodes connected directly into the current node. */
+const DIRECT_PREDECESSOR_DISTANCE = 1;
 
 export function emptyCanvasMentionLibrary(projectId = "", scope: WorkspaceScope = "personal"): CanvasMentionLibraryState {
   return { projectId, scope, folders: [], target: "root", query: "", assetIds: [], loading: false, error: "", page: 0, hasMore: false };
@@ -35,7 +39,13 @@ export function mentionLibraryFolderId(target: CanvasMentionLibraryTarget) {
 
 export function mentionLibraryTargetLabel(target: CanvasMentionLibraryTarget, folders: readonly AssetFolder[]) {
   if (target === "favorites") return "收藏夹";
-  return folders.find(folder => folder.id === mentionLibraryFolderId(target))?.name || "资产库";
+  if (target === "library") return OTHER_MATERIALS_LABEL;
+  return visibleCanvasAssetFolders(folders).find(folder => folder.id === mentionLibraryFolderId(target))?.name || "资产库";
+}
+
+/** The grouped entry is a folder browser; assets appear after entering a folder. */
+export function mentionLibraryShowsAssets(target: CanvasMentionLibraryTarget, query: string) {
+  return (target !== "root" && target !== "library") || (target === "root" && Boolean(query.trim()));
 }
 
 export function buildCanvasMentionLibraryMenu(
@@ -45,27 +55,35 @@ export function buildCanvasMentionLibraryMenu(
   library: CanvasMentionLibraryState,
 ): CanvasMentionLibraryItem[] {
   const nodes: CanvasMentionLibraryItem[] = filterCanvasMentionReferences(references, query)
-    .filter(ref => ref.group === "canvas-node" && ref.upstreamDistance !== undefined)
-    .sort((a, b) => a.upstreamDistance! - b.upstreamDistance!)
+    .filter(ref => ref.group === "canvas-node" && ref.upstreamDistance === DIRECT_PREDECESSOR_DISTANCE)
     .map(reference => ({ kind: "reference", id: reference.id, reference }));
   const visibleFolders = visibleCanvasAssetFolders(library.folders);
   const projectFolder = visibleFolders.find(folder => folder.system_key === "canvas_project" && folder.source_ref_id === library.projectId);
+  const canvasLibraryRoot = visibleFolders.find(folder => folder.system_key === "canvas");
   const folderItem = (folder: AssetFolder): CanvasMentionLibraryItem => ({
     kind: "folder", id: `folder:${folder.id}`, target: `folder:${folder.id}`, label: folder.name,
     currentProject: folder.id === projectFolder?.id,
   });
   let folders: CanvasMentionLibraryItem[] = [];
   if (target === "root") {
-    // Show archive categories directly after favorites, followed by user roots.
-    const libraryRoots = visibleFolders
-      .filter(folder => !folder.parent_id && folder.id !== projectFolder?.id)
-      .sort((a, b) => Number(b.kind === "system") - Number(a.kind === "system")
-        || a.sort_order - b.sort_order || a.name.localeCompare(b.name, "zh-CN", { numeric: true }));
     folders = [
       ...(projectFolder ? [folderItem(projectFolder)] : []),
       { kind: "folder", id: "favorites", target: "favorites", label: "收藏夹" },
-      ...libraryRoots.map(folderItem),
+      ...(canvasLibraryRoot ? [folderItem(canvasLibraryRoot)] : []),
+      { kind: "folder", id: "library", target: "library", label: OTHER_MATERIALS_LABEL },
     ];
+  } else if (target === "library") {
+    // Keep the grouped entry as a real folder browser. System roots are shown
+    // first, followed by top-level folders created by the user.
+    const keyword = query.trim().toLowerCase();
+    folders = visibleFolders
+      .filter(folder => folder.parent_id === ""
+        && folder.id !== canvasLibraryRoot?.id
+        && folder.id !== projectFolder?.id)
+      .filter(folder => !keyword || folder.name.toLowerCase().includes(keyword))
+      .sort((a, b) => Number(b.kind === "system") - Number(a.kind === "system")
+        || a.sort_order - b.sort_order || a.name.localeCompare(b.name, "zh-CN", { numeric: true }))
+      .map(folderItem);
   } else if (target !== "favorites") {
     const parentId = mentionLibraryFolderId(target) || "";
     const keyword = query.trim().toLowerCase();
@@ -78,7 +96,7 @@ export function buildCanvasMentionLibraryMenu(
   // The reference cache also resolves saved chips. Only this response's IDs may
   // appear in a folder/favorites view; earlier searches must not leak into it.
   const ready = library.target === target && library.query === query.trim();
-  const showAssets = target !== "root" || Boolean(query.trim());
+  const showAssets = mentionLibraryShowsAssets(target, query);
   const byId = new Map(references.filter(ref => ref.group === "asset-library" && ref.assetScope === library.scope).map(ref => [ref.assetId, ref]));
   const assets: CanvasMentionLibraryItem[] = ready && showAssets
     ? library.assetIds.flatMap(id => {

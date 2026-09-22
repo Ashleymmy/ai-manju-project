@@ -6,10 +6,10 @@
   background: transparent;
   touch-action: none;
 }
-.inspector-resize-width { top: 14px; right: 0; bottom: 18px; width: 8px; cursor: ew-resize; }
-.inspector-resize-height { bottom: 0; left: 14px; right: 18px; height: 8px; cursor: ns-resize; }
-.inspector-resize-proportional { bottom: 0; right: 0; width: 18px; height: 18px; cursor: nwse-resize; }
-.inspector-resize-proportional::after {
+.inspector-resize-width { top: 14px; left: var(--inspector-resize-left, auto); right: var(--inspector-resize-right, 0); bottom: 18px; width: 8px; cursor: ew-resize; }
+.inspector-resize-height { top: var(--inspector-resize-top, auto); bottom: var(--inspector-resize-bottom, 0); left: 14px; right: 18px; height: 8px; cursor: ns-resize; }
+.inspector-resize-both { top: var(--inspector-resize-top, auto); bottom: var(--inspector-resize-bottom, 0); left: var(--inspector-resize-left, auto); right: var(--inspector-resize-right, 0); width: 18px; height: 18px; cursor: var(--inspector-resize-cursor, nwse-resize); }
+.inspector-resize-both::after {
   content: "";
   position: absolute;
   right: 5px;
@@ -19,10 +19,11 @@
   border-right: 2px solid #99a3a0;
   border-bottom: 2px solid #99a3a0;
   border-radius: 0 0 2px 0;
+  transform: scale(var(--inspector-resize-x, 1), var(--inspector-resize-y, 1));
 }
 .inspector-resize-handle:hover, .inspector-resize-handle:focus-visible { background: rgba(255, 255, 255, .12); }
 
-/* A manually sized panel gives the extra height to the editor, keeping controls in view. */
+/* Bound prompt growth and give resized space to the editor, keeping controls in view. */
 .canvas-focus .inspector-panel.inspector-floating.inspector-sized {
   display: flex;
   flex-direction: column;

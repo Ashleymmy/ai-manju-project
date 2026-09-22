@@ -31,7 +31,7 @@ import { getAssetContentObjectUrl } from "@/entities/asset";
 import { RetryImage } from "@/shared/ui/RetryImage";
 import { useOutsidePress } from "@/shared/lib/useOutsidePress";
 import { offsetFromOverlayPoint, useMentionCaret } from "./useMentionCaret";
-import { buildCanvasMentionLibraryMenu, emptyCanvasMentionLibrary, mentionLibraryTargetLabel, type CanvasMentionLibraryItem, type CanvasMentionLibraryState, type CanvasMentionLibraryTarget } from "@/features/canvas/domain/mentionLibrary";
+import { buildCanvasMentionLibraryMenu, emptyCanvasMentionLibrary, mentionLibraryShowsAssets, mentionLibraryTargetLabel, type CanvasMentionLibraryItem, type CanvasMentionLibraryState, type CanvasMentionLibraryTarget } from "@/features/canvas/domain/mentionLibrary";
 import {
   applyCanvasMentionEditorEdit,
   buildCanvasMentionEditorModel,
@@ -1110,7 +1110,7 @@ function MentionMenu({
           <button type="button" className="canvas-mention-back" onPointerDown={event => { event.preventDefault(); onRetry(); }}>重试</button>
         </div> : null}
         {!library.loading && !library.error && !libraryItems.length ? <small>{emptyLibraryHint}</small> : null}
-        {!library.loading && !library.error && library.hasMore && (target !== "root" || library.query) ? (
+        {!library.loading && !library.error && library.hasMore && mentionLibraryShowsAssets(target, library.query) ? (
           <button type="button" className="canvas-mention-back" onPointerDown={event => { event.preventDefault(); onLoadMore(); }}>加载更多</button>
         ) : null}
       </section>

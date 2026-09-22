@@ -86,6 +86,7 @@ type AssetExportService struct {
 	assets  *AssetService
 	folders *AssetFolderService
 	storage storage.Storage
+	tags    *TagService
 	usage   interface {
 		RecordExport(workspaceID string, userID string, exportID string, assetIDs []string) error
 	}
@@ -95,6 +96,9 @@ type AssetExportService struct {
 func NewAssetExportService(exports repository.AssetExportRepository, assets *AssetService, folders *AssetFolderService, store storage.Storage) *AssetExportService {
 	return &AssetExportService{exports: exports, assets: assets, folders: folders, storage: store}
 }
+
+// SetTagService supplies portable tag definitions for cross-workspace imports.
+func (s *AssetExportService) SetTagService(tags *TagService) { s.tags = tags }
 
 func (s *AssetExportService) SetAssetUsageRecorder(recorder interface {
 	RecordExport(workspaceID string, userID string, exportID string, assetIDs []string) error
@@ -136,15 +140,19 @@ func (s *AssetExportService) Create(userID string, scope string, input AssetExpo
 	if err != nil {
 		return model.AssetExportBatch{}, err
 	}
-	if (len(assets) == 0 && len(fragment) == 0) || len(assets) > AssetExportMaxAssets {
+	if (len(assets) == 0 && len(fragment) == 0 && selectionMode != AssetExportSelectionFolder) || len(assets) > AssetExportMaxAssets {
 		return model.AssetExportBatch{}, ErrAssetExportSelection
+	}
+	packageFolders, err := s.packageFolders(userID, scope, selectionMode, input.FolderID, assets)
+	if err != nil {
+		return model.AssetExportBatch{}, err
 	}
 	kind := model.AssetExportKindAssets
 	if len(fragment) > 0 {
 		kind = model.AssetExportKindCanvasFragment
 	}
 	ids := assetIDs(assets)
-	selection, _ := json.Marshal(map[string]any{"mode": selectionMode, "asset_ids": ids, "folder_id": input.FolderID, "filter": input.Filter})
+	selection, _ := json.Marshal(map[string]any{"mode": selectionMode, "asset_ids": ids, "folder_id": input.FolderID, "filter": input.Filter, "package_folders": packageFolders})
 	batchID := "asset_export_" + randomHex(12)
 	batch := model.AssetExportBatch{
 		ID: batchID, UserID: userID, WorkspaceID: workspaceID, Scope: scope, Kind: kind,
@@ -317,7 +325,11 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 	}
 	folders := make([]model.AssetFolder, 0)
 	if s.folders != nil {
-		folderViews, _ := s.folders.List(batch.UserID, WorkspaceScopeFromID(batch.WorkspaceID))
+		folderViews, folderErr := s.folders.List(batch.UserID, WorkspaceScopeFromID(batch.WorkspaceID))
+		if folderErr != nil {
+			_ = closeArchive()
+			return s.failBatch(batch.ID, folderErr)
+		}
 		folders = make([]model.AssetFolder, 0, len(folderViews))
 		for _, view := range folderViews {
 			folders = append(folders, view.AssetFolder)
@@ -383,7 +395,7 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 			archivePath := uniqueExportArchivePath(asset, row.FolderPath, usedPaths)
 			content, contentErr := s.assets.openContentForAsset(ctx, asset, batch.UserID, WorkspaceScopeFromID(batch.WorkspaceID))
 			if contentErr == nil {
-				contentErr = copyAssetToZip(archive, archivePath, asset, exportProgressReader{content.Reader, s.recordDispatchProgress}, copyBuffer)
+				row.Size, contentErr = copyAssetToZip(archive, archivePath, asset, exportProgressReader{content.Reader, s.recordDispatchProgress}, copyBuffer)
 				_ = content.Reader.Close()
 			}
 			if contentErr != nil {
@@ -426,6 +438,10 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 		_ = closeArchive()
 		return s.failBatch(batch.ID, err)
 	}
+	if err := s.writeAssetPackage(archive, batch, manifest, assetsByID); err != nil {
+		_ = closeArchive()
+		return s.failBatch(batch.ID, err)
+	}
 	if err := closeArchive(); err != nil {
 		return s.failBatch(batch.ID, err)
 	}
@@ -436,7 +452,7 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 	if current.Status == model.AssetExportStatusCanceled {
 		return nil
 	}
-	if succeeded == 0 && len(batch.CanvasFragment) == 0 {
+	if succeeded == 0 && len(batch.CanvasFragment) == 0 && batch.Total > 0 {
 		return s.failBatch(batch.ID, errors.New("all asset files failed to export"))
 	}
 	file, err := os.Open(temporaryPath)
@@ -664,13 +680,12 @@ func exportAssetExtension(asset model.Asset) string {
 	}
 }
 
-func copyAssetToZip(archive *zip.Writer, archivePath string, asset model.Asset, reader io.Reader, buffer []byte) error {
+func copyAssetToZip(archive *zip.Writer, archivePath string, asset model.Asset, reader io.Reader, buffer []byte) (int64, error) {
 	entry, err := archive.CreateHeader(&zip.FileHeader{Name: archivePath, Method: assetExportZipMethod(asset)})
 	if err != nil {
-		return err
+		return 0, err
 	}
-	_, err = io.CopyBuffer(entry, reader, buffer)
-	return err
+	return io.CopyBuffer(entry, reader, buffer)
 }
 
 func assetExportZipMethod(asset model.Asset) uint16 {

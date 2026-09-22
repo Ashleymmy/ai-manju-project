@@ -1,6 +1,7 @@
 import { modelDisplayName, pickDefaultImageModel, visibleImageModels } from "@/shared/lib/modelSelection";
 import { request } from "@/shared/api/http";
 import { replaceVideoModelProtocols } from "./videoProtocol";
+import { replaceVideoModelDurations } from "./videoDuration";
 
 import type {
   AiModelsResponse,
@@ -14,6 +15,7 @@ export async function fetchModelCatalog(): Promise<ModelCatalog> {
   const data = await request<AiModelsResponse>("/api/ai/models");
   const modelLabels = normalizeStringRecord(data.model_labels);
   replaceVideoModelProtocols(data.video_model_protocols, modelLabels);
+  replaceVideoModelDurations(data.video_model_durations);
   const models = normalizeModelList(data.models);
   const textModels = normalizeModelList(
     data.text_models ?? data.models

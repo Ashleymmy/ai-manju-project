@@ -6,6 +6,12 @@
   color: #b3b3b3;
   font-size: var(--font-size-small);
 }
+/* Wrap project actions before the scope label gets squeezed into a column. */
+@media (max-width: 760px) {
+  .filter-line:has(> .project-bulk-bar),
+  .project-bulk-bar { flex-wrap: wrap; }
+  .project-bulk-bar > span { white-space: nowrap; }
+}
 .project-card-wrap {
   position: relative;
   min-width: 0;

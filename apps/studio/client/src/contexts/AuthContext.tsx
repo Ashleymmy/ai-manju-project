@@ -6,6 +6,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type Context,
   type ReactNode,
 } from "react";
 
@@ -23,7 +24,21 @@ type AuthContextValue = {
   logout: () => Promise<void>;
 };
 
-const AuthContext = createContext<AuthContextValue | null>(null);
+/**
+ * Keep the auth context stable if Vite reloads a lazy route module while the
+ * app is still mounted. Without this registry, the provider and a consumer
+ * can end up using different Context instances and the consumer reports that
+ * it is outside of AuthProvider even though the provider is in the tree.
+ */
+type AuthContextRegistry = typeof globalThis & {
+  __aiManjuAuthContext?: Context<AuthContextValue | null>;
+};
+
+const authContextRegistry = globalThis as AuthContextRegistry;
+const AuthContext =
+  authContextRegistry.__aiManjuAuthContext ??
+  (authContextRegistry.__aiManjuAuthContext =
+    createContext<AuthContextValue | null>(null));
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();

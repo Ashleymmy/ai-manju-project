@@ -28,10 +28,10 @@ describe("canvas clipboard", () => {
     const before = structuredClone(source);
     const duplicate = duplicateCanvasNode(source, "new-apple");
     expect(duplicate).toMatchObject({
-      id: "new-apple", title: "A 副本", imageAssetId: "apple-asset", imageSrc: "/apple.png",
+      id: "new-apple", title: "A副本", imageAssetId: "apple-asset", imageSrc: "/apple.png",
     });
     expect(duplicate.metadata).toEqual({
-      nested: { value: 1 }, status: "success", prompt: "一个苹果", model: "image-model",
+      nested: { value: 1 }, status: "success", prompt: "一个苹果", model: "image-model", titleEdited: true,
     });
     duplicate.metadata.nested.value = 99;
     expect(source).toEqual(before);
@@ -39,7 +39,7 @@ describe("canvas clipboard", () => {
 
   it("does not leave a duplicate waiting on the original node's running job", () => {
     const source = { ...nodes[0], metadata: { status: "loading", jobId: "running-job", jobProgress: 50 } };
-    expect(duplicateCanvasNode(source, "copy").metadata).toEqual({ status: "idle" });
+    expect(duplicateCanvasNode(source, "copy").metadata).toEqual({ status: "idle", titleEdited: true });
     expect(source.metadata).toEqual({ status: "loading", jobId: "running-job", jobProgress: 50 });
   });
 
@@ -73,8 +73,8 @@ describe("canvas clipboard", () => {
     const pasted = pasteCanvasClipboard(clipboard, "personal:project-1", { x: 500, y: 300 }, () => ids.shift()!);
 
     expect(pasted?.nodes).toMatchObject([
-      { id: "new-a", title: "A 副本", x: 390, y: 260, metadata: { sourceNodeId: "new-b", batchChildIds: ["new-b"] } },
-      { id: "new-b", title: "B 副本", x: 530, y: 280, metadata: { nested: { value: 2 } } },
+      { id: "new-a", title: "A副本", x: 390, y: 260, metadata: { sourceNodeId: "new-b", batchChildIds: ["new-b"] } },
+      { id: "new-b", title: "B副本", x: 530, y: 280, metadata: { nested: { value: 2 } } },
     ]);
     expect(pasted?.edges).toEqual([{ id: "new-a:new-b", from: "new-a", to: "new-b" }]);
     expect(pasted?.idMap.get("a")).toBe("new-a");

@@ -134,14 +134,25 @@ func (s *AssetFolderService) ensureDefaultsForWorkspace(userID string, workspace
 		{name: "未分类", key: model.AssetFolderSystemKeyUnsorted, sort: 10},
 		{name: "手动上传", key: model.AssetFolderSystemKeyUpload, sort: 20},
 		{name: "生图工作台", key: model.AssetFolderSystemKeyImageWorkbench, sort: 30},
-		{name: "画布工坊", key: model.AssetFolderSystemKeyCanvas, sort: 40},
-		{name: "漫剧资产助手", key: model.AssetFolderSystemKeyComic, sort: 50},
+		{name: "画布工坊", key: model.AssetFolderSystemKeyCanvas, sort: 0},
+		{name: "资产助手", key: model.AssetFolderSystemKeyComic, sort: 50},
 	}
 	created := make([]model.AssetFolder, 0, len(definitions))
 	for _, definition := range definitions {
 		folder, createErr := s.ensureSystemFolder(userID, workspaceID, root.ID, definition.name, definition.key, "workspace", "", definition.sort)
 		if createErr != nil {
 			return AssetDefaultFolders{}, createErr
+		}
+		// Built-in folder labels/order can change across releases. Reuse their
+		// stable IDs so existing assets, children and running jobs keep resolving.
+		if folder.Name != definition.name || folder.SortOrder != definition.sort {
+			folder.Name = definition.name
+			_, folder.NormalizedName, _ = normalizeAssetFolderName(definition.name)
+			folder.SortOrder = definition.sort
+			folder, createErr = s.folders.Update(folder, workspaceID)
+			if createErr != nil {
+				return AssetDefaultFolders{}, createErr
+			}
 		}
 		created = append(created, folder)
 	}

@@ -50,7 +50,7 @@ describe("inspector resize pointer lifecycle", () => {
     expect(onResize).toHaveBeenCalledTimes(calls);
   });
   it.each(["pointercancel", "blur"])("cleans up after %s and ignores other pointers", type => {
-    pointer(container.querySelector(".inspector-resize-proportional")!, "pointerdown", 560, 300);
+    pointer(container.querySelector(".inspector-resize-both")!, "pointerdown", 560, 300);
     pointer(window, "pointermove", 616, 330, 2);
     expect(onResize).not.toHaveBeenCalled();
     pointer(window, type, 560, 300);
@@ -73,5 +73,46 @@ describe("inspector resize pointer lifecycle", () => {
     await act(async () => root.render(null));
     pointer(window, "pointermove", 560, 450);
     expect(onResize).not.toHaveBeenCalled();
+  });
+
+  it.each([[-1, 1], [1, -1]])("resizes outward from anchored edges (%s, %s)", (x, y) => {
+    const panel = container.querySelector('aside')!;
+    panel.style.setProperty('--inspector-resize-x', String(x));
+    panel.style.setProperty('--inspector-resize-y', String(y));
+    pointer(container.querySelector('.inspector-resize-both')!, 'pointerdown', 560, 300);
+    pointer(window, 'pointermove', 560 + x * 80, 300 + y * 40);
+    expect(onResize).toHaveBeenLastCalledWith('first', { width: 640, height: 340 }, 'both');
+    pointer(window, 'pointerup', 560 + x * 80, 300 + y * 40);
+  });
+
+  it.each([-1, 1])("keeps a centered handle under the pointer across viewport clamping (direction %s)", direction => {
+    const panel = container.querySelector('aside')!;
+    panel.style.setProperty('--inspector-resize-x', String(direction));
+    panel.style.setProperty('--inspector-resize-center-distance', '280');
+    panel.style.setProperty('--inspector-resize-boundary-distance', '680');
+    pointer(container.querySelector('.inspector-resize-both')!, 'pointerdown', 560, 300);
+    pointer(window, 'pointermove', 560 + direction * 80, 340);
+    expect(onResize).toHaveBeenLastCalledWith('first', { width: 720, height: 340 }, 'both');
+    // Once the opposite edge touches the viewport, only the dragged edge can move.
+    pointer(window, 'pointermove', 560 + direction * 140, 360);
+    expect(onResize).toHaveBeenLastCalledWith('first', { width: 820, height: 360 }, 'both');
+    // Reverse direction in the same drag; both edges move again after leaving the boundary.
+    pointer(window, 'pointermove', 560 + direction * 60, 320);
+    expect(onResize).toHaveBeenLastCalledWith('first', { width: 680, height: 320 }, 'both');
+    pointer(window, 'pointerup', 560 - direction * 60, 300);
+    expect(onResize).toHaveBeenLastCalledWith('first', { width: 440, height: 300 }, 'both');
+  });
+
+  it("starts a new width drag from a viewport-clamped panel without jumping", () => {
+    const panel = container.querySelector('aside')!;
+    panel.style.setProperty('--inspector-resize-center-distance', '360');
+    panel.style.setProperty('--inspector-resize-boundary-distance', '560');
+    pointer(container.querySelector('.inspector-resize-width')!, 'pointerdown', 560, 300);
+    pointer(window, 'pointermove', 560, 300);
+    expect(onResize).toHaveBeenLastCalledWith('first', { width: 560, height: 300 }, 'width');
+    pointer(window, 'pointermove', 420, 380);
+    expect(onResize).toHaveBeenLastCalledWith('first', { width: 420, height: 300 }, 'width');
+    pointer(window, 'pointerup', 380, 380);
+    expect(onResize).toHaveBeenLastCalledWith('first', { width: 360, height: 300 }, 'width');
   });
 });

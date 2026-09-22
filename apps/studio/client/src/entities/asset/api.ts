@@ -328,7 +328,24 @@ export function createAssetExport(
   return request<AssetExportBatch>("/api/asset-exports", {
     method: "POST",
     query: { scope },
-    body: input,
+    body: {
+      ...input,
+      filter: input.filter ? {
+        folder_id: input.filter.folderId,
+        include_descendants: input.filter.includeDescendants,
+        smart_view: input.filter.smartView,
+        type: input.filter.type,
+        category: input.filter.category,
+        source_type: input.filter.sourceType,
+        keyword: input.filter.keyword,
+        tag_ids: input.filter.tagIds,
+        tag_match: input.filter.tagMatch,
+        include_tag_descendants: input.filter.includeTagDescendants,
+        created_from: input.filter.createdFrom,
+        created_to: input.filter.createdTo,
+        sort: input.filter.sort,
+      } : undefined,
+    },
   });
 }
 

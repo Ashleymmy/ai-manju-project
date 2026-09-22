@@ -105,4 +105,17 @@ describe("AuthProvider query cache boundary", () => {
     expect(queryClient.getQueryData(["private", "workspace"])).toBeUndefined();
     expect(authMocks.logout).toHaveBeenCalledTimes(1);
   });
+
+  it("reuses the auth context when a lazy module is reloaded", async () => {
+    const registry = globalThis as typeof globalThis & {
+      __aiManjuAuthContext?: object;
+    };
+    const initialContext = registry.__aiManjuAuthContext;
+    expect(initialContext).toBeDefined();
+
+    vi.resetModules();
+    await import("./AuthContext");
+
+    expect(registry.__aiManjuAuthContext).toBe(initialContext);
+  });
 });

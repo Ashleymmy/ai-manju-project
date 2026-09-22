@@ -3,7 +3,8 @@ import type { SystemPromptListResult, SystemPromptQuery } from "./model";
 export async function getPromptLibrary(
   page = 1,
   pageSize = 100,
-  query: SystemPromptQuery = {}
+  query: SystemPromptQuery = {},
+  signal?: AbortSignal,
 ) {
   const params = new URLSearchParams({
     page: String(page),
@@ -12,7 +13,7 @@ export async function getPromptLibrary(
   if (query.keyword?.trim()) params.set("keyword", query.keyword.trim());
   if (query.category) params.set("category", query.category);
   (query.tags || []).forEach(tag => params.append("tag", tag));
-  const response = await fetch(`/api/prompts?${params.toString()}`);
+  const response = await fetch(`/api/prompts?${params.toString()}`, { signal });
   if (!response.ok) {
     throw new Error(`读取系统提示词失败（HTTP ${response.status}）`);
   }

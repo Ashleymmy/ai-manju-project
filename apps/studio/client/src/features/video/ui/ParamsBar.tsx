@@ -1,4 +1,5 @@
 import { videoModelOptions } from "@/shared/lib/modelSelection";
+import { videoModelDurations } from "@/entities/model";
 import { VideoDurationInput } from "@/shared/ui/VideoDurationInput";
 import type { PricingRulesConfig } from "@/features/member";
 
@@ -30,11 +31,10 @@ export function ParamsBar({
   pricingRules?: PricingRulesConfig;
 }) {
   const normalized = normalizeVideoGenerationConfig(config);
-  /* 未配置模型时也按 Seedance 展示（比例/30s 时长档位）；配上 OpenAI 兼容模型后自动切回尺寸/20s */
   const seedance = !normalized.model || isSeedanceVideoModel(normalized.model);
   const fastSeedance = isSeedanceFastVideoModel(normalized.model);
   const ratios = seedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes;
-  const durations = seedance ? videoModelSettings.seedanceDurations : videoModelSettings.openAiDurations;
+  const durations = videoModelDurations(normalized.model);
   const patch = (partial: Partial<VideoGenerationConfig>) => onChange(normalizeVideoGenerationConfig({ ...normalized, ...partial }));
 
   return (
@@ -80,8 +80,8 @@ export function ParamsBar({
         </div>
       </div>
       <div className="wb-param-group wb-param-duration">
-        <span className="wb-param-label">时长</span>
-        <VideoDurationInput value={normalized.seconds} durations={durations} continuous={seedance}
+        <span className="wb-param-label">时长 {normalized.seconds === "-1" ? "自动" : `${normalized.seconds} 秒`}</span>
+        <VideoDurationInput value={normalized.seconds} durations={durations}
           disabled={disabled} onChange={seconds => patch({ seconds })} />
       </div>
       <div className="wb-param-group">

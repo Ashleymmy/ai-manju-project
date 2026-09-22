@@ -24,6 +24,10 @@ func (h *AIHandler) enqueueNativeVideo(c *gin.Context, body map[string]any) {
 	if !ok {
 		return
 	}
+	if err := validateCatalogVideoDuration(candidates[0].Model, body["duration"]); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	if len(seedanceAssetIDsFromPayload(body)) > 0 {
 		// Registered asset IDs belong to one provider account. A matching model
 		// on another supplier cannot reuse them, even during automatic failover.

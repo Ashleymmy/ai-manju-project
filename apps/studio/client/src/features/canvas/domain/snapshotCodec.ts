@@ -15,6 +15,7 @@ import { batchChildGridPosition, refreshImageBatchRoot } from "./batch";
 import type { CanvasBackgroundMode, CanvasEdgeData, CanvasNodeData, CanvasSnapshotData } from "./types";
 import { isRecord, numberValue, stringValue } from "./value";
 import { CANVAS_ZOOM_MAX, CANVAS_ZOOM_MIN } from "./history";
+import { ensureUniqueCanvasNodeTitles } from "./nodeTitles";
 
 export type CanvasStudioAgentSnapshot = CanvasAgentSnapshot<
   ReturnType<typeof canvasAgentNodeFromCanvas>
@@ -29,7 +30,7 @@ export function parseCanvasSnapshot(value: unknown): CanvasSnapshotData | null {
   let edges = collectRoundTripCanvasEdgeEntries(data)
     .map(({ base, edge }) => normalizeCanvasEdge({ ...base, ...edge }))
     .filter(Boolean) as CanvasEdgeData[];
-  let nodes = nodes0;
+  let nodes = ensureUniqueCanvasNodeTitles(nodes0);
   const migratedRootIds: string[] = [];
   nodes.forEach((root) => {
     const childIds = Array.isArray(root.metadata?.batchChildIds)
@@ -104,7 +105,7 @@ export function buildCanvasSnapshot(
   showImageInfo = false,
 ) {
   return buildRoundTripCanvasSnapshot(base, {
-    nodes: nodes.map(serializeCanvasNode),
+    nodes: ensureUniqueCanvasNodeTitles(nodes).map(serializeCanvasNode),
     edges: edges.map(serializeCanvasEdge),
     groups: structuredClone(groups),
     zoom,

@@ -1,4 +1,6 @@
 import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
+import { canvasNodeDisplayTitle } from "../domain/nodeTitles";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { RetryImage } from "@/shared/ui/RetryImage";
 import { videoPosterUrl } from "@/shared/ui/VideoThumbnail";
 import { CanvasSeedanceRegistrationButton } from "./CanvasSeedanceRegistrationButton";
@@ -205,6 +207,7 @@ export function CanvasImageToolGrid({
   registerImageAsSeedanceAsset,
 }: CanvasImageToolGridProps) {
   return (
+    <ScrollArea className="canvas-image-tool-scroll" type="always">
     <div className="canvas-image-tool-list">
       <button title="扩展图片画布并使用 AI 补全" onClick={() => openImageToolDialog(node.id, "outpaint")} disabled={imageToolBusy}><Expand size={14} /> 扩图</button>
       <button title="擦除图片上的指定区域" disabled><Eraser size={14} /> 擦除 <span className="tool-soon">即将上线</span></button>
@@ -237,6 +240,7 @@ export function CanvasImageToolGrid({
       <button title="替换当前图片" onClick={() => { setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}><Upload size={14} /> 替换图片</button>
       <button title="确认图片已归档到素材库" onClick={() => void archiveCanvasMediaNode(node)}><Archive size={14} /> 存入素材库</button>
     </div>
+    </ScrollArea>
   );
 }
 
@@ -361,13 +365,13 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
           />
         ) : (
           <b
-            title="双击重命名节点"
+            title={`${node.title}（双击重命名节点）`}
             onDoubleClick={(event) => {
               event.stopPropagation();
               setTitleDraft(node.title);
               setTitleEditingNodeId(node.id);
             }}
-          >{node.title}</b>
+          >{canvasNodeDisplayTitle(node.title)}</b>
         )}
       </div>
       {isEmptyMediaNode && (node.kind === "image" || node.kind === "video") && isHovered && !isRunning ? (

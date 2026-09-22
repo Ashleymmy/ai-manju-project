@@ -22,8 +22,9 @@ describe("Inspector connected thumbnails", () => {
   function Harness({ kind = "image", id = "target" }: { kind?: CanvasNodeKind; id?: string }) {
     const [prompts, setPrompts] = useState<Record<string, string>>({ target: "原提示词", second: "另一节点" });
     const selected: CanvasNodeData = { id, kind, title: id, content: "", x: 400, y: 0, width: 320, height: 240, metadata: { composerContent: prompts[id] } };
-    const nodes = [source, selected];
-    const edges = [{ id: "edge", from: source.id, to: id }];
+    const ancestor: CanvasNodeData = { ...source, id: "ancestor", title: "更前置的参考图" };
+    const nodes = [ancestor, source, selected];
+    const edges = [{ id: "earlier", from: ancestor.id, to: source.id }, { id: "edge", from: source.id, to: id }];
     // Unused toolbar actions are inert; the editor, reference builder and click handler are real.
     const actions = {
       node: {
@@ -72,6 +73,21 @@ describe("Inspector connected thumbnails", () => {
     expect(container.querySelectorAll("[data-mention-chip]")).toHaveLength(1);
     expect(document.activeElement).toBe(textarea());
     expect(textarea().selectionStart).toBe(textarea().value.length);
+    expect(preview).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it.each(kinds)("shows only direct predecessors in the %s mention popup", async kind => {
+    await act(async () => root.render(<Harness kind={kind} />));
+    await act(async () => {
+      textarea().focus();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea(), "@");
+      textarea().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const rows = [...document.querySelectorAll(".canvas-mention-item:not(.canvas-mention-item-folder)")];
+    expect(rows.map(row => row.querySelector("strong")?.textContent)).toEqual(["参考图"]);
+    await act(async () => rows[0].dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
+    expect(update).toHaveBeenLastCalledWith("target", "@[node:source]");
     expect(preview).not.toHaveBeenCalled();
     expect(generate).not.toHaveBeenCalled();
   });

@@ -1,0 +1,94 @@
+/* Transfer panels use the asset library's warm neutral palette. */
+.asset-transfer-status { --transfer-border: rgba(219,218,203,.1); --transfer-muted: #959d97; --transfer-accent: #dfc79c; --transfer-success: #a6c4ad; display: grid; gap: 12px; margin: 12px 0 16px; min-width: 0; container-type: inline-size; font-size: 12px; font-weight: 400; }
+.asset-transfer-status:empty { display: none; }
+.asset-transfer-panel { min-width: 0; overflow: hidden; border: 1px solid var(--transfer-border); border-radius: 12px; background: #171d1e; box-shadow: 0 3px 12px rgba(0,0,0,.05); }
+.asset-transfer-header { display: flex; align-items: center; gap: 11px; padding: 16px 18px; border-bottom: 1px solid var(--transfer-border); }
+.asset-transfer-heading-icon { display: grid; place-items: center; flex: 0 0 34px; height: 34px; border-radius: 9px; color: var(--transfer-accent); background: rgba(211,180,127,.07); border: 1px solid rgba(211,180,127,.1); }
+.asset-transfer-heading { min-width: 0; flex: 1; }
+.asset-transfer-heading h3, .asset-import-copy h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; font-weight: 600; line-height: 1.5; color: #ecece3; letter-spacing: .015em; }
+.asset-transfer-heading p, .asset-import-copy p { margin: 4px 0 0; color: var(--transfer-muted); font-size: 11px; line-height: 1.6; font-weight: 400; }
+.asset-transfer-count { padding: 1px 6px; border: 1px solid var(--transfer-border); border-radius: 5px; color: #adb2aa; background: rgba(255,255,255,.025); font-size: 10px; line-height: 1.4; font-weight: 500; font-variant-numeric: tabular-nums; }
+.asset-transfer-header-note { display: inline-flex; align-items: center; gap: 4px; color: #818b85; font-size: 10px; white-space: nowrap; }
+.asset-transfer-list { margin: 0; padding: 0 18px; list-style: none; }
+.asset-transfer-row { display: grid; grid-template-columns: 34px minmax(0,1fr) auto 116px; align-items: center; gap: 12px; min-height: 70px; padding: 12px 0; }
+.asset-transfer-row + .asset-transfer-row { border-top: 1px solid rgba(219,218,203,.065); }
+.asset-transfer-file-icon { display: grid; place-items: center; width: 32px; height: 36px; border: 1px solid rgba(219,218,203,.09); border-radius: 7px; color: #b6b6a8; background: rgba(255,255,255,.02); }
+.asset-transfer-file { min-width: 0; }
+.asset-transfer-file-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #daddd4; font-size: 12px; font-weight: 500; line-height: 1.5; }
+.asset-transfer-meta { display: flex; flex-wrap: wrap; gap: 3px 8px; margin-top: 5px; color: var(--transfer-muted); font-size: 10px; font-variant-numeric: tabular-nums; line-height: 1.5; }
+.asset-transfer-meta > * + *::before { content: "·"; margin-right: 8px; color: #636e68; }
+.asset-transfer-meta .asset-transfer-error-count { color: #dbad94; }
+.asset-transfer-badge { display: inline-flex; align-items: center; justify-content: center; gap: 4px; border-radius: 5px; padding: 4px 7px; font-size: 10px; line-height: 1.3; font-weight: 500; white-space: nowrap; }
+.asset-transfer-badge.is-success { color: var(--transfer-success); background: rgba(133,179,146,.075); }
+.asset-transfer-badge.is-active, .asset-transfer-badge.is-pending { color: var(--transfer-accent); background: rgba(211,180,127,.07); }
+.asset-transfer-badge.is-warning { color: #dfbc95; background: rgba(207,154,99,.08); }
+.asset-transfer-badge.is-error { color: #e1a595; background: rgba(218,117,99,.08); }
+.asset-transfer-badge.is-muted { color: #939c94; background: rgba(255,255,255,.03); }
+.asset-transfer-row.is-muted .asset-transfer-file-name, .asset-transfer-row.is-muted .asset-transfer-file-icon { color: #949d95; }
+.asset-transfer-row-action { display: flex; justify-content: flex-end; align-items: center; min-width: 0; }
+.asset-transfer-status .asset-transfer-button { display: inline-flex; justify-content: center; align-items: center; gap: 6px; min-height: 31px; padding: 6px 10px; border: 1px solid var(--transfer-border); border-radius: 6px; font-size: 11px; line-height: 1.4; font-weight: 500; cursor: pointer; transition: background .16s ease, border-color .16s ease, color .16s ease; }
+.asset-transfer-status .asset-transfer-button.is-download { border-color: rgba(211,180,127,.24); color: #e5cda5; background: rgba(211,180,127,.07); }
+.asset-transfer-status .asset-transfer-button.is-download:hover { border-color: rgba(211,180,127,.45); background: rgba(211,180,127,.13); color: #f3dfbc; }
+.asset-transfer-status .asset-transfer-button.is-quiet { color: #b0b7af; background: transparent; }
+.asset-transfer-status .asset-transfer-button.is-quiet:hover { border-color: rgba(219,218,203,.24); background: rgba(255,255,255,.04); color: #e5e7dd; }
+.asset-transfer-unavailable { padding-right: 5px; color: #838d85; font-size: 10px; }
+.asset-transfer-footer { display: flex; align-items: center; gap: 6px; padding: 10px 18px; border-top: 1px solid var(--transfer-border); background: rgba(0,0,0,.07); color: #929c93; font-size: 10px; line-height: 1.6; }
+.asset-transfer-footer svg { flex-shrink: 0; }
+.asset-import-panel { padding: 17px 18px; }
+.asset-import-panel.is-success { border-color: rgba(147,186,155,.18); background: linear-gradient(115deg, rgba(103,150,112,.06), transparent 65%), #171d1e; }
+.asset-import-summary { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.asset-import-icon { display: grid; place-items: center; flex: 0 0 36px; height: 36px; border: 1px solid rgba(211,180,127,.15); border-radius: 50%; color: var(--transfer-accent); background: rgba(211,180,127,.06); }
+.asset-import-icon.is-success { color: var(--transfer-success); border-color: rgba(147,186,155,.2); background: rgba(133,179,146,.09); }
+.asset-import-icon.is-warning { color: #dfbc95; }
+.asset-import-copy { min-width: 0; flex: 1; }
+.asset-import-copy p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-import-count { flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.asset-import-count strong { display: block; color: #e2e7dc; font-size: 20px; font-weight: 500; line-height: 1.1; letter-spacing: -.025em; }
+.asset-import-count strong span { color: #8e9a90; font-size: 13px; font-weight: 400; }
+.asset-import-count small { display: block; margin-top: 5px; color: var(--transfer-muted); font-size: 10px; font-weight: 400; }
+.asset-transfer-status .asset-transfer-dismiss { display: grid; place-items: center; width: 26px; height: 26px; margin: -5px -7px 0 0; align-self: flex-start; flex-shrink: 0; padding: 0; border: 0; border-radius: 5px; color: #859087; background: transparent; cursor: pointer; }
+.asset-transfer-status .asset-transfer-dismiss:hover { color: #e3e6dc; background: rgba(255,255,255,.06); }
+.asset-transfer-progress { display: block; width: 100%; height: 4px; margin: 14px 0 0; overflow: hidden; appearance: none; border: 0; border-radius: 8px; color: var(--transfer-accent); background: #29332f; accent-color: var(--transfer-accent); }
+.asset-transfer-progress::-webkit-progress-bar { border-radius: 8px; background: #29332f; }
+.asset-transfer-progress::-webkit-progress-value { border-radius: 8px; background: var(--transfer-accent); transition: width .2s ease; }
+.asset-transfer-progress::-moz-progress-bar { border-radius: 8px; background: var(--transfer-accent); }
+.asset-transfer-progress.is-success { color: #8daa92; accent-color: #8daa92; }
+.asset-transfer-progress.is-success::-webkit-progress-value { background: #8daa92; transition: none; }
+.asset-transfer-progress.is-success::-moz-progress-bar { background: #8daa92; }
+.asset-transfer-progress.is-export { max-width: 180px; height: 3px; margin-top: 8px; }
+.asset-transfer-progress:indeterminate { background: linear-gradient(90deg, #29332f 25%, #9f937c 50%, #29332f 75%); background-size: 200% 100%; animation: asset-transfer-loading 1.6s ease infinite; }
+.asset-transfer-progress:indeterminate::-webkit-progress-bar { background: transparent; }
+.asset-import-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.asset-import-actions > span { color: var(--transfer-muted); font-size: 10px; line-height: 1.6; }
+.asset-transfer-notice { margin-top: 12px; border-top: 1px solid var(--transfer-border); padding-top: 11px; color: #c8b696; font-size: 11px; }
+.asset-transfer-notice.is-error { color: #d7aa98; }
+.asset-transfer-notice summary { display: flex; align-items: center; gap: 7px; list-style: none; cursor: pointer; }
+.asset-transfer-notice summary::-webkit-details-marker { display: none; }
+.asset-transfer-chevron { margin-left: auto; transform: rotate(-90deg); transition: transform .15s; }
+.asset-transfer-notice[open] .asset-transfer-chevron { transform: rotate(0); }
+.asset-transfer-notice ul { display: grid; gap: 7px; max-height: 156px; overflow: auto; margin: 10px 0 0; padding: 0 0 0 21px; list-style: none; overflow-wrap: anywhere; line-height: 1.6; }
+.asset-transfer-notice li { font-weight: 400; }
+.asset-transfer-notice li small { display: block; color: var(--transfer-muted); font-size: 10px; }
+.asset-transfer-spinner { animation: asset-transfer-spin 1.2s linear infinite; }
+@keyframes asset-transfer-spin { to { transform: rotate(360deg); } }
+@keyframes asset-transfer-loading { to { background-position: -200% 0; } }
+@container (max-width: 540px) {
+  .asset-transfer-header { padding: 14px; }
+  .asset-transfer-header-note { display: none; }
+  .asset-transfer-list { padding: 0 14px; }
+  .asset-transfer-row { grid-template-columns: 30px minmax(0,1fr) auto; gap: 8px 10px; }
+  .asset-transfer-file-icon { grid-row: 1 / 3; align-self: start; }
+  .asset-transfer-row-action { grid-column: 2 / 4; justify-content: flex-start; }
+  .asset-transfer-row-action:has(.asset-transfer-unavailable) { display: none; }
+  .asset-transfer-meta { gap: 2px 6px; }
+  .asset-transfer-meta > * + *::before { margin-right: 6px; }
+  .asset-transfer-footer { padding: 10px 14px; }
+  .asset-import-panel { padding: 14px; }
+  .asset-import-summary { gap: 9px; }
+  .asset-import-icon { flex-basis: 30px; height: 30px; }
+  .asset-import-count strong { font-size: 17px; }
+  .asset-import-copy p { white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .asset-transfer-status *, .asset-transfer-status *::before { animation: none !important; transition: none !important; }
+}

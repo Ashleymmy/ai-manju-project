@@ -26,6 +26,7 @@ import { assetIdFromNode, looksLikeImageSource } from "./nodes";
 import { isRecord, numberValue, stringValue } from "./value";
 import { workspaceScopeValue } from "./workspace";
 import { CANVAS_NODE_RESIZE_BOUNDS } from "./nodeResize";
+import { extractCanvasMentionTokens } from "./mentions";
 
 /** 空图片节点默认尺寸（约 4:3）。有图后按原图像素比适配。 */
 export const CANVAS_IMAGE_NODE_WIDTH = 320;
@@ -43,6 +44,9 @@ export const CANVAS_IMAGE_DEFAULT_SIZE = "auto" as const;
 export const CANVAS_IMAGE_DEFAULT_QUALITY: ImageQualityValue = "low";
 export const CANVAS_IMAGE_RESOLUTIONS = ["1K", "2K", "4K"] as const;
 export type CanvasImageResolution = (typeof CANVAS_IMAGE_RESOLUTIONS)[number];
+
+/** 视频节点使用明确比例；旧的自适应设置回退到横屏。 */
+export const CANVAS_VIDEO_DEFAULT_RATIO = "16:9";
 
 export function canvasImageParamDefaults() {
   return {
@@ -165,7 +169,21 @@ export function nodeInlineEditPlaceholder(kind: CanvasNodeKind) {
 
 export function videoSubModeFromNode(node: CanvasNodeData): VideoSubMode {
   const value = stringValue(node.metadata?.videoSubMode);
-  return VIDEO_SUBMODES.some((sub) => sub.value === value) ? value as VideoSubMode : "text";
+  const hasReferences = extractCanvasMentionTokens(promptTextFromNode(node)).length > 0;
+  // Text/reference are the automatic pair; repair stale saved values from older nodes.
+  if (value === "text" || value === "reference" || !VIDEO_SUBMODES.some((sub) => sub.value === value)) {
+    return hasReferences ? "reference" : "text";
+  }
+  return value as VideoSubMode;
+}
+
+/** Switch when a prompt gains or loses actual @ references; ordinary text edits preserve the current mode. */
+export function autoVideoSubModeForPromptChange(node: CanvasNodeData, nextPrompt: string): VideoSubMode | undefined {
+  if (node.kind !== "video") return undefined;
+  const hadReferences = extractCanvasMentionTokens(promptTextFromNode(node)).length > 0;
+  const hasReferences = extractCanvasMentionTokens(nextPrompt).length > 0;
+  if (hadReferences === hasReferences) return undefined;
+  return hasReferences ? "reference" : "text";
 }
 
 export function videoSubModePlaceholder(mode: VideoSubMode) {
@@ -235,12 +253,14 @@ export function imageCountFromNode(node: CanvasNodeData) {
 }
 
 export function videoConfigFromNode(node: CanvasNodeData, fallbackModel: string): VideoGenerationConfig {
+  const size = stringValue(node.metadata?.size).trim().toLowerCase();
   return normalizeVideoGenerationConfig({
     model: modelFromNode(node, fallbackModel),
-    size: stringValue(node.metadata?.size) || "auto",
+    size: !size || size === "auto" || size === "adaptive" ? CANVAS_VIDEO_DEFAULT_RATIO : size,
     resolution: stringValue(node.metadata?.resolution) || "720p",
     seconds: stringValue(node.metadata?.seconds) || "5",
-    generateAudio: Boolean(node.metadata?.generateAudio),
+    // Enable sound by default while preserving an explicitly saved opt-out.
+    generateAudio: node.metadata?.generateAudio ?? true,
     watermark: Boolean(node.metadata?.watermark),
   });
 }

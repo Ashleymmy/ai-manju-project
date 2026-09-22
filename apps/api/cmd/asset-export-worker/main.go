@@ -42,6 +42,7 @@ func main() {
 	exportService := service.NewAssetExportService(
 		repository.NewGormAssetExportRepository(db), assetService, folderService, assetStore,
 	)
+	exportService.SetTagService(service.NewTagService(repository.NewGormTagRepository(db), assetRepo))
 	exportService.SetAssetUsageRecorder(service.NewAssetUsageService(
 		repository.NewGormAssetUsageRepository(db), assetRepo, repository.NewGormAssetReferenceRepository(db), repository.NewGormAssetLineageRepository(db),
 	))

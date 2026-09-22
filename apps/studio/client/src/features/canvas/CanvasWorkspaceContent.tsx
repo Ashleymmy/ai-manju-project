@@ -25,7 +25,7 @@ import {
   Undo2,
   Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useLocation, useSearch } from "wouter";
@@ -64,7 +64,7 @@ import { ApiError, publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 import { useCanvasOriginalImage } from "./controllers/useCanvasOriginalImage";
 import { useInspectorResize } from "./controllers/useInspectorResize";
-import { INSPECTOR_SIZE, inspectorSizeLimits, savedInspectorHeight } from "./domain/inspectorSize";
+import { INSPECTOR_SIZE, inspectorLayout, inspectorSizeLimits, savedInspectorHeight } from "./domain/inspectorSize";
 import { useCanvasServerVideoHistory } from "./controllers/useCanvasServerVideoHistory";
 import { mergeCanvasGenerationHistory, serverVideoHistoryNodes } from "./domain/serverVideoHistory";
 import { downloadCanvasOriginalMedia } from "./services/originalMedia";
@@ -115,10 +115,10 @@ import { useProjectCoverUrls } from "@/features/projects";
 import { ProjectCoverPickerDialog } from "@/components/ProjectCoverPickerDialog";
 import { getPreferences } from "@/features/settings";
 import {
-  isLongSeedanceVideoModel,
   isSeedanceVideoModel,
   videoModelSettings,
 } from "@/features/video";
+import { videoModelDurations } from "@/entities/model";
 import type { CanvasImageAnnotationPayload } from "@/components/canvas/CanvasImageAnnotationDialog";
 import type { CanvasImageMaskPayload } from "@/components/canvas/CanvasImageMaskDialog";
 import type { SelectedSeedanceVolcanoAsset } from "@/components/canvas/CanvasSeedanceAssetDialog";
@@ -264,7 +264,7 @@ import {
   buildCanvasSnapshot,
   canvasAgentSnapshotFromCanvas,
 } from "@/features/canvas/domain/snapshotCodec";
-import { renameCanvasNode } from "@/features/canvas/domain/nodeTitles";
+import { ensureUniqueCanvasNodeTitles, renameCanvasNode } from "@/features/canvas/domain/nodeTitles";
 import {
   assetIdFromNode,
   imageSrcFromNode,
@@ -312,6 +312,7 @@ import {
   defaultGenerationModeForKind,
   defaultMediaMimeType,
   applyCanvasImageNaturalSize,
+  autoVideoSubModeForPromptChange,
   canvasImageParamDefaults,
   fragmentMediaFileName,
   fragmentMediaMimeType,
@@ -329,6 +330,7 @@ import {
   promptTextFromNode,
   sizeFromNode,
   videoConfigFromNode,
+  CANVAS_VIDEO_DEFAULT_RATIO,
   videoFileName,
   videoProviderFromNode,
   audioConfigFromNode,
@@ -361,6 +363,9 @@ const scopeOptions: Array<{ value: WorkspaceScope; label: string }> = [
 
 const CANVAS_FLOATING_PANEL_WIDTH = 340;
 const CANVAS_FLOATING_PANEL_MIN_HEIGHT = 280;
+// Group controls size to their content; these gaps keep them inside the stage
+// and clear of the group header when their height changes after wrapping.
+const GROUP_INSPECTOR_LAYOUT = { edgeGap: 12, groupGap: 30 } as const;
 const CANVAS_MINIMAP_WIDTH = 184;
 const CANVAS_MINIMAP_HEIGHT = 122;
 // Keep registration outcomes readable; pending progress remains visible until settled.
@@ -689,8 +694,7 @@ export default function CanvasWorkspaceViewContent() {
     stageBounds,
   } = stageInteraction;
   const panelRef = useRef<HTMLElement>(null);
-  const panelHeight = useCanvasStore((state) => state.ui.panelHeight);
-  const setPanelHeight = canvasCommands.ui.setPanelHeight;
+  const [groupPanelSize, setGroupPanelSize] = useState({ width: 0, height: 0 });
   const viewportRef = useMemo(() => ({
     get current() {
       const current = canvasStore.getState().viewport;
@@ -992,37 +996,41 @@ export default function CanvasWorkspaceViewContent() {
     const nodeRight = nodeLeft + selectedNode.width * scale;
     const nodeBottom = nodeTop + selectedNode.height * scale;
     if (nodeRight < 0 || nodeBottom < CANVAS_STAGE_OFFSET || nodeLeft > stageBounds.width || nodeTop > stageBounds.height) return undefined;
-    // 面板做成长矩形（宽于节点约 200px，收敛在 560–720），chips/操作行单行不折行；用户拖宽过则以拖宽值为准。
-    const limits = inspectorSizeLimits(stageBounds.width, stageBounds.height - CANVAS_STAGE_OFFSET);
-    const savedWidth = numberValue(selectedNode.metadata?.promptPanelWidth);
-    const savedHeight = savedInspectorHeight(selectedNode.metadata?.promptPanelHeight);
-    const height = savedHeight ? Math.min(limits.maxHeight, Math.max(limits.minHeight, savedHeight)) : undefined;
-    const computedWidth = Math.round(selectedNode.width * scale) + 200;
-    const width = Math.min(limits.maxWidth, Math.max(limits.minWidth, savedWidth || Math.max(INSPECTOR_SIZE.defaultWidth, computedWidth)));
-    const nodeCenterX = panX + (selectedNode.x + selectedNode.width / 2) * scale;
-    // 实测面板高度做钳制，避免估算偏差把面板顶回盖住节点；始终锚在节点正下方。
-    const measuredHeight = height ?? Math.max(160, panelHeight);
-    const minPanelHeight = 140;
-    let top = nodeBottom + 12;
-    const maxTop = Math.max(CANVAS_STAGE_OFFSET + 8, stageBounds.height - measuredHeight - 12);
-    top = Math.min(top, maxTop);
-    // 节点太高把面板推出舞台时，改用舞台内可用高度，确保面板总能完整显示在节点下方。
-    top = Math.max(CANVAS_STAGE_OFFSET + 8, top);
-    const availableHeight = Math.max(minPanelHeight, stageBounds.height - top - 12);
-    const left = Math.min(Math.max(12, nodeCenterX - width / 2), Math.max(12, stageBounds.width - width - 12));
-    return { left: Math.round(left), top: Math.round(top), width, height, maxHeight: Math.round(availableHeight) };
-  }, [panX, panY, panelHeight, selectedNode, stageBounds.height, stageBounds.width, zoom]);
+    const { resizeX, resizeY, resizeCenterDistance, resizeBoundaryDistance, ...layout } = inspectorLayout(
+        { left: nodeLeft, top: nodeTop, right: nodeRight, bottom: nodeBottom },
+        { left: INSPECTOR_SIZE.viewportMargin, top: CANVAS_STAGE_OFFSET + INSPECTOR_SIZE.topMargin,
+          right: stageBounds.width - INSPECTOR_SIZE.viewportMargin, bottom: stageBounds.height - INSPECTOR_SIZE.viewportMargin },
+        { width: savedInspectorHeight(selectedNode.metadata?.promptPanelWidth), height: savedInspectorHeight(selectedNode.metadata?.promptPanelHeight) },
+      );
+    return {
+      ...layout,
+      "--inspector-resize-x": resizeX,
+      "--inspector-resize-y": resizeY,
+      "--inspector-resize-center-distance": resizeCenterDistance,
+      "--inspector-resize-boundary-distance": resizeBoundaryDistance,
+      "--inspector-resize-left": resizeX < 0 ? "0px" : "auto",
+      "--inspector-resize-right": resizeX < 0 ? "auto" : "0px",
+      "--inspector-resize-top": resizeY < 0 ? "0px" : "auto",
+      "--inspector-resize-bottom": resizeY < 0 ? "auto" : "0px",
+      "--inspector-resize-cursor": resizeX === resizeY ? "nwse-resize" : "nesw-resize",
+      right: "auto", bottom: "auto",
+    };
+  }, [panX, panY, selectedNode, stageBounds.height, stageBounds.width, zoom]);
   const selectedGroupPanelStyle = useMemo<CSSProperties | undefined>(() => {
     if (!selectedGroup) return undefined;
     const scale = Math.max(0.05, zoom / 100);
-    // Keep enough room for both action buttons while staying inside the canvas viewport.
-    const width = Math.min(760, Math.max(360, stageBounds.width - 16));
+    const { edgeGap, groupGap } = GROUP_INSPECTOR_LAYOUT;
+    const maxWidth = Math.max(1, stageBounds.width - edgeGap * 2);
+    const minTop = CANVAS_STAGE_OFFSET + edgeGap;
+    const maxHeight = Math.max(1, stageBounds.height - minTop - edgeGap);
+    const width = Math.min(maxWidth, groupPanelSize.width || maxWidth);
+    const height = Math.min(maxHeight, groupPanelSize.height);
     const groupLeft = panX + selectedGroup.position.x * scale;
     const groupTop = CANVAS_STAGE_OFFSET + panY + selectedGroup.position.y * scale;
-    const left = Math.min(Math.max(12, groupLeft), Math.max(12, stageBounds.width - width - 12));
-    const top = Math.max(CANVAS_STAGE_OFFSET + 8, groupTop - 90);
-    return { left: Math.round(left), top: Math.round(top), width, right: "auto", bottom: "auto" };
-  }, [panX, panY, selectedGroup, stageBounds.width, zoom]);
+    const left = Math.min(Math.max(edgeGap, groupLeft), Math.max(edgeGap, stageBounds.width - width - edgeGap));
+    const top = Math.max(minTop, Math.min(groupTop - height - groupGap, stageBounds.height - height - edgeGap));
+    return { left: Math.round(left), top: Math.round(top), width: "max-content", maxWidth, maxHeight, right: "auto", bottom: "auto" };
+  }, [groupPanelSize, panX, panY, selectedGroup, stageBounds.height, stageBounds.width, zoom]);
   const contextMenuStyle = useMemo<CSSProperties | undefined>(() => {
     if (!contextMenu) return undefined;
     const width = 220;
@@ -1222,7 +1230,7 @@ export default function CanvasWorkspaceViewContent() {
       toast.warning("剪贴板来自另一张画布，请在当前画布重新复制");
       return false;
     }
-    const pasted = pasteCanvasClipboard(clipboard, projectKey, getCanvasCenter(), () => crypto.randomUUID());
+    const pasted = pasteCanvasClipboard(clipboard, projectKey, getCanvasCenter(), () => crypto.randomUUID(), nodesRef.current);
     if (!pasted) return false;
     const nextNodes = [...nodesRef.current, ...pasted.nodes];
     const nextEdges = [...edgesRef.current, ...pasted.edges];
@@ -1292,16 +1300,22 @@ export default function CanvasWorkspaceViewContent() {
     setMaterialNodeId("");
   }, [selectedNode?.id]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const panel = panelRef.current;
-    if (!panel || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver((entries) => {
-      const height = entries[0]?.contentRect.height;
-      if (height) setPanelHeight(Math.round(height));
-    });
+    if (!selectedGroup || !panel || !inspectorOpen || projectActionDisabled) return;
+    const measure = () => {
+      // Border-box dimensions include padding; contentRect alone would still
+      // let the last button extend beyond the viewport at the right edge.
+      const width = panel.offsetWidth;
+      const height = panel.offsetHeight;
+      setGroupPanelSize(current => current.width === width && current.height === height ? current : { width, height });
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
     observer.observe(panel);
     return () => observer.disconnect();
-  }, []);
+  }, [selectedGroup?.id, inspectorOpen, projectActionDisabled]);
 
   useEffect(() => {
     let disposed = false;
@@ -1407,7 +1421,7 @@ export default function CanvasWorkspaceViewContent() {
     nextZoom = viewportRef.current.zoom,
     options: { quiet?: boolean; panX?: number; panY?: number } = {},
   ): Promise<boolean> => autosaveController.persist({
-    nodes: nextNodes,
+    nodes: ensureUniqueCanvasNodeTitles(nextNodes, nodesRef.current),
     edges: nextEdges,
     groups: persistedGroups,
     zoom: nextZoom,
@@ -1747,9 +1761,9 @@ export default function CanvasWorkspaceViewContent() {
         model: normalizedKind === "video" ? videoModel : normalizedKind === "audio" ? audioModel : normalizedKind === "image" || normalizedKind === "config" ? imageModel : normalizedKind === "text" ? textModel : undefined,
         status: "idle",
         ...canvasImageParamDefaults(),
+        ...(normalizedKind === "video" ? { size: CANVAS_VIDEO_DEFAULT_RATIO } : {}),
         resolution: "720p",
         seconds: "5",
-        generateAudio: false,
         watermark: false,
         audioVoice: "alloy",
         audioFormat: "mp3",
@@ -1855,7 +1869,14 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const updateNodePrompt = (id: string, content: string) => {
-    const nextNodes = nodesRef.current.map((node) => node.id === id ? updateCanvasNodeComposer(node, content) : node);
+    const nextNodes = nodesRef.current.map((node) => {
+      if (node.id !== id) return node;
+      const updated = updateCanvasNodeComposer(node, content);
+      const autoVideoSubMode = autoVideoSubModeForPromptChange(node, content);
+      return autoVideoSubMode
+        ? { ...updated, metadata: { ...(updated.metadata || {}), videoSubMode: autoVideoSubMode } }
+        : updated;
+    });
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
   };
@@ -3175,7 +3196,12 @@ export default function CanvasWorkspaceViewContent() {
   const startPanelResize = useInspectorResize({
     panelRef,
     nodeId: inspectorOpen && !selectedGroup && !projectActionDisabled ? selectedNode?.id : undefined,
-    limits: inspectorSizeLimits(stageBounds.width, stageBounds.height - CANVAS_STAGE_OFFSET),
+    limits: selectedPanelStyle ? {
+      minWidth: Math.min(INSPECTOR_SIZE.minWidth, Number(selectedPanelStyle.maxWidth)),
+      maxWidth: Number(selectedPanelStyle.maxWidth),
+      minHeight: Math.min(INSPECTOR_SIZE.minHeight, Number(selectedPanelStyle.maxHeight)),
+      maxHeight: Number(selectedPanelStyle.maxHeight),
+    } : inspectorSizeLimits(stageBounds.width, stageBounds.height - CANVAS_STAGE_OFFSET),
     onResize: (nodeId, size, mode) => {
       // Generation and prompt edits can finish during a drag; merge into the latest metadata.
       const node = nodesRef.current.find(item => item.id === nodeId);
@@ -3703,7 +3729,7 @@ export default function CanvasWorkspaceViewContent() {
     const source = targetId ? nodesRef.current.find((node) => node.id === targetId) : selectedNode ? nodesRef.current.find((node) => node.id === selectedNode.id) : null;
     if (!source) return;
     const createdId = crypto.randomUUID();
-    const duplicate = duplicateCanvasNode(source, createdId);
+    const duplicate = duplicateCanvasNode(source, createdId, nodesRef.current);
     const nextNodes = [...nodesRef.current, duplicate];
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
@@ -4682,14 +4708,12 @@ export default function CanvasWorkspaceViewContent() {
           selectedVideoConfig={selectedVideoConfig || null}
           selectedVideoSeedance={selectedVideoSeedance}
           selectedVideoDurations={selectedVideoConfig
-            ? selectedVideoSeedance
-              ? isLongSeedanceVideoModel(selectedVideoConfig.model)
-                ? videoModelSettings.seedanceLongDurations
-                : videoModelSettings.seedanceDurations
-              : videoModelSettings.openAiDurations
+            ? videoModelDurations(selectedVideoConfig.model)
             : []}
           selectedVideoResolutions={selectedVideoSeedance ? videoModelSettings.seedanceResolutions : videoModelSettings.openAiResolutions}
-          selectedVideoRatios={selectedVideoSeedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes.map(sizeToRatioLabel)}
+          selectedVideoRatios={selectedVideoSeedance
+            ? videoModelSettings.seedanceRatios.filter(ratio => ratio !== "adaptive")
+            : videoModelSettings.openAiSizes.filter(size => size !== "auto").map(sizeToRatioLabel)}
           selectedAudioConfig={selectedAudioConfig || null}
           audioVoiceOptions={audioVoiceOptions}
           audioFormatOptions={audioFormatOptions}

@@ -1,11 +1,11 @@
 import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
 import {
+  Archive,
   Boxes,
   ClipboardPaste,
   Film,
   GitMerge,
   Image as ImageIcon,
-  Images,
   Loader2,
   Music2,
   Scissors,
@@ -264,9 +264,6 @@ export function CanvasStage({
       generatePanoramaCanvasImage,
       createImageReversePromptNodes,
       setStoryboardNodeId,
-      setImagePreviewNodeId,
-      setReplaceImageNodeId,
-      replaceImageInputRef,
       archiveCanvasMediaNode,
       captureVideoFrameNode,
       archiveCanvasTextNode,
@@ -275,7 +272,6 @@ export function CanvasStage({
     copySelectedNodes,
     openConnectSelection,
     renderCanvasSubmenu,
-    copyCanvasImagePrompt,
     addNode,
     pasteCopiedNodes,
     createNodeFromConnectionDraft,
@@ -344,7 +340,8 @@ export function CanvasStage({
                     left: group.position.x,
                     top: group.position.y,
                     width: group.width,
-                    height: group.height,
+                    height: `calc(${group.height}px + var(--group-frame-top-extension, 0px))`,
+                    "--canvas-group-width": group.width,
                     "--canvas-group-color": group.color,
                   } as CSSProperties}
                   onClick={(event) => { event.stopPropagation(); selectCanvasGroup(group); }}
@@ -357,7 +354,7 @@ export function CanvasStage({
                   {!group.pending ? (
                     <div className="canvas-group-header">
                       <Boxes size={14} />
-                      <b>{group.title}</b>
+                      <b title={group.title}>{group.title}</b>
                       <span>{group.nodeIds.length} 节点</span>
                       <details className="canvas-group-prices" onPointerDown={event => event.stopPropagation()}><summary>积分明细</summary>{nodes.filter(node => group.nodeIds.includes(node.id)).map(node => <div key={node.id}>{node.title} · <CanvasGenerationPrice node={node} /></div>)}</details>
                       <div className="canvas-group-header-actions" onPointerDown={(event) => event.stopPropagation()}>
@@ -556,14 +553,9 @@ export function CanvasStage({
               <div className={`canvas-context-menu-list${contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? " has-submenus" : ""}`}>
                 {contextMenu.nodeId ? (
                   <>
-                    {contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? renderCanvasSubmenu("image-asset", <Images size={14} />, "素材与文件", (
-                      <>
-                        <button className="full-outline" onClick={() => { setImagePreviewNodeId(contextMenuNode.id); setContextMenu(null); }}>查看图片</button>
-                        <button className="full-outline" onClick={() => { void copyCanvasImagePrompt(contextMenuNode); setContextMenu(null); }}>复制提示词</button>
-                        <button className="full-outline" onClick={() => { setReplaceImageNodeId(contextMenuNode.id); replaceImageInputRef.current?.click(); setContextMenu(null); }}>替换图片</button>
-                        <button className="full-outline" onClick={() => { void archiveCanvasMediaNode(contextMenuNode); setContextMenu(null); }}>加入素材库</button>
-                      </>
-                    )) : null}
+                    {contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? (
+                      <button className="full-outline" onClick={() => { void archiveCanvasMediaNode(contextMenuNode); setContextMenu(null); }}><Archive size={14} /> 加入素材库</button>
+                    ) : null}
                     <button className="full-outline" onClick={() => { copySelectedNodes(); setContextMenu(null); }}>复制所选节点</button>
                     {selectedNodeIds.size >= 2 ? <button className="full-outline" onClick={() => { openConnectSelection(); setContextMenu(null); }}>连接所选节点到配置</button> : null}
                     <button className="full-outline" onClick={() => { void duplicateSelectedNode(contextMenu.nodeId!); setContextMenu(null); }}>复制节点</button>

@@ -54,7 +54,7 @@ describe("asset package", () => {
       source_type: "manual_upload",
       folder_id: "folder_1",
       category: "reference",
-      tag_ids: "tag_a,tag_b",
+      tags: '["tag_a","tag_b"]',
       note: "灯光参考",
     });
   });

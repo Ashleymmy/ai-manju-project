@@ -62,6 +62,7 @@ func TestAssetFolderGormPostgresParity(t *testing.T) {
 	if len(views) != 6 {
 		t.Fatalf("default folders = %d, want 6", len(views))
 	}
+	assertAssetFolderPresentationUpgrade(t, folders, folderRepo, userID, WorkspaceScopePersonal)
 
 	parent, err := folders.Create(userID, WorkspaceScopePersonal, AssetFolderCreateInput{Name: "PostgreSQL 验证"})
 	if err != nil {

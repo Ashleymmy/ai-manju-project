@@ -89,7 +89,10 @@
 .outline-button { min-height: 37px; padding: 0 13px; border: 1px solid rgba(239,235,222,.17); border-radius: 7px; background: rgba(255,255,255,.025); color: #d7d5ce; font-size: var(--font-size-control); }
 .outline-button:hover { border-color: rgba(239,235,222,.35); background: rgba(255,255,255,.06); }
 .outline-button.small { min-height: 34px; font-size: var(--font-size-small); }
-.page-content { max-width: 1480px; padding: 46px 38px 70px; margin: 0 auto; }
+/* Fill the available workspace, using the same inset as feature pages. */
+.page-content { width: 100%; min-width: 0; max-width: none; padding: 36px 38px 64px; margin: 0; }
+/* Keep the narrow-screen inset here so later shell loading cannot override it. */
+@media (max-width: 760px) { .page-content { padding: 25px 16px 45px; } }
 .eyebrow { margin: 0 0 9px; color: #a6a6a6; font: var(--font-size-small)/1 "IBM Plex Mono", monospace; letter-spacing: 0; text-transform: uppercase; }
 .eyebrow.light { color: rgba(255, 255, 255, 0.87); }
 @media (max-width: 1100px) { .studio-app { grid-template-columns: 80px minmax(0,1fr); }.side-rail { width: 80px; }.side-rail .brand-type,

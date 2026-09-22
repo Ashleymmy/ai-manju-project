@@ -99,6 +99,12 @@ export type AssetFolder = {
 /** Legacy automatic calendar folders are not user-created date-named folders. */
 const DATE_ARCHIVE_KEYS = new Set(["canvas_project_date", "image_workbench_month"]);
 
+/** Keep older/cached API folders consistent with the current built-in labels and order. */
+const SYSTEM_FOLDER_PRESENTATION: Record<string, { name?: string; sort_order?: number }> = {
+  comic: { name: "资产助手" },
+  canvas: { sort_order: 0 },
+};
+
 export function isDateArchiveFolder(folder: AssetFolder) {
   return folder.kind === "system" && DATE_ARCHIVE_KEYS.has(folder.system_key || "");
 }
@@ -116,7 +122,8 @@ export function visibleAssetLibraryFolders(folders: readonly AssetFolder[]): Ass
       seen.add(parentId);
       parentId = byId.get(parentId)?.parent_id || "";
     }
-    return parentId === folder.parent_id ? folder : { ...folder, parent_id: parentId };
+    const presentation = folder.kind === "system" ? SYSTEM_FOLDER_PRESENTATION[folder.system_key || ""] : undefined;
+    return !presentation && parentId === folder.parent_id ? folder : { ...folder, ...presentation, parent_id: parentId };
   });
 }
 
@@ -182,6 +189,9 @@ export type AssetExportFilter = Pick<
   | "includeDescendants"
   | "smartView"
   | "type"
+  | "createdFrom"
+  | "createdTo"
+  | "includeTagDescendants"
   | "category"
   | "sourceType"
   | "keyword"

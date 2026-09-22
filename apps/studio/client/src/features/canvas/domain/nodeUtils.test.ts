@@ -12,6 +12,9 @@ import {
   promptTextFromNode,
   qualityFromNode,
   sizeFromNode,
+  videoConfigFromNode,
+  videoSubModeFromNode,
+  autoVideoSubModeForPromptChange,
 } from "./nodeUtils";
 import type { CanvasNodeData } from "./types";
 
@@ -117,5 +120,30 @@ describe("canvas node utilities", () => {
     expect(modelFromNode(legacyV1, "fallback-model")).toBe("fallback-model");
     expect(modelFromNode(current, "fallback-model")).toBe("provider::gpt-image-2");
     expect(modelFromNode({ metadata: {} } as CanvasNodeData, "fallback-model")).toBe("fallback-model");
+  });
+
+  it.each([undefined, "auto", "adaptive"])("replaces an automatic canvas video ratio (%s) with an explicit landscape size", size => {
+    const node = { kind: "video", metadata: { size } } as CanvasNodeData;
+    expect(videoConfigFromNode(node, "seedance-2.0").size).toBe("16:9");
+    expect(videoConfigFromNode(node, "sora-2").size).toBe("1280x720");
+  });
+
+  it("preserves an explicit canvas video ratio and image auto sizing", () => {
+    const video = { kind: "video", metadata: { size: "9:16" } } as CanvasNodeData;
+    expect(videoConfigFromNode(video, "seedance-2.0").size).toBe("9:16");
+    expect(videoConfigFromNode(video, "sora-2").size).toBe("720x1280");
+    expect(sizeFromNode({ kind: "image", metadata: { size: "auto" } } as CanvasNodeData)).toBe("auto");
+  });
+
+  it("uses text-to-video without references and switches to reference mode when an @ token is added or removed", () => {
+    const plain = { kind: "video", metadata: { composerContent: "镜头推进" } } as CanvasNodeData;
+    const withReference = { ...plain, metadata: { ...plain.metadata, composerContent: "@[asset:image-1] 镜头推进" } } as CanvasNodeData;
+    expect(videoSubModeFromNode(plain)).toBe("text");
+    expect(videoSubModeFromNode(withReference)).toBe("reference");
+    expect(videoSubModeFromNode({ ...withReference, metadata: { ...withReference.metadata, videoSubMode: "text" } })).toBe("reference");
+    expect(videoSubModeFromNode({ ...plain, metadata: { ...plain.metadata, videoSubMode: "reference" } })).toBe("text");
+    expect(autoVideoSubModeForPromptChange(plain, "@[asset:image-1] 镜头推进")).toBe("reference");
+    expect(autoVideoSubModeForPromptChange(withReference, "镜头推进")).toBe("text");
+    expect(autoVideoSubModeForPromptChange({ ...plain, metadata: { ...plain.metadata, videoSubMode: "edit" } }, "补充文字")).toBeUndefined();
   });
 });

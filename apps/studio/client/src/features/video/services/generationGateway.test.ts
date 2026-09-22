@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { replaceVideoModelDurations } from "@/entities/model/videoDuration";
 
 import {
   createVideoGenerationTask,
@@ -48,6 +49,8 @@ describe("video API", () => {
       expect(body).toMatchObject({ project_id: "canvas", node_id: "node" });
     });
   beforeEach(() => {
+    // Adapter fixtures have a loaded catalog with unknown duration metadata.
+    replaceVideoModelDurations({});
     const NativeURL = globalThis.URL;
     class TestURL extends NativeURL {
       static createObjectURL = vi.fn(() => "blob:video-result");
@@ -112,6 +115,32 @@ describe("video API", () => {
       content: expect.arrayContaining([{ type: "image_url", image_url: { url: "asset://person" }, role: "reference_image" }]),
     });
     expect(task).toMatchObject({ provider: "seedance", id: "job_official" });
+  });
+
+  it("uses catalog duration choices and sends the selected value unchanged", async () => {
+    const model = "provider::seedance-2.0";
+    const longModel = "provider::seedance-2.5";
+    const discreteModel = "sdvideo/vidu-custom";
+    vi.mocked(fetch).mockResolvedValueOnce(apiResponse({
+      video_models: [model, longModel, discreteModel],
+      video_model_durations: {
+        [model]: [-1, ...Array.from({ length: 12 }, (_, i) => i + 4)],
+        [longModel]: [-1, ...Array.from({ length: 27 }, (_, i) => i + 4)],
+        [discreteModel]: [5, 10, 25],
+      },
+    }));
+    await fetchVideoModelCatalog();
+    expect(normalizeVideoGenerationConfig({ ...config, model, seconds: "30" }).seconds).toBe("15");
+    expect(normalizeVideoGenerationConfig({ ...config, model: longModel, seconds: "30" }).seconds).toBe("30");
+    expect(normalizeVideoGenerationConfig({ ...config, model: discreteModel, seconds: "-1" }).seconds).toBe("5");
+    await expect(createVideoGenerationTask({ ...config, model, seconds: "30" }, "镜头")).rejects.toThrow("重新选择时长");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    for (const [selectedModel, seconds] of [[model, "15"], [model, "-1"], [discreteModel, "25"]]) {
+      vi.mocked(fetch).mockResolvedValueOnce(apiResponse({ id: "job_duration" }));
+      await createVideoGenerationTask({ ...config, model: selectedModel, seconds }, "镜头");
+      const body = vi.mocked(fetch).mock.calls.at(-1)![1]?.body;
+      expect(body instanceof FormData ? body.get("seconds") : String(JSON.parse(String(body)).duration)).toBe(seconds);
+    }
   });
 
   it.each(["official::ep-seedance25", "sdvideo/seedance-2.5"])("submits every 2.5 reference through %s without truncation", async model => {

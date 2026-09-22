@@ -5,7 +5,7 @@ import "./inspectorResize.css";
 const HANDLES: ReadonlyArray<{ mode: InspectorResizeMode; label: string }> = [
   { mode: "width", label: "拖动调整面板宽度" },
   { mode: "height", label: "拖动调整面板高度" },
-  { mode: "proportional", label: "拖动等比缩放面板" },
+  { mode: "both", label: "拖动自由调整面板大小" },
 ];
 
 export function CanvasInspectorResizeHandles({ onResize }: {

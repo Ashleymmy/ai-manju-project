@@ -1,6 +1,6 @@
 import { getAssetMediaUrl } from "@/entities/asset";
 import { getJob, isTerminalJob, jobErrorMessage, type Job } from "@/entities/job";
-import { fetchModelCatalog, videoModelLabel, videoModelProtocol } from "@/entities/model";
+import { fetchModelCatalog, videoModelLabel, videoModelProtocol, videoModelDurations, normalizeVideoDuration, hasVideoDurationCatalog } from "@/entities/model";
 import { API_BASE_URL, ApiError, getAuthToken, request } from "@/shared/api/http";
 import type { WorkspaceScope } from "@/shared/config";
 import { createRandomUUID } from "@/shared/lib/cryptoRandomUuid";
@@ -182,12 +182,8 @@ export function videoReferenceLimitsForModel(model: string) {
 export const videoModelSettings = {
   seedanceResolutions,
   seedanceRatios,
-  // Studio permits each whole second through 30; the upstream validates model support.
-  seedanceDurations: [-1, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30],
-  seedanceLongDurations: [-1, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30],
   openAiSizes: ["1280x720", "720x1280", "1024x1024", "1792x1024", "1024x1792", "auto"],
   openAiResolutions: ["480p", "720p", "1080p"],
-  openAiDurations: [6, 10, 12, 16, 20],
 } as const;
 
 export function modelOptionName(value: string) {
@@ -219,8 +215,7 @@ export function isLongSeedanceVideoModel(model: string) {
 }
 
 export function normalizeVideoGenerationConfig(config: VideoGenerationConfig): VideoGenerationConfig {
-  /* 未配置模型时按 Seedance 归一化（该工作台以 Seedance 为主，时长档位才能展示到 30s）；
-     提交前有空模型拦截，不会把 Seedance 参数发给 OpenAI 兼容接口 */
+  // 未选择模型时保留工作台默认比例；时长能力始终来自模型目录。
   const seedance = !config.model.trim() || isSeedanceVideoModel(config.model);
   return {
     model: config.model.trim(),
@@ -228,9 +223,7 @@ export function normalizeVideoGenerationConfig(config: VideoGenerationConfig): V
     resolution: seedance
       ? normalizeSeedanceResolution(config.resolution, config.model)
       : normalizeVideoResolutionName(config.resolution),
-    seconds: seedance
-      ? String(normalizeSeedanceDuration(config.seconds))
-      : normalizeOpenAiSeconds(config.seconds),
+    seconds: normalizeVideoDuration(config.model, config.seconds),
     generateAudio: Boolean(config.generateAudio),
     watermark: Boolean(config.watermark),
   };
@@ -280,10 +273,9 @@ export function normalizeSeedanceRatio(value: string) {
   )[0];
 }
 
-export function normalizeSeedanceDuration(value: string) {
-  if (String(value).trim() === "-1") return -1;
-  const seconds = Math.floor(Number(value) || 5);
-  return Math.max(4, Math.min(30, seconds));
+/** Compatibility export for callers that normalize a saved Seedance duration. */
+export function normalizeSeedanceDuration(value: string, model = "") {
+  return Number(normalizeVideoDuration(model, value));
 }
 
 export async function createVideoGenerationTask(
@@ -293,8 +285,13 @@ export async function createVideoGenerationTask(
   options: RequestOptions = {},
 ): Promise<VideoGenerationTask> {
   // A saved canvas may submit before its initial catalog load has completed.
-  if (modelOptionName(config.model).startsWith("ep-") && !videoModelProtocol(config.model)) {
+  if (!hasVideoDurationCatalog() || (modelOptionName(config.model).startsWith("ep-") && !videoModelProtocol(config.model))) {
     await fetchModelCatalog();
+  }
+  // Do not silently send a different duration if capabilities changed since selection.
+  const supportedDurations = videoModelDurations(config.model);
+  if (supportedDurations.length && !supportedDurations.includes(Number(config.seconds))) {
+    throw new Error("所选时长不在当前模型支持范围内，请重新选择时长");
   }
   const normalized = normalizeVideoGenerationConfig(config);
   const referenceSnapshot = normalizeReferences(references);
@@ -411,7 +408,7 @@ async function createOpenAiVideoTask(
   if (options.conversationId) body.append("conversation_id", options.conversationId);
   if (options.messageId) body.append("studio_message_id", options.messageId);
   body.append("prompt", prompt);
-  body.append("seconds", normalizeOpenAiSeconds(config.seconds));
+  body.append("seconds", config.seconds);
   body.append("size", normalizeVideoSizeValue(config.size));
   body.append("resolution_name", normalizeVideoResolutionName(config.resolution));
   body.append("preset", "normal");
@@ -454,7 +451,7 @@ async function createSeedanceTask(
         content,
         ratio: normalizeSeedanceRatio(config.size),
         resolution: normalizeSeedanceResolution(config.resolution, config.model),
-        duration: normalizeSeedanceDuration(config.seconds),
+        duration: Number(config.seconds),
         generate_audio: config.generateAudio,
         watermark: config.watermark,
       },
@@ -888,12 +885,6 @@ function seedanceErrorMessage(task: SeedanceTask, status: string) {
   if (status === "expired") return "Seedance 视频生成超时";
   if (status === "cancelled" || status === "canceled") return "Seedance 视频任务已取消";
   return "Seedance 视频生成失败";
-}
-
-function normalizeOpenAiSeconds(value: string) {
-  if (String(value).trim() === "-1") return "6";
-  const seconds = Math.floor(Number(value) || 6);
-  return String(Math.max(1, Math.min(20, seconds)));
 }
 
 function isTrustedRemoteVideoUrl(value: string) {

@@ -834,9 +834,10 @@ func (h *ModelProviderHandler) AggregatedModelsWithSDVideo(c *gin.Context, clien
 	}
 	var payload struct {
 		Items []struct {
-			Key       string `json:"key"`
-			Name      string `json:"name"`
-			Available bool   `json:"available"`
+			Key       string          `json:"key"`
+			Name      string          `json:"name"`
+			Available bool            `json:"available"`
+			Durations json.RawMessage `json:"durations"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(remote.Data, &payload); err != nil {
@@ -848,6 +849,7 @@ func (h *ModelProviderHandler) AggregatedModelsWithSDVideo(c *gin.Context, clien
 	videoModels, _ := result["video_models"].([]string)
 	labels, _ := result["model_labels"].(map[string]string)
 	providerNames, _ := result["model_provider_names"].(map[string]string)
+	videoDurations, _ := result["video_model_durations"].(map[string][]float64)
 	for _, item := range payload.Items {
 		key := strings.TrimSpace(item.Key)
 		if key == "" || !item.Available || !client.AllowsCreation(workspaceID, key) {
@@ -860,6 +862,9 @@ func (h *ModelProviderHandler) AggregatedModelsWithSDVideo(c *gin.Context, clien
 			labels[encoded] = name
 		}
 		providerNames[encoded] = "SD-video"
+		if durations := remoteVideoDurations(item.Durations); len(durations) > 0 {
+			videoDurations[encoded] = durations
+		}
 		if stringFromAny(result["default_video_model"]) == "" {
 			result["default_video_model"] = encoded
 		}
@@ -904,6 +909,7 @@ func aggregateModelProviders(configs []model.ModelProviderConfig) gin.H {
 	modelLabels := make(map[string]string)
 	modelProviderNames := make(map[string]string)
 	videoModelProtocols := make(map[string]string)
+	videoModelDurations := make(map[string][]float64)
 	agentTextModels := make([]string, 0)
 	for _, config := range configs {
 		if !config.Enabled {
@@ -924,6 +930,9 @@ func aggregateModelProviders(configs []model.ModelProviderConfig) gin.H {
 				modelProviderNames[encoded] = config.Name
 				if capability == model.ModelCapabilityVideo {
 					videoModelProtocols[encoded] = catalogVideoProtocol(config, modelID)
+					if durations := catalogVideoDurations(modelID); len(durations) > 0 {
+						videoModelDurations[encoded] = durations
+					}
 				}
 				if alias := modelAliases[modelID]; alias != "" {
 					modelLabels[encoded] = alias
@@ -953,6 +962,7 @@ func aggregateModelProviders(configs []model.ModelProviderConfig) gin.H {
 		"model_labels":          modelLabels,
 		"model_provider_names":  modelProviderNames,
 		"video_model_protocols": videoModelProtocols,
+		"video_model_durations": videoModelDurations,
 	}
 }
 

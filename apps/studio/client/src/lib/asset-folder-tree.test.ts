@@ -8,6 +8,30 @@ function folder(id: string, parentId = "", name = id, sortOrder = 0): FolderLike
 }
 
 describe("asset folder tree", () => {
+  it("updates legacy system folder labels/order without renaming user folders or losing children", () => {
+    const make = (id: string, name: string, sortOrder: number, systemKey?: string): AssetFolder => ({
+      ...folder(id, "", name, sortOrder), kind: systemKey ? "system" : "user", system_key: systemKey,
+      asset_count: 1, descendant_asset_count: 2,
+    });
+    const stored = [
+      make("unsorted", "未分类", 10, "unsorted"),
+      make("upload", "手动上传", 20, "manual_upload"),
+      make("workbench", "生图工作台", 30, "image_workbench"),
+      make("canvas", "画布工坊", 40, "canvas"),
+      make("comic", "漫剧资产助手", 50, "comic"),
+      { ...make("child", "项目", 0), parent_id: "comic" },
+      make("user", "漫剧资产助手", 60),
+    ];
+    const visible = visibleAssetLibraryFolders(stored);
+    expect(flattenFolderTree(visible).map(row => row.folder.name)).toEqual([
+      "画布工坊", "未分类", "手动上传", "生图工作台", "资产助手", "项目", "漫剧资产助手",
+    ]);
+    expect(folderPathLabel(visible, "child")).toBe("资产助手 / 项目");
+    expect(visible.find(item => item.id === "comic")?.descendant_asset_count).toBe(2);
+    expect(stored.find(item => item.id === "comic")?.name).toBe("漫剧资产助手");
+    expect(stored.find(item => item.id === "canvas")?.sort_order).toBe(40);
+  });
+
   it("flattens folders into depth-first order sorted by sort_order then name", () => {
     const folders = [
       folder("b", "", "乙", 2),

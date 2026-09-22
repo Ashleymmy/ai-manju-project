@@ -65,6 +65,68 @@ func TestAssetFolderDefaultsAreIdempotentAndWorkspaceIsolated(t *testing.T) {
 	}
 }
 
+func TestAssetFolderDefaultsUpgradeExistingPresentation(t *testing.T) {
+	for _, scope := range []string{WorkspaceScopePersonal, WorkspaceScopeTeam} {
+		t.Run(scope, func(t *testing.T) {
+			fx := newAssetFolderFixture()
+			assertAssetFolderPresentationUpgrade(t, fx.service, fx.folders, "user_a", scope)
+		})
+	}
+}
+
+// Exercise the same upgrade against both repository implementations.
+func assertAssetFolderPresentationUpgrade(t *testing.T, service *AssetFolderService, repo repository.AssetFolderRepository, userID, scope string) {
+	t.Helper()
+	defaults, err := service.EnsureDefaults(userID, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := defaults.Comic
+	legacy.Name, legacy.NormalizedName = "漫剧资产助手", "漫剧资产助手"
+	if _, err := repo.Update(legacy, legacy.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
+	legacyCanvas := defaults.Canvas
+	legacyCanvas.SortOrder = 40
+	if _, err := repo.Update(legacyCanvas, legacy.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
+	// User-authored names and child links must survive the system-folder update.
+	child, err := repo.Create(model.AssetFolder{ID: "folder_" + randomHex(8), WorkspaceID: legacy.WorkspaceID,
+		CreatedBy: userID, ParentID: legacy.ID, Name: "漫剧资产助手", NormalizedName: "漫剧资产助手", Kind: model.AssetFolderKindUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	views, err := service.List(userID, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var topNames []string
+	for _, view := range views {
+		if view.ParentID == defaults.Root.ID {
+			topNames = append(topNames, view.Name)
+		}
+	}
+	if got := strings.Join(topNames, ","); got != "画布工坊,未分类,手动上传,生图工作台,资产助手" {
+		t.Fatalf("system folder order/labels = %q", got)
+	}
+	updated, err := repo.GetByWorkspace(legacy.ID, legacy.WorkspaceID)
+	if err != nil || updated.Name != "资产助手" || updated.NormalizedName != "资产助手" || updated.ParentID != legacy.ParentID {
+		t.Fatalf("upgrade changed identity or failed to persist: %+v, %v", updated, err)
+	}
+	again, err := service.EnsureDefaults(userID, scope)
+	if err != nil || again.Comic.ID != legacy.ID || again.Canvas.ID != legacyCanvas.ID || !again.Comic.UpdatedAt.Equal(updated.UpdatedAt) {
+		t.Fatalf("repeated upgrade was not idempotent: %+v, %v", again, err)
+	}
+	preserved, err := repo.GetByWorkspace(child.ID, legacy.WorkspaceID)
+	if err != nil || preserved.Name != child.Name || preserved.ParentID != legacy.ID {
+		t.Fatalf("user child was changed: %+v, %v", preserved, err)
+	}
+	if err := repo.DeleteByIDs([]string{child.ID}, legacy.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAssetFolderHierarchyProtectionAndCycleValidation(t *testing.T) {
 	fx := newAssetFolderFixture()
 	defaults, err := fx.service.EnsureDefaults("user_a", WorkspaceScopePersonal)

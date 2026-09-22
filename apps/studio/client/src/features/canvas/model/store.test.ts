@@ -12,6 +12,7 @@ import {
 } from "./store";
 import { createCanvasServices } from "@/features/canvas/services/contracts";
 import { createCanvasGroup } from "@/features/canvas/domain/groups";
+import { buildCanvasSnapshot, parseCanvasSnapshot } from "../domain/snapshotCodec";
 
 const node = (title: string) => ({
   id: "shared-node",
@@ -25,6 +26,22 @@ const node = (title: string) => ({
 });
 
 describe("canvas scoped store", () => {
+  it("deduplicates hydration, insertion and edits in the shared store and saved snapshots", () => {
+    const first = { ...node("苹果"), id: "first" };
+    const second = { ...node("苹果"), id: "second", kind: "video" as const };
+    const store = createCanvasStore({ graph: { nodes: [first, second] } });
+    expect(store.getState().graph.nodes.map(item => item.title)).toEqual(["苹果", "苹果1"]);
+    const actions = store.getState().actions;
+    actions.setField("graph", "nodes", current => [{ ...node("苹果"), id: "new" }, ...current]);
+    expect(store.getState().graph.nodes.map(item => item.title)).toEqual(["苹果2", "苹果", "苹果1"]);
+    actions.commit({ graph: { nodes: store.getState().graph.nodes.map(item => item.id === "first" ? { ...item, title: "苹果1" } : item) } });
+    expect(store.getState().graph.nodes.map(item => item.title)).toEqual(["苹果2", "苹果11", "苹果1"]);
+    const saved = buildCanvasSnapshot({}, store.getState().graph.nodes, [], 100, 0, 0);
+    expect(parseCanvasSnapshot(saved)?.nodes.map(item => item.title)).toEqual(["苹果2", "苹果11", "苹果1"]);
+    const legacy = buildCanvasSnapshot({}, [first, second], [], 100, 0, 0);
+    expect(parseCanvasSnapshot(legacy)?.nodes.map(item => item.title)).toEqual(["苹果", "苹果1"]);
+  });
+
   it("isolates equal node ids, default references, commands, and services by instance", async () => {
     const serviceA = vi.fn(async () => "service-a");
     const serviceB = vi.fn(async () => "service-b");

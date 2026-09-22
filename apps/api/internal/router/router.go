@@ -133,6 +133,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	assetFolderHandler := handler.NewAssetFolderHandler(assetFolderService)
 	tagHandler := handler.NewTagHandler(tagService)
 	assetExportService := service.NewAssetExportService(repos.assetExportRepo, assetService, assetFolderService, assetStore)
+	assetExportService.SetTagService(tagService)
 	assetExportService.SetAssetUsageRecorder(assetUsageService)
 	// Memory mode has no cross-process persistence, so development dispatches in
 	// the API. PostgreSQL deployments use the dedicated asset-export worker.
