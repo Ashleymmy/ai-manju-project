@@ -22,8 +22,8 @@ describe("video model selector", () => {
       config={{ model: "removed::wan3.0-video", size: "16:9", resolution: "720p", seconds: "5", generateAudio: true, watermark: false }}
       onChange={() => undefined} disabled={false}
     />);
-    expect(html.match(/>wan3\.0-video<\/option>/g)).toHaveLength(1);
-    expect(html).toContain('value="removed::wan3.0-video" selected=""');
+    expect(html.match(/>wan3\.0-video（当前不可用）<\/option>/g)).toHaveLength(1);
+    expect(html).toContain('value="removed::wan3.0-video" disabled="" selected=""');
     expect(html).toContain('value="a::wan3.0-video">供应商甲别名</option>');
     expect(html).toContain('value="b::wan3.0-video">供应商乙别名</option>');
   });

@@ -124,4 +124,19 @@ describe("canvas model menu dismissal", () => {
     expect(onSelect).toHaveBeenCalledWith(mobile);
     expect(menu()).toBeNull();
   });
+
+  it("disables a saved video channel that is absent from the user's catalog", async () => {
+    const restricted = "private::ep-fast";
+    const available = "public::ep-fast";
+    const choices = canvasVideoModelOptions([available], restricted);
+    await act(async () => root.render(<CanvasModelPicker active value={restricted} label="旧模型" options={choices} onSelect={onSelect} />));
+    await open();
+    const buttons = [...menu()!.querySelectorAll("button")];
+    expect(buttons[0].disabled).toBe(true);
+    expect(buttons[0].textContent).toContain("当前不可用");
+    await act(async () => buttons[0].click());
+    expect(onSelect).not.toHaveBeenCalled();
+    await act(async () => buttons[1].click());
+    expect(onSelect).toHaveBeenCalledWith(available);
+  });
 });

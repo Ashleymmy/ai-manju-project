@@ -48,6 +48,35 @@ func TestSeedanceAssetProviderAndOwnerIsolation(t *testing.T) {
 	}
 }
 
+func TestSeedanceProviderAllowlistBlocksMaterialUse(t *testing.T) {
+	svc, assets := newSeedanceAssetTestService(t, "https://unused.invalid", "test-key", nil)
+	config, err := svc.providerRepo.GetModelProvider("seedance")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.AllowedUserIDs = model.JSONB(`["allowed"]`)
+	if _, err := svc.providerRepo.UpsertModelProvider(config); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = assets.UpsertAsset(model.SeedanceAsset{ID: "private-asset", ProviderID: "seedance", CreatedBy: "other", VolcanoAssetID: "remote", Status: "Active"})
+	denied := svc.ForUser(model.User{ID: "other"}).ForProvider("seedance")
+	if _, err := denied.loadSeedanceAssetProvider(); !errors.Is(err, repository.ErrModelProviderAccessDenied) {
+		t.Fatalf("provider bypass: %v", err)
+	}
+	if _, err := denied.ListAssets(SeedanceAssetListInput{}); !errors.Is(err, repository.ErrModelProviderAccessDenied) {
+		t.Fatalf("list bypass: %v", err)
+	}
+	if _, err := denied.GetAsset("private-asset"); !errors.Is(err, repository.ErrSeedanceAssetNotFound) {
+		t.Fatalf("asset bypass: %v", err)
+	}
+	if _, err := svc.ForUser(model.User{ID: "allowed"}).ForProvider("seedance").loadSeedanceAssetProvider(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ForUser(model.User{Role: model.UserRoleSuperAdmin}).ForProvider("seedance").loadSeedanceAssetProvider(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type signedURLStorage struct {
 	storage.Storage
 	value string

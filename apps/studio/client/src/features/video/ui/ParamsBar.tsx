@@ -48,7 +48,7 @@ export function ParamsBar({
         >
           {!models.length ? <option value="">未配置</option> : null}
           {/* 展示模型名称，option value 保留完整调用标识。 */}
-          {videoModelOptions(models, normalized.model, labels, providerNames).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+          {videoModelOptions(models, normalized.model, labels, providerNames).map(({ value, label, disabled }) => <option key={value} value={value} disabled={disabled}>{label}</option>)}
         </select>
       </div>
       <div className="wb-param-group">

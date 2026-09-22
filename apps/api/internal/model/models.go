@@ -350,6 +350,10 @@ type ModelProviderConfig struct {
 	AudioModel         string `json:"audio_model"`
 	Capabilities       JSONB  `json:"capabilities" gorm:"type:jsonb"`
 	ModelsByCapability JSONB  `json:"models_by_capability" gorm:"type:jsonb"`
+	// AllowedUserIDs is an operator-managed allowlist of immutable account IDs.
+	// NULL/{}/[] preserves public access; super administrators always have access.
+	// It is deliberately excluded from portable provider configuration documents.
+	AllowedUserIDs JSONB `json:"-" gorm:"type:jsonb"`
 	// ModelAliases maps the real upstream model ID to an administrator-defined display name.
 	ModelAliases JSONB `json:"model_aliases" gorm:"type:jsonb"`
 	// ModelProtocols maps an image model ID to its upstream request protocol.
