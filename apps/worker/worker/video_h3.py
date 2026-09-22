@@ -12,6 +12,7 @@ from urllib.parse import urlparse, urlunparse
 
 from .config import Settings
 from .errors import SafeTaskError
+from . import object_storage
 from .staged_inputs import open_staged_input
 
 
@@ -70,13 +71,15 @@ def h3_request_body(payload: dict[str, Any], provider: dict[str, Any], settings:
     for item in files:
         if not isinstance(item, dict) or not str(item.get("content_type") or "").startswith("image/"):
             raise invalid("H3 多参考图生仅支持参考图片")
-        # Reuse workspace/hash validation, and embed bytes so upstream does not
-        # depend on browser blob URLs or short-lived NAS signatures.
+        # Validate workspace/size/hash before signing. Cloud references use the
+        # documented URL form to avoid the provider's failing base64 URL bridge.
         with open_staged_input(item, payload, settings) as stream:
             content = stream.read(H3_IMAGE_MAX_BYTES + 1)
         if not content or len(content) > H3_IMAGE_MAX_BYTES:
             raise invalid("H3 参考图片不能为空或超过 30MB")
-        images.append({"base64": base64.b64encode(content).decode("ascii"), "role": "reference_image"})
+        url = object_storage.signed_reference_url(str(item.get("storage_key") or ""))
+        reference = {"url": url} if url else {"base64": base64.b64encode(content).decode("ascii")}
+        images.append({**reference, "role": "reference_image"})
     return {
         "model": provider["model"], "prompt": str(payload.get("prompt") or ""),
         "duration": duration, "aspect_ratio": aspect, "mode": "ref2v",

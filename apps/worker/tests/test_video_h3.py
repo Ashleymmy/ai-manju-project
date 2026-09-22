@@ -69,6 +69,32 @@ class H3VideoTest(unittest.TestCase):
                     generate_video("job_h3", payload, test_settings(tmp), lambda _: None)
                 post.assert_not_called()
 
+    def test_cloud_images_use_fresh_signed_urls_not_provider_base64_uploads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self.staged_payload(tmp, 2)
+            with patch("worker.video_h3.object_storage.signed_reference_url", side_effect=[
+                "http://media.example/ref0.png?token=first",
+                "http://media.example/ref1.png?token=first",
+                "http://media.example/ref0.png?token=second",
+                "http://media.example/ref1.png?token=second",
+            ]) as sign:
+                first = h3_request_body(payload, payload["provider"], test_settings(tmp))
+                second = h3_request_body(payload, payload["provider"], test_settings(tmp))
+            self.assertEqual(first["reference_images"], [
+                {"url": "http://media.example/ref0.png?token=first", "role": "reference_image"},
+                {"url": "http://media.example/ref1.png?token=first", "role": "reference_image"},
+            ])
+            self.assertNotEqual(first["reference_images"], second["reference_images"])
+            self.assertEqual([call.args[0] for call in sign.call_args_list], [item["storage_key"] for item in payload["files"]] * 2)
+
+    def test_bad_workspace_cannot_mint_a_signed_reference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self.staged_payload(tmp)
+            payload["_job_workspace_id"] = "default:other"
+            with patch("worker.video_h3.object_storage.signed_reference_url") as sign, self.assertRaises(SafeTaskError):
+                h3_request_body(payload, payload["provider"], test_settings(tmp))
+            sign.assert_not_called()
+
     def test_bad_reference_count_type_and_workspace_never_submit(self):
         for kind in ("too_many", "audio", "workspace", "checksum"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
