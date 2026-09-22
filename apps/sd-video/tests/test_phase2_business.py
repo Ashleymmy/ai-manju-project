@@ -104,6 +104,16 @@ def test_conversation_versions_pagination_and_completed_inputs(monkeypatch, tmp_
             assert client.put(issued["upload_url"], content=b"png").status_code == 200
             assert client.post("/v1/inputs/complete", json={"upload_token": issued["upload_token"]}).status_code == 200
             assert client.post("/v1/tasks", json=task).status_code == 202
+            audio_task = {
+                "model": "seedance-2.0",
+                "idempotency_key": uuid.uuid4().hex,
+                "references": [{
+                    "kind": "audio",
+                    "role": "reference_audio",
+                    "storage_token": issued["upload_token"],
+                }],
+            }
+            assert client.post("/v1/tasks", json=audio_task).status_code == 202
             forged = dict(task, idempotency_key=uuid.uuid4().hex, references=[{"kind": "image", "asset_ref": "asset://not-owned"}])
             assert client.post("/v1/tasks", json=forged).status_code == 403
     finally:

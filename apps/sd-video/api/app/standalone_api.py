@@ -61,6 +61,19 @@ class CreateTaskRequest(BaseModel):
     scope: str = "personal"
 
 
+# Keep the role vocabulary aligned with the reference kinds supported by the
+# standalone worker.  ``reference_audio`` was previously omitted here, so
+# otherwise valid audio references were rejected before reaching a Provider.
+ALLOWED_REFERENCE_ROLES = frozenset({
+    "reference",
+    "reference_image",
+    "reference_video",
+    "reference_audio",
+    "first_frame",
+    "last_frame",
+})
+
+
 class ConversationRequest(BaseModel):
     id: str | None = Field(default=None, max_length=100, pattern=r"^[a-zA-Z0-9_-]+$")
     title: str = "新对话"
@@ -408,7 +421,7 @@ async def create_task(request: CreateTaskRequest, http_request: Request, princip
     upstream = seedance_provider_registry.submission_provider(request.model)
     namespace = seedance_provider_registry.get(upstream).namespace
     for reference in request.references:
-        if reference.role not in {None, "reference", "reference_image", "first_frame", "last_frame"}:
+        if reference.role is not None and reference.role not in ALLOWED_REFERENCE_ROLES:
             raise HTTPException(status_code=400, detail="invalid reference role")
         if reference.kind not in {"image", "video", "audio"}:
             raise HTTPException(status_code=400, detail="invalid reference kind")
