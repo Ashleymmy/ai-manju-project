@@ -1,4 +1,5 @@
-import { imageResolutionFromNode, qualityFromNode, sizeFromNode } from "./nodeUtils";
+import { imageResolutionFromNode, modelFromNode, qualityFromNode, sizeFromNode } from "./nodeUtils";
+import { imageModelSupportsDetail } from "@/entities/model/imageProtocol";
 import type { CanvasNodeData } from "./types";
 
 /** Match the API's 16 px alignment, 3:1 ratio, 3840 px edge and 8.2944 MP limits. */
@@ -9,8 +10,9 @@ const IMAGE_MAX_PIXELS = 8_294_400;
 /** Resolution controls pixel budget independently of the model's detail quality. */
 const RESOLUTION_PIXELS = { "1K": 1024 ** 2, "2K": 2048 ** 2, "4K": IMAGE_MAX_PIXELS } as const;
 
-export function canvasImageGenerationSettings(node: CanvasNodeData, size = sizeFromNode(node)) {
+export function canvasImageGenerationSettings(node: CanvasNodeData, size = sizeFromNode(node), model = modelFromNode(node, "")) {
   const imageResolution = imageResolutionFromNode(node);
+  const quality = imageModelSupportsDetail(model) ? qualityFromNode(node) : "auto";
   // Explicit ratio buttons must stay exact after the API's 16 px alignment.
   const ratioParts = (size === "panorama" ? "3:1" : size).match(/^(\d+):(\d+)$/);
   if (ratioParts) {
@@ -26,7 +28,7 @@ export function canvasImageGenerationSettings(node: CanvasNodeData, size = sizeF
       ));
       if (scale > 0) return {
         size: `${unitWidth * scale}x${unitHeight * scale}` as const,
-        quality: qualityFromNode(node), imageResolution,
+        quality, imageResolution,
       };
     }
   }
@@ -45,7 +47,7 @@ export function canvasImageGenerationSettings(node: CanvasNodeData, size = sizeF
     ),
   ) * IMAGE_DIMENSION_STEP;
   const [width, height] = ratio >= 1 ? [longSide, shortSide] : [shortSide, longSide];
-  return { size: `${width}x${height}` as const, quality: qualityFromNode(node), imageResolution };
+  return { size: `${width}x${height}` as const, quality, imageResolution };
 }
 
 function greatestCommonDivisor(a: number, b: number): number {

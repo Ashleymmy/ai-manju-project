@@ -926,6 +926,7 @@ func aggregateModelProviders(configs []model.ModelProviderConfig) gin.H {
 	modelProviderNames := make(map[string]string)
 	videoModelProtocols := make(map[string]string)
 	videoModelDurations := make(map[string][]float64)
+	imageModelProtocols := make(map[string]string)
 	agentTextModels := make([]string, 0)
 	for _, config := range configs {
 		if !config.Enabled {
@@ -949,6 +950,9 @@ func aggregateModelProviders(configs []model.ModelProviderConfig) gin.H {
 					if durations := catalogVideoDurations(modelID); len(durations) > 0 {
 						videoModelDurations[encoded] = durations
 					}
+				}
+				if capability == model.ModelCapabilityImage {
+					imageModelProtocols[encoded] = resolveImageProtocol(config, modelID)
 				}
 				if alias := modelAliases[modelID]; alias != "" {
 					modelLabels[encoded] = alias
@@ -979,6 +983,7 @@ func aggregateModelProviders(configs []model.ModelProviderConfig) gin.H {
 		"model_provider_names":  modelProviderNames,
 		"video_model_protocols": videoModelProtocols,
 		"video_model_durations": videoModelDurations,
+		"image_model_protocols": imageModelProtocols,
 	}
 }
 

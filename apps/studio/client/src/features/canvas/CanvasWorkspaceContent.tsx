@@ -2435,7 +2435,7 @@ export default function CanvasWorkspaceViewContent() {
     if (!activeScope || !projectKey || projectSessionController.switching) throw new Error("正在确认项目工作区，暂不能编辑图片");
     const model = modelFromNode(sourceNode, imageModel);
     if (!model) throw new Error("当前没有可用图片模型");
-    const imageSettings = canvasImageGenerationSettings(sourceNode, options.size);
+    const imageSettings = canvasImageGenerationSettings(sourceNode, options.size, model);
     let source: Awaited<ReturnType<typeof imageSourceForNode>> | null = null;
     try {
       const sourceDataUrl = options.sourceDataUrl || (source = await imageSourceForNode(sourceNode)).url;

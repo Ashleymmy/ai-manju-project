@@ -303,7 +303,7 @@ for (const withReference of [false, true]) {
         .toBe("success");
       const warning = inspector
         .getByRole("status")
-        .filter({ hasText: "生成服务返回了" });
+        .filter({ hasText: "原图实际尺寸为" });
       if (mismatch) {
         await expect(warning).toContainText("1536 × 1024 px");
         await expect(warning).toContainText("1024 × 1024 px");

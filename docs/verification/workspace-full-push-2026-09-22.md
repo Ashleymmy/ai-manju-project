@@ -120,3 +120,35 @@ ok 1 apps\studio\e2e\canvas-inspector-resize.spec.ts:18:1 › inspector resizes 
 ```
 
 共验证 29 个浏览器场景（含跨账号资产包）。复核期间仅调整测试，未新增产品代码变更。`git diff --check` 与暂存差异检查通过；未修改依赖锁文件。
+
+## 推送期间新增远端提交
+
+首次推送因远端新增 `6e5754a` 而被正常拒绝，未强制推送。继续合入 Nano Banana 精细度适配；模型目录的三处冲突均保留图片协议字段和本地视频时长字段，互不覆盖。
+
+新增修改后重新执行受影响模块的完整检查，实际输出：
+
+```text
+Studio check: tsc --noEmit，退出码 0
+Test Files  192 passed (192)
+     Tests  1270 passed (1270)
+  Duration  10.05s
+Studio build: ✓ built in 3.23s
+
+API: go build ./... && go vet ./... && go test ./...，退出码 0
+ok  github.com/ai-manju/api/internal/handler 14.265s
+ok  github.com/ai-manju/api/internal/router  1.411s
+
+Worker compileall + unittest:
+Ran 105 tests in 2.136s
+OK (skipped=1)
+```
+
+未改动的 Agent 模块沿用上文已通过的结果。面板缩放和视频时长两项浏览器复核通过；图片参数测试同步现有“原图实际尺寸为”提示文案，仍断言请求参数、原图尺寸和失败重试行为。
+
+```text
+image parameter buttons reach generation and output dimensions are verified (5.8s)
+image parameter buttons reach reference edits and output dimensions are verified (4.8s)
+2 passed (11.8s)
+```
+
+累计 31 个不同浏览器场景完成验证。新增远端修改的日志为 `.tmp/push-20260922-latest-*.log`。

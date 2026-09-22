@@ -19,6 +19,14 @@ def require_canvas_image_parameter_support(payload: dict[str, Any], protocol: st
     if not isinstance(registration, dict) or registration.get("source_type") != "canvas":
         return
     quality = str(payload.get("quality") or "").strip().lower()
+    provider = payload.get("provider") or {}
+    model = str(provider.get("model") or payload.get("model") or "").lower()
+    # Gemini has resolution controls, not OpenAI's low/medium/high detail knob.
+    # Old canvas nodes always carry this field, even when the user never chose it.
+    if protocol == "gemini_generate_content" or (
+        protocol == "openai_chat_completions" and ("gemini" in model or "banana" in model)
+    ):
+        return
     if quality not in ("", "auto") and protocol not in DETAIL_QUALITY_PROTOCOLS:
         raise ImageParameterError(
             "当前图片模型通道不支持所选精细度，请更换支持精细度设置的图片模型。任务尚未发送到生成服务。",
