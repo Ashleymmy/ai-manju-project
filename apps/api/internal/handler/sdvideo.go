@@ -15,6 +15,7 @@ import (
 	"github.com/ai-manju/api/internal/auth"
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/provider"
+	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/response"
 	"github.com/ai-manju/api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -153,7 +154,7 @@ func (h *AIHandler) createSDVideoTask(c *gin.Context, body map[string]any) {
 	}
 	bridge, err := h.jobs.CreateExternal(service.ExternalJobInput{UserID: user.ID, Scope: requestWorkspaceScope(c), Type: model.JobTypeVideoGenerate, ExternalProvider: "sd-video", Payload: bridgePayload, IdempotencyKey: "sdvideo:" + stringFromAny(payload["idempotency_key"])})
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "could not persist video job")
+		respondSDVideoCreateError(c, err)
 		return
 	}
 	taskID, bridgeJobID := bridge.Job.ID, bridge.Job.ID
@@ -162,6 +163,18 @@ func (h *AIHandler) createSDVideoTask(c *gin.Context, body map[string]any) {
 		"external_provider": "sd-video", "external_task_id": bridge.Job.ExternalTaskID,
 		"status": bridge.Job.Status,
 	})
+}
+
+func respondSDVideoCreateError(c *gin.Context, err error) {
+	if errors.Is(err, repository.ErrInsufficientCredits) {
+		response.Error(c, http.StatusPaymentRequired, "积分余额不足，请充值后重试")
+		return
+	}
+	if errors.Is(err, service.ErrConcurrencyLimitExceeded) {
+		response.Error(c, http.StatusTooManyRequests, "当前视频任务并发已达上限，请等待进行中的任务完成后重试")
+		return
+	}
+	response.Error(c, http.StatusInternalServerError, "could not persist video job")
 }
 
 func (h *AIHandler) prepareSDVideoReferences(c *gin.Context, user model.User, scope string, raw any) ([]map[string]any, error) {
