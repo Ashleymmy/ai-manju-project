@@ -44,12 +44,19 @@ func DefaultModelCreditPrices() ModelCreditPrices {
 	}
 }
 
-func creditModelName(value string) string {
+func creditModelID(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if parts := strings.Split(value, "::"); len(parts) > 1 {
 		value = parts[len(parts)-1]
 	}
-	value = strings.TrimPrefix(value, "sdvideo/")
+	return strings.TrimSpace(strings.TrimPrefix(value, "sdvideo/"))
+}
+
+func creditModelName(value string) string {
+	value = creditModelID(value)
+	if canonical, ok := builtinCreditModelAliases[value]; ok {
+		return canonical
+	}
 	value = strings.TrimPrefix(value, "doubao-")
 	if value == "minimax-h3" || strings.HasPrefix(value, "minimax-h3-") || strings.HasPrefix(value, "zzdh-minimax-h3-") {
 		return "minimax-h3"
@@ -143,8 +150,8 @@ func hasVideoCreditReference(body map[string]any) bool {
 
 func (p *CreditPricer) modelPrice(jobType string, body map[string]any, params map[string]any) (float64, bool) {
 	catalog := LoadModelCreditPrices(p.billing)
-	name := creditModelName(jsonString(body["model"]))
-	params["pricing_model"] = name
+	// QuoteForJob resolved this from the real model ID using server configuration.
+	name := jsonString(params["pricing_model"])
 	params["pricing_source"] = "legacy"
 	if jobType == model.JobTypeImageGenerate || jobType == model.JobTypeImageEdit {
 		quality := jsonString(body["quality"])

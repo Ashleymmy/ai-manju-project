@@ -61,6 +61,33 @@ func TestAdminModelPricesPersistQuoteAndAuthorization(t *testing.T) {
 				}
 			}
 			verify()
+			aliasWrite := "/api/admin/billing/configs/" + model.BillingConfigKeyModelAliases
+			aliasBody := map[string]any{"value": map[string]string{"ep-price-test": "seedance-2.5"}}
+			for _, tc := range []struct {
+				token  string
+				status int
+			}{{"", 401}, {f.member, 403}, {f.auditor, 403}, {f.ops, 200}, {f.root, 200}} {
+				if status, _ := f.call(t, "PUT", aliasWrite, tc.token, aliasBody); status != tc.status {
+					t.Fatalf("alias write HTTP %d want %d", status, tc.status)
+				}
+			}
+			if status, _ := f.call(t, "PUT", aliasWrite, f.root, map[string]any{"value": map[string]string{"ep-price-test": "unknown"}}); status != 400 {
+				t.Fatalf("invalid alias HTTP %d", status)
+			}
+			verifyAlias := func() {
+				status, raw := f.call(t, "POST", "/api/member/quote", f.member, map[string]any{"job_type": "video.generate", "payload": map[string]any{"model": "provider::ep-price-test", "resolution": "720p", "duration": 10, "content": []map[string]string{{"type": "video_url"}}}})
+				var quote struct {
+					Credits int64          `json:"credits"`
+					Params  map[string]any `json:"params"`
+				}
+				if err := json.Unmarshal(raw, &quote); err != nil {
+					t.Fatal(err)
+				}
+				if status != 200 || quote.Credits != 3300 || quote.Params["pricing_model"] != "seedance-2.5" {
+					t.Fatalf("mapped quote HTTP %d %+v", status, quote)
+				}
+			}
+			verifyAlias()
 			_, raw := f.call(t, "GET", "/api/admin/audit-logs", f.root, nil)
 			var logs struct {
 				Items []model.AdminAuditLog `json:"items"`
@@ -68,18 +95,22 @@ func TestAdminModelPricesPersistQuoteAndAuthorization(t *testing.T) {
 			if err := json.Unmarshal(raw, &logs); err != nil {
 				t.Fatal(err)
 			}
-			found := false
+			found, aliasFound := false, false
 			for _, item := range logs.Items {
 				if item.TargetID == model.BillingConfigKeyModelPrices {
 					found = true
 				}
+				if item.TargetID == model.BillingConfigKeyModelAliases {
+					aliasFound = true
+				}
 			}
-			if !found {
+			if !found || !aliasFound {
 				t.Fatal("model price change missing from audit log")
 			}
 			if driver == "postgres" {
 				f.r = NewWithConfig(f.cfg)
 				verify()
+				verifyAlias()
 			}
 		})
 	}

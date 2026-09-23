@@ -27,6 +27,9 @@ func validateBillingConfig(key string, raw json.RawMessage) error {
 		return m, nil
 	}
 	switch key {
+	case model.BillingConfigKeyModelAliases:
+		_, err := service.ParseModelCreditAliases(raw)
+		return err
 	case model.BillingConfigKeyModelPrices:
 		_, err := service.ParseModelCreditPrices(raw)
 		return err

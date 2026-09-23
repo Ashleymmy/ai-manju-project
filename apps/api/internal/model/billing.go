@@ -36,6 +36,7 @@ const (
 	BillingConfigKeyActivity         = "activity_discount"       // {"enabled":bool,"starts_at":ts,"ends_at":ts,"discount_bps":int,"applies_to":[...]}
 	BillingConfigKeyPricingRules     = "pricing_rules"           // 基础兜底计费规则
 	BillingConfigKeyModelPrices      = "model_credit_prices"     // 管理员配置的模型积分价目表
+	BillingConfigKeyModelAliases     = "model_credit_aliases"    // 实际模型 ID 到官方计费系列的映射，不使用展示名称计价
 	BillingConfigKeyGiftPacks        = "gift_packs"              // 礼包超市货架：[{"id","name","description","cover","price_cents","credits"|"membership_days","enabled","sort_order"}]（WP-M15，内容后定，默认空货架）
 )
 

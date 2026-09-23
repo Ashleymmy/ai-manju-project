@@ -102,7 +102,8 @@ func (p *CreditPricer) QuoteForJob(jobType string, payload model.JSONB) (credits
 	}
 	rules := p.loadRules()
 
-	params = map[string]any{}
+	pricingModel := p.creditModelName(jsonString(body["model"]))
+	params = map[string]any{"pricing_model": pricingModel}
 	switch jobType {
 	case model.JobTypeImageGenerate, model.JobTypeImageEdit:
 		count := jsonInt64(body["n"], 1)
@@ -122,7 +123,7 @@ func (p *CreditPricer) QuoteForJob(jobType string, payload model.JSONB) (credits
 		}
 		tier := model.TaskTypeVideoStandard
 		perSecond := rules.VideoStandard.PerSecond
-		if isFastVideoPayload(body) {
+		if isFastVideoPayload(body) || strings.Contains(pricingModel, "fast") {
 			tier = model.TaskTypeVideoFast
 			perSecond = rules.VideoFast.PerSecond
 		}
