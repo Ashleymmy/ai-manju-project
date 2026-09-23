@@ -45,14 +45,15 @@ func NewTagService(repo repository.TagRepository, assets repository.AssetReposit
 }
 
 type TagCreateInput struct {
-	ScopeType     string
-	ParentID      string
-	Name          string
-	Description   string
-	AssetEnabled  bool
-	PromptEnabled bool
-	InheritMode   string
-	SortOrder     int
+	IdempotencyKey string
+	ScopeType      string
+	ParentID       string
+	Name           string
+	Description    string
+	AssetEnabled   bool
+	PromptEnabled  bool
+	InheritMode    string
+	SortOrder      int
 }
 
 type TagUpdateInput struct {
@@ -255,6 +256,14 @@ func (s *TagService) Create(userID string, workspaceScope string, input TagCreat
 	if scopeType == model.TagScopeUser {
 		scopeKey = userID
 	}
+	id := importDefinitionID("tag_", scopeType+":"+scopeKey, userID, input.IdempotencyKey)
+	if strings.TrimSpace(input.IdempotencyKey) != "" {
+		if existing, getErr := s.repo.Get(id, []string{scopeKey}); getErr == nil {
+			return existing, nil
+		} else if !errors.Is(getErr, repository.ErrTagNotFound) {
+			return model.Tag{}, getErr
+		}
+	}
 	parentID := strings.TrimSpace(input.ParentID)
 	if parentID != "" {
 		parent, getErr := s.repo.Get(parentID, []string{scopeKey})
@@ -266,11 +275,17 @@ func (s *TagService) Create(userID string, workspaceScope string, input TagCreat
 	if err != nil {
 		return model.Tag{}, err
 	}
-	return s.repo.Create(model.Tag{
-		ID: "tag_" + randomHex(12), ScopeType: scopeType, ScopeKey: scopeKey, CreatedBy: userID, ParentID: parentID,
+	tag, err := s.repo.Create(model.Tag{
+		ID: id, ScopeType: scopeType, ScopeKey: scopeKey, CreatedBy: userID, ParentID: parentID,
 		Name: name, NormalizedName: normalized, Description: description, AssetEnabled: input.AssetEnabled,
 		PromptEnabled: input.PromptEnabled, InheritMode: inheritMode, Status: model.TagStatusActive, SortOrder: input.SortOrder,
 	}, TagMaxDepth)
+	if err != nil && strings.TrimSpace(input.IdempotencyKey) != "" {
+		if existing, getErr := s.repo.Get(id, []string{scopeKey}); getErr == nil {
+			return existing, nil
+		}
+	}
+	return tag, err
 }
 
 func (s *TagService) Update(id string, userID string, workspaceScope string, input TagUpdateInput) (model.Tag, error) {

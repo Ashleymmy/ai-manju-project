@@ -104,7 +104,7 @@ export function getAssetFolders(scope: WorkspaceScope = "personal", signal?: Abo
 }
 
 export function createAssetFolder(
-  input: { name: string; parent_id?: string; sort_order?: number },
+  input: { name: string; parent_id?: string; sort_order?: number; idempotency_key?: string },
   scope: WorkspaceScope = "personal"
 ) {
   return request<AssetFolder>("/api/asset-folders", {

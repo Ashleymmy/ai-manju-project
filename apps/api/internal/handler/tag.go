@@ -48,21 +48,23 @@ func (h *TagHandler) Get(c *gin.Context) {
 func (h *TagHandler) Create(c *gin.Context) {
 	user := auth.MustCurrentUser(c)
 	var req struct {
-		ScopeType     string `json:"scope_type"`
-		ParentID      string `json:"parent_id"`
-		Name          string `json:"name"`
-		Description   string `json:"description"`
-		AssetEnabled  bool   `json:"asset_enabled"`
-		PromptEnabled bool   `json:"prompt_enabled"`
-		InheritMode   string `json:"inherit_mode"`
-		SortOrder     int    `json:"sort_order"`
+		IdempotencyKey string `json:"idempotency_key"`
+		ScopeType      string `json:"scope_type"`
+		ParentID       string `json:"parent_id"`
+		Name           string `json:"name"`
+		Description    string `json:"description"`
+		AssetEnabled   bool   `json:"asset_enabled"`
+		PromptEnabled  bool   `json:"prompt_enabled"`
+		InheritMode    string `json:"inherit_mode"`
+		SortOrder      int    `json:"sort_order"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	tag, err := h.tags.Create(user.ID, requestWorkspaceScope(c), service.TagCreateInput{
-		ScopeType: req.ScopeType, ParentID: req.ParentID, Name: req.Name, Description: req.Description,
+		IdempotencyKey: req.IdempotencyKey,
+		ScopeType:      req.ScopeType, ParentID: req.ParentID, Name: req.Name, Description: req.Description,
 		AssetEnabled: req.AssetEnabled, PromptEnabled: req.PromptEnabled, InheritMode: req.InheritMode, SortOrder: req.SortOrder,
 	})
 	if err != nil {

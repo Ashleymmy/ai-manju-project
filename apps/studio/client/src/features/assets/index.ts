@@ -1,4 +1,5 @@
 export { default, AssetLibraryView } from "./AssetsPage";
+export { AssetImportTaskHost } from "./ui/AssetImportTaskHost";
 export {
   collectFolderSubtreeIds,
   flattenFolderTree,

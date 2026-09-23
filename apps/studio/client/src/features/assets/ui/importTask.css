@@ -1,0 +1,22 @@
+.asset-import-task-entry {
+  position: fixed;
+  right: 24px;
+  /* Reserve the lower corner for the existing assistant launcher. */
+  bottom: 92px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: calc(100vw - 32px);
+  padding: 11px 16px;
+  border: 1px solid var(--border, #394344);
+  border-radius: 12px;
+  background: var(--popover, #192020);
+  color: var(--popover-foreground, #f4ead2);
+  box-shadow: 0 6px 24px #0003;
+  font-size: 13px;
+}
+.asset-import-task-entry strong { font-variant-numeric: tabular-nums; font-weight: 500; }
+.asset-import-task-dialog { max-height: 85vh; overflow-y: auto; }
+.asset-import-task-source { overflow-wrap: anywhere; font-size: 13px; opacity: .8; }
+.asset-import-task-end { justify-self: start; padding: 7px 12px; border: 1px solid #444b48; border-radius: 6px; font-size: 12px; color: #bbc0b9; }

@@ -32,15 +32,16 @@ func (h *AssetFolderHandler) List(c *gin.Context) {
 func (h *AssetFolderHandler) Create(c *gin.Context) {
 	user := auth.MustCurrentUser(c)
 	var req struct {
-		Name      string `json:"name"`
-		ParentID  string `json:"parent_id"`
-		SortOrder int    `json:"sort_order"`
+		IdempotencyKey string `json:"idempotency_key"`
+		Name           string `json:"name"`
+		ParentID       string `json:"parent_id"`
+		SortOrder      int    `json:"sort_order"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	folder, err := h.folders.Create(user.ID, requestWorkspaceScope(c), service.AssetFolderCreateInput{Name: req.Name, ParentID: req.ParentID, SortOrder: req.SortOrder})
+	folder, err := h.folders.Create(user.ID, requestWorkspaceScope(c), service.AssetFolderCreateInput{Name: req.Name, ParentID: req.ParentID, SortOrder: req.SortOrder, IdempotencyKey: req.IdempotencyKey})
 	if err != nil {
 		assetFolderError(c, err)
 		return

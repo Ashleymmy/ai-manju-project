@@ -1,4 +1,5 @@
-import { ASSET_PACKAGE_ZIP_LIMITS, createZip, readZip } from "./zip";
+import { createZip } from "./zip";
+import { openPackageArchive, readPackageEntry, PACKAGE_MAX_ASSETS, PACKAGE_MAX_METADATA_BYTES, checkPackageCanceled } from "./packageArchive";
 import type { Asset } from "@/entities/asset";
 import { ASSET_CATEGORIES } from "@/entities/asset/model";
 import { z } from "zod";
@@ -28,10 +29,12 @@ export type AssetPackageFile = {
 export type AssetPackageItem = {
   asset: Asset & { tag_ids?: string[] };
   file?: File;
+  // Retain only the ZIP source and entry descriptor between sequential uploads.
+  readFile?: (signal?: AbortSignal, onProgress?: (percent: number) => void) => Promise<File>;
 };
 
-// Match the API's folder/tag depth and export limits before any mutations.
-export const PACKAGE_MAX_ASSETS = 5000;
+export { PACKAGE_MAX_ASSETS } from "./packageArchive";
+// Match the API's folder/tag constraints before any mutations.
 export const PACKAGE_MAX_FOLDER_DEPTH = 6;
 export const PACKAGE_MAX_TAG_DEPTH = 8;
 export const PACKAGE_MAX_FOLDER_NAME = 80;
@@ -39,7 +42,6 @@ export const PACKAGE_MAX_TAG_NAME = 64;
 const PACKAGE_MAX_TAG_DESCRIPTION = 1000;
 const PACKAGE_MAX_DEFINITIONS = 20000;
 // Metadata should stay small even when the media payload is large.
-const PACKAGE_MAX_MANIFEST_BYTES = 16 * 1024 * 1024;
 const CURRENT_PACKAGE_VERSION = 2;
 const LEGACY_EXPORT_MANIFEST = "manifest.json";
 const textId = z.string().min(1);
@@ -90,7 +92,10 @@ export async function createAssetPackage(items: Array<{ asset: Asset; blob: Blob
 }
 
 export async function readAssetPackage(file: Blob): Promise<AssetPackageItem[]> {
-  return (await readAssetPackageContents(file)).items;
+  // Compatibility helper for callers explicitly requesting materialized files.
+  const contents = await readAssetPackageContents(file);
+  for (const item of contents.items) if (item.readFile) item.file = await item.readFile();
+  return contents.items;
 }
 
 function safeArchivePath(path: string) {
@@ -145,18 +150,22 @@ function convertLegacyExport(raw: unknown) {
   };
 }
 
-export async function readAssetPackageContents(file: Blob): Promise<AssetPackageContents> {
-  const zip = await readZip(file, ASSET_PACKAGE_ZIP_LIMITS);
+export async function readAssetPackageContents(file: Blob, signal?: AbortSignal): Promise<AssetPackageContents> {
+  const zip = await openPackageArchive(file, signal);
   const manifestBlob = zip.get(ASSET_PACKAGE_MANIFEST);
   const legacy = zip.get(LEGACY_EXPORT_MANIFEST);
   if (!manifestBlob && !legacy) throw new Error("资产包缺少 assets.json 或 manifest.json 清单");
-  if ((manifestBlob || legacy)!.size > PACKAGE_MAX_MANIFEST_BYTES) throw new Error("资产包清单过大，请分目录导入");
+  const manifestEntry = (manifestBlob || legacy)!;
+  if (manifestEntry.uncompressedSize > PACKAGE_MAX_METADATA_BYTES) throw new Error("资产包清单过大，请分目录导入");
+  const manifestData = await readPackageEntry(manifestEntry, "application/json", signal);
   let manifest: z.infer<typeof manifestSchema>;
   try {
-    manifest = manifestSchema.parse(manifestBlob ? JSON.parse(await manifestBlob.text()) : convertLegacyExport(JSON.parse(await legacy!.text())));
+    const raw = JSON.parse(await manifestData.text());
+    manifest = manifestSchema.parse(manifestBlob ? raw : convertLegacyExport(raw));
   } catch {
     throw new Error("资产包清单无效或版本不支持，请重新导出资产包");
   }
+  checkPackageCanceled(signal);
   const folders = orderedPackageTree(manifest.folders, PACKAGE_MAX_FOLDER_DEPTH);
   const tags = orderedPackageTree(manifest.tags, PACKAGE_MAX_TAG_DEPTH);
   const folderIds = new Set(folders.map(folder => folder.id));
@@ -170,16 +179,19 @@ export async function readAssetPackageContents(file: Blob): Promise<AssetPackage
     if ((manifest.version === CURRENT_PACKAGE_VERSION || folders.length > 0) && asset.folder_id && !folderIds.has(asset.folder_id)) throw new Error("资产包缺少资产所属目录");
     if (asset.tag_ids?.some(id => !tagIds.has(id))) throw new Error("资产包缺少标签定义");
     const entry = entriesByAsset.get(asset.id);
-    const blob = entry ? zip.get(entry.path) : undefined;
-    if (!blob || !blob.size) {
+    const source = entry ? zip.get(entry.path) : undefined;
+    if (!source || !source.uncompressedSize) {
       if (manifest.version === CURRENT_PACKAGE_VERSION || legacy && !manifestBlob) throw new Error(`资产包缺少文件：${asset.name}`);
       warnings.push(`缺少文件，已跳过：${asset.name}`);
       return { asset };
     }
-    if (entry!.bytes !== blob.size) throw new Error(`资产包文件大小不符：${asset.name}`);
+    if (entry!.bytes !== source.uncompressedSize) throw new Error(`资产包文件大小不符：${asset.name}`);
     const mimeType = entry?.mimeType || asset.content_type || "application/octet-stream";
     const name = `${asset.name || asset.id}${hasExtension(asset.name) ? "" : fileExtension(mimeType, asset.name)}`;
-    return { asset, file: new File([blob], name, { type: mimeType }) };
+    return { asset, readFile: async (signal, onProgress) => {
+      const blob = await readPackageEntry(source, mimeType, signal, onProgress);
+      return new File([blob], name, { type: mimeType });
+    } };
   });
   if (!items.length && !folders.length) throw new Error("资产包中没有可导入的文件或目录");
   return { items, folders, tags, warnings };

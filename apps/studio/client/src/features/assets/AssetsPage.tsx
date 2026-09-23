@@ -76,10 +76,7 @@ import { semanticTagPath } from "@/features/tags";
 import { publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 
-import {
-  readAssetPackageContents,
-} from "./model/assetPackage";
-import { AssetPackageImportSession, type PackageImportProgress } from "./model/importAssetPackage";
+import { importTaskManager, useImportTask } from "./model/importTaskManager";
 import { isAssetFavorited, nextAssetReaction } from "./model/reactions";
 import { formatTrashCountdown, isTrashCountdownUrgent, remainingTrashDays } from "./model/trashRetention";
 import { AssetSelectionArea } from "./ui/AssetSelectionArea";
@@ -224,15 +221,12 @@ export function AssetLibraryView() {
   const [uploadPreviews, setUploadPreviews] = useState<Array<{ id: number; name: string; url: string; scope: WorkspaceScope }>>([]);
   const uploadPreviewUrls = useRef<string[]>([]);
   const [exportBusy, setExportBusy] = useState("");
-  const [packageBusy, setPackageBusy] = useState("");
+  const importTask = useImportTask();
+  const packageBusy = importTask.preparing || importTask.task?.status === "running" ? "import" : "";
+  const importProgress = importTask.preparing ? { phase: "正在保存资产包，请勿刷新…", total: 0, completed: 0, failures: [] } : importTask.task?.progress || null;
+  const importWarnings = importTask.task?.warnings || [];
   const packageInputRef = useRef<HTMLInputElement>(null);
-  const importSessionRef = useRef<AssetPackageImportSession | null>(null);
-  const importControllerRef = useRef<AbortController | null>(null);
-  const packageReadingRef = useRef(false);
-  const [importProgress, setImportProgress] = useState<PackageImportProgress | null>(null);
-  const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [showExportTasks, setShowExportTasks] = useState(false);
-  useEffect(() => () => { importControllerRef.current?.abort(); }, []);
   const [noteDraft, setNoteDraft] = useState("");
   const [detailName, setDetailName] = useState("");
   const [detailCategory, setDetailCategory] = useState<AssetCategory | "">("");
@@ -773,50 +767,9 @@ export function AssetLibraryView() {
     await createExport("selected");
   };
 
-  const runPackageImport = async (session: AssetPackageImportSession) => {
-    if (importControllerRef.current) return;
-    const controller = new AbortController();
-    importControllerRef.current = controller;
-    setPackageBusy("import");
-    try {
-      await session.run(setImportProgress, controller.signal);
-      if (session.completed.size === session.contents.items.filter(item => item.file).length) {
-        importSessionRef.current = null;
-      }
-    } catch (error) {
-      const message = controller.signal.aborted ? "导入已暂停，可继续导入" : publicApiError(error, "导入失败，可重试");
-      setImportProgress(current => ({ phase: message, completed: session.completed.size,
-        total: session.contents.items.filter(item => item.file).length, failures: current?.failures || [] }));
-      if (!controller.signal.aborted) toast.error(message);
-    } finally {
-      importControllerRef.current = null;
-      setPackageBusy("");
-      void invalidateAssetScope(queryClient, session.scope);
-      refresh();
-    }
-  };
-
   const importAssetPackage = async (file: File) => {
-    if (packageReadingRef.current || importControllerRef.current) return;
-    packageReadingRef.current = true;
-    setPackageBusy("import");
-    setImportProgress({ phase: "检查资产包…", completed: 0, total: 0, failures: [] });
-    setImportWarnings([]);
-    importSessionRef.current = null;
-    try {
-      const contents = await readAssetPackageContents(file);
-      const session = new AssetPackageImportSession(contents, scope, activeFolderId || undefined);
-      importSessionRef.current = session;
-      setImportWarnings(contents.warnings);
-      await runPackageImport(session);
-    } catch (error) {
-      const message = publicApiError(error, "读取资产包失败");
-      setImportProgress({ phase: message, completed: 0, total: 0, failures: [] });
-      toast.error(message);
-    } finally {
-      packageReadingRef.current = false;
-      setPackageBusy("");
-    }
+    try { await importTaskManager.start(file, scope, activeFolderId || undefined); }
+    catch (error) { toast.error(publicApiError(error, "无法开始导入")); }
   };
 
   const openInImageWorkbench = () => {
@@ -961,12 +914,12 @@ export function AssetLibraryView() {
         {uploadPreviews.some(item => item.scope === scope) && <div className="asset-thumb-grid" aria-label="正在上传的素材">{uploadPreviews.filter(item => item.scope === scope).map(item => <article key={item.id} className="library-asset"><div className="library-asset-preview">{item.url ? <img src={item.url} alt={item.name} /> : <div className="empty-output"><Upload size={22} /></div>}<div><b>{item.name}</b><small>上传中…</small></div></div></article>)}</div>}
         <AssetTransferStatus
           batches={showExportTasks ? exportBatches.slice(0, 5) : []}
-          progress={importProgress} warnings={importWarnings} importing={packageBusy === "import"}
-          canPause={Boolean(importControllerRef.current)}
-          canRetry={Boolean(importSessionRef.current && importProgress?.phase !== "导入完成")}
-          onRetry={() => { if (importSessionRef.current) void runPackageImport(importSessionRef.current); }}
-          onPause={() => importControllerRef.current?.abort()}
-          onDismiss={() => { setImportProgress(null); setImportWarnings([]); }}
+          progress={importTask.open ? null : importProgress} warnings={importWarnings} importing={packageBusy === "import"}
+          canPause={importTask.task?.status === "running"}
+          canRetry={importTask.task?.status === "paused" || importTask.task?.status === "failed"}
+          onRetry={importTaskManager.resume}
+          onPause={importTaskManager.pause}
+          onDismiss={importTaskManager.discard}
           onDownload={batch => { void startAssetExportDownload(batch.id, scope).catch(error => toast.error(publicApiError(error, "下载失败"))); }}
           onCancel={batch => { void cancelAssetExport(batch.id, scope).then(reloadExports).catch(error => toast.error(publicApiError(error, "取消失败"))); }}
         />

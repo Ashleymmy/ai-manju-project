@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createZip } from "./zip";
 import { readAssetPackageContents } from "./assetPackage";
-import { AssetPackageImportSession } from "./importAssetPackage";
+import { AssetPackageImportSession, type PackageImportSnapshot } from "./importAssetPackage";
 import type { Asset, AssetFolder } from "@/entities/asset";
 import type { SemanticTag } from "@/entities/tag";
 
@@ -31,6 +31,54 @@ function dependencies() {
 }
 
 describe("portable asset packages", () => {
+  it("reconstructs a refreshed session, skips saved uploads and reuses uncertain upload keys", async () => {
+    const contents = await readAssetPackageContents(await archive(manifest()));
+    contents.items.push({ ...contents.items[0], asset: { ...contents.items[0].asset, id: "second" } });
+    const deps = dependencies();
+    let saved: PackageImportSnapshot | undefined;
+    deps.uploadAsset.mockResolvedValueOnce({ id: "ok" } as Asset).mockRejectedValueOnce(new Error("response lost"));
+    await new AssetPackageImportSession(contents, "personal", undefined, deps, {
+      checkpoint: async snapshot => { saved = structuredClone(snapshot); },
+    }).run(vi.fn(), new AbortController().signal);
+    const keys = deps.uploadAsset.mock.calls as unknown as Array<[File, Record<string, string>]>;
+    const uncertainKey = keys[1][1].idempotency_key;
+    const restored = new AssetPackageImportSession(contents, "personal", undefined, deps, { snapshot: saved });
+    await restored.run(vi.fn(), new AbortController().signal);
+    expect(deps.uploadAsset).toHaveBeenCalledTimes(3);
+    expect(keys[2][1].idempotency_key).toBe(uncertainKey);
+    expect(deps.createAssetFolder).toHaveBeenCalledTimes(3);
+    expect(deps.createTag).toHaveBeenCalledTimes(2);
+    expect(restored.completed.size).toBe(2);
+  });
+
+  it("retries a lost folder response with the saved name and key even after the name exists", async () => {
+    const contents = await readAssetPackageContents(await archive(manifest()));
+    const deps = dependencies();
+    let saved: PackageImportSnapshot | undefined;
+    const create = deps.createAssetFolder.getMockImplementation()!;
+    let created: AssetFolder;
+    deps.createAssetFolder.mockImplementationOnce(async input => {
+      created = await create(input); throw new Error("response lost");
+    }).mockImplementationOnce(async () => created);
+    await expect(new AssetPackageImportSession(contents, "personal", undefined, deps, {
+      checkpoint: async snapshot => { saved = structuredClone(snapshot); },
+    }).run(vi.fn(), new AbortController().signal)).rejects.toThrow("response lost");
+    await new AssetPackageImportSession(contents, "personal", undefined, deps, { snapshot: saved }).run(vi.fn(), new AbortController().signal);
+    expect(deps.createAssetFolder.mock.calls[1][0]).toEqual(deps.createAssetFolder.mock.calls[0][0]);
+    expect(deps.createAssetFolder).toHaveBeenCalledTimes(4);
+  });
+
+  it("stops before the next server mutation when durable checkpointing fails", async () => {
+    const contents = await readAssetPackageContents(await archive(manifest()));
+    const deps = dependencies();
+    await expect(new AssetPackageImportSession(contents, "personal", undefined, deps, {
+      checkpoint: async snapshot => { if (snapshot.folderIds.length) throw new Error("disk full"); },
+    }).run(vi.fn(), new AbortController().signal)).rejects.toThrow("disk full");
+    expect(deps.createAssetFolder).toHaveBeenCalledTimes(1);
+    expect(deps.createTag).not.toHaveBeenCalled();
+    expect(deps.uploadAsset).not.toHaveBeenCalled();
+  });
+
   it("accepts the API's Unicode character limits without counting surrogate pairs twice", async () => {
     const data = manifest();
     data.folders[0].name = "🌸".repeat(80);
@@ -57,7 +105,7 @@ describe("portable asset packages", () => {
 
   it("retries only failed uploads with stable keys and without recreating folders or tags", async () => {
     const contents = await readAssetPackageContents(await archive(manifest()));
-    contents.items.push({ asset: { ...contents.items[0].asset, id: "second", name: "second.png" }, file: contents.items[0].file });
+    contents.items.push({ ...contents.items[0], asset: { ...contents.items[0].asset, id: "second", name: "second.png" } });
     const deps = dependencies();
     deps.uploadAsset.mockResolvedValueOnce({ id: "ok" } as Asset).mockRejectedValueOnce(new Error("connection lost")).mockResolvedValueOnce({ id: "retry" } as Asset);
     const progress = vi.fn();
@@ -83,6 +131,30 @@ describe("portable asset packages", () => {
     await session.run(vi.fn(), new AbortController().signal);
     expect(session.completed.size).toBe(1);
     expect(deps.createAssetFolder).toHaveBeenCalledTimes(3);
+  });
+
+  it("skips damaged files, releases loaded files, and rereads only unfinished items", async () => {
+    const contents = await readAssetPackageContents(await archive(manifest()));
+    const original = contents.items[0];
+    const loadGood = vi.fn(original.readFile!);
+    const loadDamaged = vi.fn().mockRejectedValueOnce(new Error("文件校验失败")).mockImplementation(original.readFile!);
+    contents.items = [
+      { ...original, readFile: loadGood },
+      { ...original, asset: { ...original.asset, id: "damaged" }, readFile: loadDamaged },
+    ];
+    const deps = dependencies();
+    const progress = vi.fn();
+    const session = new AssetPackageImportSession(contents, "personal", undefined, deps);
+    await session.run(progress, new AbortController().signal);
+    expect(session.total).toBe(2);
+    expect(deps.uploadAsset).toHaveBeenCalledTimes(1);
+    expect(progress.mock.lastCall![0]).toMatchObject({ completed: 1, failures: [{ error: "文件校验失败" }] });
+    expect(contents.items.every(item => item.file === undefined)).toBe(true);
+    await session.run(progress, new AbortController().signal);
+    expect(loadGood).toHaveBeenCalledTimes(1);
+    expect(loadDamaged).toHaveBeenCalledTimes(2);
+    expect(deps.uploadAsset).toHaveBeenCalledTimes(2);
+    expect(progress.mock.lastCall![0]).toMatchObject({ phase: "导入完成", completed: 2, failures: [] });
   });
 
   it("imports legacy server directory ZIPs and treats legacy labels as names", async () => {

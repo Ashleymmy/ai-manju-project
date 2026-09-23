@@ -56,6 +56,7 @@ export async function listAllTags(
 export function createTag(
   scope: WorkspaceScope,
   input: {
+    idempotency_key?: string;
     parent_id?: string;
     name: string;
     description?: string;

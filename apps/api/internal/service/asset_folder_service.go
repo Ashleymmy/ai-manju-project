@@ -62,9 +62,10 @@ type AssetFolderView struct {
 }
 
 type AssetFolderCreateInput struct {
-	Name      string
-	ParentID  string
-	SortOrder int
+	IdempotencyKey string
+	Name           string
+	ParentID       string
+	SortOrder      int
 }
 
 type AssetFolderUpdateInput struct {
@@ -243,6 +244,14 @@ func (s *AssetFolderService) Get(id string, userID string, scope string) (model.
 
 func (s *AssetFolderService) Create(userID string, scope string, input AssetFolderCreateInput) (model.AssetFolder, error) {
 	workspaceID := WorkspaceIDForScope(scope, userID)
+	id := importDefinitionID("asset_folder_", workspaceID, userID, input.IdempotencyKey)
+	if strings.TrimSpace(input.IdempotencyKey) != "" {
+		if existing, err := s.Get(id, userID, scope); err == nil {
+			return existing, nil
+		} else if !errors.Is(err, repository.ErrAssetFolderNotFound) {
+			return model.AssetFolder{}, err
+		}
+	}
 	if _, err := s.ensureDefaultsForWorkspace(userID, workspaceID); err != nil {
 		return model.AssetFolder{}, err
 	}
@@ -261,9 +270,14 @@ func (s *AssetFolderService) Create(userID string, scope string, input AssetFold
 		return model.AssetFolder{}, err
 	}
 	folder, err := s.folders.Create(model.AssetFolder{
-		ID: "asset_folder_" + randomHex(12), WorkspaceID: workspaceID, CreatedBy: userID,
+		ID: id, WorkspaceID: workspaceID, CreatedBy: userID,
 		ParentID: parentID, Name: name, NormalizedName: normalized, Kind: model.AssetFolderKindUser, SortOrder: input.SortOrder,
 	})
+	if err != nil && strings.TrimSpace(input.IdempotencyKey) != "" {
+		if existing, getErr := s.Get(id, userID, scope); getErr == nil {
+			return existing, nil
+		}
+	}
 	if err == nil {
 		folder.Scope = WorkspaceScopeFromID(folder.WorkspaceID)
 	}
