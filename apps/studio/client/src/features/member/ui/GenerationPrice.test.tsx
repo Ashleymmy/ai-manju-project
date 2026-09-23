@@ -10,6 +10,20 @@ vi.mock("../services/memberApi", () => ({ fetchGenerationQuote: vi.fn(), fetchMe
 afterEach(() => { vi.resetAllMocks(); vi.unstubAllGlobals(); });
 
 describe("creation credits", () => {
+  it("shows automatic image fallback plus per-image references as one charge", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.mocked(fetchGenerationQuote).mockResolvedValue({ credits: 90, params: { pricing_source: "image_auto_fallback", base_per_image: 50, reference_count: 2, reference_per_image: 20 } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div"); const root = createRoot(container);
+    const render = (compact = false) => root.render(<QueryClientProvider client={client}><GenerationPrice model="gpt-image-1.5" size="auto" quality="auto" references={2} tasks={2} compact={compact} /></QueryClientProvider>);
+    await act(async () => { render(); await new Promise(r => setTimeout(r, 20)); });
+    await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    expect(container.textContent).toBe("预计 180 积分 · 自动规格");
+    expect(container.querySelector("span")?.title).toContain("基础价 50 + 2 张参考图 × 20");
+    await act(async () => render(true));
+    expect(container.textContent).toBe("180");
+    await act(async () => root.unmount()); client.clear();
+  });
   it("re-quotes parameters without showing the previous cost, and sums independent jobs", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.mocked(fetchGenerationQuote).mockResolvedValue({ credits: 23, params: { pricing_source: "membership_price_sheet" } });

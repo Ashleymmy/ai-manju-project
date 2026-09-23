@@ -173,6 +173,7 @@ func (p *CreditPricer) modelPrice(jobType string, body map[string]any, params ma
 		}
 		count := max(int64(1), jsonInt64(body["n"], 1))
 		params["quality"], params["resolution"], params["reference_count"] = quality, resolution, refs
+		params["reference_per_image"] = catalog.ImageReference
 		if index < 0 || index >= len(prices) {
 			minimum, maximum := math.Inf(1), float64(0)
 			for res, variants := range catalog.Images[name] {

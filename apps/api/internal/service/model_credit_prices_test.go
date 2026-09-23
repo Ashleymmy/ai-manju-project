@@ -47,8 +47,71 @@ func TestModelQuoteUncertainParametersAreNotExact(t *testing.T) {
 		}
 	}
 	_, _, params, _ := p.QuoteForJob(model.JobTypeImageGenerate, model.JSONB(`{"model":"gpt-image-2.5-flare","size":"auto","quality":"auto"}`))
-	if params["range_min"] != int64(5) || params["range_max"] != int64(1030) {
+	if params["pricing_source"] != "image_auto_fallback" || params["base_per_image"] != float64(50) {
 		t.Fatal(params)
+	}
+}
+
+func TestAutomaticImageReferencesUseFallbackAndKeepReservations(t *testing.T) {
+	fx := newBillingFixture(t)
+	for _, tc := range []struct {
+		payload string
+		want    int64
+	}{
+		{`{"model":"gpt-image-2.5-flare","size":"auto","quality":"auto","references":[{"field_name":"image"},{"field_name":"image"},{"field_name":"mask"}]}`, 90},
+		{`{"model":"gpt-image-1.5","size":"2048x2048","quality":"auto","n":2,"references":[{"field_name":"image"},{"field_name":"image"}]}`, 240},
+		{`{"model":"gpt-image-1.5","size":"auto","quality":"high","references":[{"field_name":"image"}]}`, 70},
+		{`{"model":"gemini-3-pro-image","size":"2048x2048","references":[{"field_name":"image"}]}`, 100},
+		{`{"model":"gpt-image-1.5"}`, 50},
+	} {
+		credits, _, params, _ := fx.pricer.QuoteForJob(model.JobTypeImageEdit, model.JSONB(tc.payload))
+		if credits != tc.want || params["pricing_source"] != "image_auto_fallback" {
+			t.Fatalf("got %d %+v want %d", credits, params, tc.want)
+		}
+		if _, exists := params["range_min"]; exists {
+			t.Fatal("auto charge must display the amount, not a catalog range")
+		}
+	}
+	// Explicit unmatched models keep their existing policy pending an admin price.
+	credits, _, params, _ := fx.pricer.QuoteForJob(model.JobTypeImageEdit, model.JSONB(`{"model":"unpriced","size":"1024x1024","quality":"low","references":[{"field_name":"image"}]}`))
+	if credits != 50 || params["pricing_source"] != "legacy" {
+		t.Fatal(credits, params)
+	}
+	const user = "auto-image-price-test"
+	if _, err := fx.engine.Adjust(user, 1000, "admin", "test"); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"model":"gpt-image-1.5","n":2,"references":[{"field_name":"image"},{"field_name":"mask"}]}`
+	job := fx.enqueue(t, user, model.JobTypeImageEdit, payload)
+	overview, _ := fx.engine.Overview(user)
+	if overview.PermanentFrozen != 140 {
+		t.Fatal(overview)
+	}
+	prices := DefaultModelCreditPrices()
+	prices.ImageReference = 2.25
+	raw, _ := json.Marshal(prices)
+	if err := fx.billing.UpsertConfig(model.BillingConfigKeyModelPrices, raw, "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.billing.UpsertConfig(model.BillingConfigKeyPricingRules, model.JSONB(`{"image":{"standard_1024":51}}`), "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.billing.UpsertConfig(model.BillingConfigKeyActivity, model.JSONB(`{"enabled":true,"discount_bps":5000}`), "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	credits, _, _, _ = fx.pricer.QuoteForJob(model.JobTypeImageEdit, model.JSONB(payload))
+	if credits != 54 {
+		t.Fatalf("want ceil((51+2.25)*2*0.5)=54, got %d", credits)
+	}
+	if _, err := fx.jobRepo.SetResult(job.Job.ID, model.JSONB(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := fx.reconciler.ReconcileOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	overview, _ = fx.engine.Overview(user)
+	if overview.PermanentBalance != 860 || overview.PermanentFrozen != 0 {
+		t.Fatalf("old auto reservation repriced: %+v", overview)
 	}
 }
 

@@ -51,9 +51,13 @@ function QuotedGenerationPrice({ kind = "image", model, size, quality, count = 1
       label = `预计 ${formatCredits(credits * tasks)} 积分`;
       if (params.reference_per_second) explanation = `已含参考视频附加费：基础 ${params.base_per_second} + 附加 ${params.reference_per_second} = ${params.per_second} 积分/生成秒，按生成视频时长计算；成功才扣费。`;
     }
+    else if (params.pricing_source === "image_auto_fallback") {
+      label = `预计 ${formatCredits(credits * tasks)} 积分 · 自动规格`;
+      explanation = `每张输出按基础价 ${params.base_per_image} + ${params.reference_count} 张参考图 × ${params.reference_per_image} 积分计算，活动折扣后汇总取整；成功才扣费。`;
+    }
     else if (params.range_min !== undefined && params.range_max !== undefined) {
       label = `${formatCredits(params.range_min * tasks)}–${formatCredits(params.range_max * tasks)} 积分 · 自动规格`;
-      explanation = "价目表范围；请选择明确尺寸和画质获取本次准确报价。自动规格尚沿用基础扣费规则。";
+      explanation = "价目表范围；请选择支持的尺寸和画质获取本次准确报价。";
     } else if (params.reference_per_second) {
       label = `${params.per_second ?? "—"} 积分/秒 · 含视频参考附加费`;
       explanation = "附加费按生成视频时长计算；当前时长自动，仍沿用基础扣费规则。选择明确时长可获取准确报价。";

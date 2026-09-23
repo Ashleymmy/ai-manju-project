@@ -132,7 +132,22 @@ func (p *CreditPricer) QuoteForJob(jobType string, payload model.JSONB) (credits
 		params["resolution"] = strings.ToUpper(videoCreditResolution(body))
 	}
 
-	if total, ok := p.modelPrice(jobType, body, params); ok {
+	total, priced := p.modelPrice(jobType, body, params)
+	// Automatic image parameters retain their existing base rate, but each
+	// output now also pays for each reference image (masks already excluded).
+	// Keep this separate from unmatched explicit models and video auto duration.
+	if !priced && (jobType == model.JobTypeImageGenerate || jobType == model.JobTypeImageEdit) && automaticImageCreditSpec(body) {
+		count := params["count"].(int64)
+		refs := params["reference_count"].(int)
+		referencePrice := params["reference_per_image"].(float64)
+		params["pricing_source"] = "image_auto_fallback"
+		params["base_per_image"] = float64(credits) / float64(count)
+		total = float64(credits) + float64(refs)*referencePrice*float64(count)
+		delete(params, "range_min")
+		delete(params, "range_max")
+		priced = true
+	}
+	if priced {
 		// Keep fractional prices through the activity discount, then round once.
 		const creditPrecision int64 = 10000
 		scaled := p.applyActivityDiscount(int64(math.Round(total*float64(creditPrecision))), taskType, params)
@@ -142,6 +157,16 @@ func (p *CreditPricer) QuoteForJob(jobType string, payload model.JSONB) (credits
 		credits = p.applyActivityDiscount(credits, taskType, params)
 	}
 	return credits, taskType, params, true
+}
+
+func automaticImageCreditSpec(body map[string]any) bool {
+	for _, field := range []string{"size", "quality"} {
+		value := strings.ToLower(strings.TrimSpace(jsonString(body[field])))
+		if value == "" || value == "auto" {
+			return true
+		}
+	}
+	return false
 }
 
 // imagePriceForSize buckets by resolution text. 未识别规格按 1024 档计价
