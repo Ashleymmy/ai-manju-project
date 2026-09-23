@@ -156,6 +156,11 @@ test("inspector resizes in three directions, expands its editor and restores sav
     await closeInitialInspector(page);
     await page.locator('[data-node-id="image"] .node-float-label').click();
     await expect(page.locator('.canvas-bottom-tools b')).toHaveText(`${zoom}%`);
+    // Focus/scrollIntoView must not introduce a second, untracked canvas offset.
+    expect(await page.getByRole("region", { name: "画布", exact: true }).evaluate(stage => {
+      stage.scrollTo(200, 400);
+      return [stage.scrollLeft, stage.scrollTop];
+    })).toEqual([0, 0]);
     await expect.poll(async () => {
       const p = (await panel.boundingBox())!, n = (await page.locator('[data-node-id="image"]').boundingBox())!;
       return p.x + p.width <= n.x || p.x >= n.x + n.width || p.y + p.height <= n.y || p.y >= n.y + n.height;
@@ -210,5 +215,52 @@ test("inspector resizes in three directions, expands its editor and restores sav
   expect((await panel.boundingBox())!.height).toBeLessThan(320);
   await expect(panel.getByRole("button", { name: "生成", exact: true })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath("below-priority-compact.png") });
+  // Failed media nodes keep long prompts in the editor, including crowded viewports
+  // where the old fallback placed the editor directly over the selected node.
+  for (const scenario of [
+    { kind: "video", width: 846, height: 555, x: 140, y: 140, nodeWidth: 550, nodeHeight: 160 },
+    { kind: "image", width: 846, height: 555, x: 140, y: 140, nodeWidth: 550, nodeHeight: 160 },
+    { kind: "video", width: 1440, height: 1000, x: 20, y: 20, nodeWidth: 1600, nodeHeight: 1000 },
+    { kind: "image", width: 390, height: 640, x: 20, y: 20, nodeWidth: 500, nodeHeight: 500 },
+  ]) {
+    await page.goto("about:blank");
+    await page.setViewportSize({ width: scenario.width, height: scenario.height });
+    project.id = `inspector-clearance-${scenario.kind}-${scenario.width}`;
+    const prompt = "@[node:reference] 镜号1：镜头缓慢推进，保持角色一致。\n".repeat(100);
+    snapshot = { ...snapshot, zoom: 100, panX: 0, panY: 0, viewport: { x: 0, y: 0, k: 1 },
+      nodes: snapshot.nodes.map((node: any) => node.id === "image" ? { ...node, kind: scenario.kind,
+        x: scenario.x, y: scenario.y, width: scenario.nodeWidth, height: scenario.nodeHeight, content: prompt,
+        metadata: { generationMode: scenario.kind, composerContent: prompt, status: "error", errorDetails: "生成失败，请稍后重试。".repeat(30) } } : node) };
+    await page.goto(`/canvas/${project.id}?scope=personal`, { waitUntil: "domcontentloaded" });
+    const card = page.locator('[data-node-id="image"]');
+    await expect(card.locator(".node-media-placeholder")).toBeVisible();
+    await closeInitialInspector(page);
+    await card.locator(".node-media-placeholder p").click();
+    await expect(panel).toBeVisible();
+    await expect(editor).toHaveValue(/镜号1：镜头缓慢推进，保持角色一致/);
+    await expect(editor).toBeInViewport();
+    expect((await editor.boundingBox())!.height).toBeGreaterThanOrEqual(40);
+    await expect(card).not.toContainText("镜号1");
+    await expect(card.locator(".node-inline-editor")).toHaveCount(0);
+    await expect(card.getByRole("button", { name: scenario.kind === "video" ? "上传视频" : "上传图片", exact: true })).toBeInViewport();
+    await expect.poll(async () => {
+      const p = (await panel.boundingBox())!, n = (await card.boundingBox())!;
+      return p.x + p.width <= n.x || p.x >= n.x + n.width || p.y + p.height <= n.y || p.y >= n.y + n.height;
+    }).toBe(true);
+    await expect.poll(() => card.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      return Array.from(element.querySelectorAll('.node-media-placeholder, .node-error-box')).every(child => child.getBoundingClientRect().bottom <= box.bottom + 1);
+    })).toBe(true);
+    expect(snapshot.nodes.find((node: any) => node.id === "image")).toMatchObject({ x: scenario.x, y: scenario.y, width: scenario.nodeWidth, height: scenario.nodeHeight, metadata: { composerContent: prompt } });
+    await page.screenshot({ path: testInfo.outputPath(`clearance-${scenario.kind}-${scenario.width}.png`) });
+    if (scenario.width === 846 && scenario.kind === "video") {
+      await drag(page, card.locator(".node-media-placeholder p"), 150, 140);
+      await expect.poll(async () => {
+        const p = (await panel.boundingBox())!, n = (await card.boundingBox())!;
+        return p.x + p.width <= n.x || p.x >= n.x + n.width || p.y + p.height <= n.y || p.y >= n.y + n.height;
+      }).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath("clearance-after-node-drag.png") });
+    }
+  }
   expect(errors).toEqual([]);
 });

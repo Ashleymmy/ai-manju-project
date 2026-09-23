@@ -141,8 +141,10 @@ function openHostSession(payload: HostSessionPayload) {
 }
 
 export function postDirectorDeskMessageToHost(message: DirectorDeskTransportMessage) {
-  if (postTauriDirectorHostMessage(message)) return;
+  if (postTauriDirectorHostMessage(message)) return true;
   window.parent?.postMessage(message, getDirectorDeskHostOrigin());
+  // A standalone page's parent is itself; no host will handle its close request.
+  return window.parent !== window;
 }
 
 export function postDirectorDeskReadyToHost() {

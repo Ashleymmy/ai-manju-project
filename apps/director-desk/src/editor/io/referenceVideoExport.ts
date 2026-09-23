@@ -21,6 +21,12 @@ export interface ReferenceVideoExportResult {
 type ReferenceVideoExportHandler = (request: ReferenceVideoExportRequest) => Promise<ReferenceVideoExportResult>;
 
 let exportHandler: ReferenceVideoExportHandler | null = null;
+// Closing the editor must not interrupt an in-flight video render.
+let pendingExportCount = 0;
+
+export function isReferenceVideoExportRunning() {
+  return pendingExportCount > 0;
+}
 
 export function setReferenceVideoExportHandler(handler: ReferenceVideoExportHandler) {
   exportHandler = handler;
@@ -32,7 +38,12 @@ export function clearReferenceVideoExportHandler() {
 
 export async function requestReferenceVideoExport(request: ReferenceVideoExportRequest) {
   if (!exportHandler) throw new Error("参考视频导出器尚未准备好");
-  return exportHandler({ ...request, fileName: normalizeReferenceVideoFileName(request.fileName) });
+  pendingExportCount += 1;
+  try {
+    return await exportHandler({ ...request, fileName: normalizeReferenceVideoFileName(request.fileName) });
+  } finally {
+    pendingExportCount -= 1;
+  }
 }
 
 export function normalizeReferenceVideoFileName(fileName: string) {

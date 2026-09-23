@@ -77,6 +77,7 @@ type NavItem = {
   icon: Icon;
   shortcut?: string;
   disabled?: boolean;
+  newTab?: boolean;
 };
 
 const creationNav: NavItem[] = [
@@ -91,7 +92,8 @@ const creationNav: NavItem[] = [
   },
   { label: "全部项目", href: "/projects", icon: FolderKanban, shortcut: "G P" },
   { label: "当前任务", href: "/canvas?resume=recent", icon: Compass, shortcut: "G C" },
-  { label: "3D 导演台", href: "/director", icon: Box },
+  // 暂时从导航直接独立打开导演台；嵌入式入口代码保留，待后续恢复。
+  { label: "3D 导演台", href: "/director", icon: Box, newTab: true },
   { label: "资产助手", href: "/comic-assets", icon: Clapperboard },
 ];
 
@@ -451,11 +453,15 @@ export function LineNav({
                       </span>
                     );
                   }
+                  // Wouter intercepts ordinary clicks even with target="_blank".
+                  const ItemLink = item.newTab ? "a" : Link;
                   return (
-                    <Link
+                    <ItemLink
                       key={item.href}
                       href={item.href}
                       title={item.label}
+                      target={item.newTab ? "_blank" : undefined}
+                      rel={item.newTab ? "noopener" : undefined}
                       className="ln-row ln-item"
                       data-active={active ? "1" : "0"}
                       ref={element => {
@@ -469,7 +475,7 @@ export function LineNav({
                       </span>
                       <span className="ln-label">{item.label}</span>
                       {item.shortcut ? <kbd>{item.shortcut}</kbd> : null}
-                    </Link>
+                    </ItemLink>
                   );
                 })}
               </div>

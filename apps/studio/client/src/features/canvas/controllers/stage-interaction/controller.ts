@@ -32,7 +32,6 @@ import {
   zoomCanvasViewportAtPoint,
 } from "@/features/canvas/domain/history";
 import { DEFAULT_CANVAS_SHORTCUTS, eventMatchesShortcut } from "@/features/canvas/domain/hotkeys";
-import { canvasMinimapWorldPoint } from "@/features/canvas/domain/minimap";
 import {
   canvasNodesInSelectionRect,
   captureCanvasNodeOrigins,
@@ -161,13 +160,6 @@ const emptyBindings: CanvasStageInteractionBindings = {
   getShortcuts: () => ({
     undo: [], redo: [], delete: [], copy: [], paste: [], selectAll: [],
     runSelection: [], openSettings: [], resetZoom: [],
-  }),
-  getMinimapModel: () => ({
-    width: 1,
-    height: 1,
-    world: { x: 0, y: 0, width: 1, height: 1 },
-    nodes: [],
-    viewport: { x: 0, y: 0, width: 1, height: 1 },
   }),
   getNodes: () => [],
   setNodes: () => undefined,
@@ -440,15 +432,9 @@ export class CanvasStageInteractionController {
     });
   };
 
-  readonly navigateFromMinimap = (event: CanvasStageMouseEvent<SVGSVGElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const rect = this.adapter.getRect(event.currentTarget);
-    if (!rect) return;
-    const world = canvasMinimapWorldPoint(this.bindings.getMinimapModel(), {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    });
+  readonly navigateFromMinimap = (world: { x: number; y: number }) => {
+    if (this.bindings.isInteractionBlocked() || this.bindings.isProjectActionDisabled()
+      || !Number.isFinite(world.x) || !Number.isFinite(world.y)) return;
     const scale = Math.max(0.05, this.viewport.zoom / 100);
     this.applyCanvasViewport({
       zoom: this.viewport.zoom,

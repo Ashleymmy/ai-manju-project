@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inspectorLayout, inspectorSizeLimits, resizeInspector, savedInspectorHeight } from "./inspectorSize";
+import { inspectorLayout, inspectorSizeLimits, inspectorViewportForNode, resizeInspector, savedInspectorHeight } from "./inspectorSize";
 
 const limits = inspectorSizeLimits(1200, 800);
 const start = { width: 560, height: 300 };
@@ -29,7 +29,7 @@ describe("inspector resizing", () => {
 
 describe("inspector placement", () => {
   const viewport = { left: 12, top: 60, right: 1428, bottom: 988 };
-  const overlaps = (panel: ReturnType<typeof inspectorLayout>, node: typeof viewport) =>
+  const overlaps = (panel: NonNullable<ReturnType<typeof inspectorLayout>>, node: typeof viewport) =>
     panel.left < node.right && panel.left + panel.width > node.left && panel.top < node.bottom && panel.top + panel.height > node.top;
 
   it.each([
@@ -38,7 +38,7 @@ describe("inspector placement", () => {
     { left: 900, top: 100, right: 1400, bottom: 950 },
     { left: 300, top: 650, right: 1000, bottom: 950 },
   ])("uses free space around the node and clamps oversized saved panels: %o", node => {
-    const panel = inspectorLayout(node, viewport, { width: 2000, height: 2000 });
+    const panel = inspectorLayout(node, viewport, { width: 2000, height: 2000 })!;
     expect(overlaps(panel, node)).toBe(false);
     expect(panel.left).toBeGreaterThanOrEqual(viewport.left);
     expect(panel.top).toBeGreaterThanOrEqual(viewport.top);
@@ -48,8 +48,8 @@ describe("inspector placement", () => {
 
   it.each([340, 560, 900])("centers a below panel at its actual width %s", width => {
     const node = { left: 450, top: 100, right: 770, bottom: 280 };
-    const initial = inspectorLayout(node, viewport);
-    const next = inspectorLayout(node, viewport, { width, height: initial.height + 80 });
+    const initial = inspectorLayout(node, viewport)!;
+    const next = inspectorLayout(node, viewport, { width, height: initial.height + 80 })!;
     expect(next.left + next.width / 2).toBe((node.left + node.right) / 2);
     expect(next.top).toBe(initial.top);
     expect(next.width).toBe(width);
@@ -61,8 +61,8 @@ describe("inspector placement", () => {
     { left: 1060, right: 1380, direction: -1 },
   ])("clamps near the viewport edge and recenters when narrowed: %o", ({ left, right, direction }) => {
     const node = { left, right, top: 100, bottom: 280 };
-    const narrow = inspectorLayout(node, viewport, { width: 340 });
-    const wide = inspectorLayout(node, viewport, { width: 900 });
+    const narrow = inspectorLayout(node, viewport, { width: 340 })!;
+    const wide = inspectorLayout(node, viewport, { width: 900 })!;
     expect(narrow.left + narrow.width / 2).toBe((left + right) / 2);
     expect(wide.resizeX).toBe(direction);
     expect(direction > 0 ? wide.left : wide.left + wide.width).toBe(direction > 0 ? viewport.left : viewport.right);
@@ -72,28 +72,45 @@ describe("inspector placement", () => {
 
   it.each([340, 720, 1100])("centers an above panel at its actual width %s", width => {
     const node = { left: 200, top: 650, right: 1300, bottom: 950 };
-    const panel = inspectorLayout(node, viewport, { width });
+    const panel = inspectorLayout(node, viewport, { width })!;
     expect(panel.left + panel.width / 2).toBe((node.left + node.right) / 2);
     expect(node.top - panel.top - panel.height).toBe(12);
   });
 
   it("prefers a shorter panel below over a full-height panel beside the node", () => {
     const node = { left: 100, top: 100, right: 500, bottom: 710 };
-    const panel = inspectorLayout(node, viewport, { width: 600, height: 500 });
+    const panel = inspectorLayout(node, viewport, { width: 600, height: 500 })!;
     expect(panel.top).toBe(node.bottom + 12);
     expect(panel.height).toBe(266);
     expect(panel.top + panel.height).toBe(viewport.bottom);
   });
 
-  it("keeps controls reachable when no separate region fits", () => {
-    const panel = inspectorLayout(viewport, viewport);
+  it("does not overlay the node when no separate region fits", () => {
+    expect(inspectorLayout(viewport, viewport)).toBeNull();
+  });
+
+  it.each([
+    { viewport, node: { x: 0, y: 0, width: 1800, height: 1100 }, zoom: 200 },
+    { viewport: { left: 12, top: 60, right: 788, bottom: 488 }, node: { x: 80, y: 50, width: 550, height: 140 }, zoom: 100 },
+    { viewport: { left: 12, top: 60, right: 378, bottom: 380 }, node: { x: -100, y: -100, width: 1000, height: 1200 }, zoom: 200 },
+  ])("makes room below in a crowded viewport without modifying the node: %o", ({ viewport, node, zoom }) => {
+    const original = { ...node };
+    const next = inspectorViewportForNode(node, viewport, { zoom, panX: 0, panY: 0 }, 52);
+    const scale = next.zoom / 100;
+    const rect = { left: next.panX + node.x * scale, top: 52 + next.panY + node.y * scale,
+      right: next.panX + (node.x + node.width) * scale, bottom: 52 + next.panY + (node.y + node.height) * scale };
+    const panel = inspectorLayout(rect, viewport, { width: 2000, height: 2000 })!;
+    expect(panel).not.toBeNull();
+    expect(overlaps(panel, rect)).toBe(false);
+    expect(panel.top).toBeGreaterThanOrEqual(rect.bottom + 12);
     expect(panel.top + panel.height).toBeLessThanOrEqual(viewport.bottom);
-    expect(panel.left + panel.width).toBeLessThanOrEqual(viewport.right);
+    expect(next.zoom).toBeLessThanOrEqual(zoom);
+    expect(node).toEqual(original);
   });
 
   it.each([340, 560, 820])("keeps a left-side panel adjacent to a right-edge node at width %s", width => {
     const node = { left: 1000, top: 500, right: 1400, bottom: 950 };
-    const panel = inspectorLayout(node, viewport, { width, height: 400 });
+    const panel = inspectorLayout(node, viewport, { width, height: 400 })!;
     expect(node.left - panel.left - panel.width).toBe(12);
     expect(panel.width).toBe(width);
     expect(panel.resizeX).toBe(-1);
@@ -102,7 +119,7 @@ describe("inspector placement", () => {
 
   it.each([240, 400])("keeps an above panel adjacent to its node at height %s", height => {
     const node = { left: 200, top: 650, right: 1300, bottom: 950 };
-    const panel = inspectorLayout(node, viewport, { height });
+    const panel = inspectorLayout(node, viewport, { height })!;
     expect(node.top - panel.top - panel.height).toBe(12);
     expect(panel.resizeY).toBe(-1);
     expect(overlaps(panel, node)).toBe(false);

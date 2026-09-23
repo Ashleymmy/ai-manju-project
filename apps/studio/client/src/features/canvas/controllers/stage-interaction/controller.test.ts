@@ -146,13 +146,6 @@ function createHarness(initialNodes: CanvasNodeData[] = [node("a"), node("b", 30
     isProjectActionDisabled: () => false,
     getWheelZoomRequiresCtrl: () => true,
     getShortcuts: () => DEFAULT_CANVAS_SHORTCUTS,
-    getMinimapModel: () => ({
-      width: 100,
-      height: 100,
-      world: { x: 0, y: 0, width: 1_000, height: 800 },
-      nodes: [],
-      viewport: { x: 0, y: 0, width: 100, height: 100 },
-    }),
     getNodes: () => nodes,
     setNodes: value => { nodes = value; },
     getEdges: () => edges,
@@ -212,6 +205,27 @@ function createHarness(initialNodes: CanvasNodeData[] = [node("a"), node("b", 30
 }
 
 describe("CanvasStageInteractionController", () => {
+  it("centers minimap navigation without changing zoom, nodes or selection", () => {
+    const harness = createHarness();
+    const original = structuredClone(harness.nodes);
+    harness.controller.syncViewport({ zoom: 50, panX: 40, panY: 20 });
+    harness.controller.navigateFromMinimap({ x: 1200, y: 900 });
+    expect(harness.viewport).toEqual({ zoom: 50, panX: -100, panY: -76 });
+    expect(harness.nodes).toEqual(original);
+    expect(harness.selectedIds.size).toBe(0);
+    harness.controller.dispose();
+  });
+
+  it("ignores minimap movement while the canvas is blocked or coordinates are invalid", () => {
+    let blocked = true;
+    const harness = createHarness(undefined, [], { isInteractionBlocked: () => blocked });
+    harness.controller.navigateFromMinimap({ x: 5000, y: 4000 });
+    expect(harness.viewport).toEqual({ zoom: 100, panX: 0, panY: 0 });
+    blocked = false;
+    harness.controller.navigateFromMinimap({ x: NaN, y: 4000 });
+    expect(harness.viewport).toEqual({ zoom: 100, panX: 0, panY: 0 });
+    harness.controller.dispose();
+  });
   it("keeps marquee members and the pending group when opening a blank-space context menu", () => {
     const dismissPendingGroup = vi.fn();
     const setContextMenu = vi.fn();

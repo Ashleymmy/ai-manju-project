@@ -3,6 +3,7 @@
 import { act, createRef, type Dispatch, type SetStateAction } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { CanvasNodeData } from "@/features/canvas/domain/types";
 
 import {
@@ -156,6 +157,34 @@ describe("CanvasNodeCard render boundary", () => {
     await act(async () => nextVideo.dispatchEvent(new Event("loadedmetadata")));
     expect(actions.fitCanvasMediaNodeFrame).toHaveBeenLastCalledWith(node.id, 720, 1280, "blob:portrait");
     expect(container.querySelector(".node-resize-handle")?.getAttribute("title")).toBe("等比调整尺寸");
+  });
+
+  it.each(["image", "video"] as const)("keeps a failed %s prompt out of the preview and retains upload/edit actions", async kind => {
+    const actions = createActions();
+    actions.applyNodeSelection = vi.fn();
+    actions.beginInlineNodeEdit = vi.fn();
+    actions.setReplaceImageNodeId = vi.fn();
+    const upload = document.createElement("input");
+    upload.click = vi.fn();
+    actions.replaceImageInputRef = { current: upload };
+    actions.replaceMediaInputRef = { current: upload };
+    const node = createNode({ kind, imageSrc: undefined, content: "镜号1：镜头缓慢推进。".repeat(80),
+      metadata: { status: "error", errorDetails: "生成失败，请重试", composerContent: "@[node:reference] 保持角色一致。".repeat(80) } });
+    const client = new QueryClient({ defaultOptions: { queries: { enabled: false } } });
+    await act(async () => root.render(<QueryClientProvider client={client}><CanvasNodeCard {...createProps(node, actions)} isHovered isInlineEditing /></QueryClientProvider>));
+    expect(container.querySelector(".prompt-body-empty")?.textContent).toContain(kind === "video" ? "尝试上传或生成视频" : "尝试上传或生成图片");
+    expect(container.textContent).not.toContain("镜头缓慢推进");
+    expect(container.textContent).not.toContain("@[node:reference]");
+    expect(container.querySelector(".node-inline-editor")).toBeNull();
+    expect(container.querySelector(".node-error-box")?.textContent).toContain("生成失败，请重试");
+    await act(async () => container.querySelector<HTMLButtonElement>(".node-upload-pill")!.click());
+    expect(upload.click).toHaveBeenCalledOnce();
+    if (kind === "video") expect(actions.replaceMediaNodeIdRef.current).toBe(node.id);
+    else expect(actions.setReplaceImageNodeId).toHaveBeenCalledWith(node.id);
+    await act(async () => container.querySelector(".prompt-body-empty")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(actions.applyNodeSelection).toHaveBeenCalledWith([node.id], node.id, true);
+    expect(actions.beginInlineNodeEdit).not.toHaveBeenCalled();
+    expect(node.metadata?.composerContent).toContain("@[node:reference]");
   });
 
   it("still completes a pending connection when the node is in connecting mode", async () => {

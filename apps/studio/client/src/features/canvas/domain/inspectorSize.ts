@@ -1,3 +1,5 @@
+import { CANVAS_ZOOM_MIN, type CanvasViewport } from "./history";
+
 /** Inspector dimensions are screen pixels, independent of the canvas zoom. */
 export const INSPECTOR_SIZE = {
   minWidth: 340,
@@ -10,6 +12,9 @@ export const INSPECTOR_SIZE = {
   viewportMargin: 12,
   topMargin: 8,
   nodeGap: 12,
+  // Leave room for the node title and rounding when reframing a crowded viewport.
+  nodeTitleSpace: 28,
+  fitSafety: 2,
 } as const;
 
 export type InspectorResizeMode = "width" | "height" | "both";
@@ -62,12 +67,12 @@ export function inspectorLayout(node: InspectorRect, viewport: InspectorRect, sa
   const fits = (area: InspectorRect, width: number, height: number) => area.right - area.left >= width && area.bottom - area.top >= height;
   // Prefer the space below even when it needs a shorter scrolling editor.
   const minimumWidth = Math.min(minWidth, viewportWidth);
-  const minimumHeight = Math.min(minHeight, viewportHeight);
+  const minimumHeight = Math.min(minHeight, viewportHeight / 2);
   const area = (fits(areas[0], minimumWidth, minimumHeight) ? areas[0] : undefined)
     ?? areas.find(candidate => fits(candidate, preferredWidth, preferredHeight))
-    ?? areas.find(candidate => fits(candidate, minimumWidth, minimumHeight))
-    // A node filling the entire viewport leaves no separate region; keep the editor reachable.
-    ?? { ...viewport, top: Math.max(viewport.top, viewport.bottom - preferredHeight), side: "fallback" };
+    ?? areas.find(candidate => fits(candidate, minimumWidth, minimumHeight));
+  // Never fall back to covering the node. The caller makes room in the viewport first.
+  if (!area) return null;
   const areaWidth = Math.max(1, area.right - area.left);
   const areaHeight = Math.max(1, area.bottom - area.top);
   const centered = area.side === "below" || area.side === "above";
@@ -94,4 +99,23 @@ export function inspectorLayout(node: InspectorRect, viewport: InspectorRect, sa
     resizeCenterDistance: centered ? resizeX * (resizeEdge - center) : undefined,
     resizeBoundaryDistance: centered ? resizeX * (resizeEdge - (resizeX < 0 ? area.right : area.left)) : undefined,
   };
+}
+
+/** Reframe only when no usable region exists. Node data and saved editor sizes stay intact. */
+export function inspectorViewportForNode(
+  node: { x: number; y: number; width: number; height: number },
+  viewport: InspectorRect,
+  current: CanvasViewport,
+  stageOffset: number,
+): CanvasViewport {
+  const width = Math.max(1, viewport.right - viewport.left);
+  const height = Math.max(1, viewport.bottom - viewport.top);
+  const panelHeight = Math.min(INSPECTOR_SIZE.minHeight, height / 2);
+  const nodeBottom = viewport.bottom - panelHeight - INSPECTOR_SIZE.nodeGap - INSPECTOR_SIZE.fitSafety;
+  const nodeHeight = Math.max(1, nodeBottom - viewport.top - INSPECTOR_SIZE.nodeTitleSpace);
+  const zoom = Math.max(CANVAS_ZOOM_MIN, Math.floor(Math.min(current.zoom,
+    width / Math.max(1, node.width) * 100, nodeHeight / Math.max(1, node.height) * 100)));
+  const scale = zoom / 100;
+  const left = Math.max(viewport.left, Math.min(viewport.right - node.width * scale, current.panX + node.x * scale));
+  return { zoom, panX: left - node.x * scale, panY: nodeBottom - (node.y + node.height) * scale - stageOffset };
 }

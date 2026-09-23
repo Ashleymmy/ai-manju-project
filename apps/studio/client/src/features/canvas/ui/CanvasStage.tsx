@@ -1,9 +1,11 @@
 import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
+import { CanvasMinimap } from "./CanvasMinimap";
 import {
   Archive,
   BadgeCheck,
   Boxes,
   ClipboardPaste,
+  Download,
   Film,
   GitMerge,
   Image as ImageIcon,
@@ -123,12 +125,13 @@ type CanvasStageActions = {
   screenToCanvasPoint: (clientX: number, clientY: number) => { x: number; y: number };
   setContextMenu: (menu: CanvasContextMenuState | null) => void;
   toggleAgent: () => void;
-  navigateFromMinimap: (event: ReactMouseEvent<SVGSVGElement>) => void;
+  navigateFromMinimap: (world: { x: number; y: number }) => void;
   node: CanvasNodeCardActions;
   activateConnectionMode: (nodeId: string) => void;
   copySelectedNodes: () => void;
   openConnectSelection: () => void;
   registerSelectedImagesAsSeedanceAssets: () => void;
+  downloadSelectedNodes: (nodeIds?: Iterable<string>) => Promise<unknown>;
   generateFromNode: (nodeId?: string) => Promise<unknown>;
   renderCanvasSubmenu: (key: string, icon: ReactNode, label: string, items: ReactNode) => ReactNode;
   copyCanvasImagePrompt: (node: CanvasNodeData) => Promise<unknown>;
@@ -173,9 +176,9 @@ export type CanvasStageProps = {
   nodeCardProps: (node: CanvasNodeData) => CanvasNodeCardProps;
   agentOpen: boolean;
   minimapOpen: boolean;
-  visibleNodeCount: number;
   minimapModel: CanvasMinimapModel;
   selectedNodeIds: ReadonlySet<string>;
+  batchDownloadBusy: boolean;
   contextMenu: CanvasContextMenuState | null;
   contextMenuFlipX: boolean;
   contextMenuStyle?: CSSProperties;
@@ -219,9 +222,9 @@ export function CanvasStage({
   nodeCardProps,
   agentOpen,
   minimapOpen,
-  visibleNodeCount,
   minimapModel,
   selectedNodeIds,
+  batchDownloadBusy,
   contextMenu,
   contextMenuFlipX,
   contextMenuStyle,
@@ -315,7 +318,7 @@ export function CanvasStage({
             if (event.button === 2) return;
             if (connectFrom || !groups.some((group) => group.pending)) return;
             const target = event.target instanceof Element ? event.target : null;
-            if (target?.closest(".canvas-group-frame.pending, .canvas-group-pending-actions, .canvas-node-handle, .canvas-context-menu, .canvas-connection-create-menu")) return;
+            if (target?.closest(".canvas-minimap, .canvas-group-frame.pending, .canvas-group-pending-actions, .canvas-node-handle, .canvas-context-menu, .canvas-connection-create-menu")) return;
             dismissPendingGroup();
           }}
           onContextMenu={(event) => { if (projectActionDisabled) { event.preventDefault(); return; } openCanvasContextMenu(event); }}
@@ -377,6 +380,7 @@ export function CanvasStage({
                     <div className="canvas-group-pending-actions" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
                       <span>已框选 {group.nodeIds.length} 个节点</span>
                       <button type="button" onClick={() => confirmPendingGroup(group.id)}>组成分组</button>
+                      <button type="button" disabled={batchDownloadBusy} onClick={() => void actions.downloadSelectedNodes(group.nodeIds)}><Download size={12} />{batchDownloadBusy ? "打包中…" : "批量下载"}</button>
                       <button type="button" onClick={() => cancelPendingGroup(group.id)}>取消</button>
                     </div>
                   ) : null}
@@ -516,35 +520,8 @@ export function CanvasStage({
             <MetaBallOrb className="canvas-agent-fab-orb" />
             <Sparkles size={20} />
           </button>
-          {minimapOpen && !projectActionDisabled ? (
-            <div className="canvas-minimap" data-canvas-ui data-canvas-no-zoom onPointerDown={(event) => event.stopPropagation()}>
-              <div><span>MINIMAP</span><b>{visibleNodeCount} NODES</b></div>
-              <svg
-                viewBox={`0 0 ${minimapModel.width} ${minimapModel.height}`}
-                role="img"
-                aria-label="画布缩略导航，点击可移动当前视口"
-                onClick={navigateFromMinimap}
-              >
-                {minimapModel.nodes.map((node) => (
-                  <rect
-                    key={node.id}
-                    className={selectedNodeIds.has(node.id) ? "selected" : ""}
-                    x={node.x}
-                    y={node.y}
-                    width={node.width}
-                    height={node.height}
-                    rx={1.5}
-                  />
-                ))}
-                <rect
-                  className="viewport"
-                  x={minimapModel.viewport.x}
-                  y={minimapModel.viewport.y}
-                  width={minimapModel.viewport.width}
-                  height={minimapModel.viewport.height}
-                />
-              </svg>
-            </div>
+          {minimapOpen && !projectActionDisabled && !canvasInteractionBlocked ? (
+            <CanvasMinimap model={minimapModel} selectedNodeIds={selectedNodeIds} onNavigate={navigateFromMinimap} />
           ) : null}
           {contextMenu && !projectActionDisabled ? (
             <div ref={contextMenuRef} className={`canvas-context-menu${contextMenuFlipX ? " flip-x" : ""}`} data-canvas-ui data-canvas-no-zoom style={contextMenuStyle} onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>
@@ -554,6 +531,9 @@ export function CanvasStage({
                 </div>
               ) : null}
               <div className={`canvas-context-menu-list${contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? " has-submenus" : ""}`}>
+                {!contextMenu.edgeId && selectedNodeIds.size >= 2 ? (
+                  <button className="full-outline" disabled={batchDownloadBusy} onClick={() => { void actions.downloadSelectedNodes(); setContextMenu(null); }}><Download size={14} /> {batchDownloadBusy ? "打包中…" : "批量下载"}</button>
+                ) : null}
                 {!contextMenu.edgeId && selectedNodeIds.size >= 2 ? (
                   <button className="full-outline" onClick={() => { actions.registerSelectedImagesAsSeedanceAssets(); setContextMenu(null); }}><BadgeCheck size={14} /> 批量注册拟真人素材</button>
                 ) : null}

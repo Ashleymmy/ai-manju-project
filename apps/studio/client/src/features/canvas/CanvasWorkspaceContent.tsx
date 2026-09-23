@@ -65,10 +65,11 @@ import { ApiError, publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 import { useCanvasOriginalImage } from "./controllers/useCanvasOriginalImage";
 import { useInspectorResize } from "./controllers/useInspectorResize";
-import { INSPECTOR_SIZE, inspectorLayout, inspectorSizeLimits, savedInspectorHeight } from "./domain/inspectorSize";
+import { INSPECTOR_SIZE, inspectorLayout, inspectorSizeLimits, inspectorViewportForNode, savedInspectorHeight } from "./domain/inspectorSize";
 import { useCanvasServerVideoHistory } from "./controllers/useCanvasServerVideoHistory";
 import { mergeCanvasGenerationHistory, serverVideoHistoryNodes } from "./domain/serverVideoHistory";
 import { downloadCanvasOriginalMedia } from "./services/originalMedia";
+import { createCanvasSelectionDownload } from "./services/batchDownload";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { readCanvasClipboardData, readSystemCanvasClipboard, type CanvasClipboardContent } from "./adapters/clipboard";
 import { CANVAS_CLIPBOARD_TOKEN_PREFIX } from "./domain/clipboard";
@@ -583,6 +584,8 @@ export default function CanvasWorkspaceViewContent() {
   const setJobProgressByNode = canvasCommands.generation.setJobProgressByNode;
   const [uploading, setUploading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [batchDownloadBusy, setBatchDownloadBusy] = useState(false);
+  const batchDownloadBusyRef = useRef(false);
   const [fragmentBusy, setFragmentBusy] = useState(false);
   const [projectArchiveBusy, setProjectArchiveBusy] = useState(false);
   const [captureFrameNodeId, setCaptureFrameNodeId] = useState("");
@@ -984,22 +987,28 @@ export default function CanvasWorkspaceViewContent() {
     syncTimestampLabel ? `最后同步：${syncTimestampLabel}` : "",
     syncError,
   ].filter(Boolean).join("\n");
-  const selectedPanelStyle = useMemo<CSSProperties | undefined>(() => {
-    if (!selectedNode) return undefined;
+  const { style: selectedPanelStyle, reframe: inspectorReframe } = useMemo<{
+    style?: CSSProperties; reframe?: { zoom: number; panX: number; panY: number };
+  }>(() => {
+    if (!selectedNode) return {};
     const scale = Math.max(0.05, zoom / 100);
     // 节点完全移出舞台视野时不显示面板（钳制在边缘会显得悬浮无锚点）。
     const nodeLeft = panX + selectedNode.x * scale;
     const nodeTop = CANVAS_STAGE_OFFSET + panY + selectedNode.y * scale;
     const nodeRight = nodeLeft + selectedNode.width * scale;
     const nodeBottom = nodeTop + selectedNode.height * scale;
-    if (nodeRight < 0 || nodeBottom < CANVAS_STAGE_OFFSET || nodeLeft > stageBounds.width || nodeTop > stageBounds.height) return undefined;
-    const { resizeX, resizeY, resizeCenterDistance, resizeBoundaryDistance, ...layout } = inspectorLayout(
+    if (nodeRight < 0 || nodeBottom < CANVAS_STAGE_OFFSET || nodeLeft > stageBounds.width || nodeTop > stageBounds.height) return {};
+    const viewport = { left: INSPECTOR_SIZE.viewportMargin, top: CANVAS_STAGE_OFFSET + INSPECTOR_SIZE.topMargin,
+      right: stageBounds.width - INSPECTOR_SIZE.viewportMargin, bottom: stageBounds.height - INSPECTOR_SIZE.viewportMargin };
+    if (viewport.right <= viewport.left || viewport.bottom <= viewport.top + INSPECTOR_SIZE.nodeGap + INSPECTOR_SIZE.fitSafety) return {};
+    const placement = inspectorLayout(
         { left: nodeLeft, top: nodeTop, right: nodeRight, bottom: nodeBottom },
-        { left: INSPECTOR_SIZE.viewportMargin, top: CANVAS_STAGE_OFFSET + INSPECTOR_SIZE.topMargin,
-          right: stageBounds.width - INSPECTOR_SIZE.viewportMargin, bottom: stageBounds.height - INSPECTOR_SIZE.viewportMargin },
+        viewport,
         { width: savedInspectorHeight(selectedNode.metadata?.promptPanelWidth), height: savedInspectorHeight(selectedNode.metadata?.promptPanelHeight) },
       );
-    return {
+    if (!placement) return { reframe: inspectorViewportForNode(selectedNode, viewport, { zoom, panX, panY }, CANVAS_STAGE_OFFSET) };
+    const { resizeX, resizeY, resizeCenterDistance, resizeBoundaryDistance, ...layout } = placement;
+    return { style: {
       ...layout,
       "--inspector-resize-x": resizeX,
       "--inspector-resize-y": resizeY,
@@ -1011,8 +1020,13 @@ export default function CanvasWorkspaceViewContent() {
       "--inspector-resize-bottom": resizeY < 0 ? "auto" : "0px",
       "--inspector-resize-cursor": resizeX === resizeY ? "nwse-resize" : "nesw-resize",
       right: "auto", bottom: "auto",
-    };
+    } };
   }, [panX, panY, selectedNode, stageBounds.height, stageBounds.width, zoom]);
+  useLayoutEffect(() => {
+    if (!inspectorOpen || selectedGroup || projectActionDisabled || !inspectorReframe || stageBounds.height <= CANVAS_STAGE_OFFSET) return;
+    // A hidden panel is shown only after the viewport has a separate region for it.
+    stageInteractionController.applyCanvasViewport(inspectorReframe);
+  }, [inspectorOpen, selectedGroup, projectActionDisabled, inspectorReframe, stageBounds.height, stageInteractionController]);
   const selectedGroupPanelStyle = useMemo<CSSProperties | undefined>(() => {
     if (!selectedGroup) return undefined;
     const scale = Math.max(0.05, zoom / 100);
@@ -1251,6 +1265,16 @@ export default function CanvasWorkspaceViewContent() {
     setSelectedEdgeId((current) => current === edgeId ? "" : current);
     setHoveredEdgeId((current) => current === edgeId ? "" : current);
     setContextMenu(null);
+  }, []);
+
+  const disconnectIncomingSource = useCallback((sourceId: string, targetId: string) => {
+    const removedIds = new Set(edgesRef.current.filter(edge => edge.from === sourceId && edge.to === targetId).map(edge => edge.id));
+    if (!removedIds.size) return;
+    const nextEdges = edgesRef.current.filter(edge => !removedIds.has(edge.id));
+    edgesRef.current = nextEdges;
+    setEdges(nextEdges);
+    setSelectedEdgeId(current => removedIds.has(current) ? "" : current);
+    setHoveredEdgeId(current => removedIds.has(current) ? "" : current);
   }, []);
 
   useEffect(() => {
@@ -3056,7 +3080,6 @@ export default function CanvasWorkspaceViewContent() {
     isProjectActionDisabled: () => projectActionDisabled,
     getWheelZoomRequiresCtrl: () => wheelZoomRequiresCtrl,
     getShortcuts: () => shortcutsRef.current,
-    getMinimapModel: () => minimapModel,
     getNodes: () => nodesRef.current,
     setNodes: nextNodes => { nodesRef.current = nextNodes; setNodes(nextNodes); },
     getEdges: () => edgesRef.current,
@@ -3157,6 +3180,30 @@ export default function CanvasWorkspaceViewContent() {
       downloadBlob(blob, mediaKindFromNode(node) === "image" ? imageFileName(name, blob.type) : name);
     } catch (error) {
       toast.error(publicApiError(error, "下载媒体失败"));
+    }
+  };
+
+  const downloadSelectedNodes = async (nodeIds: Iterable<string> = selectedNodeIdsRef.current) => {
+    if (batchDownloadBusyRef.current) return;
+    batchDownloadBusyRef.current = true;
+    setBatchDownloadBusy(true);
+    const toastId = toast.loading("正在准备下载所选媒体…");
+    // Freeze the selection so subsequent clicks, navigation or edits cannot
+    // silently change the contents of an in-progress download.
+    const selectedIds = new Set(nodeIds);
+    const sourceNodes = nodesRef.current.map(node => ({ ...node, metadata: { ...node.metadata } }));
+    try {
+      const result = await createCanvasSelectionDownload(sourceNodes, selectedIds, projectSessionController.canonicalScope,
+        progress => toast.loading(`正在打包 ${progress.completed}/${progress.total}：${progress.name}`, { id: toastId }));
+      downloadBlob(result.blob, `${safeArchiveSegment(projectTitle || "画布")}-所选媒体.zip`);
+      const summary = `已打包 ${result.completed} 个原文件${result.skipped ? `，跳过 ${result.skipped} 个非媒体或空节点` : ""}`;
+      if (result.failures.length) toast.warning(`${summary}；${result.failures.length} 项失败，详情见包内说明`, { id: toastId });
+      else toast.success(summary, { id: toastId });
+    } catch (error) {
+      toast.error(publicApiError(error, "批量下载失败"), { id: toastId });
+    } finally {
+      batchDownloadBusyRef.current = false;
+      setBatchDownloadBusy(false);
     }
   };
 
@@ -4554,9 +4601,9 @@ export default function CanvasWorkspaceViewContent() {
           })}
           agentOpen={agentOpen}
           minimapOpen={minimapOpen}
-          visibleNodeCount={visibleNodes.length}
           minimapModel={minimapModel}
           selectedNodeIds={selectedNodeIds}
+          batchDownloadBusy={batchDownloadBusy}
           contextMenu={contextMenu}
           contextMenuFlipX={contextMenuFlipX}
           contextMenuStyle={contextMenuStyle}
@@ -4596,6 +4643,7 @@ export default function CanvasWorkspaceViewContent() {
             copySelectedNodes,
             openConnectSelection: () => setConnectSelectionOpen(true),
             registerSelectedImagesAsSeedanceAssets,
+            downloadSelectedNodes,
             generateFromNode,
             renderCanvasSubmenu,
             copyCanvasImagePrompt,
@@ -4661,6 +4709,7 @@ export default function CanvasWorkspaceViewContent() {
             ungroupCanvasGroup,
             updateNode,
             commitInspectorNodeTitle,
+            disconnectIncomingSource,
             generateFromNode,
             openAssetPicker,
             selectGenerationModel: (value) => {

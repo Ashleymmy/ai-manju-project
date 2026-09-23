@@ -759,6 +759,7 @@ export function ImageWorkbenchView() {
         const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
         if (files.length) { event.preventDefault(); addReferenceFiles(files); }
       }}>
+        <div className="image-composer-scroll" role="region" aria-label="图片生成设置" tabIndex={0}>
         <div className="composer-heading">
           <p className="eyebrow">SETUP / FRAME</p>
           <h3>生成设定</h3>
@@ -831,15 +832,16 @@ export function ImageWorkbenchView() {
             }
           }}>{ratio}</button>)}</div>
         </div>
-        {generating && <div className="job-progress"><i style={{ width: `${jobProgress}%` }} /></div>}
-        <div className="generate-row">
-          <button className="vermilion-button generate-frame" disabled={generating || !model} onClick={() => void generate()}><WandSparkles size={17} /> {generating ? `生成中 ${jobProgress}% · ${elapsedSeconds}s` : references.length ? "生成编辑结果" : "生成关键帧"}</button>
-          {generating && <button className="outline-button small" onClick={stopGeneration}><Square size={14} /> 停止</button>}
-          {!generating ? (
-            <small className="generate-cost-hint">
+        </div>
+        <div className="image-generation-footer">
+          {generating && <div className="job-progress"><i style={{ width: `${jobProgress}%` }} /></div>}
+          <div className="generate-row">
+            <button className="vermilion-button generate-frame" disabled={generating || !model} onClick={() => void generate()}><WandSparkles size={17} /> {generating ? `生成中 ${jobProgress}% · ${elapsedSeconds}s` : references.length ? "生成编辑结果" : "生成关键帧"}</button>
+            {generating && <button className="outline-button small" onClick={stopGeneration}><Square size={14} /> 停止</button>}
+            <small className="generate-cost-hint" aria-hidden={generating} style={{ visibility: generating ? "hidden" : undefined }}>
               <GenerationPrice model={model} size={workbenchRequestSize(size, snapPixelSizeForModel(model, clampImagePixelSize({ width, height }, align16)).width, snapPixelSizeForModel(model, clampImagePixelSize({ width, height }, align16)).height, align16)} quality={resolveImageWorkbenchRequestOptions(size, quality).quality} count={count} references={references.length} /> · 成功才扣费
             </small>
-          ) : null}
+          </div>
         </div>
       </section>
       <aside className="generation-output">

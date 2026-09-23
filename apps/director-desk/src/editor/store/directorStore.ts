@@ -367,13 +367,14 @@ function extractPersistedDirectorState(state: DirectorRuntimeState): DirectorSta
 }
 
 function writePersistedDirectorState(state: DirectorState) {
-  const storage = getLocalStorageSafe();
-  if (!storage) return;
-
   try {
+    const storage = getLocalStorageSafe();
+    if (!storage) return false;
     storage.setItem(getDirectorSceneStorageKey(), JSON.stringify(state));
+    return true;
   } catch {
     // Keep the editor usable if the browser storage quota is exceeded.
+    return false;
   }
 }
 
@@ -3041,7 +3042,7 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
         cameraMotionPlaying: false,
       })),
     saveLatestSnapshot: () => {
-      writePersistedDirectorState(extractPersistedDirectorState(get() as DirectorRuntimeState));
+      return writePersistedDirectorState(extractPersistedDirectorState(get() as DirectorRuntimeState));
     },
     restoreLatestSnapshot: () => {
       const snapshot = readPersistedDirectorState({ includePersistedLocalAssets: true, includePersistedScene: true });

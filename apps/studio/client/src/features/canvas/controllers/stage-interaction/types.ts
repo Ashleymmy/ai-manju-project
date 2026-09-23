@@ -1,5 +1,4 @@
 import type { CanvasGroupData } from "@/features/canvas/domain/groups";
-import type { CanvasMinimapModel } from "@/features/canvas/domain/minimap";
 import type { CanvasAlignGuide } from "@/features/canvas/domain/nodeSnap";
 import type { CanvasPoint } from "@/features/canvas/domain/selection";
 import type { CanvasConnectionHandleType } from "@/features/canvas/domain/connections";
@@ -103,7 +102,6 @@ export type CanvasStageInteractionBindings = {
   isProjectActionDisabled(): boolean;
   getWheelZoomRequiresCtrl(): boolean;
   getShortcuts(): CanvasShortcutBindings;
-  getMinimapModel(): CanvasMinimapModel;
   getNodes(): CanvasNodeData[];
   setNodes(nodes: CanvasNodeData[]): void;
   getEdges(): CanvasEdgeData[];

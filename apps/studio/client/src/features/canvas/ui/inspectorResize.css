@@ -27,11 +27,20 @@
 .canvas-focus .inspector-panel.inspector-floating.inspector-sized {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: auto;
   box-sizing: border-box;
+  /* Geometry is collision-tested; entrance scaling must not cross the node. */
+  animation: none;
+  transform: none;
+  transition: opacity .18s ease;
 }
 .inspector-floating.inspector-sized > :not(.node-card-body) { flex-shrink: 0; }
-.inspector-floating.inspector-sized .node-card-body { flex: 1; min-height: 0; overflow: auto; }
+/* Provider errors can be arbitrarily long; they must not consume the prompt editor. */
+.inspector-floating.inspector-sized .node-card-body > [role="alert"],
+.inspector-floating.inspector-sized .node-card-body > [role="status"] { max-height: 3em; margin: 0; overflow: auto; }
+/* One reference row + one editable prompt line, including spacing and padding.
+   On very short panels the remaining controls scroll instead of hiding the prompt. */
+.inspector-floating.inspector-sized .node-card-body { flex: 1; min-height: 106px; overflow: auto; }
 .inspector-floating.inspector-sized .node-card-body > :not(.canvas-mention-editor) { flex-shrink: 0; }
 .inspector-floating.inspector-sized .node-card-body > .canvas-mention-editor { flex: 1; min-height: 40px; }
 .inspector-floating.inspector-sized .node-card-body .canvas-mention-editor > textarea,

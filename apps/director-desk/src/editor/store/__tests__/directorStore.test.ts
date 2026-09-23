@@ -1162,7 +1162,7 @@ it("keeps motion playback state transient when saving the project snapshot", () 
   useDirectorStore.getState().setCameraMotionProgress(0.625);
   useDirectorStore.getState().setCameraMotionPlaying(true);
   useDirectorStore.getState().selectCameraMotionKeyframe("motion_key_preview");
-  useDirectorStore.getState().saveLatestSnapshot();
+  expect(useDirectorStore.getState().saveLatestSnapshot()).toBe(true);
 
   const persisted = JSON.parse(localStorage.getItem("storyai-3d-director-desk-demo") ?? "{}") as Record<
     string,

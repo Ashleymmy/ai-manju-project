@@ -136,7 +136,8 @@
 .canvas-minimap { position: absolute; left: 16px; bottom: 64px; z-index: 8; width: 202px; padding: 8px; border: 1px solid rgba(239,235,222,.2); background: rgba(18,24,25,.94); box-shadow: 0 18px 36px rgba(0,0,0,.34); backdrop-filter: blur(12px); border-radius: 7px; }
 .canvas-minimap > div { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; color: #b7b7b7; font: 10px var(--font-family-mono); }
 .canvas-minimap > div b { color: #d0d0d0; font-weight: 500; }
-.canvas-minimap svg { display: block; width: 184px; height: 122px; border: 1px solid rgba(255,255,255,.08); background: #0c1112; cursor: crosshair; }
+.canvas-minimap svg { display: block; width: 184px; height: 122px; border: 1px solid rgba(255,255,255,.08); background: #0c1112; cursor: grab; touch-action: none; user-select: none; }
+.canvas-minimap.is-dragging svg { cursor: grabbing; }
 .canvas-minimap svg rect:not(.viewport) { fill: rgba(255,255,255,.26); stroke: rgba(255,255,255,.62); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .canvas-minimap svg rect.selected { fill: rgba(255,255,255,.5); stroke: #ff9c8a; }
 .canvas-minimap svg rect.viewport { fill: rgba(255,255,255,.035); stroke: #f3efe4; stroke-width: 1.2; vector-effect: non-scaling-stroke; pointer-events: none; }
@@ -287,6 +288,19 @@
 .canvas-connected-preview:hover { border-color: rgba(125,211,252,.65); background: rgba(125,211,252,.1); }
 .canvas-connected-preview img { width: 100%; height: 100%; object-fit: cover; border-radius: 5px; }
 .canvas-connected-preview span { font-size: 9px; }
+.canvas-connected-preview-item { position: relative; flex: 0 0 54px; }
+.canvas-connected-preview-remove {
+  /* Stay inside the thumbnail so the scrolling strip cannot clip the action. */
+  position: absolute; top: 2px; right: 2px; z-index: 1;
+  display: grid; place-items: center; width: 18px; height: 18px; padding: 0;
+  border: 1px solid rgba(255,255,255,.35); border-radius: 50%;
+  background: rgba(20,20,20,.9); color: #fff; cursor: pointer;
+  opacity: 0; pointer-events: none;
+}
+.canvas-connected-preview-item:hover .canvas-connected-preview-remove,
+.canvas-connected-preview-item:focus-within .canvas-connected-preview-remove { opacity: 1; pointer-events: auto; }
+.canvas-connected-preview-remove:hover { background: #a83232; }
+@media (hover: none) { .canvas-connected-preview-remove { opacity: 1; pointer-events: auto; } }
 .canvas-focus .inspector-panel.inspector-imported-node {
   display: none !important;
   width: 220px !important;
@@ -388,7 +402,9 @@
 .canvas-focus .real-canvas-page { height: 100dvh; min-height: 0; padding: 0; display: flex; flex-direction: column; }
 .canvas-focus.canvas-focus-direct .real-canvas-page { height: 100dvh; }
 .canvas-focus .real-canvas-workspace { flex: 1 1 0; min-height: 0; overflow: hidden; display: grid; }
-.canvas-focus .real-canvas-stage { height: 100%; overflow: hidden; position: relative; min-height: 0; }
+/* Canvas movement belongs to pan/zoom. Native focus/scrollIntoView scrolling
+   would move nodes without their sibling inspector or the stored viewport. */
+.canvas-focus .real-canvas-stage { height: 100%; overflow: clip; position: relative; min-height: 0; }
 @media (max-width: 760px) {
   .canvas-focus.canvas-focus-direct .real-canvas-page { height: 100dvh; padding-top: 0; }
 }
@@ -2447,6 +2463,7 @@ textarea.node-card-prompt {
   justify-content: center;
   color: #818181;
 }
+.real-canvas-node > .node-error-box { min-height: 0; max-height: 30%; overflow: auto; }
 .node-empty-title-input {
   position: absolute;
   top: 6px;
@@ -4369,7 +4386,7 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   }
   .canvas-focus .canvas-bottom-tools { animation: ui-pop-in .34s .15s cubic-bezier(.34, 1.4, .64, 1) backwards; }
   .canvas-focus .canvas-agent-fab { animation: ui-pop-in .34s .22s cubic-bezier(.34, 1.4, .64, 1) backwards; }
-  .canvas-focus .canvas-minimap { animation: ui-menu-pop .22s ease backwards; }
+  .canvas-focus .canvas-minimap { animation: ui-fade-in .22s ease backwards; }
 
   /* ---- 闁诡噮鍓氱拠鐐哄级閳╁啫鐦婚梺绛嬪櫙缁变即骞愭径濠傜闁哄绮岄崰鏇㈠炊閻愯尪鍓?+ 闁绘鍩栭埀顑挎祰缁诲啫銆?---- */
   .canvas-focus .canvas-top-tools button,

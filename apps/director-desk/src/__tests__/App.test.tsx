@@ -1,8 +1,9 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import { createInitialDirectorState, useDirectorStore } from "../editor/store/directorStore";
 import { readDirectorDeskRecords, writeDirectorDeskRecords } from "../editor/workspaces/directorDeskRegistry";
+import { clearReferenceVideoExportHandler, requestReferenceVideoExport, setReferenceVideoExportHandler, type ReferenceVideoExportResult } from "../editor/io/referenceVideoExport";
 
 vi.mock("../editor/canvas/DirectorCanvas", () => ({
   DirectorCanvas: () => <div data-testid="mock-director-canvas" />,
@@ -17,6 +18,12 @@ beforeEach(() => {
     ...useDirectorStore.getState(),
     ...createInitialDirectorState(),
   });
+});
+
+afterEach(() => {
+  clearReferenceVideoExportHandler();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 it("returns to a real home page that lists director desks 1 through 4", async () => {
@@ -81,7 +88,7 @@ it("renders the director desk header and view mode switch", () => {
   expect(screen.getByRole("button", { name: "第一视角" })).toBeInTheDocument();
   expect(container.querySelector(".top-bar-center .mode-toggle")).toBeInTheDocument();
   expect(screen.queryByLabelText("帮助")).not.toBeInTheDocument();
-  expect(screen.getByLabelText("关闭")).toBeInTheDocument();
+  expect(screen.getByLabelText("退出导演台")).toHaveAttribute("title", "保存场景并退出导演台");
 });
 
 it("runs the benchmark as a temporary workspace without adding it to the director registry", () => {
@@ -114,18 +121,88 @@ it("notifies the host canvas when the director desk app is ready", () => {
 
 it("notifies the host canvas when the director desk close button is clicked", async () => {
   const user = userEvent.setup();
-  const postMessage = vi.spyOn(window.parent, "postMessage").mockImplementation(() => undefined);
+  const postMessage = vi.fn();
+  vi.spyOn(window, "parent", "get").mockReturnValue({ postMessage } as unknown as Window);
+  const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
 
   render(<App />);
 
-  await user.click(screen.getByRole("button", { name: "关闭" }));
+  await user.click(screen.getByRole("button", { name: "退出导演台" }));
 
   expect(postMessage).toHaveBeenCalledWith(
     { type: "storyai:director-desk-close" },
     window.location.origin
   );
 
-  postMessage.mockRestore();
+  expect(close).not.toHaveBeenCalled();
+  expect(screen.getByTestId("mock-director-canvas")).toBeInTheDocument();
+});
+
+it("saves the latest edits before closing a standalone tab and falls back to its home if closing is blocked", () => {
+  vi.useFakeTimers();
+  const close = vi.spyOn(window, "close").mockImplementation(() => {
+    const snapshot = JSON.parse(localStorage.getItem("storyai-3d-director-desk-demo:desk_1") ?? "{}");
+    expect(snapshot.project.objects[0].name).toBe("退出前最后一次编辑");
+  });
+  render(<App />);
+  act(() => {
+    const { project } = useDirectorStore.getState();
+    useDirectorStore.setState({
+      project: { ...project, objects: project.objects.map((object, index) => index === 0 ? { ...object, name: "退出前最后一次编辑" } : object) },
+    });
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "退出导演台" }));
+  expect(close).toHaveBeenCalledTimes(1);
+  act(() => { vi.runOnlyPendingTimers(); });
+  expect(screen.getByRole("heading", { name: "选择一个导演台开始摆场景" })).toBeInTheDocument();
+
+  act(() => { useDirectorStore.getState().openScopedScene("desk_1"); });
+  expect(useDirectorStore.getState().project.objects[0].name).toBe("退出前最后一次编辑");
+});
+
+it("keeps the scene open when saving fails and allows a later close retry", () => {
+  vi.useFakeTimers();
+  const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
+  const alert = vi.spyOn(window, "alert").mockImplementation(() => undefined);
+  const postMessage = vi.spyOn(window, "postMessage").mockImplementation(() => undefined);
+  render(<App />);
+  postMessage.mockClear();
+  const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new DOMException("Storage full", "QuotaExceededError");
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "退出导演台" }));
+  expect(alert).toHaveBeenCalledWith(expect.stringContaining("当前场景未能保存"));
+  expect(close).not.toHaveBeenCalled();
+  expect(postMessage).not.toHaveBeenCalled();
+  expect(screen.getByTestId("mock-director-canvas")).toBeInTheDocument();
+
+  write.mockRestore();
+  fireEvent.click(screen.getByRole("button", { name: "退出导演台" }));
+  expect(close).toHaveBeenCalledTimes(1);
+  act(() => { vi.runOnlyPendingTimers(); });
+});
+
+it("keeps a running video export open and allows exit after the export ends", async () => {
+  vi.useFakeTimers();
+  const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
+  const alert = vi.spyOn(window, "alert").mockImplementation(() => undefined);
+  render(<App />);
+  let rejectExport!: (reason: Error) => void;
+  setReferenceVideoExportHandler(() => new Promise<ReferenceVideoExportResult>((_, reject) => { rejectExport = reject; }));
+  const exporting = requestReferenceVideoExport({ fileName: "shot.mp4", fps: 30, quality: "720p" });
+
+  fireEvent.click(screen.getByRole("button", { name: "退出导演台" }));
+  expect(alert).toHaveBeenCalledWith(expect.stringContaining("视频正在导出"));
+  expect(close).not.toHaveBeenCalled();
+  expect(screen.getByTestId("mock-director-canvas")).toBeInTheDocument();
+  const failed = expect(exporting).rejects.toThrow("render stopped");
+  rejectExport(new Error("render stopped"));
+  await failed;
+  fireEvent.click(screen.getByRole("button", { name: "退出导演台" }));
+  expect(close).toHaveBeenCalledTimes(1);
+  act(() => { vi.runOnlyPendingTimers(); });
 });
 
 it("uses a full-width director desk frame instead of floating card columns", () => {

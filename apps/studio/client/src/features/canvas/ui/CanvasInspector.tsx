@@ -159,6 +159,7 @@ export type CanvasInspectorActions = {
   runCanvasGroupGeneration: (groupId: string) => Promise<unknown>;
   ungroupCanvasGroup: (groupId: string) => void;
   updateNode: (nodeId: string, patch: Partial<CanvasNodeData>) => void;
+  disconnectIncomingSource: (sourceId: string, targetId: string) => void;
   commitInspectorNodeTitle: (node: CanvasNodeData) => void;
   generateFromNode: (nodeId?: string) => Promise<unknown>;
   openAssetPicker: () => void;
@@ -287,6 +288,7 @@ export function CanvasInspector({
     runCanvasGroupGeneration,
     ungroupCanvasGroup,
     updateNode,
+    disconnectIncomingSource,
     generateFromNode,
     openAssetPicker,
     selectGenerationModel,
@@ -383,19 +385,32 @@ export function CanvasInspector({
                         ? imageSrcFromNode(source, previews)
                         : source.metadata?.preview as string | undefined;
                       return (
-                        <button
-                          key={source.id}
-                          type="button"
-                          className="canvas-connected-preview"
-                          title={`引用：${source.title || source.id}`}
-                          aria-label={`引用：${source.title || source.id}`}
-                          disabled={!reference}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => reference && promptEditorRef.current?.insertReference(reference)}
-                        >
-                          {preview ? <RetryImage src={preview} alt={source.title || "前置节点"} fallback={<ImageOff size={16} aria-label="图片暂不可用" />} /> : <span>{source.kind.toUpperCase()}</span>}
-                        </button>
+                        <div className="canvas-connected-preview-item" key={source.id}>
+                          <button
+                            type="button"
+                            className="canvas-connected-preview"
+                            title={`引用：${source.title || source.id}`}
+                            aria-label={`引用：${source.title || source.id}`}
+                            disabled={!reference}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => reference && promptEditorRef.current?.insertReference(reference)}
+                          >
+                            {preview ? <RetryImage src={preview} alt={source.title || "前置节点"} fallback={<ImageOff size={16} aria-label="图片暂不可用" />} /> : <span>{source.kind.toUpperCase()}</span>}
+                          </button>
+                          <button
+                            type="button"
+                            className="canvas-connected-preview-remove"
+                            title={`断开与「${source.title || source.id}」的连线`}
+                            aria-label={`断开与「${source.title || source.id}」的连线`}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              disconnectIncomingSource(source.id, selectedNode.id);
+                            }}
+                          ><X size={12} /></button>
+                        </div>
                       );
                     })}
                   </div>
@@ -426,6 +441,7 @@ export function CanvasInspector({
                     ))}
                   </div>
                 ) : null}
+                <CanvasImageOutputStatus node={selectedNode} />
               </div>
 
               <div className="node-card-chips">
@@ -585,7 +601,6 @@ export function CanvasInspector({
                 </div>
               </div>
 
-              <CanvasImageOutputStatus node={selectedNode} />
               <div className="node-card-ops">
                 {/* 暂时隐藏「从此节点连接」入口（需求暂定，后期恢复时取消本行与顶部 Link2 导入的注释）
                 <button title="从此节点连接" onClick={() => activateConnectionMode(selectedNode.id)}><Link2 size={14} /></button> */}

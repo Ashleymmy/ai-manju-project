@@ -1,0 +1,31 @@
+/* Price-bearing actions need intrinsic width; icon-only controls stay compact. */
+.real-canvas-node .node-hover-toolbar { flex-wrap: nowrap; width: max-content; }
+.real-canvas-node .node-hover-toolbar > button { flex-shrink: 0; }
+.real-canvas-node .node-hover-toolbar button:has(.generation-price) {
+  width: auto;
+  min-width: 28px;
+  gap: 6px;
+  padding-inline: 8px;
+  white-space: nowrap;
+}
+.real-canvas-node .node-hover-toolbar .generation-price { flex-shrink: 0; white-space: nowrap; }
+.real-canvas-node .node-hover-toolbar .generation-price-compact {
+  min-height: 0;
+  padding: 0 0 0 7px;
+  border: 0;
+  border-left: 1px solid #ffffff24;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  gap: 4px;
+}
+.node-toolbar-generate { font-size: 11px; }
+.node-toolbar-font {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 1px;
+  padding-inline: 3px;
+  border-inline: 1px solid #ffffff1c;
+}
+.node-toolbar-font > span { min-width: 20px; text-align: center; font-size: 11px; font-variant-numeric: tabular-nums; }

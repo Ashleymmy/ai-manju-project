@@ -1,5 +1,5 @@
 import "./styles/index.css";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowRight, BookOpen, Boxes, Check, Clock3, Hand, House, Keyboard, MousePointer2, Plus, Route, Sparkles, Trash2, Users, X } from "lucide-react";
 import { DirectorDeskShell } from "./app/layout/DirectorDeskShell";
 import { DirectorCanvas } from "./editor/canvas/DirectorCanvas";
@@ -11,6 +11,7 @@ import {
   postDirectorDeskReadyToHost,
 } from "./editor/io/hostBridge";
 import { useDirectorStore } from "./editor/store/directorStore";
+import { isReferenceVideoExportRunning } from "./editor/io/referenceVideoExport";
 import {
   createDirectorDeskRecord,
   deleteDirectorDeskRecord,
@@ -32,6 +33,12 @@ import { getBenchmarkPerformanceProfile } from "./editor/performance/performance
 import { PerformanceSettings } from "./editor/performance/PerformanceSettings";
 
 type AppScreen = "home" | "editor";
+
+// Give the browser time to close a script-opened tab before applying its fallback.
+const CLOSE_FALLBACK_DELAY_MS = 200;
+// Studio hosts the standalone build here; direct demo use falls back to its own home.
+const STUDIO_DIRECTOR_PATH_PREFIX = "/director-desk/";
+const STUDIO_HOME_PATH = "/dashboard";
 
 const HOME_QUICK_START_STEPS = [
   ["选择导演台", "打开已有导演台，或点击“新建导演台”创建一个空场景。"],
@@ -195,7 +202,12 @@ export default function App() {
   const motionStudioOpen = useDirectorStore((state) => state.motionStudioOpen);
   const setMotionStudioOpen = useDirectorStore((state) => state.setMotionStudioOpen);
   const [directorDeskView, setDirectorDeskView] = useState(createInitialDirectorDeskViewState);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { records: directorDesks, activeDeskId, screen } = directorDeskView;
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== null) clearTimeout(closeTimerRef.current);
+  }, []);
 
   function openDirectorDesk(
     id: string,
@@ -284,7 +296,28 @@ export default function App() {
   }
 
   function handleClose() {
-    postDirectorDeskMessageToHost({ type: "storyai:director-desk-close" });
+    if (closeTimerRef.current !== null) return;
+    const state = useDirectorStore.getState();
+    if (isReferenceVideoExportRunning()) {
+      window.alert("视频正在导出，请等待导出完成后再退出导演台。");
+      return;
+    }
+    if (!benchmarkMode && !state.saveLatestSnapshot()) {
+      window.alert("当前场景未能保存，已暂停退出。请检查浏览器存储权限或可用空间后重试。");
+      return;
+    }
+    if (postDirectorDeskMessageToHost({ type: "storyai:director-desk-close" })) return;
+
+    window.close();
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
+      if (window.closed) return;
+      if (window.location.pathname.startsWith(STUDIO_DIRECTOR_PATH_PREFIX)) {
+        window.location.replace(STUDIO_HOME_PATH);
+      } else {
+        backToHome();
+      }
+    }, CLOSE_FALLBACK_DELAY_MS);
   }
 
   useEffect(() => {
@@ -557,8 +590,8 @@ export default function App() {
           <button
             className="top-bar-action-button"
             type="button"
-            aria-label="关闭"
-            title="关闭"
+            aria-label="退出导演台"
+            title="保存场景并退出导演台"
             onClick={handleClose}
           >
             <X aria-hidden="true" size={16} strokeWidth={1.8} />

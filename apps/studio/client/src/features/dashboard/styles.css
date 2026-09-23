@@ -1,11 +1,11 @@
-/* 工作台（今日片场）样式：统计条、广告位预留、积分消耗面板、最近项目。 */
+/* 工作台（今日片场）样式：统计侧栏、广告位预留、积分消耗面板、最近项目。 */
 
 .dashboard-project-actions {
   display: flex;
   justify-content: flex-end;
   margin-top: 24px;
 }
-.dashboard-project-actions + .stat-strip {
+.dashboard-project-actions + .desk-layout {
   margin-top: 16px;
 }
 
@@ -32,20 +32,22 @@
 
 .stat-strip {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  margin-top: 39px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: repeat(4, minmax(104px, 1fr));
+  min-width: 0;
   border: 1px solid var(--line);
   background: #171c1e;
 }
 .stat-strip > div {
-  min-height: 112px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 18px 22px;
-  border-right: 1px solid var(--line);
+  justify-content: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
 }
 .stat-strip > div:last-child {
-  border-right: 0;
+  border-bottom: 0;
 }
 .stat-strip span {
   color: #b2bdb9;
@@ -67,7 +69,8 @@
 
 .desk-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.75fr) minmax(320px, 0.85fr);
+  /* The overview occupies the right edge of the former ad area, beside credits. */
+  grid-template-columns: minmax(0, 1.3fr) minmax(200px, 0.45fr) minmax(320px, 0.85fr);
   gap: 18px;
   margin-top: 18px;
 }
@@ -98,6 +101,8 @@
   letter-spacing: 0;
 }
 .ad-slot-copy {
+  min-width: 0;
+  padding: 24px;
   text-align: center;
   color: #7d878a;
 }
@@ -119,6 +124,7 @@
 
 /* 积分消耗面板：本月消耗总览 + 最近消耗记录（数据来自会员域接口）。 */
 .credit-panel {
+  min-width: 0;
   min-height: 360px;
   padding: 23px;
   background: #1a2022;
@@ -205,25 +211,16 @@
 
 @media (max-width: 1100px) {
   .desk-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(200px, 0.45fr);
+  }
+  .desk-layout > .credit-panel {
+    grid-column: 1 / -1;
   }
 }
 
 @media (max-width: 760px) {
-  .stat-strip {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .stat-strip > div:nth-child(2) {
-    border-right: 0;
-  }
-  .stat-strip > div {
-    min-height: 97px;
-    padding: 15px;
-  }
-  .stat-strip > div:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--line);
-  }
   .desk-layout {
+    grid-template-columns: minmax(0, 1fr);
     gap: 13px;
   }
   .ad-slot {

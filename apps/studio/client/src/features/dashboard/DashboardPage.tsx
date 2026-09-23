@@ -42,7 +42,7 @@ function StatStrip({ data }: { data?: WorkspaceData }) {
   const projectCount = data?.projects.total;
   const comicCount = data?.comicProjects.total;
   return (
-    <section className="stat-strip">
+    <section className="stat-strip" aria-label="工作区概览">
       <div>
         <span>进行中任务</span>
         <strong>
@@ -227,9 +227,9 @@ export default function DashboardPage() {
           打开项目归档 <ArrowUpRight size={16} />
         </button>
       </div>
-      <StatStrip data={data} />
       <div className="desk-layout">
         <AdSlot />
+        <StatStrip data={data} />
         <CreditConsumptionPanel />
       </div>
       <section className="section-head">

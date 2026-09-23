@@ -19,6 +19,7 @@ describe("Inspector connected thumbnails", () => {
   let update: ReturnType<typeof vi.fn>;
   let preview: ReturnType<typeof vi.fn>;
   let generate: ReturnType<typeof vi.fn>;
+  let disconnect: ReturnType<typeof vi.fn>;
   function Harness({ kind = "image", id = "target" }: { kind?: CanvasNodeKind; id?: string }) {
     const [prompts, setPrompts] = useState<Record<string, string>>({ target: "原提示词", second: "另一节点" });
     const selected: CanvasNodeData = { id, kind, title: id, content: "", x: 400, y: 0, width: 320, height: 240, metadata: { composerContent: prompts[id] } };
@@ -38,6 +39,7 @@ describe("Inspector connected thumbnails", () => {
         },
       },
       generateFromNode: generate,
+      disconnectIncomingSource: disconnect,
     } as unknown as CanvasInspectorProps["actions"];
     return <>
       <CanvasInspector panelRef={createRef()} selectedNode={selected} inspectorOpen projectActionDisabled={false}
@@ -51,7 +53,7 @@ describe("Inspector connected thumbnails", () => {
   }
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    update = vi.fn(); preview = vi.fn(); generate = vi.fn();
+    update = vi.fn(); preview = vi.fn(); generate = vi.fn(); disconnect = vi.fn();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -64,6 +66,19 @@ describe("Inspector connected thumbnails", () => {
   });
   const thumbnail = () => container.querySelector<HTMLButtonElement>(".canvas-connected-preview")!;
   const textarea = () => container.querySelector<HTMLTextAreaElement>("textarea.node-card-prompt")!;
+
+  it.each(kinds)("disconnects only the thumbnail's source and selected %s node without inserting a mention", async kind => {
+    await act(async () => root.render(<Harness kind={kind} />));
+    const remove = container.querySelector<HTMLButtonElement>(".canvas-connected-preview-remove")!;
+    expect(remove.getAttribute("aria-label")).toBe("断开与「参考图」的连线");
+    expect(container.querySelector("button button")).toBeNull();
+    await act(async () => remove.click());
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(disconnect).toHaveBeenCalledWith("source", "target");
+    expect(update).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+    expect(preview).not.toHaveBeenCalled();
+  });
 
   it.each(kinds)("inserts the real node reference into a %s prompt without previewing or generating", async kind => {
     await act(async () => root.render(<Harness kind={kind} />));

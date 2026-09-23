@@ -72,6 +72,7 @@ import {
 import { CANVAS_PIN_COLORS, normalizeCanvasPinColor } from "@/features/canvas/domain/pin";
 import { imageSrcFromNode } from "@/features/canvas/domain/nodes";
 import { isGeneratedCanvasText } from "@/features/canvas/domain/text";
+import "./nodeToolbar.css";
 import type { CanvasNodeData, CanvasNodeKind } from "@/features/canvas/domain/types";
 
 export type CanvasImageToolMode = "crop" | "focus" | "split" | "upscale" | "compress" | "outpaint" | "angle";
@@ -266,6 +267,9 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
   const batchExpanded = Boolean(node.metadata?.imageBatchExpanded);
   const isBatchChildNode = Boolean(node.metadata?.batchRootId);
   const isEmptyMediaNode = (node.kind === "image" || node.kind === "video" || node.kind === "audio") && !preview;
+  // Failed visual generations keep long prompts in the inspector, while normal
+  // empty audio/video nodes retain their original inline prompt editing.
+  const isEmptyFailedVisualNode = isEmptyMediaNode && node.kind !== "audio" && node.metadata?.status === "error";
   const pinColor = normalizeCanvasPinColor(node.metadata?.pinColor);
   const [pinPickerOpen, setPinPickerOpen] = useState(false);
   useEffect(() => { if (!isSelectedSingle) setPinPickerOpen(false); }, [isSelectedSingle]);
@@ -308,7 +312,7 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
           return;
         }
         if ((event.target as HTMLElement).closest(".node-inline-editor")) return;
-        if (editableNodeKind(node.kind)) {
+        if (editableNodeKind(node.kind) && !isEmptyFailedVisualNode) {
           applyNodeSelection([node.id], node.id, true);
           beginInlineNodeEdit(node.id);
           return;
@@ -374,14 +378,15 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
           >{canvasNodeDisplayTitle(node.title)}</b>
         )}
       </div>
-      {isEmptyMediaNode && (node.kind === "image" || node.kind === "video") && isHovered && !isRunning ? (
+      {isEmptyMediaNode && isHovered && !isRunning ? (
         <button
           type="button"
           className="node-upload-pill"
           onClick={(event) => {
             event.stopPropagation();
-            if (node.kind === "video") {
+            if (node.kind === "video" || node.kind === "audio") {
               replaceMediaNodeIdRef.current = node.id;
+              if (replaceMediaInputRef.current) replaceMediaInputRef.current.accept = `${node.kind}/*`;
               replaceMediaInputRef.current?.click();
             } else {
               setReplaceImageNodeId(node.id);
@@ -389,8 +394,9 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
             }
           }}
           onPointerDown={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
         >
-          <Upload size={13} /> {node.kind === "video" ? "上传视频" : "上传"}
+          <Upload size={13} /> {node.kind === "video" ? "上传视频" : node.kind === "audio" ? "上传音频" : "上传"}
         </button>
       ) : null}
       {isBatchRootNode ? (
@@ -512,6 +518,13 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
             queueMicrotask(() => fitCanvasMediaNodeFrame(nodeId, width, height));
           }}
         />
+      ) : isEmptyFailedVisualNode ? (
+        <div className="prompt-body prompt-body-empty">
+          {!isRunning ? <>
+            <span className="prompt-body-type-icon">{nodeKindCenterIcon(node.kind)}</span>
+            <p>{node.kind === "video" ? "尝试上传或生成视频" : "尝试上传或生成图片"}</p>
+          </> : null}
+        </div>
       ) : editableNodeKind(node.kind) ? (
         isInlineEditing ? (
           generatedTextNode ? (
@@ -661,12 +674,13 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
               <>
                 <button title="复制" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void duplicateSelectedNode(node.id); }}><Copy size={13} /></button>
                 {node.kind === "director" ? <button title="打开导演台" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void openDirectorNode(node); }}><ArrowRight size={13} /></button> : null}
-                {node.kind === "text" ? <button title="用文本生图" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void generateImageFromTextNode(node); }}><ImageIcon size={13} /><CanvasGenerationPrice node={{ ...node, kind: "image", metadata: {} }} /></button> : null}
+                {node.kind === "text" ? <button className="node-toolbar-generate" title="用文本生图" aria-label="用文本生图" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void generateImageFromTextNode(node); }}><ImageIcon size={13} /><span>生图</span><CanvasGenerationPrice node={{ ...node, kind: "image", metadata: {} }} compact /></button> : null}
                 {node.kind === "text" ? (
-                  <>
+                  <div className="node-toolbar-font" role="group" aria-label="文本字号">
                     <button title="减小字号" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); adjustNodeFontSize(node, -2); }}><Minus size={13} /></button>
+                    <span aria-label="当前字号">{Number(node.metadata?.fontSize) || 14}</span>
                     <button title="增大字号" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); adjustNodeFontSize(node, 2); }}><Plus size={13} /></button>
-                  </>
+                  </div>
                 ) : null}
                 {node.kind === "image" && preview ? (
                   <Popover>

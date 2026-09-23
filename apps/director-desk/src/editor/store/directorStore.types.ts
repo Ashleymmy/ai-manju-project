@@ -250,7 +250,8 @@ export interface DirectorActions {
   undo: () => void;
   openScopedScene: (scopeId: string | null | undefined) => void;
   replaceProject: (project: DirectorProject) => void;
-  saveLatestSnapshot: () => void;
+  // Explicit exit must know whether the latest scene reached browser storage.
+  saveLatestSnapshot: () => boolean;
   restoreLatestSnapshot: () => void;
 }
 

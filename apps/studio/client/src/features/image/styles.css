@@ -7,6 +7,90 @@
 .image-composer::-webkit-scrollbar-track { background: rgba(255,255,255,.03); border-radius: 4px; }
 .image-composer::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 4px; transition: background .15s ease; }
 .image-composer::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.20); }
+/* Keep submission outside the settings scroller, within the image pane only. */
+.image-page .image-workbench { overflow-anchor: none; }
+.image-page .image-composer {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+}
+.image-composer-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #515758 transparent;
+  scrollbar-gutter: stable;
+  padding: 24px;
+}
+.image-generation-footer {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 14px 24px;
+  border-top: 1px solid var(--line);
+  background: #191f20;
+}
+.image-generation-footer .generate-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 49px minmax(18px, auto);
+  gap: 6px 9px;
+}
+.image-generation-footer .generate-frame,
+.image-generation-footer .outline-button,
+.image-generation-footer .generate-cost-hint {
+  min-width: 0;
+  margin-top: 0;
+}
+.image-generation-footer .generate-frame { grid-column: 1 / -1; white-space: normal; }
+.image-generation-footer .generate-row .outline-button { margin-top: 0; }
+.image-generation-footer .generate-frame:has(+ .outline-button) { grid-column: 1; }
+.image-generation-footer .generate-cost-hint {
+  grid-column: 1 / -1;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.image-page .image-generation-footer .job-progress {
+  position: absolute;
+  inset: 0 0 auto;
+  margin: 0;
+}
+@media (min-width: 761px) {
+  .feature-page.image-page {
+    /* Matches the fixed desktop topbar; all three panes stay inside the viewport. */
+    height: calc(100dvh - 82px);
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 24px;
+  }
+  .image-page > .feature-title { flex: 0 0 auto; }
+  .image-page .image-workbench { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+  .image-page .generation-history-sidebar,
+  .image-page .generation-output { min-height: 0; overflow-y: auto; }
+  .image-page .history-sidebar-content { min-height: 0; }
+}
+@media (max-width: 1100px) and (min-width: 761px) {
+  .image-page .image-workbench { grid-template-columns: 180px minmax(0, 1.1fr) minmax(220px, .9fr); }
+}
+@media (max-width: 760px) {
+  .image-page .image-composer { height: min(680px, calc(100dvh - 80px)); flex: 0 0 auto; }
+  .image-composer-scroll { padding: 17px; }
+  /* Leave the floating Agent control clear of submission on narrow screens. */
+  .image-generation-footer { padding: 12px 80px 12px 17px; }
+}
+@container (max-width: 440px) {
+  .image-composer-scroll .composer-options { grid-template-columns: minmax(0, 1fr); }
+  .image-composer-scroll .size-inputs { flex-wrap: wrap; }
+  .image-composer-scroll .align-toggle { margin-left: 0; flex-basis: 100%; }
+  .image-composer-scroll .reference-manager-head { flex-wrap: wrap; }
+  .image-composer-scroll .reference-manager-head > div { flex-wrap: wrap; }
+}
 .composer-heading { margin: 0; }
 .composer-heading .eyebrow { margin: 0 0 6px; }
 .composer-heading h3 { margin: 0; color: #f1ede5; font-size: 19px; font-weight: 600; letter-spacing: -.02em; }
