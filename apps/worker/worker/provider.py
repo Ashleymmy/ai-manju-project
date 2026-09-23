@@ -15,6 +15,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 import requests
 
 from .config import Settings
+from .image_specs import gemini_image_config, is_gemini_image_model
 from .errors import SafeTaskError, safe_message
 from .image_requirements import require_canvas_image_parameter_support, with_canvas_image_requirements
 from .staged_inputs import JOB_WORKSPACE_FIELD, INPUT_STORAGE_KEY_FIELD, STAGED_INPUT_KEYS_FIELD, open_staged_input
@@ -360,6 +361,8 @@ def gemini_image_generation_body(payload: dict[str, Any], provider: dict[str, An
     for data_url, content_type in image_input_data_urls(payload, settings):
         parts.append({"inlineData": {"mimeType": content_type, "data": strip_data_url_prefix(data_url)}})
     generation_config: dict[str, Any] = {"responseModalities": ["TEXT", "IMAGE"]}
+    if image_config := gemini_image_config(payload):
+        generation_config["imageConfig"] = image_config
     seed = image_payload_seed(payload, protocol="gemini_generate_content", model=str(provider.get("model") or payload.get("model") or ""))
     if seed is not None:
         generation_config["seed"] = seed
@@ -391,11 +394,15 @@ def openai_responses_image_body(payload: dict[str, Any], provider: dict[str, Any
 def openai_chat_image_body(payload: dict[str, Any], provider: dict[str, Any], settings: Settings) -> dict[str, Any]:
     content: list[dict[str, Any]] = [{"type": "text", "text": image_prompt_with_variation(payload)}]
     content.extend({"type": "image_url", "image_url": {"url": data_url}} for data_url, _ in image_input_data_urls(payload, settings))
-    return {
+    body = {
         "model": provider.get("model") or payload.get("model"),
         "messages": [{"role": "user", "content": content}],
         "stream": False,
     }
+    if is_gemini_image_model({**payload, "provider": provider}):
+        if image_config := gemini_image_config(payload):
+            body["image_config"] = {"aspect_ratio": image_config["aspectRatio"], **({"image_size": image_config["imageSize"]} if "imageSize" in image_config else {})}
+    return body
 
 
 def dashscope_multimodal_image_body(payload: dict[str, Any], provider: dict[str, Any], settings: Settings) -> dict[str, Any]:

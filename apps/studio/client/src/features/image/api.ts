@@ -39,6 +39,21 @@ export type GenerationCallbacks = {
 };
 
 const imagePollIntervalMs = 2_500;
+// Admission rejects before creating a job. Reuse the same request/idempotency
+// key while capacity is busy so a batch waits instead of losing its later images.
+const imageAdmissionRetryMs = 5_000;
+const imageAdmissionWaitMs = 30 * 60_000;
+
+export async function waitForImageAdmission<T>(submit: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  const deadline = Date.now() + imageAdmissionWaitMs;
+  for (;;) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    try { return await submit(); } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 429 || !/当前任务并发已达上限|concurrent task limit/i.test(error.message) || Date.now() >= deadline) throw error;
+      await wait(imageAdmissionRetryMs, signal);
+    }
+  }
+}
 
 export async function fetchImageModels(): Promise<ImageModelCatalog> {
   return fetchImageModelCatalog({ normalizeMetadata: false });
@@ -55,12 +70,13 @@ export function imageModelLabel(model: string, catalog?: Pick<ImageModelCatalog,
 export async function submitImageGeneration(input: ImageGenerationInput, signal?: AbortSignal) {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("请输入画面描述");
-  return request<JobSubmission>("/api/ai/image/generations", {
+  const idempotencyKey = globalThis.crypto?.randomUUID?.() || `image_${Date.now()}`;
+  return waitForImageAdmission(() => request<JobSubmission>("/api/ai/image/generations", {
     method: "POST",
     query: { scope: input.scope || "personal" },
     timeoutMs: 30_000,
     signal,
-    headers: { "Idempotency-Key": globalThis.crypto?.randomUUID?.() || `image_${Date.now()}` },
+    headers: { "Idempotency-Key": idempotencyKey },
     body: {
       model: input.model || "",
       prompt: canvasImageRequestPrompt(input),
@@ -77,7 +93,7 @@ export async function submitImageGeneration(input: ImageGenerationInput, signal?
         ...(input.sourceNodeId ? { source_node_id: input.sourceNodeId } : {}),
       },
     },
-  });
+  }), signal);
 }
 
 export async function submitImageEdit(input: ImageGenerationInput, signal?: AbortSignal) {
@@ -103,14 +119,15 @@ export async function submitImageEdit(input: ImageGenerationInput, signal?: Abor
   }));
   referenceFiles.forEach((file) => body.append("image", file, file.name));
   if (input.maskFile) body.set("mask", input.maskFile, input.maskFile.name);
-  return request<JobSubmission>("/api/ai/image/edits", {
+  const idempotencyKey = globalThis.crypto?.randomUUID?.() || `image_edit_${Date.now()}`;
+  return waitForImageAdmission(() => request<JobSubmission>("/api/ai/image/edits", {
     method: "POST",
     query: { scope: input.scope || "personal" },
     timeoutMs: 120_000,
     signal,
-    headers: { "Idempotency-Key": globalThis.crypto?.randomUUID?.() || `image_edit_${Date.now()}` },
+    headers: { "Idempotency-Key": idempotencyKey },
     body,
-  });
+  }), signal);
 }
 
 export async function generateImages(input: ImageGenerationInput, callbacks: GenerationCallbacks = {}) {

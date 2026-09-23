@@ -1,7 +1,8 @@
 import sys
 import unittest
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -77,6 +78,25 @@ class FakeStore:
 
 
 class TasksTest(unittest.TestCase):
+    def test_upstream_concurrency_wait_does_not_exhaust_generation_attempts(self):
+        store = FakeStore()
+        store.job.update(created_at=datetime.now(timezone.utc), attempts=2)
+        gate = MagicMock()
+        gate.acquire.return_value = SimpleNamespace(acquired=True)
+        provider = {"base_url": "https://example.test", "model": "image", "auth_type": "none"}
+        payload = {"model":"image", "_provider_candidates":[provider]}
+        executor = MagicMock(side_effect=SafeTaskError("busy", code="provider_rate_limited", retryable=True, retry_after_seconds=20))
+        with patch.object(tasks, "JobStore", return_value=store), patch.object(tasks, "provider_gate_from_payload", return_value=(gate, 3)):
+            for _ in range(5):
+                with self.assertRaises(RetryCalled):
+                    execute_job(FakeTask(10), "job_123", payload, executor, "image")
+        self.assertEqual(store.waiting_provider_count, 5)
+        self.assertEqual(store.retry_errors, [])
+        self.assertEqual(store.final_errors, [])
+        self.assertEqual(gate.release.call_count, 5)
+        gate.set_cooldown.assert_called_with(20)
+        self.assertFalse(tasks.provider_throttle_can_wait({"created_at": datetime.now(timezone.utc)-timedelta(hours=1)}))
+
     def test_extract_request_matches_go_celery_envelope(self) -> None:
         job_id, payload = extract_request(("job_123",), {"job_id": "job_123", "payload": {"prompt": "x"}})
 

@@ -14,6 +14,7 @@ import requests
 
 from .config import Settings
 from .image_requirements import ImageParameterError
+from .image_specs import GEMINI_OUTPUT_ALIGNMENT_PIXELS, GEMINI_OUTPUT_ASPECT_TOLERANCE, is_gemini_image_model
 
 # Reading a local image header must not hold a worker slot indefinitely.
 IMAGE_PROBE_TIMEOUT_SECONDS = 15
@@ -53,7 +54,7 @@ def validate_canvas_image_outputs(payload: dict[str, Any], result: dict[str, Any
         if not path.is_relative_to(settings.asset_storage_dir.resolve()) or not path.is_file():
             raise invalid_output()
         width, height = read_image_dimensions(path, settings)
-        if not meets_requested_dimensions(width, height, expected):
+        if not meets_requested_dimensions(width, height, expected, gemini=is_gemini_model_output(payload, result)):
             # Do not resize/crop the file or automatically charge for another generation.
             raise ImageOutputValidationError(
                 f"图片尺寸不符合所选参数：要求 {expected[0]}×{expected[1]} px，实际返回 {width}×{height} px。请更换模型或调整参数后重试。",
@@ -62,8 +63,19 @@ def validate_canvas_image_outputs(payload: dict[str, Any], result: dict[str, Any
         output.update(width=width, height=height)
 
 
-def meets_requested_dimensions(width: int, height: int, expected: tuple[int, int]) -> bool:
+def is_gemini_model_output(payload: dict[str, Any], result: dict[str, Any]) -> bool:
+    return result.get("protocol") == "gemini_generate_content" or is_gemini_image_model(payload)
+
+
+def meets_requested_dimensions(width: int, height: int, expected: tuple[int, int], *, gemini: bool = False) -> bool:
     expected_width, expected_height = expected
+    # Native Gemini presets round both edges to blocks. Accept a small block
+    # difference, but never accept a 1K result in place of a requested 2K/4K.
+    if gemini:
+        return (width + GEMINI_OUTPUT_ALIGNMENT_PIXELS >= expected_width
+                and height + GEMINI_OUTPUT_ALIGNMENT_PIXELS >= expected_height
+                and abs(width * expected_height - height * expected_width)
+                <= GEMINI_OUTPUT_ASPECT_TOLERANCE * height * expected_width)
     if width < expected_width or height < expected_height:
         return False
     # Compare cross-products to avoid floating-point ratio errors. This permits

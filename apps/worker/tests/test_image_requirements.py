@@ -27,8 +27,10 @@ class ImageRequirementsTest(unittest.TestCase):
                             self.assertIn("2048×2048", str(body))
                             self.assertEqual(result["protocol"], protocol)
                             if protocol == "openai_chat_completions":
+                                self.assertEqual(body["image_config"], {"aspect_ratio": "1:1", "image_size": "2K"})
                                 self.assertEqual(body["messages"][0]["content"][1]["type"], "image_url")
                             else:
+                                self.assertEqual(body["generationConfig"]["imageConfig"], {"aspectRatio": "1:1", "imageSize": "2K"})
                                 self.assertIn("inlineData", body["contents"][0]["parts"][1])
 
     def test_square_request_reaches_every_generation_and_reference_edit_protocol(self):
