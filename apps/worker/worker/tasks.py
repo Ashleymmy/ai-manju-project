@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from celery import Celery, Task
@@ -27,6 +28,10 @@ celery_app = Celery("ai_manju_worker", broker=settings.celery_broker_url, backen
 # that drop custom timelimit headers, while preserving the configured timeout
 # for subprocess-based utility tasks such as transcoding.
 DEFAULT_GENERATION_TASK_TIMEOUT_SECONDS = 60 * 60
+# Rejected 429 requests do not consume generation attempts. Keep a bounded
+# queue window so a permanently exhausted upstream quota cannot wait forever.
+PROVIDER_THROTTLE_WAIT_SECONDS = 30 * 60
+PROVIDER_THROTTLE_RETRY_SECONDS = 15
 worker_task_timeout = max(settings.job_default_timeout_seconds, DEFAULT_GENERATION_TASK_TIMEOUT_SECONDS)
 provider_task_annotations = {}
 if settings.provider_rate_limit:
@@ -245,6 +250,16 @@ def execute_job(
                 log_job("job_canceled", job_id)
                 return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
             payload_error = error_payload(exc)
+            if not generation_completed and isinstance(exc, SafeTaskError) and exc.code == "provider_rate_limited" and provider_throttle_can_wait(job):
+                delay = max(PROVIDER_THROTTLE_RETRY_SECONDS, exc.retry_after_seconds or 0)
+                if gate is not None:
+                    try:
+                        gate.set_cooldown(delay)
+                    except Exception:
+                        pass
+                store.mark_waiting_provider(job_id)
+                log_job("job_waiting_provider_rate_limit", job_id, retry_after=delay)
+                raise task.retry(exc=SafeTaskError("waiting for provider capacity", code="provider_gate_wait", retryable=True), countdown=delay, max_retries=100000)
             if gate is not None and isinstance(exc, SafeTaskError) and exc.code == "provider_rate_limited":
                 try:
                     gate.set_cooldown(exc.retry_after_seconds or retry_countdown(int(job.get("attempts") or 0)))
@@ -288,6 +303,20 @@ def execute_job(
                     gate.release(job_id)
                 except Exception as exc:
                     log_job("provider_gate_release_failed", job_id, error=str(exc)[:240])
+
+
+def provider_throttle_can_wait(job: dict[str, Any]) -> bool:
+    created = job.get("created_at")
+    if isinstance(created, str):
+        try:
+            created = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+    if not isinstance(created, datetime):
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - created).total_seconds() < PROVIDER_THROTTLE_WAIT_SECONDS
 
 
 def cleanup_job_inputs(payload: dict[str, Any], job: dict[str, Any], job_id: str) -> None:
