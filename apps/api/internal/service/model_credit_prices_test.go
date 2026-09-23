@@ -149,6 +149,8 @@ func TestVideoReferenceSurchargeUsesGeneratedSeconds(t *testing.T) {
 		want          int64
 	}{
 		{"no reference", `{"model":"seedance-2.5","resolution":"720p","duration":10}`, 2200},
+		{"1080p no reference", `{"model":"seedance-2.5","resolution":"1080p","duration":4}`, 2240},
+		{"1080p video reference", `{"model":"seedance-2.5","resolution":"1080p","duration":4,"content":[{"type":"video_url"}]}`, 4480},
 		{"images and audio unchanged", `{"model":"seedance-2.5","resolution":"720p","duration":10,"content":[{"type":"image_url"},{"type":"audio_url"}],"references":[{"type":"image"}]}`, 2200},
 		{"video reference", `{"model":"company::sdvideo/seedance-2.5","resolution":"720p","duration":10,"content":[{"type":"video_url"}]}`, 4800},
 		{"multiple refs and duplicated bridge metadata once", `{"model":"seedance-2.5","resolution":"720p","duration":10,"content":[{"type":"video_url","duration":99},{"type":"video_url","duration":3}],"references":[{"type":"video"}]}`, 4800},

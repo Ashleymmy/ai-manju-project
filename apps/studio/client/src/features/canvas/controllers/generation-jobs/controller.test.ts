@@ -754,6 +754,33 @@ describe("CanvasGenerationJobsController", () => {
     expect(current.metadata?.assetId).toBe("video-2");
   });
 
+  it("does not submit a standalone video's existing output as a retry reference", async () => {
+    const services = videoHistoryServices();
+    const createVideoGenerationTask = vi.fn(async () => ({ id: "job-video-retry", provider: "openai" as const, model: "video-model" }));
+    services.createVideoGenerationTask = createVideoGenerationTask as CanvasGenerationServices["createVideoGenerationTask"];
+    const harness = createHarness([videoNode({
+      title: "Original video",
+      metadata: {
+        prompt: "Original prompt",
+        content: "Original prompt",
+        generationMode: "video",
+        status: "success",
+        assetId: "video-old",
+        assetScope: "team",
+        mimeType: "video/mp4",
+        seconds: "5",
+        videoReferenceInputs: {
+          items: [{ nodeId: "video-1", type: "video", title: "旧输出", source: "node", scope: "team", name: "old.mp4", mime: "video/mp4", bytes: 10 }],
+        },
+      },
+    })], services);
+
+    await harness.controller.retryVideoNode(harness.nodes[0]!);
+
+    expect(createVideoGenerationTask).toHaveBeenCalledTimes(1);
+    expect(createVideoGenerationTask.mock.calls[0]?.[2]).toEqual({ images: [], videos: [], audios: [] });
+  });
+
   it.each(["generate", "retry"] as const)("records newly generated videos from a history copy via %s", async entry => {
     const harness = createHarness([storedVideoNode(true)], videoHistoryServices());
     if (entry === "generate") await harness.controller.generateVideoFromNode("video-1");

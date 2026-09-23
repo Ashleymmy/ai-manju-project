@@ -301,7 +301,16 @@ export function buildCanvasGenerationInputs(
   const directInputs = contextResourceInputs(nodeId, nodes, edges);
   if (directInputs.length) return directInputs;
   const self = nodes.find((node) => node.id === nodeId);
-  const selfInput = self && !isHiddenCanvasBatchChild(self, nodes) && isDirectMediaResource(self) ? generationInput(self) : null;
+  // A generated video node is its own output, not an implicit reference.
+  // Reusing that output as a reference made retrying a standalone video node
+  // silently switch to V2V and apply the video-reference surcharge. Video
+  // references must come from an explicit incoming edge or @ mention.
+  const selfInput = self
+    && self.kind !== "video"
+    && !isHiddenCanvasBatchChild(self, nodes)
+    && isDirectMediaResource(self)
+    ? generationInput(self)
+    : null;
   return selfInput ? [selfInput] : [];
 }
 

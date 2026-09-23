@@ -295,6 +295,9 @@ describe("canvas generation topology", () => {
     expect(buildCanvasGenerationInputs("image", topologyNodes, [])).toEqual([
       { nodeId: "image", type: "image", title: "参考图", content: undefined, assetId: "asset-image" },
     ]);
+    // A standalone generated video is the current output, not a video
+    // reference for its own retry. References require an explicit edge.
+    expect(buildCanvasGenerationInputs("video", topologyNodes, [])).toEqual([]);
     expect(promptFromCanvasTopology("prompt", topologyNodes, [{ from: "note", to: "prompt" }], "主体动作")).toBe("主体动作\n\n补充光线");
   });
 

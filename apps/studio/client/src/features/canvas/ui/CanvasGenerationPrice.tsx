@@ -21,10 +21,14 @@ export function CanvasGenerationPrice({ node, edit = false, panorama = false, co
     const config = videoConfigFromNode(node, context.videoModel);
     // Match submission's topology resolution (including config nodes), not all
     // upstream media. Retries prefer current inputs and only then the snapshot.
-    const inputs = mentioned.size ? refs.map(ref => ({ type: ref.kind })) : buildCanvasGenerationInputs(node.id, context.nodes, context.edges);
+    const inputs = mentioned.size ? refs.map(ref => ({ type: ref.kind, nodeId: ref.nodeId })) : buildCanvasGenerationInputs(node.id, context.nodes, context.edges);
     const missingMention = [...mentioned].some(key => !refs.some(ref => ref.key === key));
     const useSnapshot = retry && (missingMention || (!inputs.length && !mentioned.size));
-    const videoInputs = useSnapshot ? node.metadata?.videoReferenceInputs?.items ?? [] : inputs;
+    // Older nodes may have persisted their own output as a reference before
+    // standalone video retries were fixed. Never charge or submit that stale
+    // self-reference; only upstream/current inputs are real references.
+    const videoInputs = (useSnapshot ? node.metadata?.videoReferenceInputs?.items ?? [] : inputs)
+      .filter(input => input.nodeId !== node.id);
     const registered = canvasSeedanceVideoReferences(node.metadata?.seedanceMaterialAssets, node.metadata?.seedanceVolcanoAssets);
     const referenceVideos = videoInputs.filter(item => item.type === "video").length + registered.videos.length;
     return <GenerationPrice kind="video" model={config.model} seconds={config.seconds} resolution={config.resolution} audio={config.generateAudio} referenceVideos={referenceVideos} compact={compact} />;

@@ -32,6 +32,13 @@ it("quotes the same connected references as submission, including changes and re
   expect((await render([])).referenceVideos).toBe(1);
   // Current image inputs replace the stale video snapshot on retry.
   expect((await render([edge("image")])).referenceVideos).toBe(0);
+  // A standalone retry must not count the node's existing output as its own
+  // video reference when there is no incoming edge or snapshot.
+  target = { ...target, metadata: { ...target.metadata, status: "error", prompt: "重试", content: "asset://previous-video", videoReferenceInputs: { items: [] } } };
+  expect((await render([])).referenceVideos).toBe(0);
+  // The same rule applies to snapshots written by the pre-fix build.
+  target = { ...target, metadata: { ...target.metadata, videoReferenceInputs: { items: [{ nodeId: "target", type: "video", title: "旧输出", source: "node", scope: "personal", name: "old.mp4", mime: "video/mp4", bytes: 100 }] } } };
+  expect((await render([])).referenceVideos).toBe(0);
   target = { ...target, metadata: { ...target.metadata, status: "idle", seedanceVolcanoAssets: [{ id: "registered", volcanoAssetId: "registered", assetType: "Video" }] } };
   expect((await render([edge("image")])).referenceVideos).toBe(1);
   await act(async () => root.unmount());
