@@ -43,6 +43,7 @@ import { ImageEditToolIcon } from "@/features/canvas/ui/ImageEditToolIcon";
 import {
   VIDEO_SUBMODES,
   CANVAS_IMAGE_RESOLUTIONS,
+  isCanvasImageResolutionAvailable,
   editableNodeKind,
   imageCountFromNode,
   imageResolutionFromNode,
@@ -498,7 +499,7 @@ export function CanvasInspector({
                       <div className="param-group"><span className="param-group-label">分辨率</span>
                         <div className="param-segments param-segments-wide">
                           {CANVAS_IMAGE_RESOLUTIONS.map((value) => (
-                            <button key={value} type="button" className={imageResolutionFromNode(selectedNode) === value ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), imageResolution: value } })}>{value}</button>
+                            <button key={value} type="button" disabled={!isCanvasImageResolutionAvailable(value)} title={isCanvasImageResolutionAvailable(value) ? value : `${value}：当前生图模型暂只支持 1K`} className={imageResolutionFromNode(selectedNode) === value ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), imageResolution: value } })}>{value}</button>
                           ))}
                         </div>
                         <span className="param-group-label">请求尺寸：{canvasImageGenerationSettings(selectedNode).size.replace("x", " × ")} px</span>

@@ -19,11 +19,11 @@ func TestConfirmedModelCreditPrices(t *testing.T) {
 		{"half_sum_before_round", model.JobTypeImageGenerate, `{"model":"gpt-image-1.5","quality":"low","size":"2048x2048","n":2}`, 45},
 		{"flare_confirmed_xhigh", model.JobTypeImageGenerate, `{"model":"gpt-image-2.5-flare","quality":"xhigh","size":"3840x2160"}`, 460},
 		{"reference_mask_excluded", model.JobTypeImageEdit, `{"model":"gpt-image-2","quality":"low","size":"1024x1024","references":[{"field_name":"image"},{"field_name":"image"},{"field_name":"mask"}]}`, 50},
-		{"fast_confirmed_reference", model.JobTypeVideoGenerate, `{"model":"doubao-seedance-2-0-fast-260128","resolution":"720p","duration":6,"content":[{"type":"video_url"}]}`, 390},
-		{"fast_no_reference", model.JobTypeVideoGenerate, `{"model":"seedance-2.0-fast","resolution":"720p","duration":6}`, 270},
+		{"fast_confirmed_reference", model.JobTypeVideoGenerate, `{"model":"doubao-seedance-2-0-fast-260128","resolution":"720p","duration":6,"content":[{"type":"video_url"}]}`, 720},
+		{"fast_no_reference", model.JobTypeVideoGenerate, `{"model":"seedance-2.0-fast","resolution":"720p","duration":6}`, 360},
 		{"audio", model.JobTypeVideoGenerate, `{"model":"seedance-1.5-pro","resolution":"1080p","duration":5,"generate_audio":true}`, 500},
 		{"silent", model.JobTypeVideoGenerate, `{"model":"seedance-1.5-pro","resolution":"1080p","duration":5,"generate_audio":false}`, 250},
-		{"canvas_aligned_2k", model.JobTypeImageGenerate, `{"model":"gpt-image-2","quality":"high","size":"2736x1536"}`, 600},
+		{"canvas_aligned_2k", model.JobTypeImageGenerate, `{"model":"gpt-image-2","quality":"high","size":"2736x1536"}`, 30},
 		{"client_cannot_override_model", model.JobTypeImageGenerate, `{"model":"gpt-image-2","studio_model":"gpt-image-1","quality":"low","size":"1024x1024"}`, 10},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -32,6 +32,32 @@ func TestConfirmedModelCreditPrices(t *testing.T) {
 				t.Fatalf("got %d %+v, want %d", credits, params, tc.want)
 			}
 		})
+	}
+}
+
+func TestCurrentSheetPriceRows(t *testing.T) {
+	prices := DefaultModelCreditPrices()
+	for _, tc := range []struct {
+		name string
+		got  []float64
+		want []float64
+	}{
+		{"gpt-image-2.5-flare 1k", prices.Images["gpt-image-2.5-flare"]["1k"], []float64{15, 20, 50, 60, 130}},
+		{"gpt-image-2 1k", prices.Images["gpt-image-2"]["1k"], []float64{10, 15, 40}},
+		{"seedance-2.5 720p", prices.Videos["seedance-2.5"]["720p"], []float64{220, 220, 260}},
+		{"wan-3.0-prime 1080p", prices.Videos["wan-3.0-prime"]["1080p"], []float64{270, 270, 270}},
+	} {
+		if len(tc.got) != len(tc.want) {
+			t.Fatalf("%s got %#v want %#v", tc.name, tc.got, tc.want)
+		}
+		for i := range tc.want {
+			if tc.got[i] != tc.want[i] {
+				t.Fatalf("%s got %#v want %#v", tc.name, tc.got, tc.want)
+			}
+		}
+	}
+	if prices.ImageReference != 20 {
+		t.Fatalf("image reference surcharge = %v, want 20", prices.ImageReference)
 	}
 }
 
@@ -121,16 +147,16 @@ func TestVideoReferenceSurchargeUsesGeneratedSeconds(t *testing.T) {
 		name, payload string
 		want          int64
 	}{
-		{"no reference", `{"model":"seedance-2.5","resolution":"720p","duration":10}`, 1950},
-		{"images and audio unchanged", `{"model":"seedance-2.5","resolution":"720p","duration":10,"content":[{"type":"image_url"},{"type":"audio_url"}],"references":[{"type":"image"}]}`, 1950},
-		{"video reference", `{"model":"company::sdvideo/seedance-2.5","resolution":"720p","duration":10,"content":[{"type":"video_url"}]}`, 3300},
-		{"multiple refs and duplicated bridge metadata once", `{"model":"seedance-2.5","resolution":"720p","duration":10,"content":[{"type":"video_url","duration":99},{"type":"video_url","duration":3}],"references":[{"type":"video"}]}`, 3300},
-		{"output duration changes total", `{"model":"seedance-2.5","resolution":"720p","duration":5,"content":[{"type":"video_url","duration":99}]}`, 1650},
-		{"wan reference", `{"model":"sdvideo/wan3.0-video","resolution":"720p","duration":10,"references":[{"type":"video"}]}`, 800},
-		{"H3 native video reference", `{"model":"minimax-h3","resolution":"480p","duration":5,"content":[{"type":"video_url"}]}`, 300},
-		{"H3 actual multipart image input", `{"model":"zzdh-minimax-h3-限时优惠-多参考图生-480p","resolution_name":"480p","seconds":"5","files":[{"field_name":"input_reference[]","content_type":"image/jpeg"}]}`, 150},
-		{"H3 effective resolution", `{"model":"zizi::zzdh-minimax-h3-限时优惠-多参考图生-480p","resolution":"720p","seconds":"10"}`, 300},
-		{"H3 768p alias", `{"model":"zzdh-minimax-h3-限时优惠-多参考图生-768p","seconds":"5"}`, 200},
+		{"no reference", `{"model":"seedance-2.5","resolution":"720p","duration":10}`, 2200},
+		{"images and audio unchanged", `{"model":"seedance-2.5","resolution":"720p","duration":10,"content":[{"type":"image_url"},{"type":"audio_url"}],"references":[{"type":"image"}]}`, 2200},
+		{"video reference", `{"model":"company::sdvideo/seedance-2.5","resolution":"720p","duration":10,"content":[{"type":"video_url"}]}`, 4800},
+		{"multiple refs and duplicated bridge metadata once", `{"model":"seedance-2.5","resolution":"720p","duration":10,"content":[{"type":"video_url","duration":99},{"type":"video_url","duration":3}],"references":[{"type":"video"}]}`, 4800},
+		{"output duration changes total", `{"model":"seedance-2.5","resolution":"720p","duration":5,"content":[{"type":"video_url","duration":99}]}`, 2400},
+		{"wan reference", `{"model":"sdvideo/wan3.0-video","resolution":"720p","duration":10,"references":[{"type":"video"}]}`, 1800},
+		{"H3 native video reference", `{"model":"minimax-h3","resolution":"480p","duration":5,"content":[{"type":"video_url"}]}`, 200},
+		{"H3 actual multipart image input", `{"model":"zzdh-minimax-h3-限时优惠-多参考图生-480p","resolution_name":"480p","seconds":"5","files":[{"field_name":"input_reference[]","content_type":"image/jpeg"}]}`, 100},
+		{"H3 effective resolution", `{"model":"zizi::zzdh-minimax-h3-限时优惠-多参考图生-480p","resolution":"720p","seconds":"10"}`, 200},
+		{"H3 768p alias", `{"model":"zzdh-minimax-h3-限时优惠-多参考图生-768p","seconds":"5"}`, 150},
 		{"multipart video reference", `{"model":"minimax-h3","resolution_name":"2k","seconds":"5","files":[{"content_type":"video/mp4"}]}`, 600},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -153,7 +179,7 @@ func TestVideoReferenceQuoteReservationAndSettlement(t *testing.T) {
 	}
 	payload := `{"model":"seedance-2.5","resolution":"720p","duration":10,"content":[{"type":"video_url"}]}`
 	quoted, _, params, _ := fx.pricer.QuoteForJob(model.JobTypeVideoGenerate, model.JSONB(payload))
-	if quoted != 3300 || params["base_per_second"] != float64(195) || params["reference_per_second"] != float64(135) || params["per_second"] != float64(330) {
+	if quoted != 4800 || params["base_per_second"] != float64(220) || params["reference_per_second"] != float64(260) || params["per_second"] != float64(480) {
 		t.Fatal(quoted, params)
 	}
 	job := fx.enqueue(t, user, model.JobTypeVideoGenerate, payload)
@@ -181,8 +207,8 @@ func TestVideoReferenceQuoteReservationAndSettlement(t *testing.T) {
 		t.Fatal(err)
 	}
 	credits, _, _, _ := fx.pricer.QuoteForJob(model.JobTypeVideoGenerate, model.JSONB(payload))
-	if credits != 982 {
-		t.Fatalf("want ceil((195+1.25)*10*0.5)=982, got %d", credits)
+	if credits != 1107 {
+		t.Fatalf("want ceil((220+1.25)*10*0.5)=1107, got %d", credits)
 	}
 }
 

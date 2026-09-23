@@ -121,7 +121,7 @@ func parseModelCreditPrices(raw []byte, defaults ModelCreditPrices) (ModelCredit
 // newly added row may start at zero and must remain editable by administrators.
 func supportsVideoCreditSurcharge(name string) bool {
 	switch name {
-	case "minimax-h3", "seedance-2.5", "wan-3.0", "wan-3.0-prime":
+	case "minimax-h3", "seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini", "seedance-2.5", "wan-3.0", "wan-3.0-prime":
 		return true
 	}
 	return false

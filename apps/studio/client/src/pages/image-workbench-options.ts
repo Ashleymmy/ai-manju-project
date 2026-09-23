@@ -1,5 +1,6 @@
 export {
   IMAGE_WORKBENCH_SIZE_OPTIONS,
+  isImageWorkbenchSizeAvailable,
   clampImagePixelSize,
   flippedWorkbenchSizeOption,
   nearestWorkbenchSizeOption,

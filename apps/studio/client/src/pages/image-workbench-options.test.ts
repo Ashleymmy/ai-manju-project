@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   IMAGE_WORKBENCH_SIZE_OPTIONS,
+  isImageWorkbenchSizeAvailable,
   nearestWorkbenchSizeOption,
   resolveImageWorkbenchRequestOptions,
   snapPixelSizeForModel,
@@ -41,6 +42,13 @@ describe("image workbench request options", () => {
 
   it("covers every size rendered by the workbench", () => {
     expect(IMAGE_WORKBENCH_SIZE_OPTIONS).toHaveLength(13);
+  });
+
+  it("keeps 2K/4K presets visible but unavailable", () => {
+    expect(isImageWorkbenchSizeAvailable("1:1")).toBe(true);
+    for (const size of ["1:1(2x)", "16:9(2x)", "9:16(2x)", "16:9(4k)", "9:16(4k)"] as const) {
+      expect(isImageWorkbenchSizeAvailable(size)).toBe(false);
+    }
   });
 
   it("turns ratio presets into the pixel sizes the API actually consumes", () => {

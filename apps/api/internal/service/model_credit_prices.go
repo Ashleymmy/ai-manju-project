@@ -28,21 +28,24 @@ func DefaultModelCreditPrices() ModelCreditPrices {
 		Images: map[string]map[string][]float64{
 			"gemini-3-pro-image":     {"1k": {float64(PriceImageStandard1024)}, "2k": {float64(PriceImageLarge)}, "4k": {float64(PriceImageLarge)}},
 			"gemini-3.1-flash-image": {"1k": {float64(PriceImageStandard1024)}, "2k": {float64(PriceImageLarge)}, "4k": {float64(PriceImageLarge)}},
-			"gpt-image-2.5-sunburst": {"1k": {5, 10, 35, 60, 130}, "2k": {15, 30, 130, 230, 515}, "4k": {30, 65, 260, 460, 1030}},
-			"gpt-image-2.5-flare":    {"1k": {5, 10, 35, 60, 130}, "2k": {15, 30, 130, 230, 515}, "4k": {30, 65, 260, 460, 1030}},
+			// The sheet currently publishes low/medium/high for these families.
+			// Keep the legacy xhigh/max columns so existing admin price documents
+			// remain valid and editable while their UI capabilities are unavailable.
+			"gpt-image-2.5-sunburst": {"1k": {15, 20, 50, 60, 130}, "2k": {20, 30, 40, 230, 515}, "4k": {30, 40, 60, 460, 1030}},
+			"gpt-image-2.5-flare":    {"1k": {15, 20, 50, 60, 130}, "2k": {20, 30, 40, 230, 515}, "4k": {30, 40, 60, 460, 1030}},
 			"gpt-image-1":            {"1k": {8, 32, 120}, "2k": {20, 120, 480}, "4k": {28, 240, 1000}},
 			"gpt-image-1.5":          {"1k": {9, 36, 135}, "2k": {22.5, 135, 540}, "4k": {31.5, 270, 1125}},
-			"gpt-image-2":            {"1k": {10, 40, 150}, "2k": {25, 150, 600}, "4k": {35, 300, 1250}},
+			"gpt-image-2":            {"1k": {10, 15, 40}, "2k": {15, 20, 30}, "4k": {20, 30, 40}},
 		},
 		Videos: map[string]map[string][]float64{
-			"minimax-h3":        {"480p": {30, 30, 30}, "768p": {40, 40, 40}, "2k": {60, 60, 60}},
+			"minimax-h3":        {"480p": {20, 20, 20}, "768p": {30, 30, 30}, "2k": {60, 60, 60}},
 			"seedance-1.5-pro":  {"480p": {10, 20, 0}, "720p": {20, 45, 0}, "1080p": {50, 100, 0}},
-			"seedance-2.0":      {"480p": {60, 80, 0}, "720p": {110, 160, 0}, "1080p": {300, 380, 0}, "4k": {600, 800, 0}},
-			"seedance-2.0-fast": {"480p": {20, 30, 0}, "720p": {45, 65, 0}, "1080p": {85, 105, 0}, "2k": {120, 140, 0}, "4k": {195, 215, 0}},
-			"seedance-2.0-mini": {"480p": {15, 20, 0}, "720p": {30, 40, 0}},
-			"seedance-2.5":      {"480p": {85, 85, 65}, "720p": {195, 195, 135}, "1080p": {485, 485, 325}},
-			"wan-3.0":           {"480p": {20, 20, 20}, "720p": {40, 40, 40}, "1080p": {float64(PriceVideoStandardPerSecond), float64(PriceVideoStandardPerSecond), 0}},
-			"wan-3.0-prime":     {"480p": {30, 30, 30}, "720p": {60, 60, 60}, "1080p": {float64(PriceVideoStandardPerSecond), float64(PriceVideoStandardPerSecond), 0}},
+			"seedance-2.0":      {"480p": {80, 80, 80}, "720p": {100, 100, 100}, "1080p": {300, 300, 300}, "4k": {600, 800, 0}},
+			"seedance-2.0-fast": {"480p": {25, 25, 25}, "720p": {60, 60, 60}, "1080p": {85, 105, 0}, "2k": {120, 140, 0}, "4k": {195, 215, 0}},
+			"seedance-2.0-mini": {"480p": {35, 35, 35}, "720p": {70, 70, 70}},
+			"seedance-2.5":      {"480p": {120, 120, 150}, "720p": {220, 220, 260}, "1080p": {560, 560, 560}},
+			"wan-3.0":           {"480p": {45, 45, 45}, "720p": {90, 90, 90}, "1080p": {220, 220, 220}},
+			"wan-3.0-prime":     {"480p": {70, 70, 70}, "720p": {135, 135, 135}, "1080p": {270, 270, 270}},
 		},
 	}
 }
@@ -59,6 +62,14 @@ func creditModelName(value string) string {
 	value = creditModelID(value)
 	if canonical, ok := builtinCreditModelAliases[value]; ok {
 		return canonical
+	}
+	// Gemini's Nano Banana names are the public aliases for the two image
+	// families already represented in the price sheet.
+	switch value {
+	case "nano-banana-pro":
+		return "gemini-3-pro-image"
+	case "nano-banana", "banana-pro", "banana-flash":
+		return "gemini-3.1-flash-image"
 	}
 	value = strings.TrimPrefix(value, "doubao-")
 	if value == "minimax-h3" || strings.HasPrefix(value, "minimax-h3-") || strings.HasPrefix(value, "zzdh-minimax-h3-") {

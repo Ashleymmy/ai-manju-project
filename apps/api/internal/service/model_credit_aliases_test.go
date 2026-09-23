@@ -60,7 +60,7 @@ func TestSupplierModelAliasesShareOfficialPrices(t *testing.T) {
 	}
 	// Neither renamed labels nor caller-supplied billing fields can set prices.
 	got, _, params, _ := p.QuoteForJob(model.JobTypeVideoGenerate, model.JSONB(`{"model":"ep-mt25","studio_model":"seedance-2.0-mini","pricing_model":"seedance-2.0-mini","model_alias":"free","resolution":"720p","duration":10}`))
-	if got != 1950 || params["pricing_model"] != "seedance-2.5" {
+	if got != 2200 || params["pricing_model"] != "seedance-2.5" {
 		t.Fatal(got, params)
 	}
 	_, _, params, _ = p.QuoteForJob(model.JobTypeVideoGenerate, model.JSONB(`{"model":"ep-unmapped","studio_model":"seedance-2.5","model_alias":"seedance-2.5","resolution":"720p","duration":10}`))
@@ -87,7 +87,7 @@ func TestModelAliasPricingKeepsReservationsAndFastDiscount(t *testing.T) {
 	}
 	job := fx.enqueue(t, user, model.JobTypeVideoGenerate, payload)
 	overview, _ := fx.engine.Overview(user)
-	if overview.PermanentFrozen != 120+3300 {
+	if overview.PermanentFrozen != 120+4800 {
 		t.Fatal(overview)
 	}
 	prices := DefaultModelCreditPrices()
@@ -108,14 +108,14 @@ func TestModelAliasPricingKeepsReservationsAndFastDiscount(t *testing.T) {
 		t.Fatal(err)
 	}
 	overview, _ = fx.engine.Overview(user)
-	if overview.PermanentBalance != 6580 || overview.PermanentFrozen != 0 {
+	if overview.PermanentBalance != 5080 || overview.PermanentFrozen != 0 {
 		t.Fatalf("old reservations repriced: %+v", overview)
 	}
 	if err := fx.billing.UpsertConfig(model.BillingConfigKeyActivity, model.JSONB(`{"enabled":true,"discount_bps":5000,"applies_to":["video_fast"]}`), "admin", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	credits, tier, _, _ := fx.pricer.QuoteForJob(model.JobTypeVideoGenerate, model.JSONB(`{"model":"ep-fast","resolution":"720p","duration":10}`))
-	if credits != 225 || tier != model.TaskTypeVideoFast {
+	if credits != 300 || tier != model.TaskTypeVideoFast {
 		t.Fatal(credits, tier)
 	}
 }

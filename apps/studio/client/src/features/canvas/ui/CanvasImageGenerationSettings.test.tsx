@@ -50,19 +50,21 @@ describe("canvas image parameter controls", () => {
     await click("参数");
     expect(document.body.textContent).toContain("请求尺寸：1024 × 1024 px");
     await click("4K");
+    expect((Array.from(document.querySelectorAll("button")).find(item => item.textContent?.trim() === "4K") as HTMLButtonElement)?.disabled).toBe(true);
     await click("16:9");
     await click("高");
-    expect(document.body.textContent).toContain("请求尺寸：3840 × 2160 px");
+    expect(document.body.textContent).toContain("请求尺寸：1280 × 720 px");
     const generate = container.querySelector<HTMLButtonElement>(".node-send-button");
     expect(generate).toBeTruthy();
     await act(async () => generate!.click());
-    expect(submit).toHaveBeenLastCalledWith({ size: "3840x2160", quality: "high", imageResolution: "4K" });
+    expect(submit).toHaveBeenLastCalledWith({ size: "1280x720", quality: "high", imageResolution: "1K" });
     await click("参数");
     await click("2K");
+    expect((Array.from(document.querySelectorAll("button")).find(item => item.textContent?.trim() === "2K") as HTMLButtonElement)?.disabled).toBe(true);
     await click("4:3");
-    expect(document.body.textContent).toContain("请求尺寸：2304 × 1728 px");
+    expect(document.body.textContent).toContain("请求尺寸：1152 × 864 px");
     await act(async () => generate!.click());
-    expect(submit).toHaveBeenLastCalledWith({ size: "2304x1728", quality: "high", imageResolution: "2K" });
+    expect(submit).toHaveBeenLastCalledWith({ size: "1152x864", quality: "high", imageResolution: "1K" });
   });
   it("shows automatic detail for Nano Banana while keeping resolution controls", async () => {
     await act(async () => root.render(<Harness model="sx::gemini-3-pro-image" />));
@@ -70,8 +72,9 @@ describe("canvas image parameter controls", () => {
     expect(document.body.textContent).toContain("此模型自动控制精细度");
     expect(Array.from(document.querySelectorAll("button")).some(item => item.textContent?.trim() === "高")).toBe(false);
     await click("2K");
+    expect((Array.from(document.querySelectorAll("button")).find(item => item.textContent?.trim() === "2K") as HTMLButtonElement)?.disabled).toBe(true);
     await act(async () => container.querySelector<HTMLButtonElement>(".node-send-button")!.click());
-    expect(submit).toHaveBeenLastCalledWith({ size: "2048x2048", quality: "auto", imageResolution: "2K" });
+    expect(submit).toHaveBeenLastCalledWith({ size: "1024x1024", quality: "auto", imageResolution: "1K" });
   });
 });
 

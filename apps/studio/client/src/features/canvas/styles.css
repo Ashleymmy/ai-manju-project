@@ -2998,6 +2998,11 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   background: rgba(255, 255, 255, 0.14);
   color: #ffd9d2;
 }
+.param-segments button:disabled {
+  opacity: .38;
+  cursor: not-allowed;
+  filter: saturate(.45);
+}
 .param-ratio-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

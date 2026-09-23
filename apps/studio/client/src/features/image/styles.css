@@ -459,9 +459,14 @@
   gap: 6px;
   transition: all 0.2s;
 }
-.ratio-grid button:hover {
+.ratio-grid button:hover:not(:disabled) {
   border-color: rgba(239,235,222,.34);
   background: rgba(255,255,255,.04);
+}
+.ratio-grid button:disabled {
+  opacity: .38;
+  cursor: not-allowed;
+  filter: saturate(.45);
 }
 .ratio-grid button.active {
   border-color: var(--red);

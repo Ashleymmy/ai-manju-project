@@ -7,6 +7,7 @@ import {
   canvasGenerationInputsFromVideoSnapshot,
   fitCanvasImageNodeSize,
   imageResolutionFromNode,
+  isCanvasImageResolutionAvailable,
   isAbortError,
   modelFromNode,
   promptTextFromNode,
@@ -110,6 +111,12 @@ describe("canvas node utilities", () => {
     expect(qualityFromNode({ metadata: { quality: "auto" } } as CanvasNodeData)).toBe("low");
     expect(qualityFromNode({ metadata: { quality: "high" } } as CanvasNodeData)).toBe("high");
     expect(imageResolutionFromNode({ metadata: { imageResolution: "4K" } } as CanvasNodeData)).toBe("4K");
+  });
+
+  it("keeps higher resolutions in the model but marks them unavailable", () => {
+    expect(isCanvasImageResolutionAvailable("1K")).toBe(true);
+    expect(isCanvasImageResolutionAvailable("2K")).toBe(false);
+    expect(isCanvasImageResolutionAvailable("4K")).toBe(false);
   });
 
   it("treats retired gpt-image-1 family models saved on nodes as unset", () => {

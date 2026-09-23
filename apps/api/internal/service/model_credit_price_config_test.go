@@ -102,7 +102,7 @@ func TestModelPriceConfigValidation(t *testing.T) {
 		{"negative", strings.Replace(string(raw), `"image_reference":20`, `"image_reference":-1`, 1)},
 		{"precision", strings.Replace(string(raw), `"image_reference":20`, `"image_reference":1.001`, 1)},
 		{"excess", strings.Replace(string(raw), `"image_reference":20`, `"image_reference":1000001`, 1)},
-		{"null cell", strings.Replace(string(raw), `[5,10,35,60,130]`, `[null,10,35,60,130]`, 1)},
+		{"null cell", strings.Replace(string(raw), `[15,20,50,60,130]`, `[null,20,50,60,130]`, 1)},
 		{"unknown", strings.Replace(string(raw), `"images":`, `"unknown":`, 1)},
 		{"quality order", strings.Replace(string(raw), `"low","medium"`, `"medium","low"`, 1)},
 		{"row typo", strings.Replace(string(raw), `"gpt-image-1":`, `"gpt-image-typo":`, 1)},
@@ -140,7 +140,7 @@ func TestLegacyCatalogAddsH3480pWithoutReplacingSavedPrices(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded := LoadModelCreditPrices(billing)
-	if loaded.Videos["minimax-h3"]["480p"][0] != 30 || loaded.Videos["minimax-h3"]["768p"][2] != 43 || loaded.Videos["seedance-2.5"]["720p"][2] != 12.5 || loaded.Images["gpt-image-2"]["1k"][0] != 99 || loaded.ImageReference != 3.5 {
+	if loaded.Videos["minimax-h3"]["480p"][0] != 20 || loaded.Videos["minimax-h3"]["768p"][2] != 43 || loaded.Videos["seedance-2.5"]["720p"][2] != 12.5 || loaded.Images["gpt-image-2"]["1k"][0] != 99 || loaded.ImageReference != 3.5 {
 		t.Fatalf("lost saved prices: %+v", loaded)
 	}
 	loaded.Videos["minimax-h3"]["480p"] = []float64{11, 12, 13}
@@ -193,8 +193,8 @@ func TestModelPriceEditsRequoteAndPreserveReservations(t *testing.T) {
 	}
 	fx.enqueue(t, "price-test", model.JobTypeImageGenerate, strings.Replace(payload, `"n":1`, `"n":2`, 1))
 	overview, _ := fx.engine.Overview("price-test")
-	if overview.PermanentFrozen != 20 {
-		t.Fatalf("old5 + new15 frozen = %+v", overview)
+	if overview.PermanentFrozen != 30 {
+		t.Fatalf("old15 + new15 frozen = %+v", overview)
 	}
 	if _, err := fx.jobRepo.SetResult(first.Job.ID, model.JSONB(`{}`)); err != nil {
 		t.Fatal(err)
@@ -203,7 +203,7 @@ func TestModelPriceEditsRequoteAndPreserveReservations(t *testing.T) {
 		t.Fatal(err)
 	}
 	overview, _ = fx.engine.Overview("price-test")
-	if overview.PermanentBalance != 995 || overview.PermanentFrozen != 15 {
+	if overview.PermanentBalance != 985 || overview.PermanentFrozen != 15 {
 		t.Fatalf("old reservation repriced: %+v", overview)
 	}
 	// Zero remains free even during an activity discount.

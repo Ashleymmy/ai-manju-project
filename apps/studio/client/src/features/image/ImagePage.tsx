@@ -62,6 +62,7 @@ import {
 } from "./api";
 import {
   IMAGE_WORKBENCH_SIZE_OPTIONS,
+  isImageWorkbenchSizeAvailable,
   clampImagePixelSize,
   flippedWorkbenchSizeOption,
   nearestWorkbenchSizeOption,
@@ -820,7 +821,7 @@ export function ImageWorkbenchView() {
         </div>
         <div className="composer-ratio-grid">
           <label>宽高比</label>
-          <div className="ratio-grid">{IMAGE_WORKBENCH_SIZE_OPTIONS.map((ratio) => <button key={ratio} className={size === ratio ? "active" : ""} onClick={() => {
+          <div className="ratio-grid">{IMAGE_WORKBENCH_SIZE_OPTIONS.map((ratio) => <button key={ratio} type="button" disabled={!isImageWorkbenchSizeAvailable(ratio)} title={isImageWorkbenchSizeAvailable(ratio) ? ratio : `${ratio}：当前生图模型暂只支持 1K`} className={size === ratio ? "active" : ""} onClick={() => {
             const resolved = resolveImageWorkbenchRequestOptions(ratio, quality);
             setSize(ratio);
             if (resolved.quality !== quality) setQuality(resolved.quality);

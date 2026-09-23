@@ -101,7 +101,7 @@ func TestAdminModelPricesPersistQuoteAndAuthorization(t *testing.T) {
 				if err := json.Unmarshal(raw, &quote); err != nil {
 					t.Fatal(err)
 				}
-				if status != 200 || quote.Credits != 3300 || quote.Params["pricing_model"] != "seedance-2.5" {
+				if status != 200 || quote.Credits != 4800 || quote.Params["pricing_model"] != "seedance-2.5" {
 					t.Fatalf("mapped quote HTTP %d %+v", status, quote)
 				}
 			}

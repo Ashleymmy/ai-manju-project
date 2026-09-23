@@ -44,6 +44,12 @@ export const CANVAS_IMAGE_DEFAULT_SIZE = "auto" as const;
 export const CANVAS_IMAGE_DEFAULT_QUALITY: ImageQualityValue = "low";
 export const CANVAS_IMAGE_RESOLUTIONS = ["1K", "2K", "4K"] as const;
 export type CanvasImageResolution = (typeof CANVAS_IMAGE_RESOLUTIONS)[number];
+/** The active image price sheet currently exposes only the 1K capability. */
+export const CANVAS_IMAGE_AVAILABLE_RESOLUTIONS = ["1K"] as const satisfies readonly CanvasImageResolution[];
+
+export function isCanvasImageResolutionAvailable(value: CanvasImageResolution): boolean {
+  return (CANVAS_IMAGE_AVAILABLE_RESOLUTIONS as readonly string[]).includes(value);
+}
 
 /** 视频节点使用明确比例；旧的自适应设置回退到横屏。 */
 export const CANVAS_VIDEO_DEFAULT_RATIO = "16:9";

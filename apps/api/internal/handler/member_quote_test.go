@@ -25,9 +25,9 @@ func TestMemberQuoteUsesNormalizedImageParameters(t *testing.T) {
 		{`{"job_type":"image.edit","payload":{"model":"gpt-image-1.5","size":"auto","quality":"auto","n":2,"references":[{"field_name":"image"},{"field_name":"image"},{"field_name":"mask"}]}}`, 200, `"credits":180`},
 		{`{"job_type":"image.edit","payload":{"model":"gemini-3-pro-image","size":"2048x2048","quality":"auto","references":[{"field_name":"image"}]}}`, 200, `"credits":100`},
 		{`{"job_type":"unknown","payload":{}}`, 400, `"success":false`},
-		{`{"job_type":"video.generate","payload":{"model":"seedance-2.5","resolution":"720p","duration":10,"content":[{"type":"video_url"}]}}`, 200, `"credits":3300`},
-		{`{"job_type":"video.generate","payload":{"model":"seedance-2.5","resolution":"720p","duration":10,"content":[{"type":"image_url"},{"type":"audio_url"}]}}`, 200, `"credits":1950`},
-		{`{"job_type":"video.generate","payload":{"model":"zzdh-minimax-h3-限时优惠-多参考图生-480p","seconds":"5","resolution_name":"480p"}}`, 200, `"credits":150`},
+		{`{"job_type":"video.generate","payload":{"model":"seedance-2.5","resolution":"720p","duration":10,"content":[{"type":"video_url"}]}}`, 200, `"credits":4800`},
+		{`{"job_type":"video.generate","payload":{"model":"seedance-2.5","resolution":"720p","duration":10,"content":[{"type":"image_url"},{"type":"audio_url"}]}}`, 200, `"credits":2200`},
+		{`{"job_type":"video.generate","payload":{"model":"zzdh-minimax-h3-限时优惠-多参考图生-480p","seconds":"5","resolution_name":"480p"}}`, 200, `"credits":100`},
 	} {
 		rec := performJSON(r, http.MethodPost, "/quote", tc.body, nil)
 		if rec.Code != tc.status || !strings.Contains(rec.Body.String(), tc.contains) {

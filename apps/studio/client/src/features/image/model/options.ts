@@ -16,9 +16,27 @@ export const IMAGE_WORKBENCH_SIZE_OPTIONS = [
   "auto",
 ] as const;
 
+/**
+ * The current image price sheet only publishes the 1K capability. Keep the
+ * higher-resolution presets in the model so their saved prices remain
+ * editable, but prevent users from selecting them until the providers expose
+ * those capabilities again.
+ */
+export const IMAGE_WORKBENCH_UNAVAILABLE_SIZE_OPTIONS = [
+  "1:1(2x)",
+  "16:9(2x)",
+  "9:16(2x)",
+  "16:9(4k)",
+  "9:16(4k)",
+] as const;
+
 export type ImageWorkbenchSizeOption = (typeof IMAGE_WORKBENCH_SIZE_OPTIONS)[number];
 export type ImageWorkbenchQuality = NonNullable<ImageGenerationInput["quality"]>;
 export type ImagePixelSize = { width: number; height: number };
+
+export function isImageWorkbenchSizeAvailable(size: ImageWorkbenchSizeOption): boolean {
+  return !(IMAGE_WORKBENCH_UNAVAILABLE_SIZE_OPTIONS as readonly string[]).includes(size);
+}
 
 type ImageWorkbenchRequestOptions = {
   size: NonNullable<ImageGenerationInput["size"]>;
