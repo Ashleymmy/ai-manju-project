@@ -116,7 +116,7 @@ func (p *CreditPricer) QuoteForJob(jobType string, payload model.JSONB) (credits
 		params["resolution"] = size
 		params["count"] = count
 	case model.JobTypeVideoGenerate:
-		duration := jsonInt64(body["duration"], PriceVideoDefaultSeconds)
+		duration := videoCreditDuration(body)
 		if duration < 1 {
 			duration = PriceVideoDefaultSeconds
 		}
@@ -129,7 +129,7 @@ func (p *CreditPricer) QuoteForJob(jobType string, payload model.JSONB) (credits
 		credits = perSecond * duration
 		taskType = tier
 		params["duration_sec"] = duration
-		params["resolution"] = strings.ToUpper(jsonString(body["resolution"]))
+		params["resolution"] = strings.ToUpper(videoCreditResolution(body))
 	}
 
 	if total, ok := p.modelPrice(jobType, body, params); ok {

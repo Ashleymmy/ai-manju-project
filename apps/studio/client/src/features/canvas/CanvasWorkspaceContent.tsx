@@ -4366,7 +4366,7 @@ export default function CanvasWorkspaceViewContent() {
   });
 
   return (
-    <CanvasPricingContext.Provider value={{ imageModel, videoModel, nodes, references: mentionReferencesForNode }}>
+    <CanvasPricingContext.Provider value={{ imageModel, videoModel, nodes, edges, references: mentionReferencesForNode }}>
     <div className="canvas-page real-canvas-page">
       <Dialog open={Boolean(registrationTarget)} onOpenChange={(open) => { if (!open && !registrationBusy) setRegistrationTarget(null); }}>
         <DialogContent showCloseButton={!registrationBusy}>

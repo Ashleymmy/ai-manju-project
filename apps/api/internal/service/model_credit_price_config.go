@@ -56,6 +56,13 @@ func ParseModelCreditPrices(raw []byte) (ModelCreditPrices, error) {
 		return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= MaxModelCreditPrice && math.Abs(value*100-math.Round(value*100)) < 0.000001
 	}
 	defaults := DefaultModelCreditPrices()
+	// Catalogs saved before H3 480p was added remain valid. Backfill only this
+	// new row; never replace administrators' existing prices with defaults.
+	if h3 := prices.Videos["minimax-h3"]; h3 != nil {
+		if _, exists := h3["480p"]; !exists {
+			h3["480p"] = defaults.Videos["minimax-h3"]["480p"]
+		}
+	}
 	if !slices.Equal(prices.Qualities, defaults.Qualities) || !validPrice(prices.ImageReference) {
 		return prices, fmt.Errorf("qualities must keep their original order; prices must be 0–%d with at most two decimals", MaxModelCreditPrice)
 	}
@@ -81,9 +88,9 @@ func ParseModelCreditPrices(raw []byte) (ModelCreditPrices, error) {
 						return prices, fmt.Errorf("%s/%s: prices must be 0–%d with at most two decimals", name, resolution, MaxModelCreditPrice)
 					}
 				}
-				// Only models with measured-reference billing support this column.
+				// Only models with a video-reference surcharge support this column.
 				if group == "videos" && variants[2] == 0 && values[2] != 0 {
-					return prices, fmt.Errorf("%s does not support reference-duration surcharges", name)
+					return prices, fmt.Errorf("%s does not support video-reference surcharges", name)
 				}
 			}
 		}

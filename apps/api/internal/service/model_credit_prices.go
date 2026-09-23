@@ -2,6 +2,7 @@ package service
 
 import (
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/ai-manju/api/internal/model"
@@ -16,7 +17,9 @@ type ModelCreditPrices struct {
 	Qualities      []string                        `json:"qualities"`
 }
 
-// Video tuples are [without reference, with reference, reference-second surcharge].
+// Video tuples are [without video reference, with video reference, surcharge].
+// All three rates are per GENERATED second; video references trigger the
+// surcharge once, regardless of their count or source duration.
 // Seedance 1.5 tuples instead select [silent, audio, 0].
 func DefaultModelCreditPrices() ModelCreditPrices {
 	return ModelCreditPrices{
@@ -29,7 +32,7 @@ func DefaultModelCreditPrices() ModelCreditPrices {
 			"gpt-image-2":            {"1k": {10, 40, 150}, "2k": {25, 150, 600}, "4k": {35, 300, 1250}},
 		},
 		Videos: map[string]map[string][]float64{
-			"minimax-h3":        {"768p": {40, 40, 40}, "2k": {60, 60, 60}},
+			"minimax-h3":        {"480p": {30, 30, 30}, "768p": {40, 40, 40}, "2k": {60, 60, 60}},
 			"seedance-1.5-pro":  {"480p": {10, 20, 0}, "720p": {20, 45, 0}, "1080p": {50, 100, 0}},
 			"seedance-2.0":      {"480p": {60, 80, 0}, "720p": {110, 160, 0}, "1080p": {300, 380, 0}, "4k": {600, 800, 0}},
 			"seedance-2.0-fast": {"480p": {20, 30, 0}, "720p": {45, 65, 0}, "1080p": {85, 105, 0}, "2k": {120, 140, 0}, "4k": {195, 215, 0}},
@@ -48,6 +51,9 @@ func creditModelName(value string) string {
 	}
 	value = strings.TrimPrefix(value, "sdvideo/")
 	value = strings.TrimPrefix(value, "doubao-")
+	if value == "minimax-h3" || strings.HasPrefix(value, "minimax-h3-") || strings.HasPrefix(value, "zzdh-minimax-h3-") {
+		return "minimax-h3"
+	}
 	value = strings.ReplaceAll(value, "seedance-2-0", "seedance-2.0")
 	value = strings.ReplaceAll(value, "seedance-1-5", "seedance-1.5")
 	value = strings.ReplaceAll(value, "seedance-2-5", "seedance-2.5")
@@ -84,6 +90,55 @@ func imageCreditResolution(size string) string {
 		return "2k"
 	}
 	return "4k"
+}
+
+// Native/bridge jobs use duration/resolution; multipart video jobs use
+// seconds (a string) and resolution_name. Quotes and reservations share these.
+func videoCreditDuration(body map[string]any) int64 {
+	value, exists := body["duration"]
+	if !exists {
+		value = body["seconds"]
+	}
+	if text, ok := value.(string); ok {
+		seconds, _ := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
+		return seconds
+	}
+	return jsonInt64(value, 0)
+}
+
+func videoCreditResolution(body map[string]any) string {
+	id := strings.ToLower(jsonString(body["model"]))
+	// H3 supplier IDs bind the resolution even if an older client sends a
+	// generic resolution. Use the same effective specification as generation.
+	if creditModelName(id) == "minimax-h3" {
+		for _, resolution := range []string{"480p", "768p", "2k"} {
+			if strings.HasSuffix(id, "-"+resolution) {
+				return resolution
+			}
+		}
+	}
+	resolution := jsonString(body["resolution"])
+	if resolution == "" {
+		resolution = jsonString(body["resolution_name"])
+	}
+	return strings.ToLower(strings.TrimSpace(resolution))
+}
+
+func hasVideoCreditReference(body map[string]any) bool {
+	for _, field := range []string{"content", "references", "files"} {
+		items, _ := body[field].([]any)
+		for _, raw := range items {
+			item, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			kind := jsonString(item["type"])
+			if kind == "video_url" || kind == "video" || strings.HasPrefix(jsonString(item["content_type"]), "video/") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (p *CreditPricer) modelPrice(jobType string, body map[string]any, params map[string]any) (float64, bool) {
@@ -140,26 +195,12 @@ func (p *CreditPricer) modelPrice(jobType string, body map[string]any, params ma
 		params["pricing_source"] = "membership_price_sheet"
 		return (prices[index] + float64(refs)*catalog.ImageReference) * float64(count), true
 	}
-	resolution := strings.ToLower(jsonString(body["resolution"]))
+	resolution := videoCreditResolution(body)
 	prices := catalog.Videos[name][resolution]
 	if len(prices) != 3 {
 		return 0, false
 	}
-	hasRef := false
-	if content, ok := body["content"].([]any); ok {
-		for _, raw := range content {
-			if item, ok := raw.(map[string]any); ok && jsonString(item["type"]) == "video_url" {
-				hasRef = true
-			}
-		}
-	}
-	// Duration-based reference surcharges require measured media duration. Do not
-	// substitute an invented duration or silently omit that fee from an exact quote.
-	if hasRef && prices[2] > 0 {
-		params["per_second"] = prices[1]
-		params["reference_per_second"] = prices[2]
-		return 0, false
-	}
+	hasRef := hasVideoCreditReference(body)
 	index := 0
 	if hasRef {
 		index = 1
@@ -170,13 +211,21 @@ func (p *CreditPricer) modelPrice(jobType string, body map[string]any, params ma
 			index = 1
 		}
 	}
-	duration := jsonInt64(body["duration"], 0)
-	params["per_second"] = prices[index]
+	surcharge := float64(0)
+	if hasRef {
+		surcharge = prices[2]
+	}
+	duration := videoCreditDuration(body)
+	perSecond := prices[index] + surcharge
+	params["has_video_reference"] = hasRef
+	params["base_per_second"] = prices[index]
+	params["reference_per_second"] = surcharge
+	params["per_second"] = perSecond
 	if duration <= 0 {
 		return 0, false
 	}
 	params["pricing_source"] = "membership_price_sheet"
-	return prices[index] * float64(duration), true
+	return perSecond * float64(duration), true
 }
 
 func roundCreditTotal(value float64) int64 { return int64(math.Ceil(value)) }

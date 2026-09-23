@@ -12,12 +12,12 @@ export function ModelPricingTable({ prices }: { prices: MemberPricing["model_pri
     for (const [resolution, [base, reference, surcharge]] of Object.entries(resolutions)) {
       rows.push([model, resolution.toUpperCase(), model === "seedance-1.5-pro"
         ? `无声 ${base} / 有声 ${reference} 积分/秒`
-        : surcharge ? `无参考 ${base} / 有参考 ${reference} 积分/秒 + 参考视频 ${surcharge} 积分/秒`
+        : surcharge ? `无参考视频 ${base} / 有参考视频 ${reference} + ${surcharge} = ${Number((reference + surcharge).toFixed(2))} 积分/生成秒`
         : `无参考视频 ${base} / 有参考视频 ${reference} 积分/秒`]);
     }
   }
   return <>
-    <p className="member-tip">按会员价目表：每张参考图另加 {prices.image_reference} 积分；同一任务汇总后向上取整。画布和批量生成的独立任务分别取整。Agent 对话免费，图片、视频任务按模型计费。</p>
+    <p className="member-tip">图片生成每张参考图另加 {prices.image_reference} 积分。视频生成仅在引用视频时加收参考视频附加费，按生成视频时长计算；引用图片、音频不加收此费用。同一任务汇总后向上取整，画布和批量生成的独立任务分别取整。Agent 对话免费。</p>
     <div className="member-table">
       <div className="member-table-head member-price-row"><span>模型</span><span>规格 / 画质</span><span>积分</span></div>
       {rows.map(([name, spec, price]) => <div key={`${name}:${spec}`} className="member-table-row member-price-row"><span>{name}</span><span>{spec}</span><span>{price}</span></div>)}

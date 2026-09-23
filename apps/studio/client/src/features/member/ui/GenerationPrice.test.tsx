@@ -47,4 +47,25 @@ describe("creation credits", () => {
     expect(container.textContent).not.toContain("预计");
     await act(async () => root.unmount()); client.clear();
   });
+
+  it("quotes video presence and shows the combined output rate without adding it twice", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.mocked(fetchGenerationQuote).mockResolvedValue({ credits: 3300, params: { pricing_source: "membership_price_sheet", base_per_second: 195, reference_per_second: 135, per_second: 330 } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div"); const root = createRoot(container);
+    const render = (seconds: string, compact = false) => root.render(<QueryClientProvider client={client}><GenerationPrice kind="video" model="seedance-2.5" resolution="720p" seconds={seconds} referenceVideos={1} compact={compact} /></QueryClientProvider>);
+    await act(async () => { render("10"); await new Promise(r => setTimeout(r, 20)); });
+    await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    expect(fetchGenerationQuote).toHaveBeenCalledWith("video.generate", expect.objectContaining({ duration: 10, content: [{ type: "video_url" }] }), expect.any(AbortSignal));
+    expect(container.textContent).toContain("3,300");
+    expect(container.querySelector("span")?.title).toContain("195 + 附加 135 = 330");
+    vi.mocked(fetchGenerationQuote).mockResolvedValue({ credits: 60, params: { pricing_source: "legacy", base_per_second: 195, reference_per_second: 135, per_second: 330 } });
+    await act(async () => { render("-1"); await new Promise(r => setTimeout(r, 20)); });
+    await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    expect(container.textContent).toBe("330 积分/秒 · 含视频参考附加费");
+    expect(container.querySelector("span")?.title).toContain("当前时长自动");
+    await act(async () => render("-1", true));
+    expect(container.textContent).toBe("330/秒");
+    await act(async () => root.unmount()); client.clear();
+  });
 });

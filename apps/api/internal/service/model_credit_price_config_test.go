@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ai-manju/api/internal/model"
+	"github.com/ai-manju/api/internal/repository"
 )
 
 func TestModelPriceConfigValidation(t *testing.T) {
@@ -40,6 +41,41 @@ func TestModelPriceConfigValidation(t *testing.T) {
 	raw, _ = json.Marshal(prices)
 	if _, err := ParseModelCreditPrices(raw); err == nil {
 		t.Fatal("unsupported surcharge accepted")
+	}
+}
+
+func TestLegacyCatalogAddsH3480pWithoutReplacingSavedPrices(t *testing.T) {
+	prices := DefaultModelCreditPrices()
+	delete(prices.Videos["minimax-h3"], "480p")
+	prices.Videos["minimax-h3"]["768p"] = []float64{41, 42, 43}
+	prices.Videos["seedance-2.5"]["720p"] = []float64{100, 110, 12.5}
+	prices.Images["gpt-image-2"]["1k"][0] = 99
+	prices.ImageReference = 3.5
+	raw, _ := json.Marshal(prices)
+	billing := repository.NewMemoryBillingRepository()
+	if err := billing.UpsertConfig(model.BillingConfigKeyModelPrices, raw, "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	loaded := LoadModelCreditPrices(billing)
+	if loaded.Videos["minimax-h3"]["480p"][0] != 30 || loaded.Videos["minimax-h3"]["768p"][2] != 43 || loaded.Videos["seedance-2.5"]["720p"][2] != 12.5 || loaded.Images["gpt-image-2"]["1k"][0] != 99 || loaded.ImageReference != 3.5 {
+		t.Fatalf("lost saved prices: %+v", loaded)
+	}
+	loaded.Videos["minimax-h3"]["480p"] = []float64{11, 12, 13}
+	raw, _ = json.Marshal(loaded)
+	parsed, err := ParseModelCreditPrices(raw)
+	if err != nil || parsed.Videos["minimax-h3"]["480p"][2] != 13 {
+		t.Fatal(parsed, err)
+	}
+	loaded.Videos["minimax-h3"]["480p"] = nil
+	raw, _ = json.Marshal(loaded)
+	if _, err := ParseModelCreditPrices(raw); err == nil {
+		t.Fatal("null row must not be backfilled")
+	}
+	delete(loaded.Videos["minimax-h3"], "768p")
+	delete(loaded.Videos["minimax-h3"], "480p")
+	raw, _ = json.Marshal(loaded)
+	if _, err := ParseModelCreditPrices(raw); err == nil {
+		t.Fatal("other missing rows must still be rejected")
 	}
 }
 
