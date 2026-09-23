@@ -21,6 +21,8 @@ func TestAdminModelPricesPersistQuoteAndAuthorization(t *testing.T) {
 			write := "/api/admin/billing/configs/" + model.BillingConfigKeyModelPrices
 			prices := service.DefaultModelCreditPrices()
 			prices.Images["gpt-image-2.5-flare"]["1k"][0] = 7.5
+			prices.Images["gemini-3-pro-image"]["2k"][0] = 63
+			prices.Videos["wan-3.0"]["1080p"] = []float64{12, 12, 3}
 			body := map[string]any{"value": prices}
 			for _, tc := range []struct {
 				token       string
@@ -58,6 +60,22 @@ func TestAdminModelPricesPersistQuoteAndAuthorization(t *testing.T) {
 				}
 				if status != 200 || quote.Credits != 15 {
 					t.Fatalf("quote HTTP%d %+v", status, quote)
+				}
+				for _, tc := range []struct {
+					kind    string
+					payload map[string]any
+					want    int64
+				}{
+					{"image.edit", map[string]any{"model": "supplier::gemini-3-pro-image", "size": "2048x2048", "quality": "auto", "references": []map[string]string{{"field_name": "image"}}}, 83},
+					{"video.generate", map[string]any{"model": "sdvideo/yike-wan3.0-video", "resolution": "1080p", "duration": 10, "content": []map[string]string{{"type": "video_url"}}}, 150},
+				} {
+					status, raw = f.call(t, "POST", "/api/member/quote", f.member, map[string]any{"job_type": tc.kind, "payload": tc.payload})
+					if err := json.Unmarshal(raw, &quote); err != nil {
+						t.Fatal(err)
+					}
+					if status != 200 || quote.Credits != tc.want {
+						t.Fatalf("new model quote HTTP%d %+v want%d", status, quote, tc.want)
+					}
 				}
 			}
 			verify()

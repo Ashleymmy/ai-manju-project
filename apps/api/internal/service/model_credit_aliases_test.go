@@ -68,7 +68,7 @@ func TestSupplierModelAliasesShareOfficialPrices(t *testing.T) {
 		t.Fatal("unmapped endpoint inherited display-name pricing", params)
 	}
 	// Missing resolution prices are not invented during family matching.
-	_, _, params, _ = p.QuoteForJob(model.JobTypeVideoGenerate, model.JSONB(`{"model":"sdvideo/yike-wan3.0-video","resolution":"1080p","duration":10}`))
+	_, _, params, _ = p.QuoteForJob(model.JobTypeVideoGenerate, model.JSONB(`{"model":"sdvideo/yike-wan3.0-video","resolution":"4k","duration":10}`))
 	if params["pricing_model"] != "wan-3.0" || params["pricing_source"] != "legacy" {
 		t.Fatal(params)
 	}

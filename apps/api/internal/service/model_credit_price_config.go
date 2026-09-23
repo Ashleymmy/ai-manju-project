@@ -17,6 +17,10 @@ const MaxModelCreditPrice = 1_000_000
 // ParseModelCreditPrices validates a complete catalog. Model/spec identities are
 // fixed so a typo or missing row cannot silently switch a task to legacy pricing.
 func ParseModelCreditPrices(raw []byte) (ModelCreditPrices, error) {
+	return parseModelCreditPrices(raw, DefaultModelCreditPrices())
+}
+
+func parseModelCreditPrices(raw []byte, defaults ModelCreditPrices) (ModelCreditPrices, error) {
 	var prices ModelCreditPrices
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -55,12 +59,27 @@ func ParseModelCreditPrices(raw []byte) (ModelCreditPrices, error) {
 	validPrice := func(value float64) bool {
 		return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= MaxModelCreditPrice && math.Abs(value*100-math.Round(value*100)) < 0.000001
 	}
-	defaults := DefaultModelCreditPrices()
 	// Catalogs saved before H3 480p was added remain valid. Backfill only this
 	// new row; never replace administrators' existing prices with defaults.
 	if h3 := prices.Videos["minimax-h3"]; h3 != nil {
 		if _, exists := h3["480p"]; !exists {
 			h3["480p"] = defaults.Videos["minimax-h3"]["480p"]
+		}
+	}
+	// These additions are initialized from fallback rates on older catalogs.
+	// Only absent additions are backfilled; saved zeroes and edits remain intact.
+	if prices.Images != nil {
+		for _, name := range []string{"gemini-3-pro-image", "gemini-3.1-flash-image"} {
+			if _, exists := prices.Images[name]; !exists {
+				prices.Images[name] = defaults.Images[name]
+			}
+		}
+	}
+	for _, name := range []string{"wan-3.0", "wan-3.0-prime"} {
+		if resolutions := prices.Videos[name]; resolutions != nil {
+			if _, exists := resolutions["1080p"]; !exists {
+				resolutions["1080p"] = defaults.Videos[name]["1080p"]
+			}
 		}
 	}
 	if !slices.Equal(prices.Qualities, defaults.Qualities) || !validPrice(prices.ImageReference) {
@@ -89,7 +108,7 @@ func ParseModelCreditPrices(raw []byte) (ModelCreditPrices, error) {
 					}
 				}
 				// Only models with a video-reference surcharge support this column.
-				if group == "videos" && variants[2] == 0 && values[2] != 0 {
+				if group == "videos" && !supportsVideoCreditSurcharge(name) && values[2] != 0 {
 					return prices, fmt.Errorf("%s does not support video-reference surcharges", name)
 				}
 			}
@@ -98,13 +117,33 @@ func ParseModelCreditPrices(raw []byte) (ModelCreditPrices, error) {
 	return prices, nil
 }
 
+// Surcharge support belongs to a model, not to its current default price: a
+// newly added row may start at zero and must remain editable by administrators.
+func supportsVideoCreditSurcharge(name string) bool {
+	switch name {
+	case "minimax-h3", "seedance-2.5", "wan-3.0", "wan-3.0-prime":
+		return true
+	}
+	return false
+}
+
 // LoadModelCreditPrices is shared by quotes, reservation and member/admin views.
 // Both storage drivers use BillingRepository; saving needs no schema migration.
 func LoadModelCreditPrices(billing repository.BillingRepository) ModelCreditPrices {
+	defaults := DefaultModelCreditPrices()
+	rules := NewCreditPricer(billing).loadRules()
+	for _, name := range []string{"gemini-3-pro-image", "gemini-3.1-flash-image"} {
+		for resolution := range defaults.Images[name] {
+			defaults.Images[name][resolution][0] = float64(imagePriceForSize(rules, resolution))
+		}
+	}
+	for _, name := range []string{"wan-3.0", "wan-3.0-prime"} {
+		defaults.Videos[name]["1080p"] = []float64{float64(rules.VideoStandard.PerSecond), float64(rules.VideoStandard.PerSecond), 0}
+	}
 	if config, err := billing.GetConfig(model.BillingConfigKeyModelPrices); err == nil {
-		if prices, err := ParseModelCreditPrices(config.Value); err == nil {
+		if prices, err := parseModelCreditPrices(config.Value, defaults); err == nil {
 			return prices
 		}
 	}
-	return DefaultModelCreditPrices()
+	return defaults
 }
