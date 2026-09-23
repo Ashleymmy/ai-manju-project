@@ -44,6 +44,7 @@ func TestCurrentSheetPriceRows(t *testing.T) {
 	}{
 		{"gpt-image-2.5-flare 1k", prices.Images["gpt-image-2.5-flare"]["1k"], []float64{15, 20, 50, 60, 130}},
 		{"gpt-image-2 1k", prices.Images["gpt-image-2"]["1k"], []float64{10, 15, 40}},
+		{"nano-banana 1k", prices.Images["gemini-3.1-flash-image"]["1k"], []float64{20}},
 		{"seedance-2.5 720p", prices.Videos["seedance-2.5"]["720p"], []float64{220, 220, 260}},
 		{"wan-3.0-prime 1080p", prices.Videos["wan-3.0-prime"]["1080p"], []float64{270, 270, 270}},
 	} {

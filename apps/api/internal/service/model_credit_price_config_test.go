@@ -31,7 +31,7 @@ func TestNewModelPricesBackfillFromConfiguredFallbackAndRemainEditable(t *testin
 	}
 	loaded := LoadModelCreditPrices(billing)
 	for _, name := range []string{"gemini-3-pro-image", "gemini-3.1-flash-image"} {
-		if !reflect.DeepEqual(loaded.Images[name], map[string][]float64{"1k": {53}, "2k": {87}, "4k": {87}}) {
+		if !reflect.DeepEqual(loaded.Images[name], map[string][]float64{"1k": {20}, "2k": {87}, "4k": {87}}) {
 			t.Fatal(loaded.Images[name])
 		}
 	}

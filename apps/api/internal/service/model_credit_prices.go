@@ -26,8 +26,8 @@ func DefaultModelCreditPrices() ModelCreditPrices {
 	return ModelCreditPrices{
 		Qualities: []string{"low", "medium", "high", "xhigh", "max"}, ImageReference: 20,
 		Images: map[string]map[string][]float64{
-			"gemini-3-pro-image":     {"1k": {float64(PriceImageStandard1024)}, "2k": {float64(PriceImageLarge)}, "4k": {float64(PriceImageLarge)}},
-			"gemini-3.1-flash-image": {"1k": {float64(PriceImageStandard1024)}, "2k": {float64(PriceImageLarge)}, "4k": {float64(PriceImageLarge)}},
+			"gemini-3-pro-image":     {"1k": {20}, "2k": {float64(PriceImageLarge)}, "4k": {float64(PriceImageLarge)}},
+			"gemini-3.1-flash-image": {"1k": {20}, "2k": {float64(PriceImageLarge)}, "4k": {float64(PriceImageLarge)}},
 			// The sheet currently publishes low/medium/high for these families.
 			// Keep the legacy xhigh/max columns so existing admin price documents
 			// remain valid and editable while their UI capabilities are unavailable.

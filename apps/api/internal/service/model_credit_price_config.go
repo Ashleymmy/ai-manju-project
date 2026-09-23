@@ -133,9 +133,11 @@ func LoadModelCreditPrices(billing repository.BillingRepository) ModelCreditPric
 	defaults := DefaultModelCreditPrices()
 	rules := NewCreditPricer(billing).loadRules()
 	for _, name := range []string{"gemini-3-pro-image", "gemini-3.1-flash-image"} {
-		for resolution := range defaults.Images[name] {
-			defaults.Images[name][resolution][0] = float64(imagePriceForSize(rules, resolution))
-		}
+		// The current sheet fixes Nano Banana 1K at 20 credits. Keep the
+		// legacy pricing-rules override for unpublished 2K/4K admin rows.
+		defaults.Images[name]["1k"][0] = 20
+		defaults.Images[name]["2k"][0] = float64(imagePriceForSize(rules, "2k"))
+		defaults.Images[name]["4k"][0] = float64(imagePriceForSize(rules, "4k"))
 	}
 	for _, name := range []string{"wan-3.0", "wan-3.0-prime"} {
 		defaults.Videos[name]["1080p"] = []float64{float64(rules.VideoStandard.PerSecond), float64(rules.VideoStandard.PerSecond), 0}
