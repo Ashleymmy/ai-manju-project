@@ -23,6 +23,7 @@ from .provider import (
 )
 from .staged_inputs import INPUT_STORAGE_KEY_FIELD, open_staged_input, resolve_legacy_asset_path, resolve_output_dir, validate_staged_input
 from .video_h3 import h3_provider, h3_request_body, is_h3_reference_model
+from .video_references import native_video_references
 
 
 ProgressFn = Callable[[int], None]
@@ -48,6 +49,15 @@ NATIVE_VIDEO_REQUEST_FIELDS = ("model", "prompt", "content", "ratio", "resolutio
 
 
 def generate_video(job_id: str, payload: dict[str, Any], settings: Settings, progress: ProgressFn) -> dict[str, Any]:
+    provider = payload.get("provider")
+    if isinstance(provider, dict) and provider.get("video_protocol") == "seedance":
+        body = provider.get("video_request_body") or {key: payload[key] for key in NATIVE_VIDEO_REQUEST_FIELDS if key in payload}
+        with native_video_references(job_id, body, payload, settings) as prepared:
+            return _generate_video(job_id, {**payload, "provider": {**provider, "video_request_body": prepared}}, settings, progress)
+    return _generate_video(job_id, payload, settings, progress)
+
+
+def _generate_video(job_id: str, payload: dict[str, Any], settings: Settings, progress: ProgressFn) -> dict[str, Any]:
     provider = payload.get("provider")
     if not provider_has_remote(provider):
         raise SafeTaskError("video provider is not configured", code="provider_not_configured", retryable=False)
