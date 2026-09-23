@@ -729,9 +729,14 @@ export class CanvasGenerationJobsController {
     }
     const nodes = this.bindings.getNodes();
     const edges = this.bindings.getEdges();
+    // Ignore a legacy snapshot entry that points back to the node being
+    // retried. It is the previous output, not an explicit video reference.
     const snapshot = canvasVideoReferenceSnapshot(node.metadata?.videoReferenceInputs);
+    const retrySnapshot = {
+      items: snapshot.items.filter(item => item.nodeId !== node.id),
+    };
     let retryPrompt = prompt;
-    let generationInputs = canvasGenerationInputsFromVideoSnapshot(snapshot, nodes);
+    let generationInputs = canvasGenerationInputsFromVideoSnapshot(retrySnapshot, nodes);
     // Retry must resolve the current graph first. A failed node can outlive or
     // replace the image nodes captured by its old snapshot; using that stale
     // snapshot silently re-uploads the original image as storage_token and
