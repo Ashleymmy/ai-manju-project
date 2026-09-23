@@ -14,8 +14,9 @@ export function ModelPricesPanel({ readOnly }: { readOnly: boolean }) {
   const name = models.includes(selected) ? selected : models[0];
   const audioModel = name === "seedance-1.5-pro";
   const hasReferenceSurcharge = referenceSurchargeModels.has(name);
+  const resolutionOnly = group === "images" && Object.values(draft?.images[name] ?? {}).every(values => values.length === 1);
   const headers = group === "images"
-    ? query.data?.qualities.map(q => `${qualityNames[q] ?? q} · ${q}`) ?? []
+    ? resolutionOnly ? ["按分辨率计价"] : query.data?.qualities.map(q => `${qualityNames[q] ?? q} · ${q}`) ?? []
     : audioModel ? ["无声", "有声"] : ["无参考视频", "有参考视频", ...(hasReferenceSurcharge ? ["参考视频附加费"] : [])];
 
   return <section className="real-admin-section model-prices-panel">
@@ -63,7 +64,7 @@ export function ModelPricesPanel({ readOnly }: { readOnly: boolean }) {
       </div>
       <div className="model-prices-note">
         <p>引用视频时，总积分 =（有参考视频单价 + 参考视频附加费）× 生成视频秒数。多个参考视频只加一次单价，不按参考视频数量或时长累计；只引用图片、音频时，使用无参考视频单价。Seedance 1.5 按无声／有声计价。</p>
-        <p>图片自动规格按（基础兜底单价 + 参考图片张数 × 参考图片附加费）× 输出张数计费，蒙版不计费。视频自动时长仍沿用基础规则；明确规格按模型定价计费。</p>
+        <p>不支持画质档位的图片模型按分辨率单价计费。尺寸为自动，或支持画质档位的模型选择自动画质时，按（基础兜底单价 + 参考图片张数 × 参考图片附加费）× 输出张数计费，蒙版不计费。视频自动时长仍沿用基础规则。</p>
         <p><Link href="/admin/plans-config">基础兜底价格与活动折扣</Link> · <Link href="/admin/consumptions">平台模型成本</Link>单独管理。</p>
       </div>
       {error ? <p role="alert" className="model-prices-error">{error}</p> : null}

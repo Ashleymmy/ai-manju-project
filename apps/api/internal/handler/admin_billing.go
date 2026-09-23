@@ -275,6 +275,7 @@ func (h *AdminBillingHandler) ListConfigs(c *gin.Context) {
 // 白名单外的 key 一律 400，防止管理端写入业务代码不识别的配置。
 var adminEditableConfigKeys = map[string]bool{
 	model.BillingConfigKeyModelPrices:      true,
+	model.BillingConfigKeyModelAliases:     true,
 	model.BillingConfigKeyRegisterBonus:    true,
 	model.BillingConfigKeyRegisterBonusTTL: true,
 	model.BillingConfigKeyInviteRewards:    true,

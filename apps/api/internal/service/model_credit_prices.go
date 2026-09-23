@@ -11,6 +11,7 @@ import (
 // ModelCreditPrices is the confirmed 2026-09 membership price sheet. Prices are
 // credits, not supplier costs. Half credits are rounded only after summing a job.
 type ModelCreditPrices struct {
+	// A single image price column means resolution-only pricing (no quality tier).
 	Images         map[string]map[string][]float64 `json:"images"`
 	Videos         map[string]map[string][]float64 `json:"videos"`
 	ImageReference float64                         `json:"image_reference"`
@@ -25,6 +26,8 @@ func DefaultModelCreditPrices() ModelCreditPrices {
 	return ModelCreditPrices{
 		Qualities: []string{"low", "medium", "high", "xhigh", "max"}, ImageReference: 20,
 		Images: map[string]map[string][]float64{
+			"gemini-3-pro-image":     {"1k": {float64(PriceImageStandard1024)}, "2k": {float64(PriceImageLarge)}, "4k": {float64(PriceImageLarge)}},
+			"gemini-3.1-flash-image": {"1k": {float64(PriceImageStandard1024)}, "2k": {float64(PriceImageLarge)}, "4k": {float64(PriceImageLarge)}},
 			"gpt-image-2.5-sunburst": {"1k": {5, 10, 35, 60, 130}, "2k": {15, 30, 130, 230, 515}, "4k": {30, 65, 260, 460, 1030}},
 			"gpt-image-2.5-flare":    {"1k": {5, 10, 35, 60, 130}, "2k": {15, 30, 130, 230, 515}, "4k": {30, 65, 260, 460, 1030}},
 			"gpt-image-1":            {"1k": {8, 32, 120}, "2k": {20, 120, 480}, "4k": {28, 240, 1000}},
@@ -38,18 +41,25 @@ func DefaultModelCreditPrices() ModelCreditPrices {
 			"seedance-2.0-fast": {"480p": {20, 30, 0}, "720p": {45, 65, 0}, "1080p": {85, 105, 0}, "2k": {120, 140, 0}, "4k": {195, 215, 0}},
 			"seedance-2.0-mini": {"480p": {15, 20, 0}, "720p": {30, 40, 0}},
 			"seedance-2.5":      {"480p": {85, 85, 65}, "720p": {195, 195, 135}, "1080p": {485, 485, 325}},
-			"wan-3.0":           {"480p": {20, 20, 20}, "720p": {40, 40, 40}},
-			"wan-3.0-prime":     {"480p": {30, 30, 30}, "720p": {60, 60, 60}},
+			"wan-3.0":           {"480p": {20, 20, 20}, "720p": {40, 40, 40}, "1080p": {float64(PriceVideoStandardPerSecond), float64(PriceVideoStandardPerSecond), 0}},
+			"wan-3.0-prime":     {"480p": {30, 30, 30}, "720p": {60, 60, 60}, "1080p": {float64(PriceVideoStandardPerSecond), float64(PriceVideoStandardPerSecond), 0}},
 		},
 	}
 }
 
-func creditModelName(value string) string {
+func creditModelID(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if parts := strings.Split(value, "::"); len(parts) > 1 {
 		value = parts[len(parts)-1]
 	}
-	value = strings.TrimPrefix(value, "sdvideo/")
+	return strings.TrimSpace(strings.TrimPrefix(value, "sdvideo/"))
+}
+
+func creditModelName(value string) string {
+	value = creditModelID(value)
+	if canonical, ok := builtinCreditModelAliases[value]; ok {
+		return canonical
+	}
 	value = strings.TrimPrefix(value, "doubao-")
 	if value == "minimax-h3" || strings.HasPrefix(value, "minimax-h3-") || strings.HasPrefix(value, "zzdh-minimax-h3-") {
 		return "minimax-h3"
@@ -143,8 +153,8 @@ func hasVideoCreditReference(body map[string]any) bool {
 
 func (p *CreditPricer) modelPrice(jobType string, body map[string]any, params map[string]any) (float64, bool) {
 	catalog := LoadModelCreditPrices(p.billing)
-	name := creditModelName(jsonString(body["model"]))
-	params["pricing_model"] = name
+	// QuoteForJob resolved this from the real model ID using server configuration.
+	name := jsonString(params["pricing_model"])
 	params["pricing_source"] = "legacy"
 	if jobType == model.JobTypeImageGenerate || jobType == model.JobTypeImageEdit {
 		quality := jsonString(body["quality"])
@@ -163,6 +173,11 @@ func (p *CreditPricer) modelPrice(jobType string, body map[string]any, params ma
 			}
 		}
 		refs := 0
+		// Gemini exposes resolution but no quality control. Its sole price column
+		// applies even when clients send auto quality; auto size still falls back.
+		if len(prices) == 1 {
+			index, quality = 0, "standard"
+		}
 		if items, ok := body["references"].([]any); ok {
 			for _, item := range items {
 				if file, ok := item.(map[string]any); ok && jsonString(file["field_name"]) == "mask" {

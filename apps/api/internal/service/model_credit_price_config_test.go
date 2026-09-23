@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,88 @@ import (
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/repository"
 )
+
+func TestNewModelPricesBackfillFromConfiguredFallbackAndRemainEditable(t *testing.T) {
+	billing := repository.NewMemoryBillingRepository()
+	prices := DefaultModelCreditPrices()
+	delete(prices.Images, "gemini-3-pro-image")
+	delete(prices.Images, "gemini-3.1-flash-image")
+	delete(prices.Videos["wan-3.0"], "1080p")
+	delete(prices.Videos["wan-3.0-prime"], "1080p")
+	prices.Images["gpt-image-1"]["1k"][0] = 12
+	prices.Videos["wan-3.0"]["720p"][2] = 37
+	prices.ImageReference = 7
+	raw, _ := json.Marshal(prices)
+	if err := billing.UpsertConfig(model.BillingConfigKeyModelPrices, raw, "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := billing.UpsertConfig(model.BillingConfigKeyPricingRules, model.JSONB(`{"image":{"standard_1024":53,"large":87},"video_standard":{"per_second":17}}`), "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	loaded := LoadModelCreditPrices(billing)
+	for _, name := range []string{"gemini-3-pro-image", "gemini-3.1-flash-image"} {
+		if !reflect.DeepEqual(loaded.Images[name], map[string][]float64{"1k": {53}, "2k": {87}, "4k": {87}}) {
+			t.Fatal(loaded.Images[name])
+		}
+	}
+	for _, name := range []string{"wan-3.0", "wan-3.0-prime"} {
+		if !reflect.DeepEqual(loaded.Videos[name]["1080p"], []float64{17, 17, 0}) {
+			t.Fatal(loaded.Videos[name])
+		}
+	}
+	for name, specs := range prices.Images {
+		if !reflect.DeepEqual(loaded.Images[name], specs) {
+			t.Fatal("old image prices replaced")
+		}
+	}
+	for name, specs := range prices.Videos {
+		for res, values := range specs {
+			if !reflect.DeepEqual(loaded.Videos[name][res], values) {
+				t.Fatal("old video prices replaced")
+			}
+		}
+	}
+	if loaded.ImageReference != 7 {
+		t.Fatal("reference price replaced")
+	}
+	loaded.Images["gemini-3-pro-image"]["2k"][0] = 61.5
+	loaded.Images["gemini-3.1-flash-image"]["1k"][0] = 0
+	loaded.Videos["wan-3.0"]["1080p"] = []float64{18, 19, 2.5}
+	loaded.Videos["wan-3.0-prime"]["1080p"] = []float64{0, 0, 0}
+	raw, _ = json.Marshal(loaded)
+	if _, err := ParseModelCreditPrices(raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := billing.UpsertConfig(model.BillingConfigKeyModelPrices, raw, "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(LoadModelCreditPrices(billing), loaded) {
+		t.Fatal("saved additions replaced by fallback")
+	}
+	p := NewCreditPricer(billing)
+	for _, tc := range []struct {
+		kind, payload, source string
+		want                  int64
+	}{
+		{model.JobTypeImageEdit, `{"model":"sx::gemini-3-pro-image","size":"2048x2048","quality":"auto","n":2,"references":[{"field_name":"image"},{"field_name":"image"},{"field_name":"mask"}]}`, "membership_price_sheet", 151},
+		{model.JobTypeImageGenerate, `{"model":"sx::gemini-3.1-flash-image","size":"1024x1024"}`, "membership_price_sheet", 0},
+		{model.JobTypeImageEdit, `{"model":"sx::gemini-3-pro-image","size":"auto","quality":"auto","references":[{"field_name":"image"}]}`, "image_auto_fallback", 60},
+		{model.JobTypeVideoGenerate, `{"model":"sdvideo/yike-wan3.0-video","resolution":"1080p","duration":10}`, "membership_price_sheet", 180},
+		{model.JobTypeVideoGenerate, `{"model":"sdvideo/yike-wan3.0-video","resolution":"1080p","duration":10,"content":[{"type":"video_url"}]}`, "membership_price_sheet", 215},
+		{model.JobTypeVideoGenerate, `{"model":"sdvideo/yike-wan3.0-video-prime","resolution":"1080p","duration":10,"content":[{"type":"video_url"}]}`, "membership_price_sheet", 0},
+	} {
+		got, _, params, _ := p.QuoteForJob(tc.kind, model.JSONB(tc.payload))
+		if got != tc.want || params["pricing_source"] != tc.source {
+			t.Fatalf("got %d %+v want %d: %s", got, params, tc.want, tc.payload)
+		}
+	}
+	// Partial/malformed additions are errors, not permission to replace the catalog.
+	delete(loaded.Images["gemini-3-pro-image"], "2k")
+	raw, _ = json.Marshal(loaded)
+	if _, err := ParseModelCreditPrices(raw); err == nil {
+		t.Fatal("partial new image row accepted")
+	}
+}
 
 func TestModelPriceConfigValidation(t *testing.T) {
 	raw, _ := json.Marshal(DefaultModelCreditPrices())

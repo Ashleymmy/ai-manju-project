@@ -61,7 +61,7 @@ func TestAutomaticImageReferencesUseFallbackAndKeepReservations(t *testing.T) {
 		{`{"model":"gpt-image-2.5-flare","size":"auto","quality":"auto","references":[{"field_name":"image"},{"field_name":"image"},{"field_name":"mask"}]}`, 90},
 		{`{"model":"gpt-image-1.5","size":"2048x2048","quality":"auto","n":2,"references":[{"field_name":"image"},{"field_name":"image"}]}`, 240},
 		{`{"model":"gpt-image-1.5","size":"auto","quality":"high","references":[{"field_name":"image"}]}`, 70},
-		{`{"model":"gemini-3-pro-image","size":"2048x2048","references":[{"field_name":"image"}]}`, 100},
+		{`{"model":"gemini-3-pro-image","size":"auto","references":[{"field_name":"image"}]}`, 70},
 		{`{"model":"gpt-image-1.5"}`, 50},
 	} {
 		credits, _, params, _ := fx.pricer.QuoteForJob(model.JobTypeImageEdit, model.JSONB(tc.payload))

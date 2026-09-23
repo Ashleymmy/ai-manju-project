@@ -10,8 +10,8 @@ import { fetchAdminModelPrices, saveAdminModelPrices } from "../services/adminMo
 vi.mock("../services/adminModelPricesApi", () => ({ fetchAdminModelPrices: vi.fn(), saveAdminModelPrices: vi.fn() }));
 
 const prices: ModelCreditPrices = {
-  images: { "gpt-image-2.5-flare": { "1k": [5, 10, 35, 60, 130] }, "gpt-image-1.5": { "2k": [22.5, 135, 540] } },
-  videos: { "seedance-1.5-pro": { "720p": [20, 45, 0] }, "seedance-2.5": { "720p": [195, 195, 135] }, "minimax-h3": { "480p": [30, 30, 30], "768p": [40, 40, 40] } },
+  images: { "gpt-image-2.5-flare": { "1k": [5, 10, 35, 60, 130] }, "gpt-image-1.5": { "2k": [22.5, 135, 540] }, "gemini-3-pro-image": { "1k": [50], "2k": [80], "4k": [80] }, "gemini-3.1-flash-image": { "1k": [50], "2k": [80], "4k": [80] } },
+  videos: { "seedance-1.5-pro": { "720p": [20, 45, 0] }, "seedance-2.5": { "720p": [195, 195, 135] }, "minimax-h3": { "480p": [30, 30, 30], "768p": [40, 40, 40] }, "wan-3.0": { "1080p": [12, 12, 0] }, "wan-3.0-prime": { "1080p": [12, 12, 0] } },
   qualities: ["low", "medium", "high", "xhigh", "max"], image_reference: 20,
 };
 
@@ -92,5 +92,29 @@ describe("model price editor", () => {
     await change(surcharge, "12.5");
     await act(async () => button("保存全部定价").click());
     expect(vi.mocked(saveAdminModelPrices).mock.calls[0][0].videos["minimax-h3"]["480p"]).toEqual([30, 30, 12.5]);
+  });
+
+  it("exposes Gemini resolution prices and editable zero Wan 1080p surcharges", async () => {
+    await render();
+    const select = container.querySelector("select")!;
+    for (const name of ["gemini-3-pro-image", "gemini-3.1-flash-image"]) {
+      await act(async () => { select.value = name; select.dispatchEvent(new Event("change", { bubbles: true })); });
+      expect(container.querySelector("thead")?.textContent).toBe("分辨率按分辨率计价");
+      const price = container.querySelector(`input[aria-label="${name} 2k 按分辨率计价"]`) as HTMLInputElement;
+      expect(price.value).toBe("80");
+      await change(price, "81.5");
+    }
+    await act(async () => button("视频定价").click());
+    for (const name of ["wan-3.0", "wan-3.0-prime"]) {
+      await act(async () => { select.value = name; select.dispatchEvent(new Event("change", { bubbles: true })); });
+      const price = container.querySelector(`input[aria-label="${name} 1080p 参考视频附加费"]`) as HTMLInputElement;
+      expect(price.value).toBe("0");
+      await change(price, "2.5");
+    }
+    await act(async () => button("保存全部定价").click());
+    const saved = vi.mocked(saveAdminModelPrices).mock.calls[0][0];
+    for (const name of ["gemini-3-pro-image", "gemini-3.1-flash-image"]) expect(saved.images[name]["2k"]).toEqual([81.5]);
+    for (const name of ["wan-3.0", "wan-3.0-prime"]) expect(saved.videos[name]["1080p"]).toEqual([12, 12, 2.5]);
+    expect(saved.images["gpt-image-2.5-flare"]).toEqual(prices.images["gpt-image-2.5-flare"]);
   });
 });
