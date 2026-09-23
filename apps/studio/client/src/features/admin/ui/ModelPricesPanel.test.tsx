@@ -11,7 +11,7 @@ vi.mock("../services/adminModelPricesApi", () => ({ fetchAdminModelPrices: vi.fn
 
 const prices: ModelCreditPrices = {
   images: { "gpt-image-2.5-flare": { "1k": [5, 10, 35, 60, 130] }, "gpt-image-1.5": { "2k": [22.5, 135, 540] } },
-  videos: { "seedance-1.5-pro": { "720p": [20, 45, 0] }, "seedance-2.5": { "720p": [195, 195, 135] } },
+  videos: { "seedance-1.5-pro": { "720p": [20, 45, 0] }, "seedance-2.5": { "720p": [195, 195, 135] }, "minimax-h3": { "480p": [30, 30, 30], "768p": [40, 40, 40] } },
   qualities: ["low", "medium", "high", "xhigh", "max"], image_reference: 20,
 };
 
@@ -45,7 +45,7 @@ describe("model price editor", () => {
     await change(input(), "7.5");
     await act(async () => button("视频定价").click());
     expect(container.textContent).toContain("无声"); expect(container.textContent).toContain("有声");
-    expect(container.textContent).not.toContain("参考视频附加费");
+    expect(container.querySelector("thead")?.textContent).not.toContain("参考视频附加费");
     await act(async () => button("图片定价").click());
     expect(input().value).toBe("7.5");
     vi.mocked(saveAdminModelPrices).mockRejectedValueOnce(new Error("保存网络异常"));
@@ -78,5 +78,19 @@ describe("model price editor", () => {
     await act(async () => button("视频定价").click());
     expect(container.textContent).toContain("seedance-1.5-pro");
     expect(saveAdminModelPrices).not.toHaveBeenCalled();
+  });
+
+  it("edits H3 480p and explains surcharge per generated second", async () => {
+    await render();
+    await act(async () => button("视频定价").click());
+    const select = container.querySelector("select")!;
+    await act(async () => { select.value = "minimax-h3"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    const surcharge = container.querySelector('input[aria-label="minimax-h3 480p 参考视频附加费"]') as HTMLInputElement;
+    expect(surcharge.value).toBe("30");
+    expect(container.textContent).toContain("× 生成视频秒数");
+    expect(container.textContent).toContain("只引用图片、音频时");
+    await change(surcharge, "12.5");
+    await act(async () => button("保存全部定价").click());
+    expect(vi.mocked(saveAdminModelPrices).mock.calls[0][0].videos["minimax-h3"]["480p"]).toEqual([30, 30, 12.5]);
   });
 });

@@ -3,7 +3,7 @@ import type { ModelCreditPrices } from "@/features/member";
 /** Matches the API unit price bound, with up to two fractional credit digits. */
 export const MAX_MODEL_CREDIT_PRICE = 1_000_000;
 export const modelPricesQueryKey = ["admin", "model-prices"] as const;
-export const referenceDurationModels = new Set(["minimax-h3", "seedance-2.5", "wan-3.0", "wan-3.0-prime"]);
+export const referenceSurchargeModels = new Set(["minimax-h3", "seedance-2.5", "wan-3.0", "wan-3.0-prime"]);
 export const qualityNames: Record<string, string> = { low: "低", medium: "中", high: "高", xhigh: "超高", max: "最高" };
 
 export type PriceDraft = {

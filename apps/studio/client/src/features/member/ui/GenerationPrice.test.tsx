@@ -10,6 +10,20 @@ vi.mock("../services/memberApi", () => ({ fetchGenerationQuote: vi.fn(), fetchMe
 afterEach(() => { vi.resetAllMocks(); vi.unstubAllGlobals(); });
 
 describe("creation credits", () => {
+  it("shows automatic image fallback plus per-image references as one charge", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.mocked(fetchGenerationQuote).mockResolvedValue({ credits: 90, params: { pricing_source: "image_auto_fallback", base_per_image: 50, reference_count: 2, reference_per_image: 20 } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div"); const root = createRoot(container);
+    const render = (compact = false) => root.render(<QueryClientProvider client={client}><GenerationPrice model="gpt-image-1.5" size="auto" quality="auto" references={2} tasks={2} compact={compact} /></QueryClientProvider>);
+    await act(async () => { render(); await new Promise(r => setTimeout(r, 20)); });
+    await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    expect(container.textContent).toBe("预计 180 积分 · 自动规格");
+    expect(container.querySelector("span")?.title).toContain("基础价 50 + 2 张参考图 × 20");
+    await act(async () => render(true));
+    expect(container.textContent).toBe("180");
+    await act(async () => root.unmount()); client.clear();
+  });
   it("re-quotes parameters without showing the previous cost, and sums independent jobs", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.mocked(fetchGenerationQuote).mockResolvedValue({ credits: 23, params: { pricing_source: "membership_price_sheet" } });
@@ -45,6 +59,27 @@ describe("creation credits", () => {
     expect(container.textContent).toContain("19");
     expect(container.querySelector(".generation-price-compact svg")).not.toBeNull();
     expect(container.textContent).not.toContain("预计");
+    await act(async () => root.unmount()); client.clear();
+  });
+
+  it("quotes video presence and shows the combined output rate without adding it twice", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.mocked(fetchGenerationQuote).mockResolvedValue({ credits: 3300, params: { pricing_source: "membership_price_sheet", base_per_second: 195, reference_per_second: 135, per_second: 330 } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div"); const root = createRoot(container);
+    const render = (seconds: string, compact = false) => root.render(<QueryClientProvider client={client}><GenerationPrice kind="video" model="seedance-2.5" resolution="720p" seconds={seconds} referenceVideos={1} compact={compact} /></QueryClientProvider>);
+    await act(async () => { render("10"); await new Promise(r => setTimeout(r, 20)); });
+    await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    expect(fetchGenerationQuote).toHaveBeenCalledWith("video.generate", expect.objectContaining({ duration: 10, content: [{ type: "video_url" }] }), expect.any(AbortSignal));
+    expect(container.textContent).toContain("3,300");
+    expect(container.querySelector("span")?.title).toContain("195 + 附加 135 = 330");
+    vi.mocked(fetchGenerationQuote).mockResolvedValue({ credits: 60, params: { pricing_source: "legacy", base_per_second: 195, reference_per_second: 135, per_second: 330 } });
+    await act(async () => { render("-1"); await new Promise(r => setTimeout(r, 20)); });
+    await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    expect(container.textContent).toBe("330 积分/秒 · 含视频参考附加费");
+    expect(container.querySelector("span")?.title).toContain("当前时长自动");
+    await act(async () => render("-1", true));
+    expect(container.textContent).toBe("330/秒");
     await act(async () => root.unmount()); client.clear();
   });
 });
