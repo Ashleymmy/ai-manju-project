@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -8,6 +8,7 @@ import {
 } from "@/entities/project";
 import { publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
+import { copyProject } from "./copyProject";
 
 /** Shared by the archive and dashboard so card actions use the same API and confirmations. */
 export function useProjectActions(
@@ -15,6 +16,29 @@ export function useProjectActions(
   onChanged: () => void
 ) {
   const [coverProject, setCoverProject] = useState<CanvasProject | null>(null);
+  const copying = useRef(false);
+  const [copyingIds, setCopyingIds] = useState<string[]>([]);
+
+  const duplicateProjects = async (ids: string[]) => {
+    if (copying.current || !ids.length) return [];
+    copying.current = true;
+    setCopyingIds(ids);
+    const createdIds: string[] = [];
+    try {
+      for (const id of ids) {
+        const created = await copyProject(id, scope);
+        createdIds.push(created.id);
+      }
+      toast.success(`已复制 ${createdIds.length} 个画布`);
+    } catch (error) {
+      toast.error(`${createdIds.length ? `已复制 ${createdIds.length} 个画布；` : ""}${publicApiError(error, "复制画布失败")}`);
+    } finally {
+      copying.current = false;
+      setCopyingIds([]);
+      onChanged();
+    }
+    return createdIds;
+  };
 
   const renameProject = async (project: CanvasProject) => {
     const title = window.prompt("项目名称", project.title)?.trim();
@@ -63,6 +87,8 @@ export function useProjectActions(
   };
 
   return {
+    copyingIds,
+    duplicateProjects,
     coverProject,
     setCoverProject,
     renameProject,

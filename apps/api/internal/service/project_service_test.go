@@ -1,11 +1,51 @@
 package service
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/repository"
 )
+
+func TestCopiedProjectIndependenceParity(t *testing.T) {
+	for _, driver := range []string{"memory", "postgres"} {
+		t.Run(driver, func(t *testing.T) {
+			repo, _, _ := canvasLibraryRepositories(t, driver)
+			svc := NewProjectService(repo)
+			user := "copy_" + randomHex(6)
+			data := model.JSONB(`{"nodes":[{"id":"image","metadata":{"assetId":"asset_shared"}}],"groups":[{"id":"g","nodeIds":["image"]}]}`)
+			source, err := svc.Create(user, "personal", CreateProjectInput{Title: "Original", Data: &data, CoverAssetID: "asset_cover"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			copy, err := svc.Create(user, "personal", CreateProjectInput{Title: "Copy", Data: &data, CoverAssetID: source.CoverAssetID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if source.ID == copy.ID || copy.CoverAssetID != "asset_cover" {
+				t.Fatal("copy identity/cover incorrect")
+			}
+			changed := model.JSONB(`{"nodes":[]}`)
+			if _, err := svc.UpdateSnapshot(copy.ID, user, "personal", &changed); err != nil {
+				t.Fatal(err)
+			}
+			original, err := svc.GetSnapshot(source.ID, user, "personal")
+			if err != nil || !canvasJSONEqual(original.Data, data) {
+				t.Fatal("copy overwrote original")
+			}
+			if _, err := svc.Get(copy.ID, "other-user", "personal"); !errors.Is(err, repository.ErrNotFound) {
+				t.Fatal("copy leaked across users")
+			}
+			if err := svc.Delete(source.ID, user, "personal"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := svc.GetSnapshot(copy.ID, user, "personal"); err != nil {
+				t.Fatal("deleting original deleted copy")
+			}
+		})
+	}
+}
 
 func TestProjectServiceCreateUsesCurrentUserAndWorkspace(t *testing.T) {
 	svc := NewProjectService(repository.NewMemoryProjectRepository())
@@ -30,8 +70,9 @@ func TestProjectServiceCreatePersistsInitialCanvasData(t *testing.T) {
 	data := model.JSONB(`{"nodes":[{"id":"chat-text"}],"edges":[]}`)
 
 	project, err := svc.Create("user_a", WorkspaceScopePersonal, CreateProjectInput{
-		Title: "Chat Bootstrap",
-		Data:  &data,
+		Title:        "Chat Bootstrap",
+		Data:         &data,
+		CoverAssetID: "asset_cover",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -43,6 +84,9 @@ func TestProjectServiceCreatePersistsInitialCanvasData(t *testing.T) {
 	}
 	if snapshot.Version != 1 {
 		t.Fatalf("initial snapshot version = %d, want 1", snapshot.Version)
+	}
+	if project.CoverAssetID != "asset_cover" {
+		t.Fatalf("initial cover = %s", project.CoverAssetID)
 	}
 	if string(snapshot.Data) != string(data) {
 		t.Fatalf("initial snapshot data = %s, want %s", snapshot.Data, data)

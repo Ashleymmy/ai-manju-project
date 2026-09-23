@@ -21,12 +21,18 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
   --font-sans: var(--font-family-ui);
-  --font-mono: "IBM Plex Mono", monospace;
+  --font-mono: var(--font-family-mono);
 }
 :root {
-  /* Medium rounded text adds weight without enlarging UI or authored content. */
-  --font-family-ui: "Studio Rounded", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
-  --font-weight-ui: 500;
+  /* Regular for reading, Medium for controls, original display face for headings. */
+  --font-family-ui: "Studio UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
+  --font-family-display: "Studio Rounded", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
+  /* Chinese metadata uses the UI face, not the browser's default serif fallback. */
+  --font-family-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, var(--font-family-ui), monospace;
+  --font-weight-ui: 400;
+  --font-weight-label: 500;
+  --font-weight-emphasis: 600;
+  --line-height-ui: 1.55;
   /* Readable UI sizes for captions, secondary text and compact controls. */
   --font-size-caption: 12px;
   --font-size-small: 13px;

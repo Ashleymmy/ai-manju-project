@@ -1,7 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { canvasGenerationModelOptions, canvasModelName, canvasVideoModelOptions } from "./generationModels";
+import { canvasGenerationModelOptions, canvasModelName, canvasVideoModelOptions, pickDefaultCanvasVideoModel } from "./generationModels";
 
 describe("canvas generation model choices", () => {
+  it("defaults to the available yuntu Seedance Fast entry over the saved global preference", () => {
+    const models = ["mobile::fast", "yuntu::mini", "yuntu::fast"];
+    const labels = { [models[0]]: "chinaMobil Fast", [models[1]]: "yuntu Seedance 2.0 Mini", [models[2]]: "yuntu Seedance Fast" };
+    expect(pickDefaultCanvasVideoModel(models, labels, {}, models[1])).toBe(models[2]);
+  });
+
+  it("retains the exact supplier when the provider and model names are separate", () => {
+    const models = ["other::fast", "yuntu-provider::fast"];
+    const labels = Object.fromEntries(models.map(model => [model, "Seedance Fast"]));
+    expect(pickDefaultCanvasVideoModel(models, labels, { [models[0]]: "other", [models[1]]: "yuntu" })).toBe(models[1]);
+  });
+
+  it("only selects available models and falls back when yuntu Fast is absent", () => {
+    const labels = { "removed::fast": "yuntu Seedance Fast" };
+    expect(pickDefaultCanvasVideoModel(["first", "preferred"], labels, {}, "preferred")).toBe("preferred");
+    expect(pickDefaultCanvasVideoModel(["first"], labels, {}, "removed::fast")).toBe("first");
+    expect(pickDefaultCanvasVideoModel([], labels)).toBe("");
+  });
+
   it("shows ChinaMobil aliases on the node chip and menu while retaining full selectors", () => {
     const labels = {
       "mobile::doubao-seedance-2-0-260128": "c20",

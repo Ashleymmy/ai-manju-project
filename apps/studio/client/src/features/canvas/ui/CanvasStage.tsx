@@ -1,6 +1,7 @@
 import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
 import {
   Archive,
+  BadgeCheck,
   Boxes,
   ClipboardPaste,
   Film,
@@ -127,6 +128,7 @@ type CanvasStageActions = {
   activateConnectionMode: (nodeId: string) => void;
   copySelectedNodes: () => void;
   openConnectSelection: () => void;
+  registerSelectedImagesAsSeedanceAssets: () => void;
   generateFromNode: (nodeId?: string) => Promise<unknown>;
   renderCanvasSubmenu: (key: string, icon: ReactNode, label: string, items: ReactNode) => ReactNode;
   copyCanvasImagePrompt: (node: CanvasNodeData) => Promise<unknown>;
@@ -310,6 +312,7 @@ export function CanvasStage({
           style={{ "--canvas-grid-size": `${40 * zoom / 100}px`, "--canvas-grid-x": `${panX}px`, "--canvas-grid-y": `${panY}px`, "--canvas-zoom": String(zoom) } as CSSProperties}
           onPointerDown={handleStagePointerDown}
           onPointerDownCapture={(event) => {
+            if (event.button === 2) return;
             if (connectFrom || !groups.some((group) => group.pending)) return;
             const target = event.target instanceof Element ? event.target : null;
             if (target?.closest(".canvas-group-frame.pending, .canvas-group-pending-actions, .canvas-node-handle, .canvas-context-menu, .canvas-connection-create-menu")) return;
@@ -345,7 +348,7 @@ export function CanvasStage({
                     "--canvas-group-color": group.color,
                   } as CSSProperties}
                   onClick={(event) => { event.stopPropagation(); selectCanvasGroup(group); }}
-                  onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); selectCanvasGroup(group); }}
+                  onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); selectCanvasGroup(group); openCanvasContextMenu(event); }}
                   onPointerDown={(event) => startGroupDrag(event, group)}
                   onPointerMove={moveGroupDrag}
                   onPointerUp={endGroupDrag}
@@ -551,6 +554,9 @@ export function CanvasStage({
                 </div>
               ) : null}
               <div className={`canvas-context-menu-list${contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? " has-submenus" : ""}`}>
+                {!contextMenu.edgeId && selectedNodeIds.size >= 2 ? (
+                  <button className="full-outline" onClick={() => { actions.registerSelectedImagesAsSeedanceAssets(); setContextMenu(null); }}><BadgeCheck size={14} /> 批量注册拟真人素材</button>
+                ) : null}
                 {contextMenu.nodeId ? (
                   <>
                     {contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? (

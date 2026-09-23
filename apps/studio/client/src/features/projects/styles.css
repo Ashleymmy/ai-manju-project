@@ -5,7 +5,18 @@
   gap: 9px;
   color: #b3b3b3;
   font-size: var(--font-size-small);
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
+.filter-line:has(> .project-bulk-bar) { flex-wrap: wrap; gap: 12px; }
+.project-group-move { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.project-group-move select { max-width: 180px; height: 34px; background: var(--bg-panel, #181a1b); border: 1px solid #414343; border-radius: 4px; color: inherit; padding: 0 6px; }
+.project-group-navigation { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 18px; border-bottom: 1px solid #353738; padding-bottom: 10px; }
+.project-group-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+.project-group-tabs button { max-width: 100%; min-height: 34px; padding: 6px 10px; border: 1px solid transparent; background: transparent; color: #b8babb; border-radius: 4px; overflow-wrap: anywhere; }
+.project-group-tabs button.active { border-color: #626768; background: #282d2e; color: #fff; }
+.project-group-tabs button span { margin-left: 5px; color: #929a9b; }
+.project-group-tools { display: flex; gap: 4px; }
 /* Wrap project actions before the scope label gets squeezed into a column. */
 @media (max-width: 760px) {
   .filter-line:has(> .project-bulk-bar),

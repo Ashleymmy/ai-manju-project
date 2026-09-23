@@ -35,6 +35,8 @@ type AssetRepository interface {
 }
 
 type AssetLibraryFilter struct {
+	// Unpaged is internal to export selection; public library pages remain bounded.
+	Unpaged         bool
 	WorkspaceID     string
 	AssetIDs        []string
 	ExcludeAssetIDs []string
@@ -246,6 +248,9 @@ func (r *MemoryAssetRepository) ListLibrary(filter AssetLibraryFilter) ([]model.
 		}
 	})
 	total := int64(len(assets))
+	if filter.Unpaged {
+		return assets, total, nil
+	}
 	start := (filter.Page - 1) * filter.PageSize
 	if start < 0 {
 		start = 0
@@ -584,7 +589,11 @@ func (r *GormAssetRepository) ListLibrary(filter AssetLibraryFilter) ([]model.As
 		order = "name DESC, id DESC"
 	}
 	var assets []model.Asset
-	err := query.Order(order).Offset((filter.Page - 1) * filter.PageSize).Limit(filter.PageSize).Find(&assets).Error
+	query = query.Order(order)
+	if !filter.Unpaged {
+		query = query.Offset((filter.Page - 1) * filter.PageSize).Limit(filter.PageSize)
+	}
+	err := query.Find(&assets).Error
 	return assets, total, err
 }
 

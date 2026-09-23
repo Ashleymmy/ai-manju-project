@@ -14,6 +14,7 @@ export function createProject(
   payload: Pick<CanvasProject, "title"> & {
     scope?: WorkspaceScope;
     data?: unknown;
+    cover_asset_id?: string;
   }
 ) {
   const { scope = "personal", ...body } = payload;

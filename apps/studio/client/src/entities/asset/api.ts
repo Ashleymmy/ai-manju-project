@@ -399,6 +399,27 @@ export async function downloadAssetExport(
   return response.blob();
 }
 
+/** Let the browser stream large ZIPs to disk and resume with Range requests.
+ * HEAD checks readiness and the cookie used by native downloads; no auth token
+ * is placed in a URL and no archive-sized Blob is allocated by the page.
+ */
+export async function startAssetExportDownload(exportId: string, scope: WorkspaceScope = "personal") {
+  const url = new URL(`${API_BASE_URL}/api/asset-exports/${encodeURIComponent(exportId)}/content`);
+  url.searchParams.set("scope", scope);
+  const response = await fetch(url, { method: "HEAD", credentials: "include" });
+  if (!response.ok) {
+    if (response.status === 401) throw new Error("下载登录状态已失效，请重新登录后下载");
+    if (response.status === 410) throw new Error("资产包已过期，请重新导出");
+    throw new Error(`资产包暂时无法下载（${response.status}），请稍后重试`);
+  }
+  const link = document.createElement("a");
+  link.href = url.toString();
+  link.download = "";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 export async function getAssetContentBlob(
   id: string,
   scope: WorkspaceScope = "personal",

@@ -177,7 +177,7 @@ export type AssetExportBatch = {
   failed: number;
   size: number;
   file_name?: string;
-  error?: string;
+  error?: string | { message?: string };
   expires_at?: string;
   created_at?: string;
   updated_at?: string;

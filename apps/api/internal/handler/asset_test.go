@@ -315,6 +315,31 @@ func TestAssetExportHTTPFlowAndWorkspaceIsolation(t *testing.T) {
 	if download.Code != http.StatusOK || download.Header().Get("Content-Type") != "application/zip" || !bytes.HasPrefix(download.Body.Bytes(), []byte("PK")) || !bytes.Contains(download.Body.Bytes(), []byte("manifest.json")) {
 		t.Fatalf("download = %d type=%q bytes=%d", download.Code, download.Header().Get("Content-Type"), download.Body.Len())
 	}
+	for _, spec := range []struct {
+		method, byteRange string
+		code              int
+	}{
+		{http.MethodHead, "", http.StatusOK},
+		{http.MethodGet, "bytes=8-31", http.StatusPartialContent},
+		{http.MethodGet, "bytes=999999999999-", http.StatusRequestedRangeNotSatisfiable},
+	} {
+		req := httptest.NewRequest(spec.method, "/api/asset-exports/"+exportID+"/content", nil)
+		req.AddCookie(ownerCookie)
+		if spec.byteRange != "" {
+			req.Header.Set("Range", spec.byteRange)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != spec.code {
+			t.Fatalf("%s %s: %d %s", spec.method, spec.byteRange, rec.Code, rec.Body.String())
+		}
+		if spec.method == http.MethodHead && (rec.Body.Len() != 0 || rec.Header().Get("Content-Length") != fmt.Sprint(download.Body.Len())) {
+			t.Fatal("HEAD must return ZIP length without its body")
+		}
+		if spec.code == http.StatusPartialContent && !bytes.Equal(rec.Body.Bytes(), download.Body.Bytes()[8:32]) {
+			t.Fatal("range resumed with incorrect bytes")
+		}
+	}
 }
 
 func TestAssetFolderLibraryMetadataAndSafeDeleteFlow(t *testing.T) {
@@ -753,6 +778,7 @@ func newAssetTestRouterWithAssetRepo(t *testing.T, cfg config.Config, assetRepo 
 	assetExports.GET("/:exportId", assetExportHandler.Get)
 	assetExports.POST("/:exportId/cancel", assetExportHandler.Cancel)
 	assetExports.GET("/:exportId/content", assetExportHandler.Content)
+	assetExports.HEAD("/:exportId/content", assetExportHandler.Content)
 	return router
 }
 

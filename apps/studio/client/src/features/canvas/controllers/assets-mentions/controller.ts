@@ -1,5 +1,8 @@
 import { publicApiError } from "@/shared/api/errors";
-import type { Asset, AssetFolder } from "@/entities/asset";
+import { seedanceAssetPreviewSource, seedanceAssetThumbnailSource, type Asset, type AssetFolder } from "@/entities/asset";
+import { apiUrl } from "@/shared/api/http";
+import { seedanceRegistrationSource } from "@/features/canvas/services/seedanceRegistration";
+import type { CanvasNodeData } from "@/features/canvas/domain/types";
 import { CANVAS_MENTION_PAGE_SIZE, CANVAS_MENTION_SEARCH_DELAY_MS, emptyCanvasMentionLibrary, mentionLibraryFolderId, type CanvasMentionLibraryTarget } from "@/features/canvas/domain/mentionLibrary";
 import { canvasCategoryFolder, isCanvasDateArchiveFolder, visibleCanvasAssetFolders } from "@/features/canvas/domain/assetFolders";
 import { collectFolderSubtreeIds, flattenFolderTree, folderPathLabel } from "@/features/assets";
@@ -31,6 +34,8 @@ const PICKER_THUMBNAIL_WIDTH = 320 as const;
 const CANVAS_THUMBNAIL_WIDTH = 320 as const;
 // Local text references must never collide with server media IDs.
 const LOCAL_TEXT_MENTION_PREFIX = "local-text:";
+// Registered libraries are paged independently for each provider, without truncating at the first page.
+const REGISTERED_ASSET_PAGE_SIZE = 100;
 
 const directExecutor: CanvasAssetsMentionsBindings["executeAssets"] = operation => operation();
 
@@ -234,7 +239,7 @@ export class CanvasAssetsMentionsController {
   };
 
   readonly setAssetPickerKind = (kind: CanvasAssetPickerKind) => {
-    this.patchPicker({ kind, selectedIds: [] });
+    this.patchPicker({ kind, selectedIds: [], ...(kind === "registered" ? { folderId: "" } : {}) });
     void this.loadAssetPicker(this.snapshot.picker.scope, this.snapshot.picker.query, kind);
   };
 
@@ -253,6 +258,7 @@ export class CanvasAssetsMentionsController {
   };
 
   readonly toggleAssetPickerItem = (itemId: string) => {
+    if (this.snapshot.picker.loading || !this.snapshot.picker.items.some(item => item.id === itemId && !item.unavailableReason)) return;
     const selectedIds = this.snapshot.picker.selectedIds;
     this.patchPicker({
       selectedIds: selectedIds.includes(itemId)
@@ -263,10 +269,10 @@ export class CanvasAssetsMentionsController {
 
   readonly insertAssetPickerSelection = async () => {
     const picker = this.snapshot.picker;
-    if (picker.insertBusy || !picker.selectedIds.length) return;
+    if (picker.loading || picker.insertBusy || !picker.selectedIds.length) return;
     const activeScope = this.bindings.getCanonicalScope();
     if (!activeScope) return;
-    const selected = picker.items.filter(asset => picker.selectedIds.includes(asset.id));
+    const selected = picker.items.filter(asset => picker.selectedIds.includes(asset.id) && !asset.unavailableReason);
     if (!selected.length) return;
     const crossScopeText = selected.some(asset => asset.type === "text");
     if (
@@ -397,10 +403,14 @@ export class CanvasAssetsMentionsController {
     this.pickerAbort?.abort();
     const controller = new AbortController();
     this.pickerAbort = controller;
-    this.patchPicker({ loading: true, error: "" });
+    this.patchPicker({ loading: true, error: "", items: [], thumbnails: {}, selectedIds: [] });
     const includeLocalText = kind === "all" || kind === "text";
     const mediaKind = kind === "image" || kind === "video" || kind === "audio" ? kind : undefined;
     try {
+      if (kind === "registered") {
+        await this.loadRegisteredPicker(scope, keyword, controller.signal);
+        return;
+      }
       const [serverResult, textResult, foldersResult] = await Promise.allSettled([
         kind === "text"
           ? Promise.resolve({ items: [] as Asset[] })
@@ -477,6 +487,52 @@ export class CanvasAssetsMentionsController {
     }
   }
 
+  private async loadRegisteredPicker(scope: "personal" | "team", keyword: string, signal: AbortSignal) {
+    // Use the same authenticated user routes as canvas registration, never the admin library.
+    const providers = new Set(["", ...(this.bindings.getSeedanceProviderIds?.() || []),
+      ...this.bindings.getNodes().flatMap(node => (node.metadata?.seedanceVolcanoAssets || []).map(asset => asset.providerId || ""))]);
+    const items = new Map<string, CanvasAssetPickerItem>();
+    const errors: string[] = [];
+    for (const providerId of providers) {
+      let offset = 0;
+      try {
+        while (!signal.aborted) {
+          const result = await this.assets(() => this.services.listUserSeedanceAssets({
+            scope, provider_id: providerId || undefined, search: keyword.trim() || undefined,
+            limit: REGISTERED_ASSET_PAGE_SIZE, offset,
+          }, signal));
+          if (signal.aborted) return;
+          const rows = result.items || [];
+          let added = 0;
+          for (const asset of rows) {
+            const id = `registered:${providerId}:${asset.id}`;
+            if (items.has(id)) continue;
+            added += 1;
+            const status = asset.status.toLowerCase();
+            const unavailableReason = ["failed", "error", "rejected"].includes(status) ? "注册失败"
+              : status !== "active" || !asset.volcano_asset_id ? "注册处理中"
+              : !seedanceAssetPreviewSource(asset.source_url) ? "素材源文件不可用" : undefined;
+            items.set(id, {
+              id, type: asset.asset_type.toLowerCase() === "video" ? "video" : "image",
+              name: asset.name || asset.volcano_asset_id || asset.id, scope, source: "registered",
+              registeredAsset: { ...asset, provider_id: providerId || undefined }, unavailableReason,
+              contentType: asset.content_type, size: asset.size,
+            });
+          }
+          offset += rows.length;
+          if (!rows.length || !added || offset >= result.total) break;
+        }
+      } catch (error) {
+        if (signal.aborted) return;
+        errors.push(publicApiError(error, "读取拟真人素材失败"));
+      }
+    }
+    if (signal.aborted) return;
+    const assets = [...items.values()];
+    this.patchPicker({ items: assets, thumbnails: this.pickerThumbnails(assets, scope),
+      error: errors.length ? `${assets.length ? "部分拟真人素材库读取失败：" : ""}${[...new Set(errors)].join("；")}` : "" });
+  }
+
   private assetPickerNodes(
     item: CanvasAssetPickerItem,
     index: number,
@@ -486,6 +542,24 @@ export class CanvasAssetsMentionsController {
       x: center.x + (index % 3) * 80 - 120,
       y: center.y + Math.floor(index / 3) * 70 - 80,
     };
+    if (item.registeredAsset) {
+      const asset = item.registeredAsset;
+      const source = seedanceAssetPreviewSource(asset.source_url);
+      if (item.unavailableReason || !source) return [];
+      const node: CanvasNodeData = {
+        id: this.services.createId(), kind: item.type, title: item.name, content: "", ...position,
+        width: item.type === "video" ? 420 : 320, height: item.type === "video" ? 260 : 238,
+        imageSrc: source.startsWith("/api/") ? apiUrl(source) : source,
+        metadata: {
+          assetScope: item.scope, mimeType: item.contentType, bytes: item.size,
+          generationMode: item.type, status: "success", canvasOrigin: "imported",
+          seedanceVolcanoAssets: [{ id: asset.id, providerId: asset.provider_id,
+            volcanoAssetId: asset.volcano_asset_id, name: asset.name, status: asset.status, assetType: asset.asset_type }],
+        },
+      };
+      node.metadata!.seedanceRegistrationSource = seedanceRegistrationSource(node);
+      return [node];
+    }
     if (item.type === "text" && item.textAsset) {
       return [{
         id: this.services.createId(),
@@ -535,6 +609,10 @@ export class CanvasAssetsMentionsController {
   private pickerThumbnails(items: CanvasAssetPickerItem[], scope: "personal" | "team") {
     const thumbnails: Record<string, string> = {};
     items.forEach(item => {
+      if (item.registeredAsset) {
+        thumbnails[item.id] = seedanceAssetThumbnailSource(item.registeredAsset.source_url, item.registeredAsset.asset_type);
+        return;
+      }
       const assetId = item.serverAsset?.id;
       if (item.type === "image" && assetId) {
         thumbnails[item.id] = this.services.getAssetMediaUrl(assetId, scope, PICKER_THUMBNAIL_WIDTH);

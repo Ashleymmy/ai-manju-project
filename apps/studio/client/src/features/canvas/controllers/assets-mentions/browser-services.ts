@@ -1,8 +1,9 @@
-import { getAssetContentObjectUrl, getAssetMediaUrl, getAssetFolders, getAssetLibrary } from "@/entities/asset";
+import { getAssetContentObjectUrl, getAssetMediaUrl, getAssetFolders, getAssetLibrary, listUserSeedanceAssets } from "@/entities/asset";
 import { listCanvasTextAssets } from "@/features/canvas/repositories/textAssetsRepository";
 import type { CanvasAssetsMentionsServices } from "./types";
 
 export const browserCanvasAssetsMentionsServices: CanvasAssetsMentionsServices = {
+  listUserSeedanceAssets,
   getAssetLibrary,
   getAssetFolders,
   getAssetContentObjectUrl,

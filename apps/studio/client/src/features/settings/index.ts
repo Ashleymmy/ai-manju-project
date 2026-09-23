@@ -1,6 +1,8 @@
 export { default, SettingsView } from "./SettingsPage";
 export { getModels, getPreferences, updatePreferences } from "./api";
 export type {
+  ProjectGroupPreference,
+  ProjectGroupPreferences,
   UserGenerationPreferences,
   UserPreferences,
   UserPreferencesPayload,

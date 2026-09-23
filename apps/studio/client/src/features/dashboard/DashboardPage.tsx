@@ -190,7 +190,7 @@ export default function DashboardPage() {
   const { data, refresh: refreshWorkspace } = useWorkspaceDashboardData();
   const [recentProjects, setRecentProjects] = useState<CanvasProject[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
-  const { coverProject, setCoverProject, renameProject, saveCover, deleteProjects } =
+  const { coverProject, setCoverProject, renameProject, saveCover, deleteProjects, duplicateProjects, copyingIds } =
     useProjectActions("personal", () => {
       setRefreshKey(value => value + 1);
       void refreshWorkspace();
@@ -248,6 +248,9 @@ export default function DashboardPage() {
               <ProjectCardTools
                 onCover={() => setCoverProject(recentProjects[index])}
                 onRename={() => void renameProject(recentProjects[index])}
+                onCopy={() => project.id && void duplicateProjects([project.id])}
+                copying={Boolean(project.id && copyingIds.includes(project.id))}
+                copyDisabled={Boolean(copyingIds.length)}
                 onDelete={() => project.id && void deleteProjects([project.id])}
               />
               <ProjectCard

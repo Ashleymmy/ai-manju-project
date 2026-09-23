@@ -42,6 +42,8 @@ func main() {
 	exportService := service.NewAssetExportService(
 		repository.NewGormAssetExportRepository(db), assetService, folderService, assetStore,
 	)
+	archiveStore := storage.NewExportArchiveStorage(cfg)
+	exportService.SetArchiveStorage(archiveStore)
 	exportService.SetTagService(service.NewTagService(repository.NewGormTagRepository(db), assetRepo))
 	exportService.SetAssetUsageRecorder(service.NewAssetUsageService(
 		repository.NewGormAssetUsageRepository(db), assetRepo, repository.NewGormAssetReferenceRepository(db), repository.NewGormAssetLineageRepository(db),
@@ -57,7 +59,7 @@ func main() {
 		database:   sqlDB.PingContext,
 		storage:    func(ctx context.Context) error { return probeExportStorage(ctx, assetStore) },
 		dispatcher: exportService.DispatcherReady,
-		temporary:  probeExportTemporary,
+		temporary:  func() error { return archiveStore.Probe(context.Background()) },
 	})
 	if err != nil {
 		log.Fatal(err)

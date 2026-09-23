@@ -12,6 +12,11 @@ const mocks = vi.hoisted(() => ({
   getProjects: vi.fn(),
   updateProject: vi.fn(),
   deleteProject: vi.fn(),
+  getPreferences: vi.fn(),
+  updatePreferences: vi.fn(),
+  getProject: vi.fn(),
+  getProjectSnapshot: vi.fn(),
+  createProject: vi.fn(),
   getAssetContentObjectUrl: vi.fn(),
   navigate: vi.fn(),
   success: vi.fn(),
@@ -31,7 +36,11 @@ vi.mock("@/entities/project", () => ({
   getProjects: mocks.getProjects,
   updateProject: mocks.updateProject,
   deleteProject: mocks.deleteProject,
+  getProject: mocks.getProject,
+  getProjectSnapshot: mocks.getProjectSnapshot,
+  createProject: mocks.createProject,
 }));
+vi.mock("@/features/settings", () => ({ getPreferences: mocks.getPreferences, updatePreferences: mocks.updatePreferences }));
 vi.mock("@/entities/asset", () => ({
   getAssetLibrary: async () => [],
   getAssetContentObjectUrl: mocks.getAssetContentObjectUrl,
@@ -140,6 +149,16 @@ describe.each([
       items: [...projects],
       total: projects.length,
     }));
+    let preferences: any = { canvas: { projectGroups: {} } };
+    mocks.getPreferences.mockImplementation(async () => structuredClone(preferences));
+    mocks.updatePreferences.mockImplementation(async patch => { preferences = { canvas: patch.canvas }; return structuredClone(preferences); });
+    mocks.getProject.mockImplementation(async id => projects.find(project => project.id === id));
+    mocks.getProjectSnapshot.mockResolvedValue({ data: { nodes: [{ id: "image", metadata: { assetId: "asset-1" } }], edges: [] } });
+    mocks.createProject.mockImplementation(async payload => {
+      const project = { ...payload, id: `copy-${projects.length}`, created_at: "2026-09-23", updated_at: "2026-09-23" };
+      projects.push(project);
+      return project;
+    });
     mocks.updateProject.mockImplementation(async (id, patch) => {
       projects = projects.map(project =>
         project.id === id ? { ...project, ...patch } : project
@@ -165,7 +184,7 @@ describe.each([
     vi.unstubAllGlobals();
   });
 
-  it("provides three independent tools per card and preserves card navigation", async () => {
+  it("provides four independent tools per card and preserves card navigation", async () => {
     await mount();
     expect(container.querySelectorAll(".project-card-tools")).toHaveLength(
       visibleCount
@@ -174,7 +193,7 @@ describe.each([
       [...card().querySelectorAll(".project-card-tools button")].map(button =>
         button.getAttribute("aria-label")
       )
-    ).toEqual(["设置封面", "重命名", "删除"]);
+    ).toEqual(["复制画布", "设置封面", "重命名", "删除"]);
     expect(container.querySelector("button button")).toBeNull();
     await click(card().querySelector<HTMLButtonElement>(".project-card")!);
     expect(mocks.navigate).toHaveBeenCalledWith("/canvas/project-1");
@@ -283,7 +302,75 @@ describe.each([
     expect(mocks.warning).toHaveBeenCalledWith("删除完成，1 个失败");
   });
 
+  it("copies a real snapshot with its cover without navigating or changing the source", async () => {
+      await mount();
+      await action("复制画布", 1);
+      expect(mocks.createProject).toHaveBeenCalledWith(expect.objectContaining({ title: "Canvas 2（副本）", cover_asset_id: "old-cover", scope: "personal", data: { nodes: [{ id: "image", metadata: { assetId: "asset-1" } }], edges: [] } }));
+      expect(container.querySelectorAll(".project-card-wrap")).toHaveLength(name === "archive" ? 5 : 3);
+      expect(card(1).querySelector("h3")?.textContent).toBe("Canvas 2");
+      if (name === "dashboard") {
+        await flush();
+        expect(container.querySelector(".stat-strip > div:last-child strong")?.textContent).toBe("05");
+      }
+      expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("disables copy tools during copying and blocks duplicate clicks", async () => {
+    await mount();
+    let resolveSnapshot!: (value: unknown) => void;
+    mocks.getProjectSnapshot.mockReturnValue(new Promise(resolve => { resolveSnapshot = resolve; }));
+    await action("复制画布");
+    const copyButtons = [...container.querySelectorAll<HTMLButtonElement>('[aria-label="复制画布"]')];
+    expect(copyButtons.every(button => button.disabled)).toBe(true);
+    await action("复制画布", 1);
+    expect(mocks.getProjectSnapshot).toHaveBeenCalledTimes(1);
+    await act(async () => resolveSnapshot({ data: { nodes: [], edges: [] } }));
+    await flush();
+    expect(mocks.createProject).toHaveBeenCalledTimes(1);
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="复制画布"]')?.disabled).toBe(false);
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed copy without changing the source or navigating", async () => {
+    await mount();
+    mocks.createProject.mockRejectedValue(new Error("复制失败"));
+    await action("复制画布");
+    expect(projects).toHaveLength(4);
+    expect(card().querySelector("h3")?.textContent).toBe("Canvas 1");
+    expect(mocks.error).toHaveBeenCalledWith("复制失败");
+    expect(mocks.success).not.toHaveBeenCalled();
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="复制画布"]')?.disabled).toBe(false);
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
   if (name === "archive") {
+
+    it("persists grouping and keeps filtered card actions attached to the correct project", async () => {
+      await mount();
+      await click(card(1).querySelector<HTMLInputElement>('input[type="checkbox"]')!);
+      vi.mocked(window.prompt).mockReturnValue("角色画布");
+      const create = [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("创建分组"))!;
+      await click(create);
+      expect(mocks.updatePreferences).toHaveBeenCalledWith(expect.objectContaining({ canvas: { projectGroups: { personal: [{ id: expect.any(String), title: "角色画布", projectIds: ["project-2"] }] } }, expectedProjectGroups: {} }));
+      expect(container.querySelectorAll(".project-card-wrap")).toHaveLength(1);
+      vi.mocked(window.prompt).mockReturnValue("更名角色");
+      await action("重命名");
+      expect(mocks.updateProject).toHaveBeenLastCalledWith("project-2", { title: "更名角色", scope: "personal" });
+      vi.mocked(window.confirm).mockReturnValue(true);
+      await click(container.querySelector<HTMLButtonElement>('[aria-label="解散分组（保留画布）"]')!);
+      expect(container.querySelectorAll(".project-card-wrap")).toHaveLength(4);
+      expect(mocks.deleteProject).not.toHaveBeenCalled();
+    });
+
+    it("does not show a successful group when the server rejects saving", async () => {
+      await mount();
+      mocks.updatePreferences.mockRejectedValue(new Error("保存失败"));
+      vi.mocked(window.prompt).mockReturnValue("未保存分组");
+      await click([...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("创建分组"))!);
+      expect(container.querySelector(".project-group-tabs")?.textContent).not.toContain("未保存分组");
+      expect(mocks.error).toHaveBeenCalledWith("保存失败");
+    });
+
     it("preserves bulk selection on cancellation and clears it after a partially successful deletion", async () => {
       await mount();
       await click(

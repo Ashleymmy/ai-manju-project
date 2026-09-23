@@ -1,6 +1,7 @@
 import { CanvasPricingContext, CanvasGenerationPrice } from "./ui/CanvasGenerationPrice";
 import { CreditBalance } from "@/features/member";
-import { registerCanvasImageAsset, registrationProviderId, savedSeedanceRegistration, seedanceRegistrationKey, seedanceRegistrationPhase, seedanceRegistrationSource, type SeedanceRegistrationState } from "./services/seedanceRegistration";
+import { registrationProviderId, savedSeedanceRegistration, seedanceRegistrationKey, seedanceRegistrationPhase, seedanceRegistrationSource } from "./services/seedanceRegistration";
+import { useCanvasSeedanceRegistration } from "./controllers/useCanvasSeedanceRegistration";
 import { pickDefaultImageModel, resolveModel } from "@/shared/lib/modelSelection";
 import { canvasImageGenerationSettings } from "./domain/imageGenerationSettings";
 import {
@@ -83,7 +84,7 @@ import {
 } from "@/entities/project";
 import {
   createAssetExport,
-  downloadAssetExport,
+  startAssetExportDownload,
   getAsset,
   getAssetContentObjectUrl,
   getAssetContentBlob,
@@ -99,7 +100,7 @@ import {
   type SeedanceAsset,
 } from "@/entities/asset";
 import { cancelJob, getJobs } from "@/entities/job";
-import { canvasGenerationModelOptions, canvasModelName, canvasVideoModelOptions } from "./domain/generationModels";
+import { canvasGenerationModelOptions, canvasModelName, canvasVideoModelOptions, pickDefaultCanvasVideoModel } from "./domain/generationModels";
 import type { CanvasLibraryCategory } from "./domain/assetFolders";
 import { archiveCanvasMediaAsset, resolveCanvasArchiveFolder } from "./services/assetArchive";
 import type { PromptPreset } from "@/entities/prompt";
@@ -364,14 +365,13 @@ const scopeOptions: Array<{ value: WorkspaceScope; label: string }> = [
 
 const CANVAS_FLOATING_PANEL_WIDTH = 340;
 const CANVAS_FLOATING_PANEL_MIN_HEIGHT = 280;
+// Reserve one menu row for the multi-selection registration action near edges.
+const CANVAS_BATCH_MENU_ROW_HEIGHT = 40;
 // Group controls size to their content; these gaps keep them inside the stage
 // and clear of the group header when their height changes after wrapping.
 const GROUP_INSPECTOR_LAYOUT = { edgeGap: 12, groupGap: 30 } as const;
 const CANVAS_MINIMAP_WIDTH = 184;
 const CANVAS_MINIMAP_HEIGHT = 122;
-// Keep registration outcomes readable; pending progress remains visible until settled.
-const REGISTRATION_TOAST_SUCCESS_MS = 5_000;
-const REGISTRATION_TOAST_NOTICE_MS = 8_000;
 // 缩略导航关闭时的占位模型，避免 minimapModel 每帧随视口重建
 const EMPTY_CANVAS_MINIMAP_MODEL: CanvasMinimapModel = {
   width: CANVAS_MINIMAP_WIDTH,
@@ -568,10 +568,6 @@ export default function CanvasWorkspaceViewContent() {
   const [textModel, setTextModel] = useState("");
   const [videoModels, setVideoModels] = useState<string[]>([]);
   const [videoModel, setVideoModel] = useState("");
-  const [registrationTarget, setRegistrationTarget] = useState<{ nodeId: string; model: string; projectKey: string } | null>(null);
-  const [registrationBusy, setRegistrationBusy] = useState(false);
-  const registrationBusyRef = useRef(false);
-  const [registrationError, setRegistrationError] = useState("");
   const [audioModels, setAudioModels] = useState<string[]>([]);
   const [audioModel, setAudioModel] = useState("");
   const [textModelLabels, setTextModelLabels] = useState<Record<string, string>>({});
@@ -622,8 +618,6 @@ export default function CanvasWorkspaceViewContent() {
   const [imageToolDialog, setImageToolDialog] = useState<{ nodeId: string; mode: CanvasImageToolMode } | null>(null);
   const [imageToolDraft, setImageToolDraft] = useState<CanvasImageToolDraft>(defaultCanvasImageToolDraft);
   const [imageToolBusy, setImageToolBusy] = useState(false);
-  const [seedanceRegistrationStates, setSeedanceRegistrationStates] = useState<Record<string, SeedanceRegistrationState>>({});
-  const seedanceRegistrationInFlight = useRef(new Set<string>());
   const [imageToolError, setImageToolError] = useState("");
   const imageAnnotationNodeId = useCanvasStore((state) => state.ui.imageAnnotationNodeId);
   const setImageAnnotationNodeId = canvasCommands.ui.setImageAnnotationNodeId;
@@ -757,6 +751,7 @@ export default function CanvasWorkspaceViewContent() {
     getCanonicalScope: () => projectSessionController.canonicalScope,
     getFallbackScope: () => scope,
     getMentionScope: () => currentMentionScope,
+    getSeedanceProviderIds: () => videoModels.filter(isSeedanceVideoModel).map(registrationProviderId).filter((id): id is string => Boolean(id)),
     getNodes: () => nodesRef.current,
     getEdges: () => edgesRef.current,
     setNodes: nextNodes => { nodesRef.current = nextNodes; setNodes(nextNodes); },
@@ -1037,11 +1032,12 @@ export default function CanvasWorkspaceViewContent() {
     if (!contextMenu) return undefined;
     const width = 220;
     // 分组级联菜单后图片节点菜单大幅变矮，估算高度用于贴边定位
-    const height = contextMenu.edgeId ? 176 : contextMenu.nodeId ? (contextMenuNode?.kind === "image" ? 372 : 292) : 284;
+    const height = (contextMenu.edgeId ? 176 : contextMenu.nodeId ? (contextMenuNode?.kind === "image" ? 372 : 292) : 284)
+      + (!contextMenu.edgeId && selectedNodeIds.size >= 2 ? CANVAS_BATCH_MENU_ROW_HEIGHT : 0);
     const left = Math.min(Math.max(12, contextMenu.x), Math.max(12, stageBounds.width - width - 12));
     const top = Math.min(Math.max(CANVAS_STAGE_OFFSET + 8, contextMenu.y), Math.max(CANVAS_STAGE_OFFSET + 8, stageBounds.height - height - 12));
     return { left: Math.round(left), top: Math.round(top), width };
-  }, [contextMenu, contextMenuNode?.kind, stageBounds.height, stageBounds.width]);
+  }, [contextMenu, contextMenuNode?.kind, selectedNodeIds.size, stageBounds.height, stageBounds.width]);
   // 菜单贴近右边缘时子菜单改为向左弹出（菜单宽 220 + 子面板约 220 + 留白）
   const contextMenuFlipX = useMemo(
     () => Boolean(contextMenu && contextMenu.x > stageBounds.width - 460),
@@ -1356,7 +1352,9 @@ export default function CanvasWorkspaceViewContent() {
           setTextModelLabels(catalog.modelLabels);
           setModelProviderNames(catalog.modelProviderNames);
           setTextModel((current) => resolveModel(catalog.textModels, current || preferredTextModel) || catalog.defaultTextModel);
-          setVideoModel((current) => resolveModel(catalog.videoModels, current || preferredVideoModel) || catalog.defaultVideoModel);
+          setVideoModel((current) => resolveModel(catalog.videoModels, current)
+            || pickDefaultCanvasVideoModel(catalog.videoModels, catalog.modelLabels, catalog.modelProviderNames,
+              resolveModel(catalog.videoModels, preferredVideoModel) || catalog.defaultVideoModel));
           setAudioModel((current) => resolveModel(catalog.audioModels, current || preferredAudioModel) || catalog.defaultAudioModel);
         } else {
           toast.error(publicApiError(aiModelsResult.reason, "读取 AI 模型失败"));
@@ -1985,8 +1983,7 @@ export default function CanvasWorkspaceViewContent() {
     document.addEventListener("pointercancel", finish);
   };
 
-  const imageSourceForNode = async (node: CanvasNodeData) => {
-    const activeScope = projectSessionController.canonicalScope;
+  const imageSourceForNode = async (node: CanvasNodeData, activeScope = projectSessionController.canonicalScope) => {
     if (!activeScope) throw new Error("正在确认项目工作区，暂不能处理图片");
     const assetId = assetIdFromNode(node);
     const sourceScope = workspaceScopeValue(node.metadata?.assetScope) || activeScope;
@@ -2009,10 +2006,43 @@ export default function CanvasWorkspaceViewContent() {
     };
   };
 
+  const {
+    target: registrationTarget, setTarget: setRegistrationTarget,
+    states: seedanceRegistrationStates, submit: submitImageRegistration, isRegistering,
+  } = useCanvasSeedanceRegistration({
+    getContext: () => ({
+      projectKey: projectSessionController.canonicalKey,
+      scope: projectSessionController.canonicalScope,
+      switching: projectSessionController.switching,
+      nodes: nodesRef.current,
+    }),
+    loadFile: async (node, scope) => {
+      const source = await imageSourceForNode(node, scope);
+      try {
+        const response = await fetch(source.url);
+        if (!response.ok) throw new Error(`读取图片失败（${response.status}）`);
+        const blob = await response.blob();
+        const contentType = blob.type.startsWith("image/") ? blob.type : "image/png";
+        return new File([blob], imageFileName(node.title || "拟真人素材", contentType), { type: contentType });
+      } finally {
+        source.cleanup();
+      }
+    },
+    onUpdate: async (node, asset, providerId) => {
+      const selected = { id: asset.id, providerId, volcanoAssetId: asset.volcano_asset_id || "", name: asset.name || node.title, status: asset.status, assetType: asset.asset_type || "Image" };
+      const nextNodes = nodesRef.current.map(item => item.id === node.id
+        ? { ...item, metadata: { ...item.metadata, seedanceVolcanoAssets: [selected], seedanceRegistrationSource: seedanceRegistrationSource(node) } }
+        : item);
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
+      await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+    },
+  });
+
   const registerImageAsSeedanceAsset = async (node: CanvasNodeData) => {
-    if (node.kind !== "image" || registrationBusyRef.current) return;
+    if (node.kind !== "image") return;
     const projectKey = projectSessionController.canonicalKey;
-    if (!projectKey || projectSessionController.switching) return;
+    if (!projectKey || projectSessionController.switching || isRegistering(projectKey, node)) return;
     const saved = savedSeedanceRegistration(node);
     if (saved && seedanceRegistrationPhase(saved) === "success") {
       toast.info("该图片已经注册过拟真人素材");
@@ -2024,121 +2054,19 @@ export default function CanvasWorkspaceViewContent() {
     const preferred = linked ? modelFromNode(linked, videoModel) : videoModel;
     const candidates = videoModels.filter(isSeedanceVideoModel);
     setRegistrationTarget({ nodeId: node.id, model: candidates.includes(preferred) ? preferred : candidates[0] || "", projectKey });
-    setRegistrationError("");
   };
 
-  const submitImageRegistration = async () => {
-    if (!registrationTarget || registrationBusyRef.current) return;
-    const { nodeId, model: selectedModel, projectKey } = registrationTarget;
-    const scope = projectSessionController.canonicalScope;
-    const isCurrent = () => !projectSessionController.switching
-      && projectSessionController.canonicalKey === projectKey
-      && nodesRef.current.some((item) => item.id === nodeId);
-    const node = nodesRef.current.find((item) => item.id === nodeId);
-    if (!scope || !node || !isCurrent() || !selectedModel) return;
-    const providerId = registrationProviderId(selectedModel);
-    const key = seedanceRegistrationKey(projectKey, node);
-    if (seedanceRegistrationInFlight.current.has(key)) return;
-    const saved = savedSeedanceRegistration(node);
-    // A stale record from a replaced image is ignored so the new image uploads fresh.
-    const existing = saved
-      ? node.metadata?.seedanceVolcanoAssets?.find((item) => item.id === saved.id && (item.providerId || "") === (providerId || ""))
-      : undefined;
-    if (saved && existing && seedanceRegistrationPhase(saved) === "success") {
-      toast.info("该图片已经注册过拟真人素材");
-      setRegistrationTarget(null);
-      return;
-    }
-    seedanceRegistrationInFlight.current.add(key);
-    registrationBusyRef.current = true;
-    setRegistrationBusy(true);
-    setRegistrationError("");
-    let registrationToastId: string | number | undefined;
-    let lastToastPhase: SeedanceRegistrationState["phase"] | undefined;
-    let toastSettled = false;
-    const onState = (state: SeedanceRegistrationState) => {
-      if (!isCurrent()) return;
-      setSeedanceRegistrationStates(previous => ({ ...previous, [key]: state }));
-      if ((state.phase === "uploading" || state.phase === "processing") && state.phase !== lastToastPhase) {
-        lastToastPhase = state.phase;
-        registrationToastId = toast.loading(
-          state.phase === "uploading" ? "正在上传拟真人素材…" : "素材已上传，正在处理注册…",
-          {
-            id: registrationToastId,
-            description: `${node.title || "当前图片"} · 完成后将出现在资产库「真人素材」中`,
-            duration: Infinity,
-            // Match the existing green success toast while retaining a progress spinner.
-            style: { background: "var(--success-bg)", color: "var(--success-text)", borderColor: "var(--success-border)" },
-          },
-        );
-      }
-    };
-    let source: Awaited<ReturnType<typeof imageSourceForNode>> | null = null;
-    try {
-      const asset = await registerCanvasImageAsset({
-        scope, providerId, isCurrent, existing, onState,
-        loadFile: async () => {
-          source = await imageSourceForNode(node);
-          const response = await fetch(source.url);
-          if (!response.ok) throw new Error(`读取图片失败（${response.status}）`);
-          const blob = await response.blob();
-          const contentType = blob.type.startsWith("image/") ? blob.type : "image/png";
-          return new File([blob], imageFileName(node.title || "拟真人素材", contentType), { type: contentType });
-        },
-        onUpdate: async (asset) => {
-          if (!isCurrent()) return;
-          const selected = { id: asset.id, providerId, volcanoAssetId: asset.volcano_asset_id || "", name: asset.name || node.title, status: asset.status, assetType: asset.asset_type || "Image" };
-          const nextNodes = nodesRef.current.map((item) => item.id === node.id
-            ? { ...item, metadata: { ...item.metadata, seedanceVolcanoAssets: [selected], seedanceRegistrationSource: seedanceRegistrationSource(node) } }
-            : item);
-          nodesRef.current = nextNodes;
-          setNodes(nextNodes);
-          await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-        },
-      });
-      if (!isCurrent()) return;
-      if (asset.status.toLowerCase() === "active" && asset.volcano_asset_id) {
-        onState({ phase: "success" });
-        toast.success("拟真人素材注册成功", {
-          id: registrationToastId, style: {}, duration: REGISTRATION_TOAST_SUCCESS_MS,
-          description: `${node.title || "当前图片"} · 已加入资产库「真人素材」，可用于视频参考`,
-        });
-        toastSettled = true;
-      } else {
-        onState({ phase: "pending" });
-        toast.warning("素材已上传，后台仍在处理中", {
-          id: registrationToastId, style: {}, duration: REGISTRATION_TOAST_NOTICE_MS,
-          description: "可在资产库「真人素材」查看，或点击注册按钮刷新状态，无需重复上传。",
-        });
-        toastSettled = true;
-      }
-      setRegistrationTarget(null);
-    } catch (error) {
-      if (isCurrent()) {
-        const message = publicApiError(error, "拟真人素材注册失败");
-        setRegistrationError(message);
-        onState({ phase: "error", error: message });
-        toast.error("拟真人素材上传或注册失败", {
-          id: registrationToastId, style: {}, duration: REGISTRATION_TOAST_NOTICE_MS,
-          description: `${message}；可点击注册按钮重试。`,
-        });
-        toastSettled = true;
-      }
-    } finally {
-      if (!toastSettled && registrationToastId !== undefined) toast.dismiss(registrationToastId);
-      (source as Awaited<ReturnType<typeof imageSourceForNode>> | null)?.cleanup();
-      registrationBusyRef.current = false;
-      setRegistrationBusy(false);
-      seedanceRegistrationInFlight.current.delete(key);
-      setSeedanceRegistrationStates(previous => {
-        const state = previous[key];
-        // Settled states come from saved metadata; only transient errors need a local message.
-        if (!state || state.phase === "error") return previous;
-        const next = { ...previous };
-        delete next[key];
-        return next;
-      });
-    }
+  const registerSelectedImagesAsSeedanceAssets = () => {
+    const projectKey = projectSessionController.canonicalKey;
+    if (!projectKey || projectSessionController.switching) return;
+    const selected = nodesRef.current.filter(node => selectedNodeIdsRef.current.has(node.id));
+    const images = selected.filter(node => node.kind === "image" && (assetIdFromNode(node) || imageSrcFromNode(node, previews)));
+    if (!images.length) return toast.info("所选节点中没有可注册的图片，请选择已有图片内容的节点");
+    const candidates = videoModels.filter(isSeedanceVideoModel);
+    setRegistrationTarget({
+      nodeId: images[0].id, nodeIds: images.map(node => node.id), skippedCount: selected.length - images.length,
+      projectKey, model: candidates.includes(videoModel) ? videoModel : candidates[0] || "",
+    });
   };
 
   const uploadCanvasImageDataUrl = async (
@@ -3814,8 +3742,7 @@ export default function CanvasWorkspaceViewContent() {
       }, activeScope);
       toast.message(`选区包任务已创建：${batch.id.slice(-8)}，正在归集媒体...`);
       const ready = await waitForAssetExportReady(batch.id, activeScope);
-      const blob = await downloadAssetExport(ready.id, activeScope);
-      downloadBlob(blob, ready.file_name || `canvas-fragment-${ready.id.slice(-8)}.zip`);
+      await startAssetExportDownload(ready.id, activeScope);
       toast.success(ready.status === "partial_failed" ? "选区包已下载，部分媒体失败请查看 manifest" : "画布选区包已下载");
     } catch (error) {
       toast.error(publicApiError(error, "导出画布选区包失败"));
@@ -4096,8 +4023,7 @@ export default function CanvasWorkspaceViewContent() {
       const batch = await createAssetExport({ selection_mode: "selected", asset_ids: assetIds }, activeScope);
       toast.message(`导出任务已创建：${batch.id.slice(-8)}，正在等待 ZIP...`);
       const ready = await waitForAssetExportReady(batch.id, activeScope);
-      const blob = await downloadAssetExport(ready.id, activeScope);
-      downloadBlob(blob, ready.file_name || `canvas-assets-${ready.id.slice(-8)}.zip`);
+      await startAssetExportDownload(ready.id, activeScope);
       toast.success(ready.status === "partial_failed" ? "导出包已下载，部分文件失败请查看 manifest" : "画布图片导出包已下载");
     } catch (error) {
       toast.error(publicApiError(error, "创建画布图片导出失败"));
@@ -4120,8 +4046,7 @@ export default function CanvasWorkspaceViewContent() {
         const sourceScope = selectedNode ? workspaceScopeValue(selectedNode.metadata?.assetScope) || activeScope : activeScope;
         const exportBatch = await createAssetExport({ selection_mode: "selected", asset_ids: [assetId] }, sourceScope);
         const ready = await waitForAssetExportReady(exportBatch.id, sourceScope);
-        const blob = await downloadAssetExport(ready.id, sourceScope);
-        downloadBlob(blob, ready.file_name || `${selectedNode?.title || assetId}.zip`);
+        await startAssetExportDownload(ready.id, sourceScope);
         toast.success("媒体导出包已下载");
         return;
       }
@@ -4368,24 +4293,25 @@ export default function CanvasWorkspaceViewContent() {
   return (
     <CanvasPricingContext.Provider value={{ imageModel, videoModel, nodes, references: mentionReferencesForNode }}>
     <div className="canvas-page real-canvas-page">
-      <Dialog open={Boolean(registrationTarget)} onOpenChange={(open) => { if (!open && !registrationBusy) setRegistrationTarget(null); }}>
-        <DialogContent showCloseButton={!registrationBusy}>
+      <Dialog open={Boolean(registrationTarget)} onOpenChange={(open) => { if (!open) setRegistrationTarget(null); }}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>注册拟真人素材</DialogTitle>
-            <DialogDescription>选择这张图片将要使用的视频模型。素材会注册到对应 Provider，之后请使用同一 Provider 生成视频。</DialogDescription>
+            <DialogTitle>{registrationTarget?.nodeIds ? "批量注册拟真人素材" : "注册拟真人素材"}</DialogTitle>
+            <DialogDescription>{registrationTarget?.nodeIds
+              ? `将批量注册 ${registrationTarget.nodeIds.length} 张图片${registrationTarget.skippedCount ? `，跳过 ${registrationTarget.skippedCount} 个非图片或空节点` : ""}。已注册或正在注册的图片会自动跳过，失败图片可重试。`
+              : "选择这张图片将要使用的视频模型。"}提交后会自动关闭此窗口并在后台注册，完成后通知你；注册成功后请使用同一服务商生成视频。</DialogDescription>
           </DialogHeader>
           <label className="grid gap-2 text-sm">
             <span>目标视频模型</span>
-            <select aria-label="目标视频模型" className="h-10 rounded-md border border-input bg-background px-3" disabled={registrationBusy}
-              value={registrationTarget?.model || ""} onChange={(event) => { setRegistrationTarget((current) => current ? { ...current, model: event.target.value } : null); setRegistrationError(""); }}>
+            <select aria-label="目标视频模型" className="h-10 rounded-md border border-input bg-background px-3"
+              value={registrationTarget?.model || ""} onChange={(event) => { setRegistrationTarget((current) => current ? { ...current, model: event.target.value } : null); }}>
               {!videoModels.some(isSeedanceVideoModel) && <option value="">暂无支持素材注册的视频模型</option>}
               {videoModels.filter(isSeedanceVideoModel).map((model) => <option key={model} value={model}>{canvasModelName(model, textModelLabels)}{model.startsWith("sdvideo/") ? " · SD-video" : " · 独立 Provider"}</option>)}
             </select>
           </label>
-          {registrationError && <p role="alert" className="text-sm text-destructive">{registrationError}</p>}
           <DialogFooter>
-            <button className="outline-button small" disabled={registrationBusy} onClick={() => setRegistrationTarget(null)}>取消</button>
-            <button className="vermilion-button" disabled={registrationBusy || !registrationTarget?.model} onClick={() => void submitImageRegistration()}>{registrationBusy ? "正在注册并查询状态…" : "注册 / 更新状态"}</button>
+            <button className="outline-button small" onClick={() => setRegistrationTarget(null)}>取消</button>
+            <button className="vermilion-button" disabled={!registrationTarget?.model} onClick={() => void submitImageRegistration()}>{registrationTarget?.nodeIds ? "开始批量注册" : "后台注册 / 更新状态"}</button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -4669,6 +4595,7 @@ export default function CanvasWorkspaceViewContent() {
             activateConnectionMode,
             copySelectedNodes,
             openConnectSelection: () => setConnectSelectionOpen(true),
+            registerSelectedImagesAsSeedanceAssets,
             generateFromNode,
             renderCanvasSubmenu,
             copyCanvasImagePrompt,
@@ -5044,7 +4971,8 @@ async function waitForAssetExportReady(exportId: string, scope: WorkspaceScope) 
     const state = await getAssetExport(exportId, scope);
     if (state.status === "succeeded" || state.status === "partial_failed") return state;
     if (state.status === "failed" || state.status === "canceled" || state.status === "expired") {
-      throw new Error(state.error || `导出任务已结束：${state.status}`);
+      const message = typeof state.error === "string" ? state.error : state.error?.message;
+      throw new Error(message || `导出任务已结束：${state.status}`);
     }
     await wait(1_200);
   }

@@ -1,4 +1,4 @@
-import type { Asset } from "@/entities/asset";
+import type { Asset, SeedanceAsset } from "@/entities/asset";
 import type { CanvasMentionLibraryState, CanvasMentionLibraryTarget } from "@/features/canvas/domain/mentionLibrary";
 import type { CanvasMentionReference } from "@/features/canvas/domain/mentions";
 import type { CanvasEdgeData, CanvasNodeData } from "@/features/canvas/domain/types";
@@ -8,7 +8,7 @@ import type { WorkspaceScope } from "@/shared/config";
 
 export type CanvasAssetPickerMediaType = "text" | "image" | "video" | "audio";
 
-export type CanvasAssetPickerKind = "all" | "favorite" | CanvasAssetPickerMediaType;
+export type CanvasAssetPickerKind = "all" | "favorite" | "registered" | CanvasAssetPickerMediaType;
 
 export type CanvasAssetPickerFolderOption = {
   id: string;
@@ -20,7 +20,9 @@ export type CanvasAssetPickerItem = {
   type: CanvasAssetPickerMediaType;
   name: string;
   scope: WorkspaceScope;
-  source: "server" | "local-text";
+  source: "server" | "local-text" | "registered";
+  registeredAsset?: SeedanceAsset;
+  unavailableReason?: string;
   serverAsset?: Asset;
   textAsset?: CanvasTextAsset;
   category?: string;
@@ -65,6 +67,7 @@ export type CanvasAssetsMentionsBindings = {
   getCanonicalScope(): WorkspaceScope | null;
   getFallbackScope(): WorkspaceScope;
   getMentionScope(): WorkspaceScope;
+  getSeedanceProviderIds?(): string[];
   getNodes(): CanvasNodeData[];
   getEdges(): CanvasEdgeData[];
   setNodes(nodes: CanvasNodeData[]): void;
@@ -79,6 +82,7 @@ export type CanvasAssetsMentionsBindings = {
 };
 
 export type CanvasAssetsMentionsServices = {
+  listUserSeedanceAssets: typeof import("@/entities/asset").listUserSeedanceAssets;
   getAssetLibrary: typeof import("@/entities/asset").getAssetLibrary;
   getAssetFolders: typeof import("@/entities/asset").getAssetFolders;
   getAssetContentObjectUrl: typeof import("@/entities/asset").getAssetContentObjectUrl;

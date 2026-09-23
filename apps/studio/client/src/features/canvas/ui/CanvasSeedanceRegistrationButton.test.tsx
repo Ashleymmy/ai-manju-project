@@ -17,12 +17,12 @@ describe("registration button feedback", () => {
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
 
-  it("animates and blocks repeat clicks while a registration is running", async () => {
+  it.each(["uploading", "queued"] as const)("animates and blocks repeat clicks while a registration is %s", async phase => {
     const onRegister = vi.fn(async () => undefined);
     await act(async () => root.render(<CanvasSeedanceRegistrationButton node={node} onRegister={onRegister} />));
     await act(async () => container.querySelector("button")!.click());
     expect(onRegister).toHaveBeenCalledWith(node);
-    await act(async () => root.render(<CanvasSeedanceRegistrationButton node={node} onRegister={onRegister} state={{ phase: "uploading" }} />));
+    await act(async () => root.render(<CanvasSeedanceRegistrationButton node={node} onRegister={onRegister} state={{ phase }} />));
     const button = container.querySelector("button")!;
     expect(button.disabled).toBe(true);
     expect(button.getAttribute("aria-busy")).toBe("true");
@@ -36,8 +36,22 @@ describe("registration button feedback", () => {
     await act(async () => root.render(<CanvasSeedanceRegistrationButton node={registered} onRegister={vi.fn()} />));
     const button = container.querySelector("button")!;
     expect(button.classList.contains("is-success")).toBe(true);
+    expect(button.querySelector("svg.lucide-badge-check")).not.toBeNull();
+    expect(button.querySelector("svg.lucide-check")).toBeNull();
     expect(button.title).toBe("已注册至资产库 · 真人素材，可用于视频参考");
     expect(button.disabled).toBe(true);
+  });
+
+  it.each(["", "icon-button subtle", "node-pop-item"])("uses the same green badge on live success in %s", async className => {
+    const onRegister = vi.fn(async () => undefined);
+    await act(async () => root.render(<CanvasSeedanceRegistrationButton node={node} className={className} state={{ phase: "success" }} onRegister={onRegister} />));
+    const button = container.querySelector("button")!;
+    expect(button.classList.contains("is-success")).toBe(true);
+    expect(button.querySelector("svg.lucide-badge-check")).not.toBeNull();
+    expect(button.querySelector("svg.lucide-check")).toBeNull();
+    expect(button.disabled).toBe(true);
+    button.click();
+    expect(onRegister).not.toHaveBeenCalled();
   });
 
   it.each(["pending", "error"] as const)("allows %s to be refreshed or retried with clear feedback", async phase => {

@@ -15,6 +15,7 @@ var ErrUserPreferenceNotFound = errors.New("user preference not found")
 type UserPreferenceRepository interface {
 	GetByUser(userID string) (model.UserPreference, error)
 	Upsert(preference model.UserPreference) (model.UserPreference, error)
+	Modify(userID string, change func(model.UserPreference) (model.UserPreference, error)) (model.UserPreference, error)
 }
 
 type MemoryUserPreferenceRepository struct {
@@ -41,6 +42,10 @@ func (r *MemoryUserPreferenceRepository) GetByUser(userID string) (model.UserPre
 func (r *MemoryUserPreferenceRepository) Upsert(preference model.UserPreference) (model.UserPreference, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.upsertLocked(preference), nil
+}
+
+func (r *MemoryUserPreferenceRepository) upsertLocked(preference model.UserPreference) model.UserPreference {
 
 	now := time.Now().UTC()
 	current, exists := r.preferences[preference.UserID]
@@ -58,7 +63,23 @@ func (r *MemoryUserPreferenceRepository) Upsert(preference model.UserPreference)
 	preference.UpdatedAt = now
 	r.preferences[preference.UserID] = preference
 
-	return preference, nil
+	return preference
+}
+
+// Modify keeps the read/merge/write atomic, including the first preference save.
+func (r *MemoryUserPreferenceRepository) Modify(userID string, change func(model.UserPreference) (model.UserPreference, error)) (model.UserPreference, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	current := r.preferences[userID]
+	current.Generation = append(model.JSONB(nil), current.Generation...)
+	current.Shortcuts = append(model.JSONB(nil), current.Shortcuts...)
+	current.Canvas = append(model.JSONB(nil), current.Canvas...)
+	next, err := change(current)
+	if err != nil {
+		return model.UserPreference{}, err
+	}
+	next.UserID = userID
+	return r.upsertLocked(next), nil
 }
 
 type GormUserPreferenceRepository struct {
@@ -105,4 +126,31 @@ func (r *GormUserPreferenceRepository) Upsert(preference model.UserPreference) (
 	}
 
 	return preference, nil
+}
+
+func (r *GormUserPreferenceRepository) Modify(userID string, change func(model.UserPreference) (model.UserPreference, error)) (model.UserPreference, error) {
+	var result model.UserPreference
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		initial := model.UserPreference{ID: "pref_" + randomRepositoryHex(8), UserID: userID,
+			Generation: model.JSONB(`{}`), Shortcuts: model.JSONB(`{}`), Canvas: model.JSONB(`{}`)}
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}}, DoNothing: true}).Create(&initial).Error; err != nil {
+			return err
+		}
+		var current model.UserPreference
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, "user_id = ?", userID).Error; err != nil {
+			return err
+		}
+		next, err := change(current)
+		if err != nil {
+			return err
+		}
+		next.ID, next.UserID, next.CreatedAt = current.ID, userID, current.CreatedAt
+		next.UpdatedAt = time.Now().UTC()
+		if err := tx.Save(&next).Error; err != nil {
+			return err
+		}
+		result = next
+		return nil
+	})
+	return result, err
 }

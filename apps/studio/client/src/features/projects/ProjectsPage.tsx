@@ -1,5 +1,10 @@
 import {
   ArrowDownToLine,
+  Copy,
+  FolderPlus,
+  FolderInput,
+  Pencil,
+  Ungroup,
   FolderKanban,
   Plus,
   Trash2,
@@ -21,10 +26,11 @@ import { PageIntro } from "@/shared/ui";
 
 import { createAndOpenProject } from "./commands";
 import { useProjectCoverUrls } from "./covers";
-import { projectToCard, type ProjectCardData } from "./model";
+import { projectToCard } from "./model";
 import { ProjectCard } from "./ProjectCard";
 import { ProjectCardTools } from "./ProjectCardTools";
 import { useProjectActions } from "./useProjectActions";
+import { PROJECT_GROUP_TITLE_LIMIT, useProjectGroups } from "./useProjectGroups";
 import "./styles.css";
 
 const projectsIntro = {
@@ -41,12 +47,16 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [activeGroup, setActiveGroup] = useState("all");
+  const projectGroups = useProjectGroups(scope);
   const coverUrls = useProjectCoverUrls(apiProjects, scope);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     getProjects(scope)
       .then(res => {
+        if (cancelled) return;
         const raw: CanvasProject[] = Array.isArray(res) ? res : res.items;
         setApiProjects(raw || []);
         setSelectedIds(ids =>
@@ -54,10 +64,12 @@ export default function ProjectsPage() {
         );
       })
       .catch(error => {
+        if (cancelled) return;
         setApiProjects([]);
         toast.error(publicApiError(error, "读取项目列表失败"));
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [refreshKey, scope]);
 
   const refresh = () => setRefreshKey(value => value + 1);
@@ -67,6 +79,8 @@ export default function ProjectsPage() {
     renameProject,
     saveCover,
     deleteProjects: removeProjects,
+    copyingIds,
+    duplicateProjects,
   } = useProjectActions(scope, refresh);
   const toggleSelected = (id: string) =>
     setSelectedIds(ids =>
@@ -75,6 +89,14 @@ export default function ProjectsPage() {
 
   const deleteProjects = async (ids: string[]) => {
     if (await removeProjects(ids)) setSelectedIds([]);
+  };
+
+  const copyProjects = async (ids: string[]) => {
+    const createdIds = await duplicateProjects(ids);
+    if (createdIds.length) {
+      setActiveGroup("all");
+      setSelectedIds(createdIds);
+    }
   };
 
   const exportProjects = async (ids: string[]) => {
@@ -115,7 +137,24 @@ export default function ProjectsPage() {
     }
   };
 
-  const displayProjects: ProjectCardData[] = apiProjects.map(projectToCard);
+  const assigned = new Set(projectGroups.groups.flatMap(group => group.projectIds));
+  const currentGroup = projectGroups.groups.find(group => group.id === activeGroup);
+  const visibleProjects = apiProjects.filter(project => activeGroup === "all" || (activeGroup === "ungrouped"
+    ? !assigned.has(project.id) : currentGroup?.projectIds.includes(project.id)));
+  const groupBusy = projectGroups.loading || projectGroups.saving || Boolean(projectGroups.error);
+  const selectGroup = (id: string) => { setActiveGroup(id); setSelectedIds([]); };
+  const groupTitle = (initial = "") => {
+    const title = window.prompt("分组名称", initial)?.trim();
+    if (!title) return "";
+    if ([...title].length > PROJECT_GROUP_TITLE_LIMIT) { toast.error(`分组名称不能超过 ${PROJECT_GROUP_TITLE_LIMIT} 个字`); return ""; }
+    return title;
+  };
+  const createGroup = async () => {
+    const title = groupTitle();
+    if (!title) return;
+    const id = await projectGroups.create(title, selectedIds);
+    if (id) selectGroup(id);
+  };
 
   return (
     <div className="page-content">
@@ -140,6 +179,7 @@ export default function ProjectsPage() {
               onClick={() => {
                 setScope(item);
                 setSelectedIds([]);
+                setActiveGroup("all");
               }}
             >
               {item === "personal" ? "个人空间" : "团队空间"}
@@ -155,6 +195,23 @@ export default function ProjectsPage() {
           >
             <Trash2 size={14} /> 删除选中
           </button>
+          <button className="outline-button small" disabled={!selectedIds.length || Boolean(copyingIds.length)} onClick={() => void copyProjects(selectedIds)}>
+            <Copy size={14} /> {copyingIds.length ? "复制中…" : "复制选中"}
+          </button>
+          <button className="outline-button small" disabled={groupBusy} onClick={() => void createGroup()}>
+            <FolderPlus size={14} /> 创建分组
+          </button>
+          <label className="project-group-move">
+            <FolderInput size={14} />
+            <select aria-label="移入分组" value="" disabled={!selectedIds.length || groupBusy} onChange={event => {
+              const targetId = event.target.value;
+              void projectGroups.move(selectedIds, targetId === "ungrouped" ? "" : targetId).then(saved => { if (saved) setSelectedIds([]); });
+            }}>
+              <option value="" disabled>移入分组</option>
+              <option value="ungrouped">未分组</option>
+              {projectGroups.groups.map(group => <option key={group.id} value={group.id}>{group.title}</option>)}
+            </select>
+          </label>
           <button
             className="outline-button small"
             disabled={!selectedIds.length || exporting}
@@ -173,14 +230,32 @@ export default function ProjectsPage() {
           </button>
         </div>
       </div>
+      <div className="project-group-navigation">
+        <div className="project-group-tabs" aria-label="画布分组">
+          <button className={activeGroup === "all" ? "active" : ""} aria-pressed={activeGroup === "all"} onClick={() => selectGroup("all")}>全部 <span>{apiProjects.length}</span></button>
+          <button className={activeGroup === "ungrouped" ? "active" : ""} aria-pressed={activeGroup === "ungrouped"} disabled={groupBusy} onClick={() => selectGroup("ungrouped")}>未分组 <span>{apiProjects.filter(project => !assigned.has(project.id)).length}</span></button>
+          {projectGroups.groups.map(group => <button key={group.id} className={activeGroup === group.id ? "active" : ""} aria-pressed={activeGroup === group.id} disabled={groupBusy} onClick={() => selectGroup(group.id)}>
+            {group.title} <span>{apiProjects.filter(project => group.projectIds.includes(project.id)).length}</span>
+          </button>)}
+        </div>
+        {currentGroup ? <div className="project-group-tools">
+          <button className="icon-button" title="重命名分组" aria-label="重命名分组" disabled={groupBusy} onClick={() => { const title = groupTitle(currentGroup.title); if (title && title !== currentGroup.title) void projectGroups.rename(currentGroup.id, title); }}><Pencil size={15} /></button>
+          <button className="icon-button" title="解散分组（保留画布）" aria-label="解散分组（保留画布）" disabled={groupBusy} onClick={() => {
+            if (window.confirm(`解散“${currentGroup.title}”？组内画布不会删除。`)) void projectGroups.dissolve(currentGroup.id).then(saved => { if (saved) selectGroup("all"); });
+          }}><Ungroup size={15} /></button>
+        </div> : null}
+        {projectGroups.error ? <div role="alert">{projectGroups.error} <button className="outline-button small" onClick={projectGroups.reload}>重试</button></div> : null}
+      </div>
       <div className="project-grid">
         {loading ? (
           <div className="empty-output">
             <FolderKanban size={27} />
             <p>正在读取项目…</p>
           </div>
-        ) : displayProjects.length ? (
-          displayProjects.map((project, index) => (
+        ) : visibleProjects.length ? (
+          visibleProjects.map((source, index) => {
+            const project = projectToCard(source, index);
+            return (
             <div
               className="project-card-wrap"
               key={`${project.id || project.code}-${index}`}
@@ -191,25 +266,27 @@ export default function ProjectsPage() {
               >
                 <input
                   type="checkbox"
+                  aria-label={`选择画布 ${source.title}`}
                   checked={project.id ? selectedIds.includes(project.id) : false}
                   onChange={() => project.id && toggleSelected(project.id)}
                 />
               </label>
               <ProjectCardTools
-                onCover={() => setCoverProject(apiProjects[index])}
-                onRename={() => void renameProject(apiProjects[index])}
+                onCover={() => setCoverProject(source)}
+                onRename={() => void renameProject(source)}
+                onCopy={() => void copyProjects([source.id])}
+                copying={copyingIds.includes(source.id)}
+                copyDisabled={Boolean(copyingIds.length)}
                 onDelete={() => project.id && void deleteProjects([project.id])}
               />
               <ProjectCard {...project} image={(project.id && coverUrls[project.id]) || project.image} scope={scope} />
             </div>
-          ))
+          ); })
         ) : (
           <div className="empty-output">
             <FolderKanban size={27} />
             <p>
-              还没有画布项目
-              <br />
-              点击“新建项目”开始。
+              {activeGroup === "all" ? "还没有画布项目" : "该分组暂无画布"}
             </p>
           </div>
         )}

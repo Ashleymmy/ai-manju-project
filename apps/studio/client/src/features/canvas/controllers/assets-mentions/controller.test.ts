@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { Asset, AssetFolder, AssetLibraryQuery } from "@/entities/asset";
+import type { Asset, AssetFolder, AssetLibraryQuery, SeedanceAsset } from "@/entities/asset";
+import { savedSeedanceRegistration } from "@/features/canvas/services/seedanceRegistration";
 import type { CanvasMentionReference } from "@/features/canvas/domain/mentions";
 import { buildCanvasMentionGenerationContext } from "@/features/canvas/domain/mentions";
 import type { CanvasEdgeData, CanvasNodeData } from "@/features/canvas/domain/types";
@@ -27,6 +28,7 @@ const archiveFolders: AssetFolder[] = [
 
 function canvasNode(id: string, metadata: CanvasNodeData["metadata"] = {}): CanvasNodeData {
   return {
+    listUserSeedanceAssets: vi.fn(async () => ({ items: [], total: 0 })),
     id,
     kind: "image",
     title: id,
@@ -95,6 +97,7 @@ function createHarness(
   controller.updateBindings(bindings);
   return {
     controller,
+    bindings,
     get nodes() { return nodes; },
     set nodes(value: CanvasNodeData[]) { nodes = value; },
     get edges() { return edges; },
@@ -125,6 +128,116 @@ function mentionReference(values: Partial<CanvasMentionReference> = {}): CanvasM
 }
 
 describe("CanvasAssetsMentionsController", () => {
+  const registered: SeedanceAsset = {
+    id: "registered-1", name: "拟真人角色", status: "Active", asset_type: "Image",
+    volcano_asset_id: "upstream-1", source_url: "/api/sd-video/volcano/assets/registered-1/content?scope=personal",
+  };
+
+  it("loads real registered assets across pages/providers and inserts independent nodes with generation references", async () => {
+    const listUserSeedanceAssets = vi.fn<CanvasAssetsMentionsServices["listUserSeedanceAssets"]>(async params => ({
+      items: params?.provider_id ? [{ ...registered, id: "official-1", source_url: "https://cdn.example/actor.png" }]
+        : params?.offset ? [{ ...registered, id: "registered-2", asset_type: "Video", volcano_asset_id: "upstream-2" }]
+        : [registered], total: params?.provider_id ? 1 : 2,
+    }));
+    const services = createServices({ listUserSeedanceAssets });
+    const harness = createHarness([], services);
+    harness.controller.updateBindings({ ...harness.bindings, getSeedanceProviderIds: () => ["official", "official"] });
+    harness.controller.setAssetPickerKind("registered");
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.loading).toBe(false));
+    const picker = harness.controller.getSnapshot().picker;
+    expect(picker.items).toHaveLength(3);
+    expect(listUserSeedanceAssets).toHaveBeenCalledTimes(3);
+    expect(listUserSeedanceAssets).toHaveBeenNthCalledWith(2, expect.objectContaining({ scope: "personal", limit: 100, offset: 1 }), expect.any(AbortSignal));
+    expect(services.getAssetLibrary).not.toHaveBeenCalled();
+    expect(picker.thumbnails["registered::registered-1"]).toContain("/registered-1/thumbnail?scope=personal");
+    picker.items.forEach(item => harness.controller.toggleAssetPickerItem(item.id));
+    await harness.controller.insertAssetPickerSelection();
+    expect(harness.nodes.map(node => node.kind)).toEqual(["image", "video", "image"]);
+    expect(new Set(harness.nodes.map(node => node.id)).size).toBe(3);
+    expect(harness.nodes[0].imageSrc).toContain("/registered-1/content?scope=personal");
+    expect(harness.nodes[0].imageSrc).not.toMatch(/^blob:/);
+    expect(harness.nodes[0].metadata?.assetId).toBeUndefined();
+    expect(savedSeedanceRegistration(harness.nodes[0])).toMatchObject({ id: "registered-1", volcano_asset_id: "upstream-1" });
+    expect(harness.nodes[2].metadata?.seedanceVolcanoAssets?.[0].providerId).toBe("official");
+    const context = buildCanvasMentionGenerationContext("target", harness.nodes, [], `参考 @[node:${harness.nodes[0].id}] @[node:${harness.nodes[1].id}]`, [], "personal");
+    expect(context.missingKeys).toEqual([]);
+    expect(context.inputs).toHaveLength(2);
+    expect(context.inputs[0].seedanceVolcanoAssets?.[0].volcanoAssetId).toBe("upstream-1");
+    expect(context.inputs[1].seedanceVolcanoAssets?.[0].volcanoAssetId).toBe("upstream-2");
+    expect(registered).not.toHaveProperty("provider_id");
+  });
+
+  it("shows pending/failed registrations but prevents inserting them or missing source files", async () => {
+    const harness = createHarness([], createServices({ listUserSeedanceAssets: async () => ({ items: [
+      { ...registered, id: "pending", status: "Processing", volcano_asset_id: "" },
+      { ...registered, id: "failed", status: "Failed" },
+      { ...registered, id: "missing", source_url: "" },
+    ], total: 3 }) }));
+    harness.controller.setAssetPickerKind("registered");
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.loading).toBe(false));
+    const items = harness.controller.getSnapshot().picker.items;
+    expect(items.map(item => item.unavailableReason)).toEqual(["注册处理中", "注册失败", "素材源文件不可用"]);
+    items.forEach(item => harness.controller.toggleAssetPickerItem(item.id));
+    await harness.controller.insertAssetPickerSelection();
+    expect(harness.controller.getSnapshot().picker.selectedIds).toEqual([]);
+    expect(harness.nodes).toEqual([]);
+  });
+
+  it("searches the user workspace, ignores normal folders, refreshes registrations and reports failures", async () => {
+    const listUserSeedanceAssets = vi.fn<CanvasAssetsMentionsServices["listUserSeedanceAssets"]>()
+      .mockResolvedValueOnce({ items: [registered], total: 1 })
+      .mockResolvedValueOnce({ items: [], total: 0 })
+      .mockRejectedValueOnce(new Error("素材服务暂不可用"))
+      .mockResolvedValueOnce({ items: [registered], total: 1 });
+    const harness = createHarness([], createServices({ listUserSeedanceAssets }));
+    harness.controller.setAssetPickerFolder("normal-folder");
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.loading).toBe(false));
+    harness.controller.setAssetPickerKind("registered");
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.loading).toBe(false));
+    expect(harness.controller.getSnapshot().picker.folderId).toBe("");
+    harness.controller.setAssetPickerQuery(" 新角色 ");
+    harness.controller.setAssetPickerScope("team");
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.loading).toBe(false));
+    expect(listUserSeedanceAssets).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "team", search: "新角色" }), expect.any(AbortSignal));
+    expect(harness.controller.getSnapshot().picker.items).toEqual([]);
+    harness.controller.searchAssetPicker();
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.error).toContain("素材服务暂不可用"));
+    harness.controller.searchAssetPicker();
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.items).toHaveLength(1));
+    expect(harness.controller.getSnapshot().picker.error).toBe("");
+  });
+
+  it("aborts stale registered queries when changing category or closing the picker", async () => {
+    let resolve!: (value: { items: SeedanceAsset[]; total: number }) => void;
+    const listUserSeedanceAssets = vi.fn(() => new Promise<{ items: SeedanceAsset[]; total: number }>(done => { resolve = done; }));
+    const services = createServices({ listUserSeedanceAssets });
+    const harness = createHarness([], services);
+    harness.controller.setAssetPickerKind("registered");
+    harness.controller.setAssetPickerKind("image");
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.loading).toBe(false));
+    resolve({ items: [registered], total: 1 });
+    await Promise.resolve();
+    expect(harness.controller.getSnapshot().picker.items).toEqual([]);
+    expect(listUserSeedanceAssets).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ aborted: true }));
+    harness.controller.setAssetPickerKind("registered");
+    harness.controller.cancelAssetPicker();
+    resolve({ items: [registered], total: 1 });
+    await Promise.resolve();
+    expect(harness.controller.getSnapshot().picker.items).toEqual([]);
+  });
+
+  it("preserves usable provider records when another library fails", async () => {
+    const harness = createHarness([], createServices({ listUserSeedanceAssets: async params => {
+      if (!params?.provider_id) throw new Error("SD-video 暂不可用");
+      return { items: [registered], total: 1 };
+    } }));
+    harness.controller.updateBindings({ ...harness.bindings, getSeedanceProviderIds: () => ["official"] });
+    harness.controller.setAssetPickerKind("registered");
+    await vi.waitFor(() => expect(harness.controller.getSnapshot().picker.loading).toBe(false));
+    expect(harness.controller.getSnapshot().picker.items).toHaveLength(1);
+    expect(harness.controller.getSnapshot().picker.error).toContain("部分拟真人素材库读取失败");
+  });
+
   it("publishes all preview URLs immediately without queueing original downloads", () => {
     const services = createServices({ getAssetContentObjectUrl: vi.fn(() => new Promise(() => undefined)) });
     const image = { ...canvasNode("image"), imageAssetId: "image-original" };

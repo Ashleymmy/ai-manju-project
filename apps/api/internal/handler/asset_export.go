@@ -3,6 +3,8 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -87,6 +89,19 @@ func (h *AssetExportHandler) Content(c *gin.Context) {
 		fileName = "ai-manju-assets.zip"
 	}
 	c.Header("Content-Disposition", `attachment; filename="`+fileName+`"`)
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("Content-Type", "application/zip")
+	// Disk archives support native browser downloads, HEAD and byte ranges without
+	// loading a multi-gigabyte ZIP into API or browser application memory.
+	if seeker, ok := content.Reader.(io.ReadSeeker); ok {
+		http.ServeContent(c.Writer, c.Request, fileName, content.Object.ModifiedAt, seeker)
+		return
+	}
+	if c.Request.Method == http.MethodHead {
+		c.Header("Content-Length", fmt.Sprint(content.Object.Size))
+		c.Status(http.StatusOK)
+		return
+	}
 	c.DataFromReader(http.StatusOK, content.Object.Size, "application/zip", content.Reader, nil)
 }
 

@@ -2,12 +2,12 @@
 .video-title-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .video-compact-action { display: none; }
 .video-settings-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 13px; margin-top: 22px; }
-.video-settings-control { display: grid; gap: 7px; min-width: 0; color: #b9b9b9; font: var(--font-size-caption) "IBM Plex Mono", monospace; }
+.video-settings-control { display: grid; gap: 7px; min-width: 0; color: #b9b9b9; font: var(--font-size-caption) var(--font-family-mono); }
 .video-settings-control span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .video-settings-control select { width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); outline: none; background: #262626; color: #dfded5; cursor: pointer; font: var(--font-size-small) "Noto Sans SC", sans-serif; }
 .video-settings-control select:focus { border-color: rgba(255, 255, 255, 0.83); box-shadow: 0 0 0 1px rgba(255,255,255,.18); }
 .video-settings-control select:disabled { opacity: .58; cursor: not-allowed; }
-.video-settings-control input { width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); outline: none; background: #262626; color: #dfded5; font: var(--font-size-small) "IBM Plex Mono", monospace; }
+.video-settings-control input { width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); outline: none; background: #262626; color: #dfded5; font: var(--font-size-small) var(--font-family-mono); }
 .video-settings-control input:focus { border-color: rgba(255, 255, 255, 0.83); box-shadow: 0 0 0 1px rgba(255,255,255,.18); }
 .video-settings-control input:disabled { opacity: .58; cursor: not-allowed; }
 .prompt-library-dialog { width: min(680px,calc(100vw - 28px)); max-width: 680px; }
@@ -18,7 +18,7 @@
 .prompt-library-list > button b,
 .prompt-library-list > button small { display: block; min-width: 0; }
 .prompt-library-list > button small { overflow: hidden; margin-top: 5px; color: #b6b6b6; font-size: var(--font-size-small); line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
-.prompt-library-list > button i { padding: 3px 5px; background: #2b2b2b; color: #b3b3b3; font: var(--font-size-caption) "IBM Plex Mono", monospace; font-style: normal; }
+.prompt-library-list > button i { padding: 3px 5px; background: #2b2b2b; color: #b3b3b3; font: var(--font-size-caption) var(--font-family-mono); font-style: normal; }
 .video-settings-toggles { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .video-state-card { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 14px; min-height: 210px; margin-top: 18px; padding: 18px; border: 1px solid var(--line); background: rgba(255,255,255,.025); color: #dce2da; }
 .video-state-card > svg { color: #cdcdcd; }
@@ -31,7 +31,7 @@
 .video-state-copy .outline-button { width: fit-content; }
 .video-progress { position: relative; height: 22px; overflow: hidden; border: 1px solid rgba(255,255,255,.2); background: rgba(7,12,14,.38); }
 .video-progress span { position: absolute; inset: 0 auto 0 0; background: rgba(255,255,255,.32); }
-.video-progress b { position: relative; z-index: 1; display: grid; place-items: center; height: 100%; color: #efefef; font: var(--font-size-caption) "IBM Plex Mono", monospace; }
+.video-progress b { position: relative; z-index: 1; display: grid; place-items: center; height: 100%; color: #efefef; font: var(--font-size-caption) var(--font-family-mono); }
 .video-history-panel { margin-top: 18px; }
 .video-history-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .video-history-list { max-height: 270px; overflow-y: auto; padding-right: 3px; }
@@ -314,7 +314,7 @@
 
 .wb-msg-time {
   color: #818181;
-  font: var(--font-size-caption) "IBM Plex Mono", monospace;
+  font: var(--font-size-caption) var(--font-family-mono);
   letter-spacing: 0;
   padding: 0 4px;
 }
@@ -392,7 +392,7 @@
   padding: 2px 3px;
   background: rgba(10, 12, 13, 0.82);
   color: #b9c0ba;
-  font: var(--font-size-caption) "IBM Plex Mono", monospace;
+  font: var(--font-size-caption) var(--font-family-mono);
   font-style: normal;
   text-align: center;
 }
@@ -429,14 +429,14 @@
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.06);
   color: #c3c3c3;
-  font: var(--font-size-caption) "IBM Plex Mono", monospace;
+  font: var(--font-size-caption) var(--font-family-mono);
   font-style: normal;
 }
 
 .wb-task-id {
   width: 100%;
   color: #818181;
-  font: var(--font-size-caption) "IBM Plex Mono", monospace;
+  font: var(--font-size-caption) var(--font-family-mono);
 }
 
 .wb-task-running {
@@ -476,7 +476,7 @@
   right: 0;
   top: -15px;
   color: #b6b6b6;
-  font: var(--font-size-caption) "IBM Plex Mono", monospace;
+  font: var(--font-size-caption) var(--font-family-mono);
 }
 
 .wb-task-cancel {
@@ -748,7 +748,7 @@
 
 .wb-frame-label {
   color: #a1a1a1;
-  font: var(--font-size-caption) "IBM Plex Mono", monospace;
+  font: var(--font-size-caption) var(--font-family-mono);
   letter-spacing: 0;
   padding-left: 2px;
 }
@@ -831,7 +831,7 @@
 .wb-shelf-item > i {
   max-width: 110px;
   overflow: hidden;
-  font: var(--font-size-caption) "IBM Plex Mono", monospace;
+  font: var(--font-size-caption) var(--font-family-mono);
   font-style: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -986,7 +986,7 @@
 
 .wb-param-label {
   color: #a1a1a1;
-  font: var(--font-size-caption) "IBM Plex Mono", monospace;
+  font: var(--font-size-caption) var(--font-family-mono);
   letter-spacing: 0;
   text-transform: uppercase;
   padding-left: 2px;
@@ -1002,7 +1002,7 @@
   border-radius: 7px;
   background: rgba(31, 162, 220, 0.08);
   color: #a9d7f2;
-  font: 12px "IBM Plex Mono", monospace;
+  font: 12px var(--font-family-mono);
   width: fit-content;
 }
 
@@ -1034,7 +1034,7 @@
   background: transparent;
   color: #c3c3c3;
   cursor: pointer;
-  font: var(--font-size-small) "IBM Plex Mono", monospace;
+  font: var(--font-size-small) var(--font-family-mono);
   white-space: nowrap;
   transition: background 0.13s ease, color 0.13s ease;
 }
@@ -1424,7 +1424,7 @@
 
 .wb-seedance-stats {
   color: #a1a1a1;
-  font: var(--font-size-caption) "IBM Plex Mono", monospace;
+  font: var(--font-size-caption) var(--font-family-mono);
   letter-spacing: 0;
 }
 

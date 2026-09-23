@@ -120,7 +120,7 @@
 .member-activity-banner { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border: 1px solid rgba(255, 122, 69, .4); border-radius: 10px; background: linear-gradient(90deg, rgba(239, 100, 97, .18), rgba(255, 122, 69, .1)); color: #ffd9c9; font-size: var(--font-size-control); }
 .member-activity-banner svg { color: #ff9d6b; }
 .member-countdown { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; color: #ffd9c9; font-size: var(--font-size-small); }
-.member-countdown i { min-width: 26px; padding: 3px 0; border-radius: 5px; background: rgba(0, 0, 0, .45); color: #fff; font: var(--font-size-small) "IBM Plex Mono", monospace; font-style: normal; text-align: center; }
+.member-countdown i { min-width: 26px; padding: 3px 0; border-radius: 5px; background: rgba(0, 0, 0, .45); color: #fff; font: var(--font-size-small) var(--font-family-mono); font-style: normal; text-align: center; }
 
 /* ---- 订阅套餐卡 ---- */
 .member-plan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr)); gap: 14px; }
@@ -149,7 +149,7 @@
 .member-presets button { padding: 5px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--member-surface); color: #cdcdcd; cursor: pointer; font-size: var(--font-size-small); }
 .member-presets button:hover { border-color: rgba(255, 255, 255, .3); }
 .member-presets button.selected { border-color: var(--member-primary); background: rgba(31, 162, 220, .14); color: #d8eefb; }
-.member-field-label { margin: 4px 0 0; color: #b3b3b3; font: var(--font-size-caption) "IBM Plex Mono", monospace; letter-spacing: 0; text-transform: uppercase; }
+.member-field-label { margin: 4px 0 0; color: #b3b3b3; font: var(--font-size-caption) var(--font-family-mono); letter-spacing: 0; text-transform: uppercase; }
 .member-channels { display: flex; flex-wrap: wrap; gap: 8px; }
 .member-channels button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--member-surface); color: #cdcdcd; cursor: pointer; font-size: var(--font-size-small); }
 .member-channels button.selected { border-color: var(--member-primary); background: rgba(31, 162, 220, .14); color: #d8eefb; }
@@ -158,7 +158,7 @@
 .member-checkout { display: flex; flex-direction: column; gap: 12px; padding: 20px; background: var(--member-card-2); }
 .member-checkout dl { display: flex; flex-direction: column; gap: 9px; margin: 0; }
 .member-checkout dl > div { display: flex; align-items: baseline; justify-content: space-between; color: #a8a8a8; font-size: var(--font-size-small); }
-.member-checkout dd { margin: 0; color: #e8e6de; font-family: "IBM Plex Mono", monospace; }
+.member-checkout dd { margin: 0; color: #e8e6de; font-family: var(--font-family-mono); }
 .member-checkout .member-checkout-total { padding-top: 9px; border-top: 1px solid var(--line); }
 .member-checkout .member-checkout-total dd { color: var(--member-primary); font-size: 20px; }
 .member-checkout-hint { margin: 0; color: #8a8a8a; font-size: var(--font-size-caption); line-height: 1.6; }
@@ -170,7 +170,7 @@
 .member-filters select { height: 32px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; outline: none; background: var(--member-surface); color: #e0ded6; font-size: var(--font-size-small); }
 .member-table { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .member-table-head, .member-table-row { display: grid; align-items: center; gap: 8px; padding: 0 14px; }
-.member-table-head { min-height: 36px; background: var(--member-surface); color: #9c9c9c; font: var(--font-size-caption) "IBM Plex Mono", monospace; letter-spacing: 0; }
+.member-table-head { min-height: 36px; background: var(--member-surface); color: #9c9c9c; font: var(--font-size-caption) var(--font-family-mono); letter-spacing: 0; }
 .member-table-row { min-height: 50px; border-top: 1px solid var(--line); background: var(--member-card); color: #c9c9c9; font-size: var(--font-size-small); }
 .member-table-row:hover { background: #141414; }
 .member-usage-row { grid-template-columns: 130px 96px minmax(120px, 1.4fr) .7fr .7fr .7fr 76px; }
@@ -181,7 +181,7 @@
 .member-cell-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .member-cell-main b { overflow: hidden; color: #e6e4db; font-size: var(--font-size-small); text-overflow: ellipsis; white-space: nowrap; }
 .member-cell-main small { overflow: hidden; color: #8f8f8f; font-size: var(--font-size-caption); text-overflow: ellipsis; white-space: nowrap; }
-.member-cell-num { font-family: "IBM Plex Mono", monospace; }
+.member-cell-num { font-family: var(--font-family-mono); }
 .member-cell-num.is-positive { color: #7ee2b8; }
 .member-cell-num.is-negative { color: #ff9d9a; }
 .member-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #9c9c9c; font-size: var(--font-size-small); }
@@ -190,7 +190,7 @@
 /* ---- 邀请页 ---- */
 .member-invite-hero { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 22px 24px; background: linear-gradient(135deg, #10181d, var(--member-card) 60%); }
 .member-invite-hero h2 { margin: 8px 0 6px; color: #f4f0e7; font: 26px "IBM Plex Mono", monospace; letter-spacing: .04em; }
-.member-invite-url { max-width: 420px; margin: 0; overflow: hidden; color: #9c9c9c; font: var(--font-size-caption) "IBM Plex Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
+.member-invite-url { max-width: 420px; margin: 0; overflow: hidden; color: #9c9c9c; font: var(--font-size-caption) var(--font-family-mono); text-overflow: ellipsis; white-space: nowrap; }
 .member-rules { padding: 18px 20px; background: var(--member-card-2); }
 .member-rules ul, .member-rule-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 0; padding-left: 18px; color: #c4c4c4; font-size: var(--font-size-control); line-height: 1.8; }
 .member-rules .member-table { margin-top: 12px; }

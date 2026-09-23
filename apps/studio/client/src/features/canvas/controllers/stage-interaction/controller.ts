@@ -1431,6 +1431,8 @@ export class CanvasStageInteractionController {
   }
 
   readonly handleStagePointerDown = (event: CanvasStagePointerEvent<HTMLElement>) => {
+    // A right click opens actions for the current marquee selection.
+    if (event.button === 2) return;
     if (this.connectFrom && this.adapter.closest(event.target, ".real-canvas-node, .canvas-group-frame")) return;
     this.bindings.dismissPendingGroup?.();
     if (this.pendingConnectionCreate) this.cancelPendingConnectionCreate();
@@ -1456,7 +1458,7 @@ export class CanvasStageInteractionController {
       nodeId: this.adapter.getAttribute(nodeElement, "data-node-id") || undefined,
       edgeId: this.adapter.getAttribute(edgeElement, "data-edge-id") || undefined,
     });
-    if (!nodeElement) this.bindings.applyNodeSelection([]);
+    if (!nodeElement && this.bindings.getSelectedNodeIds().size < 2) this.bindings.applyNodeSelection([]);
   };
 
   readonly handleCanvasDoubleClick = (event: CanvasStageMouseEvent<Element>) => {

@@ -42,32 +42,47 @@ func (h *UserPreferenceHandler) Get(c *gin.Context) {
 func (h *UserPreferenceHandler) Put(c *gin.Context) {
 	user := auth.MustCurrentUser(c)
 	var req struct {
-		Generation map[string]any `json:"generation"`
-		Shortcuts  map[string]any `json:"shortcuts"`
-		Canvas     map[string]any `json:"canvas"`
+		Generation            map[string]any `json:"generation"`
+		Shortcuts             map[string]any `json:"shortcuts"`
+		Canvas                map[string]any `json:"canvas"`
+		ExpectedProjectGroups map[string]any `json:"expectedProjectGroups"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if groups, present := req.Canvas["projectGroups"]; present {
+		if err := validateProjectGroups(groups); err != nil {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 
-	current, err := h.currentPreferences(user.ID)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, err.Error())
+	conflict := errors.New("分组已被其他页面修改，请刷新后重试")
+	preference, err := h.repo.Modify(user.ID, func(saved model.UserPreference) (model.UserPreference, error) {
+		current := preferenceResponse(saved)
+		if req.ExpectedProjectGroups != nil {
+			stored := current.Canvas["projectGroups"]
+			if stored == nil {
+				stored = map[string]any{}
+			}
+			expectedJSON, _ := json.Marshal(req.ExpectedProjectGroups)
+			storedJSON, _ := json.Marshal(stored)
+			if string(expectedJSON) != string(storedJSON) {
+				return model.UserPreference{}, conflict
+			}
+		}
+		return model.UserPreference{
+			UserID:     user.ID,
+			Generation: mustJSONB(mergePreferenceMap(current.Generation, sanitizeGeneration(req.Generation))),
+			Shortcuts:  mustJSONB(mergePreferenceMap(current.Shortcuts, sanitizeShortcuts(req.Shortcuts))),
+			Canvas:     mustJSONB(mergePreferenceMap(current.Canvas, sanitizeCanvas(req.Canvas))),
+		}, nil
+	})
+	if errors.Is(err, conflict) {
+		response.Error(c, http.StatusConflict, err.Error())
 		return
 	}
-	next := UserPreferences{
-		Generation: mergePreferenceMap(current.Generation, sanitizeGeneration(req.Generation)),
-		Shortcuts:  mergePreferenceMap(current.Shortcuts, sanitizeShortcuts(req.Shortcuts)),
-		Canvas:     mergePreferenceMap(current.Canvas, sanitizeCanvas(req.Canvas)),
-	}
-
-	preference, err := h.repo.Upsert(model.UserPreference{
-		UserID:     user.ID,
-		Generation: mustJSONB(next.Generation),
-		Shortcuts:  mustJSONB(next.Shortcuts),
-		Canvas:     mustJSONB(next.Canvas),
-	})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -183,7 +198,7 @@ func sanitizeShortcuts(value map[string]any) map[string]any {
 }
 
 func sanitizeCanvas(value map[string]any) map[string]any {
-	allowed := map[string]bool{"middleButtonLockHint": true, "backgroundMode": true, "wheelZoomRequiresCtrl": true, "promptPresets": true}
+	allowed := map[string]bool{"middleButtonLockHint": true, "backgroundMode": true, "wheelZoomRequiresCtrl": true, "promptPresets": true, "projectGroups": true}
 	result := filterPreferenceKeys(value, allowed)
 	if presets, ok := sanitizePromptPresets(result["promptPresets"]); ok {
 		result["promptPresets"] = presets

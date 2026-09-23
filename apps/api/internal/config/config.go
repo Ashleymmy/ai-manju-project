@@ -19,24 +19,26 @@ const (
 )
 
 type Config struct {
-	AppEnv                    string
-	Host                      string
-	Port                      string
-	FrontendURL               string
-	FrontendURLs              []string
-	StorageDriver             string
-	DatabaseURL               string
-	DBMaxOpenConns            int
-	DBMaxIdleConns            int
-	DBConnMaxLifetimeSeconds  int
-	AppSecret                 string
-	AllowPublicSignup         bool
-	CookieSecure              bool
-	AdminUsername             string
-	AdminPassword             string
-	AdminDisplayName          string
-	RequirePersistentStorage  bool
-	AssetStorageDir           string
+	AppEnv                   string
+	Host                     string
+	Port                     string
+	FrontendURL              string
+	FrontendURLs             []string
+	StorageDriver            string
+	DatabaseURL              string
+	DBMaxOpenConns           int
+	DBMaxIdleConns           int
+	DBConnMaxLifetimeSeconds int
+	AppSecret                string
+	AllowPublicSignup        bool
+	CookieSecure             bool
+	AdminUsername            string
+	AdminPassword            string
+	AdminDisplayName         string
+	RequirePersistentStorage bool
+	AssetStorageDir          string
+	// AssetExportStorageDir is persistent disk storage shared by API/export worker.
+	AssetExportStorageDir     string
 	AssetStorageBackend       string
 	OSSRegion                 string
 	OSSEndpoint               string
@@ -108,6 +110,7 @@ func Load() Config {
 		AdminDisplayName:            defaultDevAdminDisplayName(appEnv, os.Getenv("ADMIN_DISPLAY_NAME")),
 		RequirePersistentStorage:    requirePersistentStorage(appEnv, os.Getenv("REQUIRE_PERSISTENT_STORAGE")),
 		AssetStorageDir:             getEnv("ASSET_STORAGE_DIR", "./data/assets"),
+		AssetExportStorageDir:       strings.TrimSpace(os.Getenv("ASSET_EXPORT_STORAGE_DIR")),
 		AssetArchiveTimezone:        getEnv("ASSET_ARCHIVE_TIMEZONE", "Asia/Shanghai"),
 		PublicAssetBaseURL:          strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_ASSET_BASE_URL")), "/"),
 		MaxAssetUploadBytes:         getInt64Env("MAX_ASSET_UPLOAD_BYTES", 100*1024*1024),

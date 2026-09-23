@@ -9,6 +9,7 @@ import {
   Music2,
   Search,
   Star,
+  UserRoundCog,
 } from "lucide-react";
 import {
   Dialog,
@@ -30,6 +31,7 @@ export type { CanvasAssetPickerItem, CanvasAssetPickerKind };
 const PICKER_KIND_CHIPS: Array<{ value: CanvasAssetPickerKind; label: string }> = [
   { value: "all", label: "全部" },
   { value: "favorite", label: "收藏夹" },
+  { value: "registered", label: "拟真人素材" },
   { value: "text", label: "文本" },
   { value: "image", label: "图片" },
   { value: "video", label: "视频" },
@@ -116,11 +118,12 @@ export function CanvasAssetPickerDialog({
                 onClick={() => onKindChange(chip.value)}
               >
                 {chip.value === "favorite" ? <Star size={12} fill={kind === "favorite" ? "currentColor" : "none"} /> : null}
+                {chip.value === "registered" ? <UserRoundCog size={12} /> : null}
                 {chip.label}
               </button>
             ))}
           </div>
-          <label className="canvas-asset-picker-location">
+          {kind !== "registered" ? <label className="canvas-asset-picker-location">
             <span>位置</span>
             <select
               value={folderId}
@@ -132,7 +135,7 @@ export function CanvasAssetPickerDialog({
                 <option key={folder.id} value={folder.id}>{folder.label}</option>
               ))}
             </select>
-          </label>
+          </label> : null}
           <label>
             <Search size={15} />
             <input
@@ -158,8 +161,8 @@ export function CanvasAssetPickerDialog({
                 type="button"
                 key={asset.id}
                 className={selected ? "selected" : ""}
-                disabled={insertBusy}
-                title={asset.name}
+                disabled={loading || insertBusy || Boolean(asset.unavailableReason)}
+                title={asset.unavailableReason ? `${asset.name} · ${asset.unavailableReason}` : asset.name}
                 aria-label={asset.name}
                 aria-pressed={selected}
                 onClick={() => onToggleItem(asset.id)}
@@ -170,15 +173,16 @@ export function CanvasAssetPickerDialog({
                   <span className="canvas-asset-picker-fallback"><Icon size={22} /></span>
                 )}
                 {selected ? <i><Check size={13} /></i> : null}
+                {asset.unavailableReason ? <span className="canvas-asset-picker-status">{asset.unavailableReason}</span> : null}
               </button>
             );
           })}
           {loading && !items.length ? <div className="canvas-asset-picker-loading" role="status"><Loader2 className="spin" size={20} />正在加载资产…</div> : null}
-          {!loading && !items.length && !error ? <div className="empty-output"><FolderOpen size={26} /><p>当前筛选下没有资产</p></div> : null}
+          {!loading && !items.length && !error ? <div className="empty-output"><FolderOpen size={26} /><p>{kind === "registered" ? query.trim() ? "未找到匹配的拟真人素材" : "暂无已注册的拟真人素材" : "当前筛选下没有资产"}</p></div> : null}
         </div>
         <DialogFooter>
           <button className="outline-button small" type="button" onClick={onCancel} disabled={insertBusy}>取消</button>
-          <button className="vermilion-button" type="button" onClick={onInsert} disabled={!selectedIds.length || insertBusy}>
+          <button className="vermilion-button" type="button" onClick={onInsert} disabled={loading || !selectedIds.length || insertBusy}>
             {insertBusy ? "插入中…" : `插入 ${selectedIds.length || ""} 个资产`}
           </button>
         </DialogFooter>

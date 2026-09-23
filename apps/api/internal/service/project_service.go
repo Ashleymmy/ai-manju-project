@@ -65,8 +65,9 @@ func NewProjectService(repo repository.ProjectRepository) *ProjectService {
 }
 
 type CreateProjectInput struct {
-	Title string
-	Data  *model.JSONB
+	Title        string
+	Data         *model.JSONB
+	CoverAssetID string
 }
 
 type UpdateProjectInput struct {
@@ -119,11 +120,12 @@ func (s *ProjectService) Create(userID string, scope string, input CreateProject
 		}
 		var err error
 		project, err = repo.Create(model.Project{
-			ID:          "proj_" + randomHex(8),
-			Title:       title,
-			OwnerID:     userID,
-			WorkspaceID: workspaceID,
-			Data:        NormalizeJSON(input.Data),
+			ID:           "proj_" + randomHex(8),
+			Title:        title,
+			OwnerID:      userID,
+			WorkspaceID:  workspaceID,
+			Data:         NormalizeJSON(input.Data),
+			CoverAssetID: strings.TrimSpace(input.CoverAssetID),
 		})
 		if err != nil {
 			return err

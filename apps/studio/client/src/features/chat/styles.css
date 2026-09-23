@@ -53,7 +53,7 @@
 .chat-topbar-brand p {
   margin: 0;
   color: var(--muted-foreground);
-  font: var(--font-size-caption) "IBM Plex Mono", monospace;
+  font: var(--font-size-caption) var(--font-family-mono);
 }
 
 /* 模式 Tab：与 composer-tabs / detail-tabs 一致的下划线激活态 */
@@ -278,7 +278,7 @@
 }
 .chat-composer-hint {
   color: #979797;
-  font: var(--font-size-caption) "IBM Plex Mono", monospace;
+  font: var(--font-size-caption) var(--font-family-mono);
 }
 .chat-composer-actions {
   display: flex;
@@ -335,6 +335,8 @@
   color: #d7d3c9;
   cursor: pointer;
   font-size: var(--font-size-small);
+  font-weight: var(--font-weight-label);
+  line-height: 1.4;
   transition: border-color .15s ease, background .15s ease, color .15s ease;
 }
 .chat-tool-btn:hover {

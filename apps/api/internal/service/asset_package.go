@@ -156,9 +156,13 @@ func (s *AssetExportService) writeAssetPackage(archive *zip.Writer, batch model.
 	if s.tags != nil && len(ids) > 0 {
 		scope := WorkspaceScopeFromID(batch.WorkspaceID)
 		keys := tagVisibleScopeKeys(batch.UserID, scope)
-		details, err := s.tags.repo.ListAssetTagDetails(batch.WorkspaceID, ids, keys)
-		if err != nil {
-			return err
+		details := []repository.AssetTagBindingDetail{}
+		for start := 0; start < len(ids); start += AssetExportLookupChunkSize {
+			chunk, err := s.tags.repo.ListAssetTagDetails(batch.WorkspaceID, ids[start:min(start+AssetExportLookupChunkSize, len(ids))], keys)
+			if err != nil {
+				return err
+			}
+			details = append(details, chunk...)
 		}
 		definitions, err := s.tags.repo.List(keys)
 		if err != nil {

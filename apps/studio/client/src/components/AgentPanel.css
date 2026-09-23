@@ -940,7 +940,7 @@
 }
 .agent-setup-note p { margin: 0 0 6px; }
 .agent-cmd {
-  display: block; font-family: "IBM Plex Mono", monospace; font-size: var(--font-size-small);
+  display: block; font-family: var(--font-family-mono); font-size: var(--font-size-small);
   color: var(--blue, #67a2ff); background: none; padding: 0;
 }
 .agent-field { display: flex; flex-direction: column; gap: 5px; }

@@ -59,11 +59,14 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1280, height: 80
     await expect(page.locator(".chat-composer textarea")).toHaveCSS("font-size", "13px");
     await page.evaluate(() => document.fonts.ready);
     expect(await page.evaluate(async () => {
-      const faces = await document.fonts.load('500 13px "Studio Rounded"', "画布工坊素材与语言");
+      const faces = await document.fonts.load('400 13px "Studio UI"', "画布工坊素材与语言");
       return faces.length > 0 && faces.every(face => face.status === "loaded");
     })).toBe(true);
-    await expect(page.locator("body")).toHaveCSS("font-weight", "500");
-    await expect(page.locator(".ln-label").first()).toHaveCSS("font-family", /Studio Rounded/);
+    await expect(page.locator("body")).toHaveCSS("font-weight", "400");
+    await expect(page.locator(".ln-label").first()).toHaveCSS("font-family", /Studio UI/);
+    await expect(page.locator(".chat-hero h2")).toHaveCSS("font-family", /Studio Rounded/);
+    await expect(page.locator(".chat-hero h2")).toHaveCSS("font-weight", "500");
+    await expect(page.locator(".chat-hero-sub")).toHaveCSS("font-weight", "400");
     if (viewport.width > 1100) {
       await expect(page.locator(".ln-label").first()).toHaveCSS("font-size", "13px");
       await expect(page.locator('.ln-row[href="/dashboard"]')).toHaveCSS("font-weight", "500");
@@ -104,11 +107,11 @@ test("bundled rounded UI fonts remain available without Google Fonts", async ({ 
   const weights = await page.evaluate(async () => {
     await document.fonts.ready;
     const results: boolean[] = [];
-    for (const weight of [500, 700]) {
-      const faces = await document.fonts.load(`${weight} 13px "Studio Rounded"`, "工作台画布工坊素材与语言");
+    for (const weight of [400, 500, 700]) {
+      const faces = await document.fonts.load(`${weight} 13px "Studio UI"`, "工作台画布工坊素材与语言");
       results.push(faces.length > 0 && faces.every(face => face.status === "loaded"));
     }
     return results;
   });
-  expect(weights).toEqual([true, true]);
+  expect(weights).toEqual([true, true, true]);
 });

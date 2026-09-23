@@ -31,7 +31,7 @@
   background: transparent;
   color: #c3c3c3;
   cursor: pointer;
-  font: 11px "IBM Plex Mono", monospace;
+  font: 11px var(--font-family-mono);
   white-space: nowrap;
   transition: background 0.13s ease, color 0.13s ease;
 }
@@ -82,7 +82,7 @@
 
 .wb-seedance-stats {
   color: #a1a1a1;
-  font: 10px "IBM Plex Mono", monospace;
+  font: 10px var(--font-family-mono);
   letter-spacing: 0.06em;
 }
 

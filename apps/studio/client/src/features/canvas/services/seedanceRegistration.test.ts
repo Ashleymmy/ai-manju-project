@@ -41,7 +41,7 @@ describe("canvas registration targets", () => {
     const result = registerCanvasImageAsset({ ...options, existing: { id: "legacy", volcanoAssetId: "old-remote", status: "Active" } });
     await vi.advanceTimersByTimeAsync(0);
     expect(options.onUpdate).toHaveBeenNthCalledWith(1, pending);
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     expect(await result).toEqual(active);
     expect(uploadUserSeedanceAsset).toHaveBeenCalledTimes(1);
     expect(uploadUserSeedanceAsset).toHaveBeenCalledWith(expect.any(File), "personal", "official");
@@ -68,7 +68,7 @@ describe("canvas real-person asset registration feedback", () => {
     expect(options.onState).toHaveBeenNthCalledWith(1, { phase: "uploading" });
     await vi.advanceTimersByTimeAsync(0);
     expect(options.onState).toHaveBeenCalledWith({ phase: "processing" });
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     expect(await result).toEqual(active);
     expect(options.onUpdate).toHaveBeenLastCalledWith(active);
   });
@@ -97,7 +97,7 @@ describe("canvas real-person asset registration feedback", () => {
     vi.mocked(uploadUserSeedanceAsset).mockResolvedValue(pending);
     vi.mocked(getUserSeedanceAsset).mockResolvedValue(pending);
     const result = registerCanvasImageAsset(options);
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(300_000);
     await expect(result).resolves.toEqual(pending);
     expect(seedanceRegistrationPhase(pending)).toBe("pending");
   });
@@ -112,7 +112,7 @@ describe("canvas real-person asset registration feedback", () => {
     const result = registerCanvasImageAsset(options);
     await vi.advanceTimersByTimeAsync(0);
     current = false;
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     await expect(result).resolves.toEqual(pending);
     expect(getUserSeedanceAsset).not.toHaveBeenCalled();
     expect(options.onUpdate).toHaveBeenCalledTimes(1);

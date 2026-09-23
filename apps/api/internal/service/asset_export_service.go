@@ -33,7 +33,13 @@ const (
 	AssetExportDispatchInterval  = time.Second
 	AssetExportRunningLease      = 10 * time.Minute
 	AssetExportHeartbeatInterval = 30 * time.Second
-	AssetExportMaxAssets         = 5000
+	// Bound SQL parameter counts independently of the number of selected assets.
+	AssetExportLookupChunkSize = 500
+	// Publish progress and observe cancellation even for a few very large files.
+	AssetExportProgressInterval = 2 * time.Second
+	// Retry temporary source-read failures before adding any bytes to the ZIP.
+	AssetExportReadAttempts = 3
+	AssetExportRetryDelay   = time.Second
 	// AssetExportProgressChunkSize balances visible progress with database write load.
 	AssetExportProgressChunkSize = 100
 	// AssetExportCopyBufferSize limits allocations while streaming large media into ZIP files.
@@ -82,12 +88,13 @@ type AssetExportContent struct {
 }
 
 type AssetExportService struct {
-	exports repository.AssetExportRepository
-	assets  *AssetService
-	folders *AssetFolderService
-	storage storage.Storage
-	tags    *TagService
-	usage   interface {
+	exports  repository.AssetExportRepository
+	assets   *AssetService
+	folders  *AssetFolderService
+	storage  storage.Storage
+	archives *storage.ExportArchiveStorage
+	tags     *TagService
+	usage    interface {
 		RecordExport(workspaceID string, userID string, exportID string, assetIDs []string) error
 	}
 	dispatchProgress atomic.Int64
@@ -95,6 +102,21 @@ type AssetExportService struct {
 
 func NewAssetExportService(exports repository.AssetExportRepository, assets *AssetService, folders *AssetFolderService, store storage.Storage) *AssetExportService {
 	return &AssetExportService{exports: exports, assets: assets, folders: folders, storage: store}
+}
+
+func (s *AssetExportService) SetArchiveStorage(store *storage.ExportArchiveStorage) {
+	s.archives = store
+}
+
+func (s *AssetExportService) archiveReaderStore(key string) (storage.Storage, error) {
+	if strings.HasPrefix(key, storage.ExportArchiveKeyPrefix) {
+		if s.archives == nil {
+			return nil, errors.New("export archive disk is not configured")
+		}
+		return s.archives, nil
+	}
+	// Existing ZIPs remain downloadable from their original media store.
+	return s.storage, nil
 }
 
 // SetTagService supplies portable tag definitions for cross-workspace imports.
@@ -119,10 +141,18 @@ func (s *AssetExportService) Create(userID string, scope string, input AssetExpo
 	case AssetExportSelectionSelected:
 		if len(uniqueAssetStrings(input.AssetIDs)) == 0 && len(fragment) > 0 {
 			assets = []model.Asset{}
-		} else if len(uniqueAssetStrings(input.AssetIDs)) == 0 || len(uniqueAssetStrings(input.AssetIDs)) > AssetExportMaxAssets {
+		} else if len(uniqueAssetStrings(input.AssetIDs)) == 0 {
 			err = ErrAssetExportSelection
 		} else {
-			assets, _, err = s.assets.activeAssetsForMutation(input.AssetIDs, workspaceID)
+			ids := uniqueAssetStrings(input.AssetIDs)
+			for start := 0; start < len(ids); start += AssetExportLookupChunkSize {
+				var chunk []model.Asset
+				chunk, _, err = s.assets.activeAssetsForMutation(ids[start:min(start+AssetExportLookupChunkSize, len(ids))], workspaceID)
+				if err != nil {
+					break
+				}
+				assets = append(assets, chunk...)
+			}
 		}
 	case AssetExportSelectionFolder:
 		input.Filter.FolderID = strings.TrimSpace(input.FolderID)
@@ -140,7 +170,7 @@ func (s *AssetExportService) Create(userID string, scope string, input AssetExpo
 	if err != nil {
 		return model.AssetExportBatch{}, err
 	}
-	if (len(assets) == 0 && len(fragment) == 0 && selectionMode != AssetExportSelectionFolder) || len(assets) > AssetExportMaxAssets {
+	if len(assets) == 0 && len(fragment) == 0 && selectionMode != AssetExportSelectionFolder {
 		return model.AssetExportBatch{}, ErrAssetExportSelection
 	}
 	packageFolders, err := s.packageFolders(userID, scope, selectionMode, input.FolderID, assets)
@@ -222,7 +252,11 @@ func (s *AssetExportService) OpenContent(ctx context.Context, id string, userID 
 	if (batch.Status != model.AssetExportStatusSucceeded && batch.Status != model.AssetExportStatusPartialFailed) || batch.StorageKey == "" {
 		return AssetExportContent{}, ErrAssetExportNotReady
 	}
-	reader, object, err := s.storage.Get(ctx, batch.StorageKey)
+	store, err := s.archiveReaderStore(batch.StorageKey)
+	if err != nil {
+		return AssetExportContent{}, err
+	}
+	reader, object, err := store.Get(ctx, batch.StorageKey)
 	if err != nil {
 		return AssetExportContent{}, err
 	}
@@ -238,7 +272,7 @@ func (s *AssetExportService) StartDispatcher(ctx context.Context, interval time.
 		defer ticker.Stop()
 		defer s.dispatchProgress.Store(0)
 		for {
-			_ = s.DispatchOnce(context.WithoutCancel(ctx))
+			_ = s.DispatchOnce(ctx)
 			_, _ = s.CleanupExpired(context.WithoutCancel(ctx))
 			select {
 			case <-ctx.Done():
@@ -261,6 +295,11 @@ func (s *AssetExportService) DispatchOnce(ctx context.Context) error {
 }
 
 func (s *AssetExportService) CleanupExpired(ctx context.Context) (int, error) {
+	if s.archives != nil {
+		if err := s.archives.CleanupStaging(time.Now()); err != nil {
+			return 0, err
+		}
+	}
 	batches, err := s.exports.ListExpired(time.Now().UTC(), 100)
 	if err != nil {
 		return 0, err
@@ -277,27 +316,27 @@ func (s *AssetExportService) CleanupExpired(ctx context.Context) (int, error) {
 }
 
 func (s *AssetExportService) assetsForFilter(userID string, scope string, filter AssetExportFilter) ([]model.Asset, error) {
-	assets, total, err := s.assets.listLibraryForExport(userID, scope, AssetLibraryInput{
+	assets, _, err := s.assets.listLibraryForExport(userID, scope, AssetLibraryInput{
 		FolderID: filter.FolderID, IncludeDescendants: filter.IncludeDescendants, Type: filter.Type,
 		TagIDs: filter.TagIDs, TagMatch: filter.TagMatch, IncludeTagDescendants: filter.IncludeTagDescendants, SmartView: filter.SmartView,
 		Category: filter.Category, SourceType: filter.SourceType, SourceProjectID: filter.SourceProjectID,
 		Keyword: filter.Keyword, CreatedFrom: filter.CreatedFrom, CreatedTo: filter.CreatedTo,
 		Sort: defaultStringValue(filter.Sort, "created_at_asc"),
-	}, AssetExportMaxAssets)
+	})
 	if err != nil {
 		return nil, err
-	}
-	if total > AssetExportMaxAssets || len(assets) > AssetExportMaxAssets {
-		return nil, ErrAssetExportSelection
 	}
 	return assets, nil
 }
 
 func (s *AssetExportService) buildArchive(ctx context.Context, batch model.AssetExportBatch, items []model.AssetExportItem) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go s.watchExportCancellation(ctx, batch, cancel)
 	stopHeartbeat := s.startHeartbeat(ctx, batch.ID)
 	defer stopHeartbeat()
 
-	temporary, err := os.CreateTemp("", "ai-manju-asset-export-*.zip")
+	temporary, err := s.createArchiveTemporary()
 	if err != nil {
 		return s.failBatch(batch.ID, err)
 	}
@@ -314,10 +353,15 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 			_ = temporary.Close()
 			return err
 		}
+		if err := temporary.Sync(); err != nil {
+			_ = temporary.Close()
+			return err
+		}
 		return temporary.Close()
 	}
+	defer closeArchive()
 
-	if len(batch.CanvasFragment) > 0 {
+	if batch.Kind == model.AssetExportKindCanvasFragment && len(batch.CanvasFragment) > 0 {
 		if err := writeZipBytes(archive, AssetExportCanvasFragmentName, batch.CanvasFragment); err != nil {
 			_ = closeArchive()
 			return s.failBatch(batch.ID, err)
@@ -336,14 +380,16 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 		}
 	}
 	folderPaths := buildExportFolderPaths(folders)
-	assets, err := s.assets.repo.ListByWorkspaceIDs(exportItemAssetIDs(items), batch.WorkspaceID)
-	if err != nil {
-		_ = closeArchive()
-		return s.failBatch(batch.ID, err)
-	}
-	assetsByID := make(map[string]model.Asset, len(assets))
-	for _, asset := range assets {
-		assetsByID[asset.ID] = asset
+	assetsByID := make(map[string]model.Asset, len(items))
+	ids := exportItemAssetIDs(items)
+	for start := 0; start < len(ids); start += AssetExportLookupChunkSize {
+		assets, err := s.assets.repo.ListByWorkspaceIDs(ids[start:min(start+AssetExportLookupChunkSize, len(ids))], batch.WorkspaceID)
+		if err != nil {
+			return s.failBatch(batch.ID, err)
+		}
+		for _, asset := range assets {
+			assetsByID[asset.ID] = asset
+		}
 	}
 
 	manifest := make([]assetExportManifestRow, 0, len(items))
@@ -352,6 +398,7 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 	updates := make([]repository.AssetExportItemUpdate, 0, AssetExportProgressChunkSize)
 	succeeded, failed := 0, 0
 	succeededAssetIDs := make([]string, 0, len(items))
+	lastProgress := time.Now()
 	flushProgress := func() (bool, error) {
 		if len(updates) > 0 {
 			if err := s.exports.UpdateItems(updates); err != nil {
@@ -362,6 +409,7 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 		if err := s.exports.UpdateProgress(batch.ID, succeeded, failed); err != nil {
 			return false, err
 		}
+		lastProgress = time.Now()
 		current, err := s.exports.GetBatch(batch.ID, batch.WorkspaceID)
 		if err != nil {
 			return false, err
@@ -370,6 +418,9 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 	}
 
 	for index, item := range items {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if index%AssetExportProgressChunkSize == 0 {
 			current, err := s.exports.GetBatch(batch.ID, batch.WorkspaceID)
 			if err != nil {
@@ -393,12 +444,23 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 			updates = append(updates, repository.AssetExportItemUpdate{ID: item.ID, Status: model.AssetExportItemStatusFailed, Error: exportErrorJSON(assetErr)})
 		} else {
 			archivePath := uniqueExportArchivePath(asset, row.FolderPath, usedPaths)
-			content, contentErr := s.assets.openContentForAsset(ctx, asset, batch.UserID, WorkspaceScopeFromID(batch.WorkspaceID))
+			file, size, contentErr := s.stageExportAsset(ctx, batch, asset, copyBuffer)
 			if contentErr == nil {
-				row.Size, contentErr = copyAssetToZip(archive, archivePath, asset, exportProgressReader{content.Reader, s.recordDispatchProgress}, copyBuffer)
-				_ = content.Reader.Close()
+				row.Size, contentErr = copyAssetToZip(archive, archivePath, asset, exportContextReader{ctx, exportProgressReader{file, s.recordDispatchProgress}}, copyBuffer)
+				_ = file.Close()
+				_ = os.Remove(file.Name())
+				if contentErr != nil {
+					return s.failBatch(batch.ID, contentErr)
+				}
+				if row.Size != size {
+					return s.failBatch(batch.ID, errors.New("export archive write incomplete"))
+				}
 			}
 			if contentErr != nil {
+				var diskErr exportDiskError
+				if errors.As(contentErr, &diskErr) || ctx.Err() != nil {
+					return s.failBatch(batch.ID, contentErr)
+				}
 				failed++
 				row.Status, row.Error = model.AssetExportItemStatusFailed, safeExportError(contentErr)
 				updates = append(updates, repository.AssetExportItemUpdate{ID: item.ID, Status: model.AssetExportItemStatusFailed, Error: exportErrorJSON(contentErr)})
@@ -411,7 +473,7 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 			manifest = append(manifest, row)
 		}
 
-		if len(updates) >= AssetExportProgressChunkSize {
+		if len(updates) >= AssetExportProgressChunkSize || time.Since(lastProgress) >= AssetExportProgressInterval {
 			canceled, err := flushProgress()
 			if err != nil {
 				_ = closeArchive()
@@ -452,27 +514,35 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 	if current.Status == model.AssetExportStatusCanceled {
 		return nil
 	}
-	if succeeded == 0 && len(batch.CanvasFragment) == 0 && batch.Total > 0 {
+	if succeeded == 0 && batch.Kind != model.AssetExportKindCanvasFragment && batch.Total > 0 {
 		return s.failBatch(batch.ID, errors.New("all asset files failed to export"))
 	}
-	file, err := os.Open(temporaryPath)
-	if err != nil {
-		return s.failBatch(batch.ID, err)
-	}
-	defer file.Close()
 	storageKey := assetExportStorageKey(batch.WorkspaceID, batch.ID)
-	_ = s.storage.Delete(ctx, storageKey)
-	object, err := s.storage.Put(ctx, storageKey, exportProgressReader{file, s.recordDispatchProgress}, storage.PutMeta{ContentType: "application/zip"})
+	var outputStore storage.Storage = s.storage
+	var object storage.StorageObject
+	if s.archives != nil {
+		outputStore = s.archives
+		storageKey = storage.ExportArchiveKeyPrefix + assetWorkspacePath(batch.WorkspaceID) + "/" + batch.ID + "-" + randomHex(8) + ".zip"
+		object, err = s.archives.Commit(ctx, temporaryPath, storageKey)
+	} else {
+		file, openErr := os.Open(temporaryPath)
+		if openErr != nil {
+			return s.failBatch(batch.ID, openErr)
+		}
+		defer file.Close()
+		_ = outputStore.Delete(ctx, storageKey)
+		object, err = outputStore.Put(ctx, storageKey, exportContextReader{ctx, exportProgressReader{file, s.recordDispatchProgress}}, storage.PutMeta{ContentType: "application/zip"})
+	}
 	if err != nil {
 		return s.failBatch(batch.ID, err)
 	}
 	current, err = s.exports.GetBatch(batch.ID, batch.WorkspaceID)
 	if err != nil {
-		_ = s.storage.Delete(context.WithoutCancel(ctx), storageKey)
+		_ = outputStore.Delete(context.WithoutCancel(ctx), storageKey)
 		return err
 	}
 	if current.Status == model.AssetExportStatusCanceled {
-		_ = s.storage.Delete(context.WithoutCancel(ctx), storageKey)
+		_ = outputStore.Delete(context.WithoutCancel(ctx), storageKey)
 		return nil
 	}
 	status := model.AssetExportStatusSucceeded
@@ -482,17 +552,25 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 	expiresAt := time.Now().UTC().Add(AssetExportRetention)
 	fileName := fmt.Sprintf("ai-manju-assets-%s-%s.zip", time.Now().UTC().Format("20060102"), shortExportID(batch.ID))
 	if err := s.exports.Finalize(batch.ID, status, storageKey, fileName, object.Size, model.JSONB("{}"), &expiresAt); err != nil {
-		_ = s.storage.Delete(context.WithoutCancel(ctx), storageKey)
+		// A connection error can occur after the transaction committed. Never
+		// delete a potentially published archive when that outcome is unknown.
+		current, readErr := s.exports.GetBatch(batch.ID, batch.WorkspaceID)
+		if readErr == nil && current.StorageKey != storageKey {
+			_ = outputStore.Delete(context.WithoutCancel(ctx), storageKey)
+		}
 		return err
 	}
 	if s.usage != nil {
-		if usageErr := s.usage.RecordExport(batch.WorkspaceID, batch.UserID, batch.ID, succeededAssetIDs); usageErr != nil {
-			log.Printf("asset_export_id=%s event=asset_usage_record_failed reason=%q", batch.ID, usageErr.Error())
+		for start := 0; start < len(succeededAssetIDs); start += AssetExportLookupChunkSize {
+			if usageErr := s.usage.RecordExport(batch.WorkspaceID, batch.UserID, batch.ID, succeededAssetIDs[start:min(start+AssetExportLookupChunkSize, len(succeededAssetIDs))]); usageErr != nil {
+				log.Printf("asset_export_id=%s event=asset_usage_record_failed reason=%q", batch.ID, usageErr.Error())
+			}
+			s.recordDispatchProgress()
 		}
 	}
 	current, err = s.exports.GetBatch(batch.ID, batch.WorkspaceID)
 	if err == nil && current.Status == model.AssetExportStatusCanceled {
-		_ = s.storage.Delete(context.WithoutCancel(ctx), storageKey)
+		_ = outputStore.Delete(context.WithoutCancel(ctx), storageKey)
 	}
 	return err
 }
@@ -526,13 +604,21 @@ func (s *AssetExportService) startHeartbeat(ctx context.Context, batchID string)
 }
 
 func (s *AssetExportService) failBatch(id string, err error) error {
+	// Shutdown or user cancellation never turns a recoverable/canceled job into failure.
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
 	_ = s.exports.Finalize(id, model.AssetExportStatusFailed, "", "", 0, exportErrorJSON(err), nil)
 	return err
 }
 
 func (s *AssetExportService) expireBatch(ctx context.Context, batch model.AssetExportBatch) error {
 	if batch.StorageKey != "" {
-		if err := s.storage.Delete(ctx, batch.StorageKey); err != nil {
+		store, err := s.archiveReaderStore(batch.StorageKey)
+		if err != nil {
+			return err
+		}
+		if err := store.Delete(ctx, batch.StorageKey); err != nil {
 			return err
 		}
 	}

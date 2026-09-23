@@ -32,6 +32,15 @@ const PERCENT_MAX = 100;
 const BYTES_PER_KIB = 1024;
 const transferDate = new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
 
+function exportFailureMessage(error: AssetExportBatch["error"]) {
+  const message = (typeof error === "string" ? error : error?.message)?.trim() || "";
+  if (/no space left on device|disk full|not enough space/i.test(message)) return "打包临时空间不足，请联系管理员扩容后重新导出。";
+  if (/HTTP 413|entity too large|payload too large/i.test(message)) return "资产包超过存储服务的大小限制，请联系管理员调整后重新导出。";
+  if (/timeout|timed out|deadline exceeded/i.test(message)) return "素材传输超时，请稍后重新导出。";
+  if (/all asset files failed to export/i.test(message)) return "未能读取目录中的素材文件，请联系管理员检查素材存储。";
+  return message || "服务未返回详细原因，请联系管理员检查导出任务。";
+}
+
 function formatDate(value?: string) {
   if (!value) return "";
   const date = new Date(value);
@@ -64,6 +73,7 @@ function ExportTask({ batch, onDownload, onCancel }: Pick<Props, "onDownload" | 
         {batch.failed > 0 && <span className="asset-transfer-error-count">{batch.failed} 项失败</span>}
       </div>
       {pending && <progress className="asset-transfer-progress is-export" aria-label={`${packageName}打包进度`} max={PERCENT_MAX} value={progress} />}
+      {batch.status === "failed" && <p className="asset-transfer-failure" role="status">{exportFailureMessage(batch.error)}</p>}
     </div>
     <span className={`asset-transfer-badge is-${status.tone}`}>
       {pending ? <Loader2 size={12} className="asset-transfer-spinner" aria-hidden="true" /> : downloadable ? <Check size={12} aria-hidden="true" /> : batch.status === "expired" ? <Clock3 size={12} aria-hidden="true" /> : null}

@@ -18,6 +18,22 @@ APPLICATIONS = {"api", "worker", "asset-export-worker", "sd-video-bridge",
 DIGEST = re.compile(r"^[^\s@]+@sha256:[a-f0-9]{64}$")
 
 
+def inspect_export_volume(services: dict) -> list[str]:
+    """A separate upload-free archive must be readable on the API host too."""
+    disks = []
+    for name in ("api", "asset-export-worker"):
+        service = services.get(name, {})
+        directory = service.get("environment", {}).get("ASSET_EXPORT_STORAGE_DIR", "")
+        volume = next((entry for entry in service.get("volumes", [])
+                       if isinstance(entry, dict) and entry.get("target") == directory), {})
+        if not directory or volume.get("type") not in ("volume", "bind") or volume.get("read_only") or not volume.get("source"):
+            return ["exports: API and export worker require a shared writable disk archive volume"]
+        disks.append((volume["type"], volume["source"]))
+    if disks[0] != disks[1]:
+        return ["exports: API and export worker must use the same archive volume"]
+    return []
+
+
 def inspect_release(config: dict) -> list[str]:
     errors = []
     services = config.get("services", {})
@@ -62,6 +78,7 @@ def inspect_release(config: dict) -> list[str]:
         errors.append("Studio and SD-video must not share a runtime env file")
     if services.get("worker", {}).get("command") != ["python", "-m", "worker.runtime"]:
         errors.append("worker: supervised runtime required")
+    errors.extend(inspect_export_volume(services))
     return errors
 
 

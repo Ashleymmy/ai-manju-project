@@ -17,11 +17,20 @@ def valid_config():
     for name in release.APPLICATIONS:
         services[name].update(read_only=True, env_file=[{"path": f"/config/{name}.env"}])
     services["worker"]["command"] = ["python", "-m", "worker.runtime"]
+    for name in ("api", "asset-export-worker"):
+        services[name]["environment"] = {"ASSET_EXPORT_STORAGE_DIR": "/app/export-archives"}
+        services[name]["volumes"] = [{"type": "volume", "source": "export-archives", "target": "/app/export-archives"}]
     services["edge"].update(ports=[{"published": "443", "target": 443}], environment={"STUDIO_DOMAIN": "studio.test"})
     return {"services": services, "networks": {name: {"internal": True} for name in ("studio-private", "sdvideo-private", "service-link")}}
 
 
 class ReleaseCheckTest(unittest.TestCase):
+    def test_export_downloads_require_a_shared_disk(self):
+        for field, value in (("type", "tmpfs"), ("source", "other-disk"), ("read_only", True)):
+            config = valid_config()
+            config["services"]["asset-export-worker"]["volumes"][0][field] = value
+            self.assertTrue(any("exports:" in error for error in release.inspect_release(config)))
+
     def test_valid_structure_is_only_static_success(self):
         self.assertEqual(release.inspect_release(valid_config()), [])
 

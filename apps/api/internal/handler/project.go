@@ -79,9 +79,10 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 	}
 
 	var req struct {
-		Title   string       `json:"title" binding:"required"`
-		OwnerID string       `json:"owner_id"`
-		Data    *model.JSONB `json:"data"`
+		Title        string       `json:"title" binding:"required"`
+		OwnerID      string       `json:"owner_id"`
+		Data         *model.JSONB `json:"data"`
+		CoverAssetID string       `json:"cover_asset_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -91,8 +92,9 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 
 	scope := requestWorkspaceScope(c)
 	project, err := h.projects.Create(user.ID, scope, service.CreateProjectInput{
-		Title: req.Title,
-		Data:  req.Data,
+		Title:        req.Title,
+		Data:         req.Data,
+		CoverAssetID: req.CoverAssetID,
 	})
 	if errors.Is(err, service.ErrTitleRequired) {
 		response.Error(c, 400, "title is required")

@@ -212,6 +212,19 @@ function createHarness(initialNodes: CanvasNodeData[] = [node("a"), node("b", 30
 }
 
 describe("CanvasStageInteractionController", () => {
+  it("keeps marquee members and the pending group when opening a blank-space context menu", () => {
+    const dismissPendingGroup = vi.fn();
+    const setContextMenu = vi.fn();
+    const harness = createHarness(undefined, [], { dismissPendingGroup, setContextMenu });
+    const group = createCanvasGroup(harness.nodes, ["a", "b"], "selection")!;
+    harness.controller.selectCanvasGroup({ ...group, pending: true }, false);
+    harness.controller.handleStagePointerDown(pointer(harness.stage, { button: 2 }) as CanvasStagePointerEvent<HTMLElement>);
+    harness.controller.openCanvasContextMenu(pointer(harness.stage, { button: 2 }));
+    expect([...harness.selectedIds]).toEqual(["a", "b"]);
+    expect(dismissPendingGroup).not.toHaveBeenCalled();
+    expect(setContextMenu).toHaveBeenLastCalledWith(expect.objectContaining({ nodeId: undefined }));
+    harness.controller.dispose();
+  });
   it.each(["source", "target"] as const)("connects an entire temporary selection with the %s port without duplicates", handleType => {
     const nodes = [node("a"), node("b", 150), node("outside", 600)];
     const group = { ...createCanvasGroup(nodes, ["a", "b"], "selection")!, pending: true };

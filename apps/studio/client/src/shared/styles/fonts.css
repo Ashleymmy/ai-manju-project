@@ -1,4 +1,30 @@
-/* Bundled OFL fonts keep rounded Chinese UI text independent of external CDNs. */
+/* UI text has a real regular face instead of mapping normal text to Medium.
+ * The original display family below preserves the existing large headings. */
+@font-face {
+  font-family: "Studio UI";
+  src: url("/fonts/chill-round-gothic/regular.53505f0.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Studio UI";
+  src: url("/fonts/chill-round-gothic/medium.53505f0.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 500 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Studio UI";
+  src: url("/fonts/chill-round-gothic/bold.53505f0.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 700 900;
+  font-display: swap;
+}
+
+/* Bundled OFL fonts keep rounded Chinese headings independent of external CDNs. */
 @font-face {
   font-family: "Studio Rounded";
   src: url("/fonts/chill-round-gothic/medium.53505f0.woff2") format("woff2");

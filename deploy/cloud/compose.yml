@@ -98,6 +98,12 @@ services:
   api:
     <<: *studio
     command: [/app/ai-manju-api]
+    environment:
+      ASSET_EXPORT_STORAGE_DIR: /app/export-archives
+    volumes:
+      - ${STUDIO_SECRET_DIR:?provide Studio secret directory}:/run/secrets/studio:ro
+      - ${SDVIDEO_CA_FILE:?provide private service CA}:/run/tls/sdvideo-ca.crt:ro
+      - studio-export-archives:/app/export-archives
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -125,6 +131,12 @@ services:
     command: [/app/ai-manju-asset-export-worker]
     environment:
       ASSET_EXPORT_HEALTH_ADDR: 0.0.0.0:3104
+      # ZIPs are written once to disk and served by API; media Storage upload limits do not apply.
+      ASSET_EXPORT_STORAGE_DIR: /app/export-archives
+    volumes:
+      - ${STUDIO_SECRET_DIR:?provide Studio secret directory}:/run/secrets/studio:ro
+      - ${SDVIDEO_CA_FILE:?provide private service CA}:/run/tls/sdvideo-ca.crt:ro
+      - studio-export-archives:/app/export-archives
     depends_on:
       api: {condition: service_healthy}
     healthcheck:
@@ -222,6 +234,8 @@ networks:
   service-link: {internal: true}
   egress: {}
 volumes:
+  # Persistent disk shared by API and export workers; mount the same filesystem on every replica.
+  studio-export-archives: {}
   studio-web-assets: {}
   studio-db: {}
   sdvideo-db: {}

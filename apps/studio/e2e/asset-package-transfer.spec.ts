@@ -12,7 +12,9 @@ async function api(request: APIRequestContext, path: string, token = "", body?: 
   expect(envelope.success).toBe(true);
   return envelope.data;
 }
-async function seed(context: BrowserContext, token: string) {
+async function seed(context: BrowserContext, account: string) {
+  // Real login installs the HttpOnly session cookie used by native downloads.
+  const { token } = await api(context.request, "/api/auth/login", "", { account, password: "qa-local-transfer-password" });
   await context.addInitScript(value => {
     localStorage.setItem("ai-manju:auth_token", value);
     localStorage.setItem("ai-manju:token-store", "local");
@@ -38,8 +40,8 @@ test("one user exports a folder ZIP and another restores files, nested/empty fol
   const sourceContext = await browser.newContext();
   const targetContext = await browser.newContext();
   try {
-    await seed(sourceContext, source.token);
-    await seed(targetContext, recipient.token);
+    await seed(sourceContext, `source_${suffix}`);
+    await seed(targetContext, `target_${suffix}`);
     const page = await sourceContext.newPage();
     const target = await targetContext.newPage();
     const errors: string[] = [];
@@ -56,7 +58,16 @@ test("one user exports a folder ZIP and another restores files, nested/empty fol
     const downloadPromise = page.waitForEvent("download");
     await exports.getByRole("button", { name: "下载资产包" }).first().click();
     const zipPath = testInfo.outputPath("folder-1.zip");
-    await (await downloadPromise).saveAs(zipPath);
+    const download = await downloadPromise;
+    expect(download.url()).toContain("/api/asset-exports/");
+    expect(download.url()).not.toContain("access_token");
+    await download.saveAs(zipPath);
+    expect(await download.failure()).toBeNull();
+    // The same authenticated endpoint supports resumable, bounded reads.
+    const range = await sourceContext.request.get(download.url(), { headers: { Range: "bytes=0-63" } });
+    expect(range.status()).toBe(206);
+    expect(range.headers()["accept-ranges"]).toBe("bytes");
+    expect((await range.body()).length).toBe(64);
     await target.goto("/assets");
     await target.locator(".asset-bulk-bar").waitFor();
     const targetNotice = target.getByRole("button", { name: "知道了", exact: true });

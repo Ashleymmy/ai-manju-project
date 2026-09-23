@@ -238,15 +238,12 @@ func (s *AssetService) listLibrary(userID string, scope string, input AssetLibra
 	return AssetLibraryResult{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
 }
 
-func (s *AssetService) listLibraryForExport(userID string, scope string, input AssetLibraryInput, limit int) ([]model.Asset, int64, error) {
-	if limit <= 0 {
-		return nil, 0, errors.New("asset export limit must be positive")
-	}
+func (s *AssetService) listLibraryForExport(userID string, scope string, input AssetLibraryInput) ([]model.Asset, int64, error) {
 	filter, err := s.assetLibraryFilter(userID, scope, input)
 	if err != nil {
 		return nil, 0, err
 	}
-	filter.Page, filter.PageSize, filter.Sort = 1, limit+1, strings.TrimSpace(input.Sort)
+	filter.Unpaged, filter.Sort = true, strings.TrimSpace(input.Sort)
 	items, total, err := s.repo.ListLibrary(filter)
 	if err != nil {
 		return nil, 0, err

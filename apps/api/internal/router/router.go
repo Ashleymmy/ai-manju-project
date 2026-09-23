@@ -133,6 +133,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	assetFolderHandler := handler.NewAssetFolderHandler(assetFolderService)
 	tagHandler := handler.NewTagHandler(tagService)
 	assetExportService := service.NewAssetExportService(repos.assetExportRepo, assetService, assetFolderService, assetStore)
+	assetExportService.SetArchiveStorage(storage.NewExportArchiveStorage(cfg))
 	assetExportService.SetTagService(tagService)
 	assetExportService.SetAssetUsageRecorder(assetUsageService)
 	// Memory mode has no cross-process persistence, so development dispatches in
@@ -523,6 +524,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			assetExports.GET("/:exportId", assetExportHandler.Get)
 			assetExports.POST("/:exportId/cancel", assetExportHandler.Cancel)
 			assetExports.GET("/:exportId/content", assetExportHandler.Content)
+			assetExports.HEAD("/:exportId/content", assetExportHandler.Content)
 		}
 
 		announcements := api.Group("/announcements", middleware.RequireAuth(authService))

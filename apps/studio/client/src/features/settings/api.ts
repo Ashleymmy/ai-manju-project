@@ -29,6 +29,9 @@ export type UserGenerationPreferences = {
 
 export type UserShortcutPreferences = Record<string, string[]>;
 
+export type ProjectGroupPreference = { id: string; title: string; projectIds: string[] };
+export type ProjectGroupPreferences = Partial<Record<"personal" | "team", ProjectGroupPreference[]>>;
+
 export type UserPreferences = {
   generation?: UserGenerationPreferences;
   shortcuts?: UserShortcutPreferences;
@@ -37,11 +40,13 @@ export type UserPreferences = {
     backgroundMode?: "lines" | "dots" | "blank";
     wheelZoomRequiresCtrl?: boolean;
     promptPresets?: PromptPreset[];
+    projectGroups?: ProjectGroupPreferences;
   };
   updated_at?: string;
 };
 
 export type UserPreferencesPayload = {
+  expectedProjectGroups?: ProjectGroupPreferences;
   generation?: Partial<UserGenerationPreferences>;
   shortcuts?: UserShortcutPreferences;
   canvas?: Partial<NonNullable<UserPreferences["canvas"]>>;

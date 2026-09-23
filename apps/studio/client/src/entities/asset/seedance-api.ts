@@ -8,8 +8,8 @@ import type {
 import { apiUrl, getAuthToken, request } from "@/shared/api/http";
 import type { WorkspaceScope } from "@/shared/config";
 
-export function listUserSeedanceAssets(params: SeedanceAssetListParams = {}) {
-  return request<SeedanceAssetList>("/api/ai/seedance-assets", { query: params });
+export function listUserSeedanceAssets(params: SeedanceAssetListParams = {}, signal?: AbortSignal) {
+  return request<SeedanceAssetList>("/api/ai/seedance-assets", { query: params, signal });
 }
 
 export function getUserSeedanceAsset(id: string, scope: WorkspaceScope, providerId?: string) {
