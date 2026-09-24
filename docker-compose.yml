@@ -167,6 +167,8 @@ services:
       STORAGE_BACKEND: ${SDVIDEO_STORAGE_BACKEND:-local}
       SDVIDEO_DATA_DIR: /app/data
       SDVIDEO_WORKER_HEALTH_PORT: 8202
+      # Global processing slots; the database separately enforces model limits.
+      SDVIDEO_WORKER_CONCURRENCY: ${SDVIDEO_WORKER_CONCURRENCY:-8}
       SDVIDEO_S3_ENDPOINT_URL: ${SDVIDEO_S3_ENDPOINT_URL:-}
       SDVIDEO_S3_REGION: ${SDVIDEO_S3_REGION:-us-east-1}
       SDVIDEO_S3_BUCKET: ${SDVIDEO_S3_BUCKET:-sdvideo-results}

@@ -173,6 +173,7 @@ def execute_job(
                 if waiting is None:
                     current = store.get_job(job_id)
                     if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
+                        remove_provider_waiter(payload, job, job_id)
                         cleanup_job_inputs(payload, job, job_id)
                         log_job("job_canceled", job_id)
                         return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
@@ -186,6 +187,7 @@ def execute_job(
                 if waiting is None:
                     current = store.get_job(job_id)
                     if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
+                        remove_provider_waiter(payload, job, job_id)
                         cleanup_job_inputs(payload, job, job_id)
                         log_job("job_canceled", job_id)
                         return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
@@ -195,10 +197,13 @@ def execute_job(
                     countdown=decision.retry_after_seconds,
                     max_retries=100000,
                 )
-            gate.start_heartbeat(job_id)
 
-        log_job("job_started", job_id, job_type=job.get("type"))
+        # Hold the slot through startup as well as execution: cancellation may
+        # win the race between acquisition and marking the job as running.
         try:
+            if gate is not None:
+                gate.start_heartbeat(job_id)
+            log_job("job_started", job_id, job_type=job.get("type"))
             running = store.mark_running(job_id, 5)
             if running is None:
                 current = store.get_job(job_id)
@@ -206,107 +211,102 @@ def execute_job(
                     cleanup_job_inputs(payload, job, job_id)
                     log_job("job_canceled", job_id)
                     return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
-        except Exception:
-            if gate is not None:
-                gate.release(job_id)
-                gate = None
-            raise
-        generation_completed = False
-        try:
-            execution_payload = {**payload, JOB_WORKSPACE_FIELD: str(job.get("workspace_id") or "")}
+            generation_completed = False
+            try:
+                execution_payload = {**payload, JOB_WORKSPACE_FIELD: str(job.get("workspace_id") or "")}
 
-            def update_progress(progress: int) -> None:
-                updated = store.update_progress(job_id, progress)
-                if updated is None:
-                    current = store.get_job(job_id)
-                    if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
-                        raise job_canceled_error()
+                def update_progress(progress: int) -> None:
+                    updated = store.update_progress(job_id, progress)
+                    if updated is None:
+                        current = store.get_job(job_id)
+                        if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
+                            raise job_canceled_error()
 
-            update_progress(5)
-            if generation_max_attempts and not provider_has_remote(payload.get("provider")):
-                raise SafeTaskError("generation provider is not configured", code="provider_not_configured", retryable=False)
-            result = executor(job_id, execution_payload, settings, update_progress)
-            generation_completed = True
-            current = store.get_job(job_id)
-            if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
-                cleanup_job_inputs(payload, job, job_id)
-                log_job("job_canceled", job_id)
-                return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
-            if asset_type == "image":
-                validate_canvas_image_outputs(payload, result, settings)
-            result = register_result_assets(store, job, result, settings, asset_type)
-            result = json_compatible(result)
-            stored = store.set_result(job_id, result)
-            if stored is None:
+                update_progress(5)
+                if generation_max_attempts and not provider_has_remote(payload.get("provider")):
+                    raise SafeTaskError("generation provider is not configured", code="provider_not_configured", retryable=False)
+                result = executor(job_id, execution_payload, settings, update_progress)
+                generation_completed = True
                 current = store.get_job(job_id)
                 if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
                     cleanup_job_inputs(payload, job, job_id)
                     log_job("job_canceled", job_id)
                     return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
-            cleanup_job_inputs(payload, job, job_id)
-            log_job("job_succeeded", job_id, asset_type=asset_type)
-            return {"job_id": job_id, "status": JOB_STATUS_SUCCEEDED, "result": result}
-        except Exception as exc:
-            current = store.get_job(job_id)
-            if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
-                cleanup_job_inputs(payload, job, job_id)
-                log_job("job_canceled", job_id)
-                return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
-            payload_error = error_payload(exc)
-            record_error = getattr(store, "record_monitoring_error", None)
-            if callable(record_error):
-                try:
-                    record_error(attempt_event(job, payload, {**payload_error, "message": str(exc)}, int((monotonic() - attempt_started) * 1000)))
-                except Exception:
-                    # Diagnostics must never replace a generation outcome or retry.
-                    log_job("monitoring_write_failed", job_id)
-            if not generation_completed and isinstance(exc, SafeTaskError) and exc.code == "provider_rate_limited" and provider_throttle_can_wait(job):
-                delay = max(PROVIDER_THROTTLE_RETRY_SECONDS, exc.retry_after_seconds or 0)
-                if gate is not None:
-                    try:
-                        gate.set_cooldown(delay)
-                    except Exception:
-                        pass
-                store.mark_waiting_provider(job_id)
-                log_job("job_waiting_provider_rate_limit", job_id, retry_after=delay)
-                raise task.retry(exc=SafeTaskError("waiting for provider capacity", code="provider_gate_wait", retryable=True), countdown=delay, max_retries=100000)
-            if gate is not None and isinstance(exc, SafeTaskError) and exc.code == "provider_rate_limited":
-                try:
-                    gate.set_cooldown(exc.retry_after_seconds or retry_countdown(int(job.get("attempts") or 0)))
-                except Exception as cooldown_exc:
-                    log_job("provider_gate_cooldown_failed", job_id, error=str(cooldown_exc)[:240])
-            attempts = int(job.get("attempts") or 0)
-            generation_retry = bool(generation_max_attempts and not generation_completed and is_provider_failure(exc))
-            retry = (generation_retry and attempts < generation_max_attempts - 1) if generation_max_attempts else (not generation_completed and should_retry(job, exc))
-            if retry:
-                # Intermediate upstream errors and supplier identities are private.
-                payload_error = {} if generation_max_attempts else {**payload_error, "next_retry": attempts + 1}
-                stored = store.record_retry(job_id, payload_error)
+                if asset_type == "image":
+                    validate_canvas_image_outputs(payload, result, settings)
+                result = register_result_assets(store, job, result, settings, asset_type)
+                result = json_compatible(result)
+                stored = store.set_result(job_id, result)
                 if stored is None:
                     current = store.get_job(job_id)
                     if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
                         cleanup_job_inputs(payload, job, job_id)
                         log_job("job_canceled", job_id)
                         return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
-                log_job("job_retry", job_id, retry=attempts + 1)
-                raise task.retry(
-                    exc=SafeTaskError("generation pending", code="generation_pending") if generation_max_attempts else exc,
-                    countdown=retry_after_seconds(exc, int(job.get("attempts") or 0)),
-                    max_retries=100000,
-                )
-            if generation_max_attempts and not isinstance(exc, ImageParameterError):
-                exc = unavailable_error() if generation_retry else SafeTaskError("任务处理失败，请稍后重试", code="generation_processing_failed", retryable=False)
-                payload_error = error_payload(exc)
-            stored = store.set_error(job_id, payload_error)
-            if stored is None:
+                cleanup_job_inputs(payload, job, job_id)
+                log_job("job_succeeded", job_id, asset_type=asset_type)
+                return {"job_id": job_id, "status": JOB_STATUS_SUCCEEDED, "result": result}
+            except Exception as exc:
                 current = store.get_job(job_id)
                 if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
                     cleanup_job_inputs(payload, job, job_id)
                     log_job("job_canceled", job_id)
                     return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
-            cleanup_job_inputs(payload, job, job_id)
-            log_job("job_failed", job_id, error=payload_error.get("message"), code=payload_error.get("code"))
-            raise exc
+                payload_error = error_payload(exc)
+                record_error = getattr(store, "record_monitoring_error", None)
+                if callable(record_error):
+                    try:
+                        record_error(attempt_event(job, payload, {**payload_error, "message": str(exc)}, int((monotonic() - attempt_started) * 1000)))
+                    except Exception:
+                        # Diagnostics must never replace a generation outcome or retry.
+                        log_job("monitoring_write_failed", job_id)
+                if not generation_completed and isinstance(exc, SafeTaskError) and exc.code == "provider_rate_limited" and provider_throttle_can_wait(job):
+                    delay = max(PROVIDER_THROTTLE_RETRY_SECONDS, exc.retry_after_seconds or 0)
+                    if gate is not None:
+                        try:
+                            gate.set_cooldown(delay)
+                        except Exception:
+                            pass
+                    store.mark_waiting_provider(job_id)
+                    log_job("job_waiting_provider_rate_limit", job_id, retry_after=delay)
+                    raise task.retry(exc=SafeTaskError("waiting for provider capacity", code="provider_gate_wait", retryable=True), countdown=delay, max_retries=100000)
+                if gate is not None and isinstance(exc, SafeTaskError) and exc.code == "provider_rate_limited":
+                    try:
+                        gate.set_cooldown(exc.retry_after_seconds or retry_countdown(int(job.get("attempts") or 0)))
+                    except Exception as cooldown_exc:
+                        log_job("provider_gate_cooldown_failed", job_id, error=str(cooldown_exc)[:240])
+                attempts = int(job.get("attempts") or 0)
+                generation_retry = bool(generation_max_attempts and not generation_completed and is_provider_failure(exc))
+                retry = (generation_retry and attempts < generation_max_attempts - 1) if generation_max_attempts else (not generation_completed and should_retry(job, exc))
+                if retry:
+                    # Intermediate upstream errors and supplier identities are private.
+                    payload_error = {} if generation_max_attempts else {**payload_error, "next_retry": attempts + 1}
+                    stored = store.record_retry(job_id, payload_error)
+                    if stored is None:
+                        current = store.get_job(job_id)
+                        if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
+                            cleanup_job_inputs(payload, job, job_id)
+                            log_job("job_canceled", job_id)
+                            return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
+                    log_job("job_retry", job_id, retry=attempts + 1)
+                    raise task.retry(
+                        exc=SafeTaskError("generation pending", code="generation_pending") if generation_max_attempts else exc,
+                        countdown=retry_after_seconds(exc, int(job.get("attempts") or 0)),
+                        max_retries=100000,
+                    )
+                if generation_max_attempts and not isinstance(exc, ImageParameterError):
+                    exc = unavailable_error() if generation_retry else SafeTaskError("任务处理失败，请稍后重试", code="generation_processing_failed", retryable=False)
+                    payload_error = error_payload(exc)
+                stored = store.set_error(job_id, payload_error)
+                if stored is None:
+                    current = store.get_job(job_id)
+                    if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
+                        cleanup_job_inputs(payload, job, job_id)
+                        log_job("job_canceled", job_id)
+                        return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
+                cleanup_job_inputs(payload, job, job_id)
+                log_job("job_failed", job_id, error=payload_error.get("message"), code=payload_error.get("code"))
+                raise exc
         finally:
             if gate is not None:
                 try:

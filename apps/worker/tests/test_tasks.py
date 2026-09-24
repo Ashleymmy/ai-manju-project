@@ -167,6 +167,79 @@ class TasksTest(unittest.TestCase):
         self.assertEqual(fake_store.retry_errors, [])
         self.assertEqual(fake_store.final_errors, [])
 
+    def test_cancel_after_provider_acquisition_releases_slot(self) -> None:
+        for release_error in (None, ConnectionError("release unavailable")):
+            with self.subTest(release_error=release_error):
+                store = FakeStore()
+                gate = MagicMock()
+                gate.acquire.return_value = SimpleNamespace(acquired=True)
+                gate.release.side_effect = release_error
+                executor = MagicMock()
+
+                def cancel_before_running(*_: Any) -> None:
+                    store.job["status"] = "canceled"
+
+                store.mark_running = cancel_before_running
+                with patch.object(tasks, "JobStore", return_value=store), patch.object(
+                    tasks, "provider_gate_from_payload", return_value=(gate, 1)
+                ), patch.object(tasks, "cleanup_job_inputs"):
+                    result = execute_job(FakeTask(0), "job_123", {}, executor, "video")
+
+                self.assertEqual(result["status"], "canceled")
+                gate.start_heartbeat.assert_called_once_with("job_123")
+                gate.release.assert_called_once_with("job_123")
+                executor.assert_not_called()
+                self.assertEqual(store.final_errors, [])
+
+    def test_cancel_while_waiting_removes_provider_waiter(self) -> None:
+        for acquire_error in (None, ConnectionError("acquire unavailable")):
+            for cleanup_error in (None, ConnectionError("cleanup unavailable")):
+                with self.subTest(acquire_error=acquire_error, cleanup_error=cleanup_error):
+                    store = FakeStore()
+                    gate = MagicMock()
+                    gate.acquire.return_value = SimpleNamespace(acquired=False, retry_after_seconds=1)
+                    gate.acquire.side_effect = acquire_error
+                    gate.remove_waiter.side_effect = cleanup_error
+                    executor = MagicMock()
+
+                    def cancel_while_waiting(*_: Any) -> None:
+                        store.job["status"] = "canceled"
+
+                    store.mark_waiting_provider = cancel_while_waiting
+                    with patch.object(tasks, "JobStore", return_value=store), patch.object(
+                        tasks, "provider_gate_from_payload", return_value=(gate, 1)
+                    ), patch.object(tasks, "cleanup_job_inputs"):
+                        result = execute_job(FakeTask(0), "job_123", {}, executor, "video")
+
+                    self.assertEqual(result["status"], "canceled")
+                    gate.remove_waiter.assert_called_once_with("default:user_123", "job_123")
+                    gate.start_heartbeat.assert_not_called()
+                    gate.release.assert_not_called()
+                    executor.assert_not_called()
+                    self.assertEqual(store.retry_errors, [])
+                    self.assertEqual(store.final_errors, [])
+
+    def test_startup_failure_releases_slot_without_masking_original_error(self) -> None:
+        for stage in ("heartbeat", "mark_running"):
+            with self.subTest(stage=stage):
+                store = FakeStore()
+                gate = MagicMock()
+                gate.acquire.return_value = SimpleNamespace(acquired=True)
+                gate.release.side_effect = ConnectionError("release unavailable")
+                if stage == "heartbeat":
+                    gate.start_heartbeat.side_effect = OSError("startup failed")
+                else:
+                    store.mark_running = MagicMock(side_effect=OSError("startup failed"))
+                executor = MagicMock()
+                with patch.object(tasks, "JobStore", return_value=store), patch.object(
+                    tasks, "provider_gate_from_payload", return_value=(gate, 1)
+                ), self.assertRaisesRegex(OSError, "startup failed"):
+                    execute_job(FakeTask(0), "job_123", {}, executor, "video")
+
+                gate.release.assert_called_once_with("job_123")
+                executor.assert_not_called()
+                self.assertEqual(store.final_errors, [])
+
     def test_execute_job_records_retry_before_celery_retry(self) -> None:
         fake_store = FakeStore()
         cleanup_calls: list[str] = []

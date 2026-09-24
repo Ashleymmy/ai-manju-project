@@ -17,6 +17,11 @@ from app.standalone_api import task_store
 from worker.processor import process_task
 from app.runtime_health import dependency_health, worker_heartbeat
 
+# Each slot awaits upstream I/O independently. PostgreSQL still enforces the
+# configured per-model limits and leases across all worker instances.
+DEFAULT_WORKER_CONCURRENCY = 8
+MAX_WORKER_CONCURRENCY = 16
+
 if sys.platform == "win32" and hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -43,25 +48,33 @@ async def _health_server(port: int) -> None:
 async def _worker_loop(interval: int, logger: logging.Logger) -> None:
     queue = build_queue(settings)
     while True:
-        task_id = await queue.receive(timeout=min(interval, 10))
         record = None
-        if task_id and hasattr(task_store, "claim"):
-            record = await task_store.claim(task_id)
-        elif task_id:
-            record = await task_store.get_by_id(task_id)
-        # PostgreSQL is the source of truth.  Polling it on every pass gives
-        # restart recovery and protects against a Redis outage or lost queue
-        # message.  ``claim_next`` atomically prevents two workers from taking
-        # the same queued row.
-        if record is None and hasattr(task_store, "claim_next"):
-            record = await task_store.claim_next()
-        if record is None:
-            await asyncio.sleep(interval)
-            continue
         try:
+            # Drain eligible durable work before waiting on a Redis hint. This
+            # also preserves queue order when a model was previously at capacity.
+            if hasattr(task_store, "claim_next"):
+                record = await task_store.claim_next()
+            if record is None:
+                task_id = await queue.receive(timeout=min(interval, 10))
+                if task_id and hasattr(task_store, "claim"):
+                    record = await task_store.claim(task_id)
+                elif task_id:
+                    record = await task_store.get_by_id(task_id)
+            if record is None:
+                await asyncio.sleep(interval)
+                continue
             await process_task(record)
         except Exception:
-            logger.exception("unhandled task processor error task=%s", record.id)
+            logger.exception("worker iteration failed task=%s", getattr(record, "id", None))
+            # A temporary database outage must not permanently kill a slot.
+            await asyncio.sleep(interval)
+
+
+async def _worker_pool(interval: int, concurrency: int, logger: logging.Logger) -> None:
+    concurrency = max(1, min(MAX_WORKER_CONCURRENCY, concurrency))
+    async with asyncio.TaskGroup() as group:
+        for slot in range(concurrency):
+            group.create_task(_worker_loop(interval, logger), name=f"sdvideo-slot-{slot + 1}")
 
 
 async def run() -> None:
@@ -69,8 +82,9 @@ async def run() -> None:
     health_port = max(1, int(os.getenv("SDVIDEO_WORKER_HEALTH_PORT", "8202")))
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
     logger = logging.getLogger("sdvideo.worker")
-    logger.info("standalone SD-video worker started mode=%s rollout=%s", settings.EXECUTION_MODE, settings.SD_VIDEO_MODE)
-    await asyncio.gather(_worker_loop(interval, logger), _health_server(health_port), worker_heartbeat("task"))
+    concurrency = max(1, min(MAX_WORKER_CONCURRENCY, int(os.getenv("SDVIDEO_WORKER_CONCURRENCY", str(DEFAULT_WORKER_CONCURRENCY)))))
+    logger.info("standalone SD-video worker started mode=%s rollout=%s concurrency=%s", settings.EXECUTION_MODE, settings.SD_VIDEO_MODE, concurrency)
+    await asyncio.gather(_worker_pool(interval, concurrency, logger), _health_server(health_port), worker_heartbeat("task"))
 
 
 if __name__ == "__main__":
