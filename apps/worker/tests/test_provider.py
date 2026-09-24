@@ -45,6 +45,24 @@ def test_settings(tmp: str) -> Settings:
 
 
 class ProviderTest(unittest.TestCase):
+    def test_explicit_api_paths_are_not_prefixed_twice(self) -> None:
+        for endpoint in ("/api/v3/contents/generations/tasks", "api/v3/contents/generations/tasks", "/v1/videos", "/v1beta/models", "/api/v1/videos", "/api/plan/v3/tasks"):
+            with self.subTest(endpoint=endpoint):
+                self.assertEqual(
+                    provider_request_url("https://api.example/api/v3/", endpoint, {}),
+                    "https://api.example/" + endpoint.lstrip("/"),
+                )
+
+    def test_short_poll_and_absolute_paths_preserve_url_semantics(self) -> None:
+        for endpoint, expected in (
+            ("/contents/generations/tasks/task-1", "https://api.example/api/v3/contents/generations/tasks/task-1"),
+            ("/v1/videos/task-1?detail=1", "https://api.example/v1/videos/task-1?detail=1"),
+            ("//other.example/tasks/task-1", "https://other.example/tasks/task-1"),
+            ("/v10/tasks", "https://api.example/api/v3/v10/tasks"),
+        ):
+            with self.subTest(endpoint=endpoint):
+                self.assertEqual(provider_request_url("https://api.example/api/v3/", endpoint, {}), expected)
+
     def test_endpoint_overrides_keep_the_provider_api_prefix(self) -> None:
         self.assertEqual(
             provider_request_url(

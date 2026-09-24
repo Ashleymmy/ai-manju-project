@@ -26,6 +26,8 @@ ProgressFn = Callable[[int], None]
 # Cap upstream error excerpts stored in job.error so failures stay actionable
 # without leaking full provider payloads.
 MAX_PROVIDER_ERROR_DETAIL_CHARS = 240
+# Match the explicit root API versions recognized by the Go provider client.
+ROOT_API_PATH_PREFIXES = ("/v1", "/v1beta", "/api/v3", "/api/v1", "/api/plan/v3")
 UPLOAD_PAYLOAD_KEYS = {
     "files",
     "references",
@@ -333,7 +335,14 @@ def provider_request_url(base_url: str, endpoint: str, provider: dict[str, Any])
     endpoint_value = str(endpoint or "").strip()
     parsed_endpoint = urlparse(endpoint_value)
     if not parsed_endpoint.scheme and not endpoint_value.startswith("//"):
-        endpoint_value = endpoint_value.lstrip("/")
+        request_path = "/" + parsed_endpoint.path.lstrip("/").lower()
+        has_api_version = any(
+            request_path == prefix or request_path.startswith(prefix + "/")
+            for prefix in ROOT_API_PATH_PREFIXES
+        )
+        # Explicit version paths are rooted, even if an earlier adapter removed
+        # their leading slash; short resource paths retain the configured base.
+        endpoint_value = ("/" if has_api_version else "") + endpoint_value.lstrip("/")
     url = urljoin(base_url, endpoint_value)
     auth_type = str(provider.get("auth_type") or "").lower()
     api_key = str(provider.get("api_key") or "")
