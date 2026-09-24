@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from worker.config import Settings
 from worker.errors import SafeTaskError
 from worker import provider as provider_module
-from worker.provider import edit_image, generate_image
+from worker.provider import edit_image, generate_image, provider_request_url
 
 
 class FakeProviderResponse:
@@ -45,6 +45,24 @@ def test_settings(tmp: str) -> Settings:
 
 
 class ProviderTest(unittest.TestCase):
+    def test_endpoint_overrides_keep_the_provider_api_prefix(self) -> None:
+        self.assertEqual(
+            provider_request_url(
+                "https://api.example/api/v3/",
+                "/contents/generations/tasks",
+                {},
+            ),
+            "https://api.example/api/v3/contents/generations/tasks",
+        )
+        self.assertEqual(
+            provider_request_url(
+                "https://api.example/api/v3/",
+                "https://other.example/tasks",
+                {},
+            ),
+            "https://other.example/tasks",
+        )
+
     def test_image_quality_and_pixels_reach_the_provider_for_generation_and_edit(self) -> None:
         captured: list[dict[str, Any]] = []
         original_post = provider_module.requests.post

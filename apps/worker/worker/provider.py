@@ -324,7 +324,17 @@ def provider_has_remote(provider: Any) -> bool:
 
 
 def provider_request_url(base_url: str, endpoint: str, provider: dict[str, Any]) -> str:
-    url = urljoin(base_url, endpoint)
+    # Provider endpoint overrides are stored as paths and may start with a
+    # slash (for example ``/contents/generations/tasks``).  ``urljoin``
+    # treats that form as an origin-root path and silently drops a configured
+    # API prefix such as ``/api/v3``.  Resolve relative endpoint paths against
+    # the configured provider base while still allowing a complete absolute
+    # URL when a provider explicitly supplies one.
+    endpoint_value = str(endpoint or "").strip()
+    parsed_endpoint = urlparse(endpoint_value)
+    if not parsed_endpoint.scheme and not endpoint_value.startswith("//"):
+        endpoint_value = endpoint_value.lstrip("/")
+    url = urljoin(base_url, endpoint_value)
     auth_type = str(provider.get("auth_type") or "").lower()
     api_key = str(provider.get("api_key") or "")
     if auth_type != "query_param" or not api_key:
