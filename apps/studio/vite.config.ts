@@ -134,6 +134,8 @@ function directorDeskIntegration(): Plugin {
 }
 
 export default defineConfig({
+  // Document parsing workers load the relevant Office parser on demand.
+  worker: { format: "es" },
   plugins: [react(), tailwindcss(), directorDeskIntegration()],
   define: {
     "process.env.NEXT_PUBLIC_CANVAS_ENGINE": JSON.stringify(process.env.NEXT_PUBLIC_CANVAS_ENGINE || ""),

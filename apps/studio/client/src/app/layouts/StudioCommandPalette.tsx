@@ -5,7 +5,7 @@ import { useLocation } from "wouter";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { getAssetLibrary, type Asset } from "@/entities/asset";
-import { getProjects } from "@/entities/project";
+import { getProjectSummaries } from "@/entities/project";
 import { getPromptLibrary, type SystemPrompt } from "@/entities/prompt";
 import { publicApiError } from "@/shared/api/errors";
 
@@ -120,7 +120,7 @@ export function StudioCommandPalette({
     const timer = window.setTimeout(() => {
       void (async () => {
         const [projectResult, assetResult, promptResult] = await Promise.allSettled([
-          getProjects(scope),
+          getProjectSummaries(scope, controller.signal),
           getAssetLibrary(scope, {
             keyword,
             pageSize: COMMAND_PALETTE_RESULT_LIMIT,

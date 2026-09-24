@@ -45,8 +45,10 @@ func New() *gin.Engine {
 }
 
 func NewWithConfig(cfg config.Config) *gin.Engine {
+	repos, storageStatus, dbStatus := newRepositories(cfg)
+	runtimeRepo := repository.NewRuntimeMonitoringRepository(repos.jobRepo, repos.monitoringRepo)
 	r := gin.New()
-	r.Use(middleware.RequestID(), middleware.SafeAccessLog(gin.DefaultWriter), middleware.SafeRecovery(gin.DefaultErrorWriter))
+	r.Use(middleware.RequestID(), middleware.SafeAccessLog(gin.DefaultWriter), middleware.RuntimeMonitoring(runtimeRepo), middleware.SafeRecovery(gin.DefaultErrorWriter))
 	r.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Expose-Headers", middleware.RequestIDHeader)
 		c.Next()
@@ -60,7 +62,6 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 		AllowCredentials: true,
 	}))
 
-	repos, storageStatus, dbStatus := newRepositories(cfg)
 	authService := auth.NewService(repos.userRepo, cfg)
 	if err := authService.SeedSuperAdmin(cfg); err != nil {
 		log.Printf("super admin seed failed: %v", err)
@@ -213,6 +214,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	jobHandler := handler.NewJobHandler(jobService)
 	jobHandler.SetSDVideoClient(sdVideoClient)
 	adminMonitoringHandler := handler.NewAdminMonitoringHandler(repos.monitoringRepo, storageStatus, dbStatus)
+	runtimeMonitoringHandler := handler.NewRuntimeMonitoringHandler(runtimeRepo, repos.userRepo)
 	announcementHandler := handler.NewAnnouncementHandler(repos.announcementRepo)
 	userPreferenceHandler := handler.NewUserPreferenceHandler(repos.userPreferenceRepo)
 	promptHandler := handler.NewPromptHandler(service.NewPromptCatalog())
@@ -262,6 +264,12 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 		{
 			userRoutes.GET("/preferences", userPreferenceHandler.Get)
 			userRoutes.PUT("/preferences", userPreferenceHandler.Put)
+		}
+		monitoringRoutes := api.Group("/monitoring", middleware.RequireAuth(authService))
+		{
+			monitoringRoutes.GET("", runtimeMonitoringHandler.Get)
+			monitoringRoutes.GET("/users", runtimeMonitoringHandler.Users)
+			monitoringRoutes.POST("/client-errors", runtimeMonitoringHandler.ClientError)
 		}
 
 		// WP-M8 收银台（用户侧）：套餐浏览 / 下单 / 我的订单 / 取消 / mock 支付。

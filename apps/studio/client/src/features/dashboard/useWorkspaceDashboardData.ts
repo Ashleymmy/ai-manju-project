@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { getAssetLibrary } from "@/entities/asset";
 import { listComicProjects } from "@/entities/comic";
 import { getJobs } from "@/entities/job";
-import { getProjects } from "@/entities/project";
+import { useProjectSummaries } from "@/entities/project";
+import { useAuth } from "@/contexts/AuthContext";
 import { getCollection } from "@/shared/api/http";
 
 type SourceState = "idle" | "loading" | "ready" | "error";
@@ -15,8 +16,8 @@ export type WorkspaceData = {
   assets: Metric;
 };
 
-const loadingData: WorkspaceData = {
-  projects: { state: "loading" },
+type OtherWorkspaceData = Omit<WorkspaceData, "projects">;
+const loadingData: OtherWorkspaceData = {
   comicProjects: { state: "loading" },
   jobs: { state: "loading" },
   assets: { state: "loading" },
@@ -37,18 +38,13 @@ function metricError(error: unknown): Metric {
   };
 }
 
-async function loadWorkspaceData(): Promise<WorkspaceData> {
-  const [projects, comicProjects, jobs, assets] = await Promise.allSettled([
-    getProjects("personal"),
+async function loadWorkspaceData(): Promise<OtherWorkspaceData> {
+  const [comicProjects, jobs, assets] = await Promise.allSettled([
     listComicProjects("personal"),
     getJobs({ status: "running", page: 1, pageSize: 50 }),
     getAssetLibrary(),
   ]);
   return {
-    projects:
-      projects.status === "fulfilled"
-        ? metricFrom(projects.value)
-        : metricError(projects.reason),
     comicProjects:
       comicProjects.status === "fulfilled"
         ? metricFrom(comicProjects.value)
@@ -65,17 +61,26 @@ async function loadWorkspaceData(): Promise<WorkspaceData> {
 }
 
 export const dashboardQueryKeys = {
-  workspace: () => ["dashboard", "workspace", "personal"] as const,
+  workspace: (userId: string) => ["dashboard", "workspace", "personal", userId] as const,
 };
 
 export function useWorkspaceDashboardData() {
+  const { user } = useAuth();
+  // Shared with project cards and the canvas switcher; other metrics cannot delay this count.
+  const projects = useProjectSummaries("personal", user?.id || "");
   const query = useQuery({
-    queryKey: dashboardQueryKeys.workspace(),
+    queryKey: dashboardQueryKeys.workspace(user?.id || ""),
     queryFn: loadWorkspaceData,
+    enabled: Boolean(user),
   });
+  const projectMetric: Metric = {
+    total: projects.hasLoaded ? projects.projects.length : undefined,
+    state: projects.loading ? "loading" : projects.error ? "error" : "ready",
+    error: projects.error || undefined,
+  };
   return {
-    data: query.isFetching ? loadingData : query.data ?? loadingData,
-    loading: query.isFetching,
-    refresh: query.refetch,
+    data: { ...(query.data ?? loadingData), projects: projectMetric },
+    loading: query.isFetching || projects.refreshing,
+    refresh: () => Promise.all([query.refetch(), projects.refresh()]),
   };
 }

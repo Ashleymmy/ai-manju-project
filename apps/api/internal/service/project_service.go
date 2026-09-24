@@ -81,6 +81,10 @@ func (s *ProjectService) List(userID string, scope string) ([]model.Project, err
 	return s.repo.ListByWorkspace(WorkspaceIDForScope(scope, userID))
 }
 
+func (s *ProjectService) ListSummaries(userID string, scope string) ([]model.Project, error) {
+	return s.repo.ListSummariesByWorkspace(WorkspaceIDForScope(scope, userID))
+}
+
 func (s *ProjectService) Get(id string, userID string, scope string) (model.Project, error) {
 	workspaceID := WorkspaceIDForScope(scope, userID)
 	if s.folders == nil {

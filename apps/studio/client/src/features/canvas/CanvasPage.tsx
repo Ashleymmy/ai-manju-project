@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { getProjects, type CanvasProject } from "@/entities/project";
+import { getProjectSummaries, type CanvasProject } from "@/entities/project";
 import CanvasWorkspaceView from "@/pages/CanvasWorkspaceView";
 import { publicApiError } from "@/shared/api/errors";
 import { canvasListHref, canvasProjectHref, projectScopeFromServer, scopeFromCanvasSearch } from "./domain/workspace";
@@ -19,10 +19,10 @@ function RecentCanvasRedirect() {
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     // Fetch on entry so edits on another device and deleted projects are reflected.
-    void getProjects(scope).then(result => {
+    void getProjectSummaries(scope, controller.signal).then(projects => {
       if (cancelled) return;
-      const projects = Array.isArray(result) ? result : result.items;
       const recent = [...projects].filter(project => project.id)
         .sort((left, right) => projectEditedAt(right) - projectEditedAt(left))[0];
       navigate(recent
@@ -33,7 +33,7 @@ function RecentCanvasRedirect() {
       toast.error(publicApiError(error, "无法打开最近编辑的画布，请在列表中重试"));
       navigate(canvasListHref(scope), { replace: true });
     });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; controller.abort(); };
   }, [navigate, scope]);
 
   return (

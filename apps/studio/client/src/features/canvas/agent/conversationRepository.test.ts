@@ -69,6 +69,6 @@ describe("Canvas Agent conversation repository", () => {
     vi.spyOn(failing, "setItem").mockImplementation(() => {
       throw new Error("quota");
     });
-    expect(() => persistAgentConversations("project", [conversation("one")], failing)).not.toThrow();
+    expect(persistAgentConversations("project", [conversation("one")], failing)).toBe(false);
   });
 });

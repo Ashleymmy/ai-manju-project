@@ -3,6 +3,8 @@ import { API_BASE_URL, ApiError, getAuthToken, request } from "@/shared/api/http
 import { fetchImageModelCatalog, fetchTextModelCatalog, modelLabel } from "@/entities/model";
 import type { CapabilityModelCatalog } from "@/entities/model";
 import { canvasImageRequestPrompt } from "./outputRequirements";
+import { submitWithGenerationAdmission, type GenerationAdmissionOptions } from "@/shared/api/generationAdmission";
+import { MAX_IMAGE_GENERATION_COUNT } from "@/shared/config/generation";
 
 export type { AiModelsResponse } from "@/entities/model";
 export type ImageModelCatalog = CapabilityModelCatalog;
@@ -34,25 +36,14 @@ export type GeneratedImage = {
 type JobSubmission = { id?: string; job_id?: string; status?: Job["status"] };
 export type GenerationCallbacks = {
   signal?: AbortSignal;
+  onWaiting?: GenerationAdmissionOptions["onWaiting"];
   onAccepted?: (job: JobSubmission) => void;
   onProgress?: (job: Job) => void;
 };
 
 const imagePollIntervalMs = 2_500;
-// Admission rejects before creating a job. Reuse the same request/idempotency
-// key while capacity is busy so a batch waits instead of losing its later images.
-const imageAdmissionRetryMs = 5_000;
-const imageAdmissionWaitMs = 30 * 60_000;
-
-export async function waitForImageAdmission<T>(submit: () => Promise<T>, signal?: AbortSignal): Promise<T> {
-  const deadline = Date.now() + imageAdmissionWaitMs;
-  for (;;) {
-    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    try { return await submit(); } catch (error) {
-      if (!(error instanceof ApiError) || error.status !== 429 || !/当前任务并发已达上限|concurrent task limit/i.test(error.message) || Date.now() >= deadline) throw error;
-      await wait(imageAdmissionRetryMs, signal);
-    }
-  }
+export function waitForImageAdmission<T>(submit: () => Promise<T>, signal?: AbortSignal, onWaiting?: GenerationAdmissionOptions["onWaiting"]): Promise<T> {
+  return submitWithGenerationAdmission("image", submit, { signal, onWaiting });
 }
 
 export async function fetchImageModels(): Promise<ImageModelCatalog> {
@@ -67,7 +58,7 @@ export function imageModelLabel(model: string, catalog?: Pick<ImageModelCatalog,
   return modelLabel(model, catalog);
 }
 
-export async function submitImageGeneration(input: ImageGenerationInput, signal?: AbortSignal) {
+export async function submitImageGeneration(input: ImageGenerationInput, signal?: AbortSignal, onWaiting?: GenerationAdmissionOptions["onWaiting"]) {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("请输入画面描述");
   const idempotencyKey = globalThis.crypto?.randomUUID?.() || `image_${Date.now()}`;
@@ -82,7 +73,7 @@ export async function submitImageGeneration(input: ImageGenerationInput, signal?
       prompt: canvasImageRequestPrompt(input),
       size: input.size || "auto",
       quality: input.quality || "auto",
-      n: Math.max(1, Math.min(15, Math.floor(input.count || 1))),
+      n: Math.max(1, Math.min(MAX_IMAGE_GENERATION_COUNT, Math.floor(input.count || 1))),
       ...(imageSeedFromInput(input.seed) !== undefined ? { seed: imageSeedFromInput(input.seed) } : {}),
       response_format: "b64_json",
       output_format: "png",
@@ -93,10 +84,10 @@ export async function submitImageGeneration(input: ImageGenerationInput, signal?
         ...(input.sourceNodeId ? { source_node_id: input.sourceNodeId } : {}),
       },
     },
-  }), signal);
+  }), signal, onWaiting);
 }
 
-export async function submitImageEdit(input: ImageGenerationInput, signal?: AbortSignal) {
+export async function submitImageEdit(input: ImageGenerationInput, signal?: AbortSignal, onWaiting?: GenerationAdmissionOptions["onWaiting"]) {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("请输入画面描述");
   const referenceFiles = input.referenceFiles || [];
@@ -106,7 +97,7 @@ export async function submitImageEdit(input: ImageGenerationInput, signal?: Abor
   body.set("prompt", canvasImageRequestPrompt(input));
   body.set("size", input.size || "auto");
   body.set("quality", input.quality || "auto");
-  body.set("n", String(Math.max(1, Math.min(15, Math.floor(input.count || 1)))));
+  body.set("n", String(Math.max(1, Math.min(MAX_IMAGE_GENERATION_COUNT, Math.floor(input.count || 1)))));
   const seed = imageSeedFromInput(input.seed);
   if (seed !== undefined) body.set("seed", String(seed));
   body.set("response_format", "b64_json");
@@ -127,13 +118,13 @@ export async function submitImageEdit(input: ImageGenerationInput, signal?: Abor
     signal,
     headers: { "Idempotency-Key": idempotencyKey },
     body,
-  }), signal);
+  }), signal, onWaiting);
 }
 
 export async function generateImages(input: ImageGenerationInput, callbacks: GenerationCallbacks = {}) {
   const submitted = input.referenceFiles?.length
-    ? await submitImageEdit(input, callbacks.signal)
-    : await submitImageGeneration(input, callbacks.signal);
+    ? await submitImageEdit(input, callbacks.signal, callbacks.onWaiting)
+    : await submitImageGeneration(input, callbacks.signal, callbacks.onWaiting);
   const jobId = submitted.job_id || submitted.id || "";
   if (!jobId) throw new Error("图像接口没有返回任务 ID");
   callbacks.onAccepted?.(submitted);

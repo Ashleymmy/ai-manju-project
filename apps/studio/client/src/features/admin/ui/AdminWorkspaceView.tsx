@@ -158,7 +158,7 @@ export default function AdminWorkspaceView() {
           <RefreshCcw size={15} /> 刷新
         </button>
       </div>
-      <div className={`admin-workspace${tab === "users" || tab === "member-users" || tab === "consumptions" ? " admin-workspace-wide" : ""}`}>
+      <div className={`admin-workspace${tab === "users" || tab === "member-users" || tab === "consumptions" || tab === "monitoring" ? " admin-workspace-wide" : ""}${tab === "monitoring" ? " admin-monitor-workspace" : ""}`}>
         <aside className="admin-nav">
           {adminTabs.map(([key, label, Icon]) => (
             <button

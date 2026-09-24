@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { copyProjectSnapshot, projectCopyTitle, copyProject } from "./copyProject";
 import { ApiError } from "@/shared/api/errors";
 
-const api = vi.hoisted(() => ({ createProject: vi.fn(), getProject: vi.fn(), getProjects: vi.fn(), getProjectSnapshot: vi.fn() }));
+const api = vi.hoisted(() => ({ createProject: vi.fn(), getProject: vi.fn(), getProjectSummaries: vi.fn(), getProjectSnapshot: vi.fn() }));
 vi.mock("@/entities/project", () => api);
 
 describe("independent canvas copies", () => {
@@ -41,7 +41,7 @@ describe("independent canvas copies", () => {
   it("falls back only for legacy missing snapshots", async () => {
     api.getProject.mockResolvedValue({ id: "source", title: "Original", data: { nodes: [{ id: "text" }] } });
     api.getProjectSnapshot.mockRejectedValue(new ApiError("missing", 404));
-    api.getProjects.mockResolvedValue([]);
+    api.getProjectSummaries.mockResolvedValue([]);
     await copyProject("source", "team");
     expect(api.createProject).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "team", data: { nodes: [{ id: "text" }] } }));
   });

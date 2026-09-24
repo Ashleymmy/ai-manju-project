@@ -1,6 +1,9 @@
 import { GenerationPrice } from "@/features/member";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AgentReferenceStrip } from "@/features/canvas/agent/AgentReferenceStrip";
+import { AgentDocumentStrip } from "@/features/canvas/agent/AgentDocumentStrip";
+import { AGENT_DOCUMENT_ACCEPT, describeAgentDocuments } from "@/features/canvas/agent/documents";
+import { useAgentDocuments } from "@/features/canvas/agent/useAgentDocuments";
 import { applyAgentReferencesToOps, canvasAgentReferences, describeAgentReferences, persistableAgentReferences, type AgentReference } from "@/features/canvas/agent/references";
 import { buildAgentReferenceContent } from "@/features/canvas/agent/referenceMedia";
 import { useOutsidePress } from "@/shared/lib/useOutsidePress";
@@ -144,6 +147,7 @@ export default function AgentPanel({
   const [pendingTool, setPendingTool] = useState<PendingAgentTool | null>(null);
   const [panelWidth, setPanelWidth] = useState(560); // 悬浮卡片初始宽度（可拖拽 250–600）
   const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
+  const documentAttachments = useAgentDocuments(`${projectId}:${conversationId}`);
   const [conversations, setConversations] = useState<AgentConversation[]>(() => loadAgentConversations(projectId));
   const [openMenu, setOpenMenu] = useState<AgentMenuKind | null>(null);
   const [plusView, setPlusView] = useState<PlusMenuView>("root");
@@ -232,10 +236,12 @@ export default function AgentPanel({
 
   // 消息变化时自动保存当前对话（标题取首条用户消息）
   useEffect(() => {
-    if (!messages.length) return;
+    if (!messages.length || messages !== messagesRef.current) return;
     setConversations((prev) => {
       const next = upsertAgentConversation(prev, conversationId, messages);
-      persistAgentConversations(projectId, next);
+      if (!persistAgentConversations(projectId, next)) {
+        toast.warning("本地存储空间不足，本次对话和附件仅保留在当前页面，刷新后可能丢失", { id: "agent-storage-full" });
+      }
       return next;
     });
   }, [messages, conversationId, projectId]);
@@ -364,7 +370,8 @@ export default function AgentPanel({
   const isActiveAgentTurn = (turnId: number) => turnId === turnIdRef.current && !interruptedRef.current;
 
   const sendPrompt = async () => {
-    const text = prompt.trim();
+    if (documentAttachments.blocked) return;
+    const text = prompt.trim() || (documentAttachments.documents.length ? "请阅读并分析所附文件。" : "");
     if (channel === "online") {
       await sendOnlinePrompt(text);
       return;
@@ -372,14 +379,16 @@ export default function AgentPanel({
     if (!connected || !text || waiting || pendingTool) return;
     const { signal, turnId } = beginAgentTurn();
     const references = draftReferences;
+    const documents = documentAttachments.documents;
     localTurnReferencesRef.current = references;
     setWaiting(true);
     setActivity("发送中");
-    setMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: "user", text, references: persistableAgentReferences(references) }]);
+    setMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: "user", text, references: persistableAgentReferences(references), documents }]);
     setPrompt("");
+    documentAttachments.clear();
     try {
       const data = await sendLocalAgentTurn(url, token, {
-        prompt: text + describeAgentReferences(references),
+        prompt: text + describeAgentReferences(references) + describeAgentDocuments(documents),
         canvasId: projectId,
         clientId,
         threadId,
@@ -401,7 +410,7 @@ export default function AgentPanel({
   };
 
   const sendOnlinePrompt = async (text: string) => {
-    if (!text.trim()) return;
+    if (!text.trim() || documentAttachments.blocked) return;
     if (!effectiveModel) {
       const message = modelLoadError || "没有支持 Agent 工具调用的文本模型";
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "error", text: message }]);
@@ -410,13 +419,15 @@ export default function AgentPanel({
     }
     const { signal, turnId } = beginAgentTurn();
     const references = draftReferences;
+    const documents = documentAttachments.documents;
     setPendingAgentTool(null);
     setWaiting(true);
     setActivity(onlineToolExecutionRef.current ? "已收到补充，等待当前画布操作完成" : "在线模型思考中");
-    const userMessage: AgentMessage = { id: `u-${crypto.randomUUID()}`, role: "user", text, references: persistableAgentReferences(references) };
+    const userMessage: AgentMessage = { id: `u-${crypto.randomUUID()}`, role: "user", text, references: persistableAgentReferences(references), documents };
     const assistantId = `a-${crypto.randomUUID()}`;
     setMessages((prev) => [...prev, userMessage]);
     setPrompt("");
+    documentAttachments.clear();
     try {
       // 模型请求可以立即中断；已开始的画布操作先收尾，再把真实结果交给新一轮。
       const execution = onlineToolExecutionRef.current;
@@ -427,10 +438,11 @@ export default function AgentPanel({
         .slice(-ONLINE_AGENT_HISTORY_LIMIT)
         .map((message): ResponseInputMessage => ({
           role: message.role === "user" ? "user" : "assistant",
-          content: message.role === "tool" ? `画布工具结果：${message.text}` : message.text + describeAgentReferences(message.references || []),
+          content: message.role === "tool" ? `画布工具结果：${message.text}` : message.text + describeAgentReferences(message.references || []) + describeAgentDocuments(message.documents),
         }));
-      const content = isStudio ? text : await buildAgentReferenceContent(
-        `当前画布：${JSON.stringify(compactCanvasAgentSnapshot(snapshotRef.current))}\n\n用户需求：${text}`,
+      const textWithDocuments = text + describeAgentDocuments(documents);
+      const content = isStudio ? textWithDocuments : await buildAgentReferenceContent(
+        `当前画布：${JSON.stringify(compactCanvasAgentSnapshot(snapshotRef.current))}\n\n用户需求：${textWithDocuments}`,
         references,
         signal,
       );
@@ -750,6 +762,7 @@ export default function AgentPanel({
   };
 
   const disconnect = () => {
+    documentAttachments.clear();
     conversationEpochRef.current += 1;
     interruptedRef.current = true;
     turnIdRef.current += 1;
@@ -792,12 +805,9 @@ export default function AgentPanel({
     setOpenMenu(null);
   };
 
-  // 上传附件：前端占位，先把文件名作为引用插入输入框，待后端上传接口适配
   const handleAttachFile = (files: FileList | null) => {
     if (!files?.length) return;
-    const names = Array.from(files).map((file) => file.name);
-    setPrompt((prev) => `${prev}${prev && !prev.endsWith(" ") ? " " : ""}${names.map((n) => `@[附件:${n}]`).join(" ")} `);
-    toast.success(`已附加 ${names.join("、")}（待后端适配上传）`);
+    void documentAttachments.add(Array.from(files));
     setOpenMenu(null);
   };
 
@@ -810,6 +820,7 @@ export default function AgentPanel({
   const outputNodes = snapshot.nodes.filter((node) => node.imageSrc || node.imageAssetId);
 
   const newConversation = () => {
+    documentAttachments.clear();
     setReferenceNodeIds([]);
     localTurnReferencesRef.current = [];
     conversationEpochRef.current += 1;
@@ -827,6 +838,7 @@ export default function AgentPanel({
   };
 
   const switchConversation = (conv: AgentConversation) => {
+    documentAttachments.clear();
     setReferenceNodeIds([]);
     localTurnReferencesRef.current = [];
     conversationEpochRef.current += 1;
@@ -1057,6 +1069,7 @@ export default function AgentPanel({
         </div>
       ) : (
         <div className="agent-chat">
+          <div ref={listRef} className={`agent-messages${messages.length ? "" : " is-welcome"}`}>
           {/* 欢迎消息 */}
           {messages.length === 0 && (
             <div className="agent-welcome">
@@ -1098,7 +1111,6 @@ export default function AgentPanel({
           )}
 
           {/* 消息列表 */}
-          <div ref={listRef} className="agent-messages">
             {messages.map((m) => (
               <div key={m.id} className={`agent-msg agent-msg-${m.role}`}>
                 <div className="agent-msg-avatar" aria-hidden="true">
@@ -1106,6 +1118,7 @@ export default function AgentPanel({
                 </div>
                 <div className="agent-msg-content">
                   <AgentReferenceStrip references={m.references || []} />
+                  <AgentDocumentStrip documents={m.documents || []} />
                   <p>{m.text}</p>
                   {m.role === "user" && m.text.trim() ? (
                     <button
@@ -1153,7 +1166,10 @@ export default function AgentPanel({
           <AgentReferenceStrip references={draftReferences} onRemove={nodeId => {
             setReferenceNodeIds(previous => previous.filter(id => id !== nodeId));
           }} />
-          <div className="agent-composer">
+          <div className="agent-composer"
+            onDragOver={event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "copy"; } }}
+            onDrop={event => { if (event.dataTransfer.files.length) { event.preventDefault(); event.stopPropagation(); void documentAttachments.add(Array.from(event.dataTransfer.files)); } }}>
+            <AgentDocumentStrip documents={documentAttachments.drafts} onRemove={documentAttachments.remove} />
             <textarea
               ref={composerRef}
               value={prompt}
@@ -1171,6 +1187,8 @@ export default function AgentPanel({
             <input
               ref={fileInputRef}
               type="file"
+              accept={AGENT_DOCUMENT_ACCEPT}
+              aria-label="导入文档附件"
               multiple
               hidden
               onChange={(e) => { handleAttachFile(e.target.files); e.target.value = ""; }}
@@ -1201,9 +1219,9 @@ export default function AgentPanel({
                           {!isStudio && <button type="button" className="agent-plus-item" onClick={() => setPlusView("canvas")}>
                             <ImageIcon size={14} /> <span>从画布添加</span> <ChevronRight size={13} />
                           </button>}
-                          {!isStudio && <button type="button" className="agent-plus-item" onClick={() => fileInputRef.current?.click()}>
+                          <button type="button" className="agent-plus-item" onClick={() => fileInputRef.current?.click()}>
                             <Paperclip size={14} /> <span>上传附件</span>
-                          </button>}
+                          </button>
                           <button type="button" className="agent-plus-item" onClick={() => setPlusView("skills")}>
                             <Puzzle size={14} /> <span>技能</span> <ChevronRight size={13} />
                           </button>
@@ -1375,7 +1393,7 @@ export default function AgentPanel({
                   type="button"
                   className="agent-send-btn"
                   onClick={() => void sendPrompt()}
-                  disabled={(channel === "online" && !effectiveModel) || (channel === "local" && (!connected || busy)) || !prompt.trim()}
+                  disabled={documentAttachments.blocked || (channel === "online" && !effectiveModel) || (channel === "local" && (!connected || busy)) || (!prompt.trim() && !documentAttachments.documents.length)}
                   aria-label="发送"
                   title={busy ? "发送补充要求" : "发送"}
                 >

@@ -197,6 +197,7 @@ function createHarness(
   controller.updateBindings(bindings);
   return {
     controller,
+    bindings,
     get nodes() { return nodes; },
     get edges() { return edges; },
     setEdges(next: CanvasEdgeData[]) { edges = next; },
@@ -217,6 +218,170 @@ describe("CanvasGenerationJobsController", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it.each(["image", "video"] as const)("shows %s retry preparation immediately and ignores duplicate clicks while references load", async kind => {
+    let release!: (url: string) => void;
+    const referenceReady = new Promise<string>(resolve => { release = resolve; });
+    const services = videoHistoryServices();
+    services.getAssetContentObjectUrl = vi.fn(() => referenceReady);
+    services.fetchBlob = vi.fn(async () => new Blob(["image"], { type: "image/png" }));
+    services.readImageMetadata = vi.fn(async () => ({ width: 512, height: 512 }));
+    services.generateImages = vi.fn(async () => ({ images: [{ id: "result", assetId: "result", src: "" }] }));
+    const node = (kind === "image" ? imageNode : videoNode)({ metadata: {
+      status: "error", errorDetails: "failed", prompt: "Retry @[node:reference]",
+      referenceInputs: [{ nodeId: "reference", title: "Reference", assetId: "reference-asset", assetScope: "personal", name: "reference.png", contentType: "image/png" }],
+    } });
+    const harness = createHarness([node, imageNode({ id: "reference", imageAssetId: "reference-asset" })], services);
+    const retry = kind === "image" ? harness.controller.retryImageNode : harness.controller.retryVideoNode;
+    const running = retry(node);
+    expect(harness.runningIds).toContain(node.id);
+    await vi.waitFor(() => expect(services.getAssetContentObjectUrl).toHaveBeenCalledTimes(1));
+    await retry(node);
+    await harness.controller.generateFromNode(node.id);
+    expect(services.getAssetContentObjectUrl).toHaveBeenCalledTimes(1);
+    expect(services.generateImages).not.toHaveBeenCalled();
+    expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
+    release("blob:reference");
+    await running;
+    expect(kind === "image" ? services.generateImages : services.createVideoGenerationTask).toHaveBeenCalledTimes(1);
+    expect(harness.runningIds.size).toBe(0);
+    expect(harness.nodes[0].metadata?.status).toBe("success");
+  });
+
+  it.each(["text", "audio", "video"] as const)("allows canceling %s retry during slow persistence without submitting later", async kind => {
+    let release!: (saved: boolean) => void;
+    const saving = new Promise<boolean>(resolve => { release = resolve; });
+    const services = createServices();
+    const node = imageNode({ kind, metadata: { status: "error", prompt: "Retry prompt", generationMode: kind } });
+    const harness = createHarness([node], services);
+    harness.persistSnapshot.mockImplementationOnce(() => saving);
+    const retry = { text: harness.controller.retryTextNode, audio: harness.controller.retryAudioNode, video: harness.controller.retryVideoNode }[kind];
+    const running = retry(node);
+    expect(harness.runningIds).toContain(node.id);
+    await vi.waitFor(() => expect(harness.persistSnapshot).toHaveBeenCalledTimes(1));
+    await retry(node);
+    expect(harness.persistSnapshot).toHaveBeenCalledTimes(1);
+    harness.controller.stopGenerationByNodeId(node.id);
+    expect(harness.runningIds.size).toBe(0);
+    expect(harness.nodes[0].metadata?.status).toBe("error");
+    release(true);
+    await running;
+    expect(services.requestAiText).not.toHaveBeenCalled();
+    expect(services.requestAudioGeneration).not.toHaveBeenCalled();
+    expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
+  });
+
+  it("cancels slow image references immediately and a stale completion cannot release the next retry", async () => {
+    const releases: Array<(url: string) => void> = [];
+    const signals: AbortSignal[] = [];
+    const services = createServices({
+      getAssetContentObjectUrl: vi.fn((_id, _scope, _options, signal) => {
+        signals.push(signal!);
+        return new Promise<string>(resolve => { releases.push(resolve); });
+      }),
+      fetchBlob: vi.fn(async () => new Blob(["image"], { type: "image/png" })),
+      generateImages: vi.fn(async () => ({ images: [{ id: "result", assetId: "result", src: "" }] })),
+    });
+    const node = imageNode({ metadata: { status: "error", prompt: "Retry", sourceNodeId: "deleted-source",
+      referenceInputs: [{ nodeId: "removed-reference", title: "Reference", assetId: "ref", assetScope: "personal", name: "ref.png", contentType: "image/png" }],
+    } });
+    const harness = createHarness([node], services);
+    const old = harness.controller.retryImageNode(node);
+    expect(harness.runningIds).toContain(node.id);
+    harness.controller.stopGenerationByNodeId(node.id);
+    expect(signals[0].aborted).toBe(true);
+    expect(harness.runningIds.size).toBe(0);
+    const current = harness.controller.retryImageNode(node);
+    releases[0]("blob:old");
+    await old;
+    expect(harness.runningIds).toContain(node.id);
+    expect(services.generateImages).not.toHaveBeenCalled();
+    releases[1]("blob:current");
+    await current;
+    expect(services.generateImages).toHaveBeenCalledTimes(1);
+    expect(harness.runningIds.size).toBe(0);
+  });
+
+  it.each(["text", "audio"] as const)("does not leave %s loading if a canvas switch starts during retry saving", async kind => {
+    let release!: (saved: boolean) => void;
+    const saving = new Promise<boolean>(resolve => { release = resolve; });
+    const services = createServices();
+    const node = imageNode({ kind, metadata: { status: "error", prompt: "Retry", generationMode: kind } });
+    const harness = createHarness([node], services);
+    harness.persistSnapshot.mockImplementationOnce(() => saving);
+    const running = (kind === "text" ? harness.controller.retryTextNode : harness.controller.retryAudioNode)(node);
+    harness.bindings.isSwitching = () => true;
+    harness.controller.abortAllGenerationRequests();
+    release(true);
+    await running;
+    expect(harness.nodes[0].metadata?.status).toBe("error");
+    expect(harness.runningIds.size).toBe(0);
+    expect(services.requestAiText).not.toHaveBeenCalled();
+    expect(services.requestAudioGeneration).not.toHaveBeenCalled();
+  });
+
+  it.each(["cancel", "switch", "remove"] as const)("does not submit a video after %s while asset mentions resolve", async action => {
+    let release!: () => void;
+    const assetReady = new Promise<void>(resolve => { release = resolve; });
+    const services = createServices({ getAsset: vi.fn(async () => { await assetReady; return { id: "ref", type: "image", name: "Reference" }; }) });
+    const node = videoNode({ metadata: { status: "error", prompt: "Retry @[asset:ref]" } });
+    const harness = createHarness([node], services);
+    const running = harness.controller.retryVideoNode(node);
+    expect(harness.runningIds).toContain(node.id);
+    await vi.waitFor(() => expect(services.getAsset).toHaveBeenCalledOnce());
+    if (action === "cancel") harness.controller.stopGenerationByNodeId(node.id);
+    if (action === "switch") {
+      harness.controller.abortAllGenerationRequests();
+      harness.bindings.getProjectKey = () => "personal:project-2";
+    }
+    if (action === "remove") harness.controller.cancelForRemovedNodes(new Set([node.id]));
+    expect(harness.runningIds.size).toBe(0);
+    release();
+    await running;
+    expect(services.getAssetContentObjectUrl).not.toHaveBeenCalled();
+    expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
+    expect(harness.persistSnapshot).toHaveBeenCalledTimes(action === "cancel" ? 1 : 0);
+    expect(harness.bindings.mergeCanvasAssets).not.toHaveBeenCalled();
+  });
+
+  it("reports failed reference loading, persists the error and releases the retry lock", async () => {
+    const services = createServices({ getAssetContentObjectUrl: vi.fn(async () => { throw new Error("Reference unavailable"); }) });
+    const node = imageNode({ metadata: { status: "error", prompt: "Retry", referenceInputs: [
+      { nodeId: "ref", title: "Reference", assetId: "ref", assetScope: "personal", name: "ref.png", contentType: "image/png" },
+    ] } });
+    const harness = createHarness([node], services);
+    await harness.controller.retryImageNode(node);
+    expect(harness.nodes[0].metadata?.errorDetails).toContain("Reference unavailable");
+    expect(harness.onError).toHaveBeenCalledOnce();
+    expect(harness.persistSnapshot).toHaveBeenCalledOnce();
+    expect(harness.runningIds.size).toBe(0);
+    await harness.controller.retryImageNode(node);
+    expect(services.getAssetContentObjectUrl).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows preparation on a batch root and cancels all pending children without changing completed results", async () => {
+    let release!: (url: string) => void;
+    const referenceReady = new Promise<string>(resolve => { release = resolve; });
+    const services = createServices({
+      getAssetContentObjectUrl: vi.fn(() => referenceReady),
+      fetchBlob: vi.fn(async () => new Blob(["image"], { type: "image/png" })),
+    });
+    const root = imageNode({ id: "root", imageAssetId: "completed", metadata: { isBatchRoot: true, batchChildIds: ["child"], status: "success", ownAssetId: "completed" } });
+    const child = imageNode({ id: "child", metadata: { batchRootId: "root", status: "error", prompt: "Retry", referenceInputs: [
+      { nodeId: "ref", title: "Reference", assetId: "ref", assetScope: "personal", name: "ref.png", contentType: "image/png" },
+    ] } });
+    const harness = createHarness([root, child], services);
+    const running = harness.controller.retryImageNode(root);
+    expect(harness.runningIds).toEqual(new Set(["child", "root"]));
+    await harness.controller.retryImageNode(root);
+    expect(services.getAssetContentObjectUrl).toHaveBeenCalledOnce();
+    harness.controller.stopGenerationByNodeId(root.id);
+    expect(harness.runningIds.size).toBe(0);
+    release("blob:reference");
+    await running;
+    expect(services.generateImages).not.toHaveBeenCalled();
+    expect(harness.nodes[0].imageAssetId).toBe("completed");
   });
 
   it("keeps explicit image choices separate from default nodes and Agent batches", async () => {
@@ -476,6 +641,61 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.nodes[1].imageAssetId).toBe(completedAssetId);
     expect(new Set(harness.nodes.map(node => node.imageAssetId)).size).toBe(4);
     expect(harness.nodes[0].metadata?.batchStatus).toBe("success");
+  });
+
+  it.each(["image", "video", "text", "audio"] as const)("shows queued %s generation and cancels it without submitting another job", async kind => {
+    let signal: AbortSignal | undefined;
+    const wait = (currentSignal?: AbortSignal, onWaiting?: (waiting: boolean) => void) => new Promise<never>((_resolve, reject) => {
+      signal = currentSignal;
+      onWaiting?.(true);
+      currentSignal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    });
+    const services = createServices({
+      generateImages: vi.fn((_input, options) => wait(options?.signal, options?.onWaiting)),
+      createVideoGenerationTask: vi.fn((_config, _prompt, _references, options) => wait(options?.signal, options?.onWaiting)),
+      requestAiText: vi.fn((_input, currentSignal, onWaiting) => wait(currentSignal, onWaiting)),
+      requestAudioGeneration: vi.fn((_config, _prompt, options) => wait(options?.signal, options?.onWaiting)),
+    });
+    const node = imageNode({ kind, metadata: { prompt: "海景", generationMode: kind, count: 1 } });
+    const harness = createHarness([node], services);
+    const pending = harness.controller.generateFromNode(node.id);
+    await vi.waitFor(() => expect(harness.nodes.some(item => item.metadata?.generationQueued)).toBe(true));
+    expect(harness.onError).not.toHaveBeenCalled();
+    harness.controller.stopGenerationByNodeId(node.id);
+    await pending;
+    expect(signal?.aborted).toBe(true);
+    expect(harness.runningIds.size).toBe(0);
+    expect(services.cancelJob).not.toHaveBeenCalled();
+  });
+
+  it("grows an existing image batch beyond four and retains old results when the next count shrinks", async () => {
+    let sequence = 0;
+    const generateImages = vi.fn(async () => ({ images: [{ id: `asset-${++sequence}`, assetId: `asset-${sequence}`, src: "" }] }));
+    const services = createServices({ generateImages: generateImages as CanvasGenerationServices["generateImages"] });
+    const harness = createHarness([imageNode({ metadata: { prompt: "海景", count: 4 } })], services);
+    await harness.controller.generateImageFromNode("image-1");
+    expect(harness.nodes).toHaveLength(4);
+    const initialIds = harness.nodes.map(node => node.id);
+    harness.bindings.setNodes(harness.nodes.map(node => node.id === "image-1" ? { ...node, metadata: { ...node.metadata, count: 15 } } : node));
+    await harness.controller.generateImageFromNode("image-1");
+    expect(generateImages).toHaveBeenCalledTimes(19);
+    expect(harness.nodes).toHaveLength(15);
+    expect(harness.nodes.every(node => node.metadata?.status === "success")).toBe(true);
+    expect(harness.nodes[0].metadata?.batchChildIds).toHaveLength(14);
+    for (const id of initialIds) {
+      const node = harness.nodes.find(item => item.id === id)!;
+      expect(node.metadata?.generationRevisions).toHaveLength(1);
+    }
+    const previousAssets = new Map(harness.nodes.map(node => [node.id, node.imageAssetId]));
+    harness.bindings.setNodes(harness.nodes.map(node => node.id === "image-1" ? { ...node, metadata: { ...node.metadata, count: 1 } } : node));
+    await harness.controller.generateImageFromNode("image-1");
+    expect(generateImages).toHaveBeenCalledTimes(20);
+    expect(harness.nodes).toHaveLength(15);
+    expect(harness.nodes[0].metadata?.isBatchRoot).toBeUndefined();
+    for (const node of harness.nodes.slice(1)) {
+      expect(node.metadata?.batchRootId).toBeUndefined();
+      expect(node.imageAssetId).toBe(previousAssets.get(node.id));
+    }
   });
 
   it("空图片节点无需参考图即可在原节点完成生成", async () => {

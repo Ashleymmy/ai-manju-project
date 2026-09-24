@@ -74,6 +74,7 @@ func openPostgres(dsn string, pool *PoolConfig) (*gorm.DB, error) {
 		&model.CanvasSnapshot{},
 		&model.ModelProviderConfig{},
 		&model.AIRequestLog{},
+		&model.RuntimeError{},
 		&model.SystemAnnouncement{},
 		&model.SystemAnnouncementRead{},
 		&model.Job{},

@@ -51,8 +51,9 @@ export function persistAgentConversations(
       agentConversationStorageKey(projectId),
       JSON.stringify(conversations.slice(0, MAX_SAVED_AGENT_CONVERSATIONS)),
     );
+    return true;
   } catch {
-    // 存储失败（如配额不足）时静默降级，仅保留内存态。
+    return false;
   }
 }
 

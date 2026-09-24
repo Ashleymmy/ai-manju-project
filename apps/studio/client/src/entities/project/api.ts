@@ -1,4 +1,5 @@
 import type { CanvasProject, CanvasSnapshotResponse } from "./model";
+import { projectSummary } from "./model";
 import { request } from "@/shared/api/http";
 import type { WorkspaceScope } from "@/shared/config";
 
@@ -9,6 +10,19 @@ export function getProjects(scope: WorkspaceScope = "personal") {
     "/api/projects",
     { query: { scope } }
   );
+}
+
+export async function getProjectSummaries(scope: WorkspaceScope = "personal", signal?: AbortSignal) {
+  const result = await request<CanvasProject[] | { items: CanvasProject[]; total: number }>(
+    "/api/projects", { query: { scope, include_data: false }, signal },
+  );
+  const items = Array.isArray(result) ? result : result?.items;
+  // A broken response must not masquerade as an empty workspace.
+  if (!Array.isArray(items) || items.some(item => !item || typeof item.id !== "string" || typeof item.title !== "string")) {
+    throw new Error("画布列表返回异常，请重试");
+  }
+  // Older servers can ignore include_data; never cache their full snapshots here.
+  return items.map(projectSummary);
 }
 export function createProject(
   payload: Pick<CanvasProject, "title"> & {

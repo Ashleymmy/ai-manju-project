@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from time import monotonic
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -11,6 +12,7 @@ from .assets import register_result_assets
 from .config import load_settings
 from .db import JOB_STATUS_CANCELED, JOB_STATUS_FAILED, JOB_STATUS_SUCCEEDED, JobStore, json_compatible
 from .errors import SafeTaskError, error_payload, job_canceled_error
+from .monitoring import attempt_event
 from .generation_failover import PROVIDER_CANDIDATES_FIELD, generation_attempt, is_provider_failure, unavailable_error
 from .image_output_validation import validate_canvas_image_outputs
 from .image_requirements import ImageParameterError
@@ -137,6 +139,7 @@ def execute_job(
     asset_type: str,
 ) -> dict[str, Any]:
     store = JobStore(settings.database_url)
+    attempt_started = monotonic()
     with store.job_lock(job_id) as lock:
         if not lock.acquired:
             return {"job_id": job_id, "status": "already_locked"}
@@ -250,6 +253,13 @@ def execute_job(
                 log_job("job_canceled", job_id)
                 return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
             payload_error = error_payload(exc)
+            record_error = getattr(store, "record_monitoring_error", None)
+            if callable(record_error):
+                try:
+                    record_error(attempt_event(job, payload, {**payload_error, "message": str(exc)}, int((monotonic() - attempt_started) * 1000)))
+                except Exception:
+                    # Diagnostics must never replace a generation outcome or retry.
+                    log_job("monitoring_write_failed", job_id)
             if not generation_completed and isinstance(exc, SafeTaskError) and exc.code == "provider_rate_limited" and provider_throttle_can_wait(job):
                 delay = max(PROVIDER_THROTTLE_RETRY_SECONDS, exc.retry_after_seconds or 0)
                 if gate is not None:

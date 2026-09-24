@@ -9,7 +9,7 @@ import type { ProjectCoverPickerDialog } from "@/components/ProjectCoverPickerDi
 import type { CanvasProject } from "@/entities/project";
 
 const mocks = vi.hoisted(() => ({
-  getProjects: vi.fn(),
+  getProjectSummaries: vi.fn(),
   updateProject: vi.fn(),
   deleteProject: vi.fn(),
   getPreferences: vi.fn(),
@@ -32,8 +32,10 @@ vi.mock("sonner", () => ({
     error: mocks.error,
   },
 }));
-vi.mock("@/entities/project", () => ({
-  getProjects: mocks.getProjects,
+vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: { id: "qa" } }) }));
+vi.mock("@/entities/project/api", async importOriginal => ({
+  ...await importOriginal<typeof import("@/entities/project/api")>(),
+  getProjectSummaries: mocks.getProjectSummaries,
   updateProject: mocks.updateProject,
   deleteProject: mocks.deleteProject,
   getProject: mocks.getProject,
@@ -145,10 +147,7 @@ describe.each([
       created_at: "2026-09-20T00:00:00Z",
       updated_at: "2026-09-20T00:00:00Z",
     }));
-    mocks.getProjects.mockImplementation(async () => ({
-      items: [...projects],
-      total: projects.length,
-    }));
+    mocks.getProjectSummaries.mockImplementation(async () => [...projects]);
     let preferences: any = { canvas: { projectGroups: {} } };
     mocks.getPreferences.mockImplementation(async () => structuredClone(preferences));
     mocks.updatePreferences.mockImplementation(async patch => { preferences = { canvas: patch.canvas }; return structuredClone(preferences); });
@@ -197,6 +196,34 @@ describe.each([
     expect(container.querySelector("button button")).toBeNull();
     await click(card().querySelector<HTMLButtonElement>(".project-card")!);
     expect(mocks.navigate).toHaveBeenCalledWith("/canvas/project-1");
+  });
+
+  it("shows a retryable load failure instead of an empty workspace and recovers the projects", async () => {
+    mocks.getProjectSummaries.mockRejectedValue(new Error("请求超时或已取消"));
+    await mount();
+    expect(container.textContent).toContain("项目列表暂时无法加载");
+    expect(container.textContent).not.toContain("还没有画布项目");
+    expect(container.textContent).not.toContain("创建第一张画布");
+    if (name === "archive") expect(container.querySelector(".project-group-tabs")?.textContent).toContain("全部 —");
+    mocks.getProjectSummaries.mockResolvedValue([...projects]);
+    await click(container.querySelector<HTMLButtonElement>(".project-list-feedback button")!);
+    expect(container.querySelectorAll(".project-card-wrap")).toHaveLength(visibleCount);
+    expect(container.querySelector(".project-list-feedback")).toBeNull();
+  });
+
+  it("keeps loaded cards when a background refresh fails", async () => {
+    await mount();
+    mocks.getProjectSummaries.mockRejectedValue(new Error("请求超时或已取消"));
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ["projects", "list", "personal"] }); });
+    await flush();
+    expect(container.querySelectorAll(".project-card-wrap")).toHaveLength(visibleCount);
+    expect(container.textContent).toContain("已保留上次加载的项目");
+    expect(container.textContent).not.toContain("还没有画布项目");
+  });
+
+  it("shares a single in-flight metadata request with workspace statistics", async () => {
+    await mount();
+    expect(mocks.getProjectSummaries).toHaveBeenCalledTimes(1);
   });
 
   it("persists the selected card's trimmed name and refreshes it without navigating", async () => {
@@ -379,9 +406,8 @@ describe.each([
       await click(
         card(1).querySelector<HTMLInputElement>('input[type="checkbox"]')!
       );
-      const bulkDelete = container.querySelector<HTMLButtonElement>(
-        ".project-bulk-bar button"
-      )!;
+      const bulkDelete = [...container.querySelectorAll<HTMLButtonElement>(".project-bulk-bar button")]
+        .find(button => button.textContent?.includes("删除选中"))!;
       await click(bulkDelete);
       expect(container.querySelectorAll("input:checked")).toHaveLength(2);
       expect(mocks.deleteProject).not.toHaveBeenCalled();

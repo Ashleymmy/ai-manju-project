@@ -28,6 +28,7 @@ import (
 
 	"github.com/ai-manju/api/internal/auth"
 	"github.com/ai-manju/api/internal/model"
+	"github.com/ai-manju/api/internal/monitoring"
 	"github.com/ai-manju/api/internal/provider"
 	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/response"
@@ -479,6 +480,17 @@ func (h *AIHandler) enqueueAIJob(c *gin.Context, jobType string, payload model.J
 	var stablePayload model.JSONB
 	if len(idempotencyPayload) > 0 {
 		stablePayload = idempotencyPayload[0]
+	}
+	// Correlation metadata must not change the payload used for deduplication.
+	if len(stablePayload) == 0 {
+		stablePayload = payload
+	}
+	var metadata map[string]any
+	if json.Unmarshal(payload, &metadata) == nil && metadata != nil {
+		metadata["request_id"] = response.RequestID(c)
+		if correlated, marshalErr := json.Marshal(metadata); marshalErr == nil {
+			payload = model.JSONB(correlated)
+		}
 	}
 	result, err := h.jobs.Enqueue(c.Request.Context(), service.EnqueueJobInput{
 		UserID:             user.ID,
@@ -1561,18 +1573,26 @@ func (h *AIHandler) recordAIRequest(c *gin.Context, input aiRequestLogInput) {
 	}
 	logEntry, operation, requestID := buildAIRequestLog(c, input)
 	if err := h.monitoringRepo.CreateAIRequestLog(logEntry); err != nil {
-		log.Printf("request_id=%s operation=%s monitoring_log_error=%v", requestID, operation, err)
+		log.Printf("request_id=%s operation=%s event=monitoring_log_error", requestID, operation)
+	} else {
+		c.Set(monitoring.AIRecordedKey, true)
 	}
 }
 
 func (h *AIHandler) recordAIRequestAsync(c *gin.Context, input aiRequestLogInput) {
+	// Failures must be persisted before middleware decides whether to fall back.
+	if input.Err != nil {
+		h.recordAIRequest(c, input)
+		return
+	}
 	if h.monitoringRepo == nil {
 		return
 	}
 	logEntry, operation, requestID := buildAIRequestLog(c, input)
+	c.Set(monitoring.AIRecordedKey, true)
 	go func() {
 		if err := h.monitoringRepo.CreateAIRequestLog(logEntry); err != nil {
-			log.Printf("request_id=%s operation=%s monitoring_log_error=%v", requestID, operation, err)
+			log.Printf("request_id=%s operation=%s event=monitoring_log_error", requestID, operation)
 		}
 	}()
 }
@@ -1630,9 +1650,9 @@ func buildAIRequestLog(c *gin.Context, input aiRequestLogInput) (model.AIRequest
 		InputCount:      input.InputCount,
 		OutputCount:     input.OutputCount,
 		EstimatedUnits:  estimatedUnits(operation, input.InputCount, input.OutputCount),
-		ErrorMessage:    errorMessage,
-		ErrorReason:     errorReason,
-		ErrorSuggestion: errorSuggestion,
+		ErrorMessage:    monitoring.SafeText(errorMessage),
+		ErrorReason:     monitoring.SafeText(errorReason),
+		ErrorSuggestion: monitoring.SafeText(errorSuggestion),
 		CreatedAt:       startedAt,
 	}
 	return logEntry, endpoint, requestID

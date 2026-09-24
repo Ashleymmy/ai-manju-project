@@ -41,13 +41,23 @@ func (h *ProjectHandler) GetProjects(c *gin.Context) {
 	}
 
 	scope := requestWorkspaceScope(c)
-	projects, err := h.projects.List(user.ID, scope)
+	// Opt in to metadata-only reads; existing clients still receive full data.
+	list := h.projects.List
+	summariesOnly := c.Query("include_data") == "false"
+	if summariesOnly {
+		list = h.projects.ListSummaries
+	}
+	projects, err := list(user.ID, scope)
 	if err != nil {
 		logRepositoryError(c, "list projects", err)
 		response.Error(c, 500, err.Error())
 		return
 	}
 
+	if summariesOnly {
+		response.OK(c, projectSummaryResponses(projects))
+		return
+	}
 	response.OK(c, projectResponses(projects))
 }
 

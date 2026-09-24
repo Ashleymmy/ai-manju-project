@@ -15,13 +15,17 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: mocks.user, logout: vi.fn() }) }));
 vi.mock("wouter", () => ({ useLocation: () => ["/chat", mocks.navigate] }));
 vi.mock("@/shared/api/http", () => ({ request: mocks.request }));
-vi.mock("@/entities/project", () => ({
-  getProjects: async () => [],
+vi.mock("@/entities/project", async importOriginal => ({
+  ...await importOriginal<typeof import("@/entities/project")>(),
   createProject: mocks.createProject,
   setCanvasBootstrap: mocks.bootstrap,
 }));
+vi.mock("@/entities/project/api", async importOriginal => ({
+  ...await importOriginal<typeof import("@/entities/project/api")>(),
+  getProjectSummaries: async () => [],
+}));
 vi.mock("@/features/projects", () => ({
-  useProjectCoverUrls: () => ({}), ProjectCard: () => null, projectToCard: vi.fn(),
+  useProjectCoverUrls: () => ({}), ProjectCard: () => null, ProjectListFeedback: () => null, projectToCard: vi.fn(),
 }));
 
 import ChatPage from "./ChatPage";

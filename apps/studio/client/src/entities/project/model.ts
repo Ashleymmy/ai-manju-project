@@ -20,3 +20,10 @@ export type CanvasSnapshotResponse = {
   created_at: string;
   updated_at: string;
 };
+
+/** Listing metadata is never a source for editable canvas snapshots. */
+export type CanvasProjectSummary = Omit<CanvasProject, "data">;
+
+export function projectSummary({ data: _data, ...summary }: CanvasProject): CanvasProjectSummary {
+  return summary;
+}

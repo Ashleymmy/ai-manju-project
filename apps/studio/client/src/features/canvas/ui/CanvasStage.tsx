@@ -380,7 +380,7 @@ export function CanvasStage({
                     <div className="canvas-group-pending-actions" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
                       <span>已框选 {group.nodeIds.length} 个节点</span>
                       <button type="button" onClick={() => confirmPendingGroup(group.id)}>组成分组</button>
-                      <button type="button" disabled={batchDownloadBusy} onClick={() => void actions.downloadSelectedNodes(group.nodeIds)}><Download size={12} />{batchDownloadBusy ? "打包中…" : "批量下载"}</button>
+                      <button type="button" disabled={batchDownloadBusy} onClick={() => void actions.downloadSelectedNodes(group.nodeIds)}>{batchDownloadBusy ? "打包中…" : "批量下载"}</button>
                       <button type="button" onClick={() => cancelPendingGroup(group.id)}>取消</button>
                     </div>
                   ) : null}

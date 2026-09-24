@@ -39,6 +39,22 @@ function apiResponse(data: unknown, status = 200) {
 }
 
 describe("video API", () => {
+  it.each(["sdvideo/seedance-2.0", "provider::video-v1"])("waits for %s admission using the same idempotency key", async model => {
+    vi.useFakeTimers();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: false, error: "当前视频任务并发已达上限，请等待进行中的任务完成后重试" }), { status: 429 }))
+      .mockResolvedValueOnce(apiResponse({ id: "job-admitted", job_id: "job-admitted" }));
+    const onWaiting = vi.fn();
+    const result = createVideoGenerationTask({ ...config, model }, "镜头", undefined, { onWaiting });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await result).toMatchObject({ id: "job-admitted" });
+    const keys = vi.mocked(fetch).mock.calls.map(([, init]) => new Headers(init?.headers).get("Idempotency-Key"));
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBe(keys[0]);
+    expect(onWaiting).toHaveBeenCalledWith(true);
+    expect(onWaiting).toHaveBeenLastCalledWith(false);
+  });
   it.each(["provider::doubao-seedance-2-5-pro", config.model, "sdvideo/seedance-2.0"])(
     "persists canvas source and workspace when submitting %s", async model => {
       vi.mocked(fetch).mockResolvedValue(apiResponse({ id: "job_accepted" }));

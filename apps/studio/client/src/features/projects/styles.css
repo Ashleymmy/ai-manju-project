@@ -1,4 +1,14 @@
 /* ---- Projects: selection & card tools ---- */
+.project-list-feedback {
+  display: flex; align-items: center; gap: 12px; margin: 12px 0 20px;
+  padding: 16px; border: 1px solid var(--border, #353738); border-radius: 8px;
+  color: var(--muted-foreground, #9ea6a2); background: var(--card, #181a1b);
+}
+.project-list-feedback > svg { flex-shrink: 0; }
+.project-list-feedback > div { flex: 1; min-width: 0; }
+.project-list-feedback strong { color: var(--foreground, #fff); font-size: var(--font-size-body); font-weight: 500; }
+.project-list-feedback p { margin: 4px 0 0; font-size: var(--font-size-small); line-height: 1.6; }
+.project-list-feedback button { flex-shrink: 0; }
 .project-bulk-bar {
   display: flex;
   align-items: center;

@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 
 import { getAssetLibrary } from "@/entities/asset";
 import { getJobs } from "@/entities/job";
-import { getProjects } from "@/entities/project";
+import { useProjectSummaries } from "@/entities/project";
+import { useAuth } from "@/contexts/AuthContext";
 import { getCollection } from "@/shared/api/http";
 
 /**
@@ -12,11 +13,13 @@ import { getCollection } from "@/shared/api/http";
  * member → profile → dashboard → member 依赖环。
  */
 export function useProfileWorkspaceStats() {
+  const { user } = useAuth();
+  const projects = useProjectSummaries("personal", user?.id || "");
   const query = useQuery({
-    queryKey: ["profile", "workspace-stats"],
+    queryKey: ["profile", "workspace-stats", user?.id],
+    enabled: Boolean(user),
     queryFn: async () => {
-      const [projects, jobs, assets] = await Promise.allSettled([
-        getProjects("personal"),
+      const [jobs, assets] = await Promise.allSettled([
         getJobs({ status: "running", page: 1, pageSize: 50 }),
         getAssetLibrary(),
       ]);
@@ -25,8 +28,8 @@ export function useProfileWorkspaceStats() {
         const collection = getCollection(result.value);
         return collection.total ?? collection.items.length;
       };
-      return { projects: totalOf(projects), jobs: totalOf(jobs), assets: totalOf(assets) };
+      return { jobs: totalOf(jobs), assets: totalOf(assets) };
     },
   });
-  return query.data ?? { projects: undefined, jobs: undefined, assets: undefined };
+  return { ...(query.data ?? { jobs: undefined, assets: undefined }), projects: projects.hasLoaded ? projects.projects.length : undefined };
 }

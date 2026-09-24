@@ -12,7 +12,7 @@ import {
   type AssetLibraryQuery,
 } from "@/entities/asset";
 import {
-  getProjects,
+  getProjectSummaries,
   projectQueryKeys,
 } from "@/entities/project";
 import {
@@ -142,8 +142,7 @@ export function useAssetProjectOptionsQuery(
   return useQuery({
     enabled,
     queryKey: [...projectQueryKeys.list(scope), "asset-send-options"] as const,
-    queryFn: () => getProjects(scope),
-    select: result => (Array.isArray(result) ? result : result.items || []),
+    queryFn: ({ signal }) => getProjectSummaries(scope, signal),
   });
 }
 

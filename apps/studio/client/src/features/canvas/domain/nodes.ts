@@ -7,6 +7,7 @@ import type {
 } from "./types";
 import { isRecord, numberValue, stringValue } from "./value";
 import { normalizeGeneratedImageTitle } from "./imageTitles";
+import { canvasNodeTitle } from "./nodeTitles";
 
 export function normalizeCanvasNodeKind(value: unknown): CanvasNodeKind {
   const kind = stringValue(value).toLowerCase();
@@ -116,7 +117,7 @@ export function normalizeCanvasNode(value: unknown): CanvasNodeData | null {
       status: normalizeNodeStatus(metadata.status),
     },
   };
-  node.title = normalizeGeneratedImageTitle(node);
+  node.title = canvasNodeTitle(normalizeGeneratedImageTitle(node));
   return node;
 }
 
@@ -142,7 +143,7 @@ export function serializeCanvasNode(node: CanvasNodeData) {
     id: node.id,
     kind: node.kind,
     type: legacyTypeForKind(node.kind),
-    title: node.title,
+    title: canvasNodeTitle(node.title),
     content: node.content,
     x: node.x,
     y: node.y,

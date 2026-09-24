@@ -276,6 +276,8 @@
   max-width: 88%;
   animation: messageSlideIn 0.3s ease-out;
 }
+.agent-messages.is-welcome { padding: 0; }
+.agent-messages .agent-welcome { flex-shrink: 0; }
 @keyframes messageSlideIn {
   from {
     opacity: 0;
@@ -423,6 +425,7 @@
 .agent-msg-content .agent-references { padding: 0 0 6px; flex-wrap: wrap; }
 
 .agent-composer {
+  flex-shrink: 0;
   margin: 10px 12px 12px;
   padding: 11px 11px 9px;
   display: flex;
@@ -438,6 +441,18 @@
   border-color: rgba(255, 255, 255, 0.75);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 12px 26px rgba(0,0,0,.36), 0 0 0 3px rgba(255,255,255,.12);
 }
+.agent-documents { display: flex; flex-direction: column; gap: 6px; max-height: 160px; overflow: auto; min-width: 0; }
+.agent-document { display: flex; align-items: flex-start; gap: 8px; min-width: 0; padding: 8px; border: 1px solid #555; border-radius: 6px; color: #e5e5e5; background: #292929; }
+.agent-document > svg { flex: 0 0 16px; margin-top: 3px; color: #8dceb2; }
+.agent-document-content { flex: 1; min-width: 0; }
+.agent-document summary { cursor: pointer; font-size: 13px; overflow-wrap: anywhere; line-height: 1.5; }
+.agent-document small { display: block; font-size: 12px; color: #b5b5b5; overflow-wrap: anywhere; }
+.agent-document.is-error small { color: #ffa69a; }
+.agent-document pre { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 100px; overflow: auto; font-family: inherit; font-size: 12px; line-height: 1.5; }
+.agent-document button { flex: 0 0 24px; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #ccc; cursor: pointer; }
+.agent-document button:hover { background: #484848; color: #fff; }
+@media (prefers-reduced-motion: no-preference) { .agent-document-loading { animation: agent-document-spin 1s linear infinite; } }
+@keyframes agent-document-spin { to { transform: rotate(360deg); } }
 .agent-composer textarea {
   width: 100%;
   padding: 2px 4px;

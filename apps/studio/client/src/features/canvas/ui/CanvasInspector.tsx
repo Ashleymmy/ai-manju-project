@@ -1,4 +1,5 @@
 import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
+import { IMAGE_GENERATION_COUNTS } from "@/shared/config/generation";
 import { imageModelSupportsDetail } from "@/entities/model/imageProtocol";
 import { videoModelCapabilities, videoOptionAvailable } from "@/entities/model/videoCapabilities";
 import { CanvasSeedanceRegistrationButton } from "./CanvasSeedanceRegistrationButton";
@@ -443,7 +444,7 @@ export function CanvasInspector({
                     ))}
                   </div>
                 ) : null}
-                <CanvasImageOutputStatus node={selectedNode} />
+                {!runningNodeIds.has(selectedNode.id) && <CanvasImageOutputStatus node={selectedNode} />}
               </div>
 
               <div className="node-card-chips">
@@ -574,8 +575,8 @@ export function CanvasInspector({
                     </PopoverTrigger>
                     <PopoverContent className="node-pop-card" align="end" sideOffset={8}>
                       <p className="eyebrow">数量 / 积分</p>
-                      <div className="param-segments">
-                        {[1, 2, 4, 6].map((count) => (
+                      <div className="param-segments canvas-generation-count-options">
+                        {IMAGE_GENERATION_COUNTS.map((count) => (
                           <button key={count} type="button" className={imageCountFromNode(selectedNode) === count ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), count } })}>×{count}</button>
                         ))}
                       </div>

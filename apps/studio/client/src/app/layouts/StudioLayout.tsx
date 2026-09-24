@@ -1,5 +1,6 @@
 import { CreditBalance } from "@/features/member";
 import {
+  Activity,
   Box,
   ChevronRight,
   Clapperboard,
@@ -121,6 +122,7 @@ const libraryNav: NavItem[] = [
 const systemNav: NavItem[] = [
   // 个人主页与会员中心均从右上角用户卡 popover 进入（账号中心弹窗），不放侧边导航。
   { label: "渲染队列", href: "/queue", icon: RadioTower },
+  { label: "运行监控", href: "/monitoring", icon: Activity },
   { label: "偏好设置", href: "/settings", icon: Settings2 },
 ];
 
@@ -134,6 +136,7 @@ export const studioPageTitles: Record<
   string,
   { code: string; title: string; subtitle: string }
 > = {
+  "/monitoring": { code: "MONITORING", title: "运行监控", subtitle: "" },
   "/dashboard": {
     code: "DESK / 01",
     title: "今日片场",
@@ -547,7 +550,7 @@ function SideFootCard({ data }: { data: WorkspaceData }) {
           />
         </div>
         <small>
-          {projectCount} 项目 · {assetCount} 资产 · {runningCount} 运行中
+          {data.projects.total ?? "—"} 项目 · {data.assets.total ?? "—"} 资产 · {data.jobs.total ?? "—"} 运行中
         </small>
       </div>
     </div>

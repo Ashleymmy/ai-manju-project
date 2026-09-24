@@ -19,6 +19,8 @@ JOB_STATUS_SUCCEEDED = "succeeded"
 JOB_STATUS_FAILED = "failed"
 JOB_STATUS_CANCELED = "canceled"
 TERMINAL_STATUSES = {JOB_STATUS_SUCCEEDED, JOB_STATUS_FAILED, JOB_STATUS_CANCELED}
+# Diagnostic failures must not hold up a business retry during a DB outage.
+MONITORING_DB_TIMEOUT_SECONDS = 2
 
 
 @dataclass
@@ -197,6 +199,21 @@ class JobStore:
                     (JOB_STATUS_QUEUED, Jsonb(error), job_id, JOB_STATUS_CANCELED),
                 )
                 return cur.fetchone()
+
+    def record_monitoring_error(self, event: dict[str, Any]) -> None:
+        # Independent insert preserves each attempt even when job.error is replaced.
+        with psycopg.connect(self.database_url, connect_timeout=MONITORING_DB_TIMEOUT_SECONDS, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT set_config('statement_timeout', %s, true)", (str(MONITORING_DB_TIMEOUT_SECONDS * 1000),))
+                cur.execute(
+                    """INSERT INTO runtime_errors
+                       (id,user_id,source,request_id,job_id,project_id,node_id,operation,model,
+                        error_code,message,detail,suggestion,attempt,retryable,duration_ms,created_at)
+                       VALUES (%(id)s,%(user_id)s,%(source)s,%(request_id)s,%(job_id)s,%(project_id)s,
+                        %(node_id)s,%(operation)s,%(model)s,%(error_code)s,%(message)s,%(detail)s,
+                        %(suggestion)s,%(attempt)s,%(retryable)s,%(duration_ms)s,%(created_at)s)
+                       ON CONFLICT (id) DO NOTHING""", event,
+                )
 
     def set_result(self, job_id: str, result: dict[str, Any]) -> dict[str, Any] | None:
         result = json_compatible(result)

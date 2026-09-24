@@ -167,6 +167,7 @@ export class CanvasGenerationJobsController {
   };
 
   readonly cancelForRemovedNodes = (removedIds: ReadonlySet<string>) => {
+    const canceledTargetIds = new Set<string>();
     this.preparations.forEach((preparation, preparationId) => {
       const relatedNodeDeleted = removedIds.has(preparation.originNodeId)
         || Boolean(preparation.targetNodeId && removedIds.has(preparation.targetNodeId))
@@ -174,8 +175,8 @@ export class CanvasGenerationJobsController {
       if (!relatedNodeDeleted) return;
       this.preparations.delete(preparationId);
       preparation.controller.abort();
+      if (preparation.targetNodeId) canceledTargetIds.add(preparation.targetNodeId);
     });
-    const canceledTargetIds = new Set<string>();
     Array.from(this.requests.values()).forEach(request => {
       if (
         !removedIds.has(request.targetNodeId)
@@ -240,6 +241,7 @@ export class CanvasGenerationJobsController {
           sourceNodeId: input.targetNodeId,
         }, {
           signal: request.controller.signal,
+          onWaiting: waiting => this.updateWaiting(request, waiting),
           onAccepted: job => {
             const active = isCurrent();
             if (!active) return;
@@ -303,7 +305,7 @@ export class CanvasGenerationJobsController {
       const response = await this.generation(() => this.services.requestAiText({
         model: input.model,
         messages: input.messages || buildCanvasTextRequestMessages(input.prompt, []),
-      }, request.controller.signal));
+      }, request.controller.signal, waiting => this.updateWaiting(request, waiting)));
       if (!isCurrent()) return false;
       const content = response.content.trim();
       if (!content) throw new Error("文本模型没有返回内容");
@@ -353,7 +355,7 @@ export class CanvasGenerationJobsController {
       const blob = await this.generation(() => this.services.requestAudioGeneration(
         config,
         input.prompt,
-        { signal: request.controller.signal },
+        { signal: request.controller.signal, onWaiting: waiting => this.updateWaiting(request, waiting) },
       ));
       if (!isCurrent()) return false;
       const contentType = blob.type.startsWith("audio/") ? blob.type : audioMimeType(config.format);
@@ -414,6 +416,7 @@ export class CanvasGenerationJobsController {
           input.prompt,
           input.references,
           { signal: request.controller.signal, projectId: this.bindings.getProjectId(),
+            onWaiting: waiting => this.updateWaiting(request, waiting),
             nodeId: this.bindings.getProjectId() ? input.targetNodeId : undefined, scope: input.scope },
         ));
         const active = isCurrent();
@@ -489,13 +492,23 @@ export class CanvasGenerationJobsController {
   };
 
   readonly stopGenerationByNodeId = (nodeId: string) => {
+    const preparations = Array.from(this.preparations.values()).filter(preparation => (
+      preparation.targetNodeId === nodeId
+      || preparation.runningNodeId === nodeId
+      || preparation.originNodeId === nodeId
+    ));
     const requests = Array.from(this.requests.values()).filter(request => (
       request.targetNodeId === nodeId
       || request.runningNodeId === nodeId
       || request.originNodeId === nodeId
     ));
-    if (!requests.length) return;
+    if (!requests.length && !preparations.length) return;
     const affected = new Set(requests.map(request => request.targetNodeId));
+    preparations.forEach(preparation => {
+      this.preparations.delete(preparation.id);
+      preparation.controller.abort();
+      if (preparation.targetNodeId) affected.add(preparation.targetNodeId);
+    });
     requests.forEach(request => {
       this.requests.delete(request.targetNodeId);
       this.forgetCanvasJob(request.targetNodeId, request.jobId);
@@ -536,6 +549,7 @@ export class CanvasGenerationJobsController {
     const projectKey = this.bindings.getProjectKey();
     if (!scope || !projectKey || this.bindings.isSwitching()) return;
     const currentNodes = this.bindings.getNodes();
+    node = currentNodes.find(item => item.id === node.id) || node;
     const targetNodes = node.metadata?.isBatchRoot
       ? currentNodes.filter(item => (
         (item.id === node.id || node.metadata?.batchChildIds?.includes(item.id))
@@ -546,81 +560,64 @@ export class CanvasGenerationJobsController {
       this.bindings.onMessage("没有需要重试的失败结果");
       return;
     }
-    await Promise.allSettled(targetNodes.map(async target => {
+    await Promise.allSettled(targetNodes.map(target => this.withRetryPreparation(target, projectKey, async preparation => {
       const snapshots = imageReferenceSnapshots(target.metadata?.referenceInputs);
       const sourceNodeId = stringValue(target.metadata?.sourceNodeId) || target.id;
-      const preparation = this.startPreparation({
-        projectKey,
-        originNodeId: sourceNodeId,
-        targetNodeId: target.id,
-        referenceNodeIds: snapshots
-          .map(snapshot => snapshot.nodeId)
-          .filter(nodeId => currentNodes.some(item => item.id === nodeId)),
-      });
-      let files: File[];
-      try {
-        files = await this.filesFromReferenceSnapshots(snapshots, scope, preparation.controller.signal);
-      } catch (error) {
-        if (isAbortError(error) || this.bindings.getProjectKey() !== projectKey) return;
-        const message = publicApiError(error, "参考图已失效，无法重试");
-        this.updateNodes(current => failGeneratedImageTarget(current, target.id, message));
-        return;
-      } finally {
-        this.finishPreparation(preparation.id);
-      }
+      preparation.referenceNodeIds = snapshots.map(snapshot => snapshot.nodeId)
+        .filter(nodeId => currentNodes.some(item => item.id === nodeId));
+      const files = await this.filesFromReferenceSnapshots(snapshots, scope, preparation.controller.signal);
       if (!this.preparationIsCurrent(preparation)) return;
       const prompt = stringValue(target.metadata?.prompt) || target.content;
       const slot = canvasImageBatchSlot(this.bindings.getNodes(), target.id);
       const seed = randomImageGenerationSeed();
-      const releaseStarting = this.trackStartingTargets([target.id]);
-      try {
-        const next = this.updateNodes(current => {
-          let mapped = current.map(item => item.id === target.id ? {
-            ...item,
-            title: "重新生成中…",
-            imageAssetId: undefined,
-            imageSrc: undefined,
-            metadata: {
-              ...item.metadata,
-              assetId: undefined,
-              content: prompt,
-              status: "loading" as const,
-              errorDetails: undefined,
-              jobId: undefined,
-              ownAssetId: undefined,
-              ownImageSrc: undefined,
-              ...(Number.isFinite(seed) ? { seed } : {}),
-            },
-          } : item);
-          const rootId = stringValue(target.metadata?.batchRootId)
-            || (target.metadata?.isBatchRoot ? target.id : "");
-          if (rootId) mapped = refreshImageBatchRoot(mapped, rootId);
-          return mapped;
-        });
-        void this.persist(next);
-        await this.runImageTarget({
-          targetNodeId: target.id,
-          originNodeId: sourceNodeId,
-          runningNodeId: stringValue(target.metadata?.batchRootId) || target.id,
-          projectKey,
-          scope,
-          prompt,
-          requestPrompt: diversifyCanvasBatchImagePrompt(prompt, slot.index, slot.count, seed),
-          seed,
-          model: modelFromNode(target, this.bindings.getImageModel()),
-          ...canvasImageGenerationSettings(target, undefined, modelFromNode(target, this.bindings.getImageModel())),
-          referenceFiles: files,
-        });
-      } finally {
-        releaseStarting();
-      }
-    }));
+      const next = this.updateNodes(current => {
+        let mapped = current.map(item => item.id === target.id ? {
+          ...item,
+          title: "重新生成中…",
+          imageAssetId: undefined,
+          imageSrc: undefined,
+          metadata: {
+            ...item.metadata,
+            assetId: undefined,
+            content: prompt,
+            status: "loading" as const,
+            errorDetails: undefined,
+            jobId: undefined,
+            jobProgress: undefined,
+            ownAssetId: undefined,
+            ownImageSrc: undefined,
+            ...(Number.isFinite(seed) ? { seed } : {}),
+          },
+        } : item);
+        const rootId = stringValue(target.metadata?.batchRootId)
+          || (target.metadata?.isBatchRoot ? target.id : "");
+        if (rootId) mapped = refreshImageBatchRoot(mapped, rootId);
+        return mapped;
+      });
+      void this.persist(next);
+      const running = this.runImageTarget({
+        targetNodeId: target.id,
+        originNodeId: sourceNodeId,
+        runningNodeId: stringValue(target.metadata?.batchRootId) || target.id,
+        projectKey,
+        scope,
+        prompt,
+        requestPrompt: diversifyCanvasBatchImagePrompt(prompt, slot.index, slot.count, seed),
+        seed,
+        model: modelFromNode(target, this.bindings.getImageModel()),
+        ...canvasImageGenerationSettings(target, undefined, modelFromNode(target, this.bindings.getImageModel())),
+        referenceFiles: files,
+      });
+      this.finishPreparation(preparation.id);
+      await running;
+    })));
   };
 
   readonly retryTextNode = async (node: CanvasNodeData) => {
     const scope = this.bindings.getScope();
     const projectKey = this.bindings.getProjectKey();
     if (!scope || !projectKey || this.bindings.isSwitching()) return;
+    node = this.bindings.getNodes().find(item => item.id === node.id) || node;
     const prompt = stringValue(node.metadata?.prompt) || node.content;
     const model = modelFromNode(node, this.bindings.getTextModel());
     if (!prompt.trim() || !model) {
@@ -628,37 +625,36 @@ export class CanvasGenerationJobsController {
       return;
     }
     const sourceNodeId = stringValue(node.metadata?.sourceNodeId) || node.id;
-    const next = this.updateNodes(current => current.map(item => item.id === node.id ? {
-      ...item,
-      title: "重新生成文本中…",
-      metadata: {
-        ...item.metadata,
-        generationMode: "text" as const,
-        status: "loading" as const,
-        errorDetails: undefined,
-        jobId: undefined,
-        jobProgress: undefined,
-      },
-    } : item));
-    await this.persist(next);
-    if (!this.sessionCurrent(projectKey)) {
-      if (this.bindings.getProjectKey() === projectKey) {
-        this.updateNodes(current => failGeneratedTextTarget(
-          current,
-          node.id,
-          "切换画布时生成被中断，可重试。",
-        ));
+    await this.withRetryPreparation(node, projectKey, async preparation => {
+      const next = this.updateNodes(current => current.map(item => item.id === node.id ? {
+        ...item,
+        title: "重新生成文本中…",
+        metadata: {
+          ...item.metadata,
+          generationMode: "text" as const,
+          status: "loading" as const,
+          errorDetails: undefined,
+          jobId: undefined,
+          jobProgress: undefined,
+        },
+      } : item));
+      await this.persist(next);
+      if (!this.sessionCurrent(projectKey)) {
+        this.failIfSameProject(projectKey, [node.id], failGeneratedTextTarget);
+        return;
       }
-      return;
-    }
-    await this.runTextTarget({
-      targetNodeId: node.id,
-      originNodeId: sourceNodeId,
-      runningNodeId: node.id,
-      projectKey,
-      scope,
-      prompt,
-      model,
+      if (!this.preparationIsCurrent(preparation)) return;
+      const running = this.runTextTarget({
+        targetNodeId: node.id,
+        originNodeId: sourceNodeId,
+        runningNodeId: node.id,
+        projectKey,
+        scope,
+        prompt,
+        model,
+      });
+      this.finishPreparation(preparation.id);
+      await running;
     });
   };
 
@@ -666,6 +662,7 @@ export class CanvasGenerationJobsController {
     const scope = this.bindings.getScope();
     const projectKey = this.bindings.getProjectKey();
     if (!scope || !projectKey || this.bindings.isSwitching()) return;
+    node = this.bindings.getNodes().find(item => item.id === node.id) || node;
     const prompt = stringValue(node.metadata?.prompt) || node.content;
     const config = audioConfigFromNode(node, this.bindings.getAudioModel());
     if (!prompt.trim() || !config.model) {
@@ -673,47 +670,46 @@ export class CanvasGenerationJobsController {
       return;
     }
     const sourceNodeId = stringValue(node.metadata?.sourceNodeId) || node.id;
-    const next = this.updateNodes(current => current.map(item => item.id === node.id ? {
-      ...item,
-      title: "重新生成音频中…",
-      imageAssetId: undefined,
-      imageSrc: undefined,
-      metadata: {
-        ...item.metadata,
-        assetId: undefined,
-        generationMode: "audio" as const,
-        model: config.model,
-        audioVoice: config.voice,
-        audioFormat: config.format,
-        audioSpeed: config.speed,
-        audioInstructions: config.instructions,
-        status: "loading" as const,
-        errorDetails: undefined,
-        jobId: undefined,
-        jobProgress: undefined,
-        mimeType: undefined,
-        bytes: undefined,
-      },
-    } : item));
-    await this.persist(next);
-    if (!this.sessionCurrent(projectKey)) {
-      if (this.bindings.getProjectKey() === projectKey) {
-        this.updateNodes(current => failGeneratedAudioTarget(
-          current,
-          node.id,
-          "切换画布时生成被中断，可重试。",
-        ));
+    await this.withRetryPreparation(node, projectKey, async preparation => {
+      const next = this.updateNodes(current => current.map(item => item.id === node.id ? {
+        ...item,
+        title: "重新生成音频中…",
+        imageAssetId: undefined,
+        imageSrc: undefined,
+        metadata: {
+          ...item.metadata,
+          assetId: undefined,
+          generationMode: "audio" as const,
+          model: config.model,
+          audioVoice: config.voice,
+          audioFormat: config.format,
+          audioSpeed: config.speed,
+          audioInstructions: config.instructions,
+          status: "loading" as const,
+          errorDetails: undefined,
+          jobId: undefined,
+          jobProgress: undefined,
+          mimeType: undefined,
+          bytes: undefined,
+        },
+      } : item));
+      await this.persist(next);
+      if (!this.sessionCurrent(projectKey)) {
+        this.failIfSameProject(projectKey, [node.id], failGeneratedAudioTarget);
+        return;
       }
-      return;
-    }
-    await this.runAudioTarget({
-      targetNodeId: node.id,
-      originNodeId: sourceNodeId,
-      runningNodeId: node.id,
-      projectKey,
-      scope,
-      prompt,
-      config,
+      if (!this.preparationIsCurrent(preparation)) return;
+      const running = this.runAudioTarget({
+        targetNodeId: node.id,
+        originNodeId: sourceNodeId,
+        runningNodeId: node.id,
+        projectKey,
+        scope,
+        prompt,
+        config,
+      });
+      this.finishPreparation(preparation.id);
+      await running;
     });
   };
 
@@ -721,68 +717,53 @@ export class CanvasGenerationJobsController {
     const scope = this.bindings.getScope();
     const projectKey = this.bindings.getProjectKey();
     if (!scope || !projectKey || this.bindings.isSwitching()) return;
+    node = this.bindings.getNodes().find(item => item.id === node.id) || node;
     const prompt = stringValue(node.metadata?.prompt) || node.content;
     const config = videoConfigFromNode(node, this.bindings.getVideoModel());
     if (!prompt.trim() || !config.model) {
       this.bindings.onWarning(!config.model ? "请先配置视频模型" : "提示词不能为空");
       return;
     }
-    const nodes = this.bindings.getNodes();
-    const edges = this.bindings.getEdges();
-    // Ignore a legacy snapshot entry that points back to the node being
-    // retried. It is the previous output, not an explicit video reference.
-    const snapshot = canvasVideoReferenceSnapshot(node.metadata?.videoReferenceInputs);
-    const retrySnapshot = {
-      items: snapshot.items.filter(item => item.nodeId !== node.id),
-    };
-    let retryPrompt = prompt;
-    let generationInputs = canvasGenerationInputsFromVideoSnapshot(retrySnapshot, nodes);
-    // Retry must resolve the current graph first. A failed node can outlive or
-    // replace the image nodes captured by its old snapshot; using that stale
-    // snapshot silently re-uploads the original image as storage_token and
-    // loses a registered asset:// reference.
-    try {
-      const current = await this.resolveMentionContext(node, nodes, edges);
-      if (!current.missingKeys.length && (current.inputs.length || extractCanvasMentionTokens(prompt).length)) {
-        retryPrompt = current.prompt;
-        generationInputs = current.inputs;
+    await this.withRetryPreparation(node, projectKey, async preparation => {
+      const nodes = this.bindings.getNodes();
+      const edges = this.bindings.getEdges();
+      // Ignore a legacy snapshot entry that points back to the node being
+      // retried. It is the previous output, not an explicit video reference.
+      const snapshot = canvasVideoReferenceSnapshot(node.metadata?.videoReferenceInputs);
+      const retrySnapshot = {
+        items: snapshot.items.filter(item => item.nodeId !== node.id),
+      };
+      let retryPrompt = prompt;
+      let generationInputs = canvasGenerationInputsFromVideoSnapshot(retrySnapshot, nodes);
+      // Retry must resolve the current graph first. A failed node can outlive or
+      // replace the image nodes captured by its old snapshot; using that stale
+      // snapshot silently re-uploads the original image as storage_token and
+      // loses a registered asset:// reference.
+      try {
+        const current = await this.resolveMentionContext(node, nodes, edges, undefined, preparation.controller.signal);
+        if (!current.missingKeys.length && (current.inputs.length || extractCanvasMentionTokens(prompt).length)) {
+          retryPrompt = current.prompt;
+          generationInputs = current.inputs;
+        }
+      } catch {
+        // Keep the durable snapshot fallback for retries whose source nodes were
+        // intentionally removed from the current canvas.
       }
-    } catch {
-      // Keep the durable snapshot fallback for retries whose source nodes were
-      // intentionally removed from the current canvas.
-    }
-    const sourceNodeId = stringValue(node.metadata?.sourceNodeId) || node.id;
-    const preparation = this.startPreparation({
-      projectKey,
-      originNodeId: this.bindings.getNodes().some(item => item.id === sourceNodeId) ? sourceNodeId : node.id,
-      targetNodeId: node.id,
-      referenceNodeIds: generationInputs
+      if (!this.preparationIsCurrent(preparation)) return;
+      const sourceNodeId = stringValue(node.metadata?.sourceNodeId) || node.id;
+      preparation.referenceNodeIds = generationInputs
         .map(input => input.nodeId)
-        .filter(nodeId => this.bindings.getNodes().some(item => item.id === nodeId)),
-    });
-    let prepared: Awaited<ReturnType<CanvasGenerationJobsController["prepareVideoReferences"]>>;
-    try {
-      prepared = await this.prepareVideoReferences(generationInputs, scope, preparation.controller.signal);
-    } catch (error) {
-      if (isAbortError(error) || this.bindings.getProjectKey() !== projectKey) return;
-      const message = publicApiError(error, "视频参考素材已失效，无法重试");
-      const next = this.updateNodes(current => failGeneratedVideoTarget(current, node.id, message));
-      await this.persist(next);
-      this.bindings.onError(message);
-      return;
-    } finally {
-      this.finishPreparation(preparation.id);
-    }
-    if (!this.preparationIsCurrent(preparation)) return;
-    const references = mergeCanvasVideoReferences(
-      prepared.references,
-      canvasSeedanceVideoReferences(
-        node.metadata?.seedanceMaterialAssets,
-        node.metadata?.seedanceVolcanoAssets,
-      ),
-    );
-    const releaseStarting = this.trackStartingTargets([node.id]);
-    try {
+        .filter(nodeId => nodes.some(item => item.id === nodeId));
+      if (!this.preparationIsCurrent(preparation)) return;
+      const prepared = await this.prepareVideoReferences(generationInputs, scope, preparation.controller.signal);
+      if (!this.preparationIsCurrent(preparation)) return;
+      const references = mergeCanvasVideoReferences(
+        prepared.references,
+        canvasSeedanceVideoReferences(
+          node.metadata?.seedanceMaterialAssets,
+          node.metadata?.seedanceVolcanoAssets,
+        ),
+      );
       const next = this.updateNodes(current => current.map(item => item.id === node.id ? {
         ...item,
         title: "重新生成视频中…",
@@ -809,8 +790,8 @@ export class CanvasGenerationJobsController {
         },
       } : item));
       await this.persist(next);
-      if (!this.sessionCurrent(projectKey)) return;
-      await this.runVideoTarget({
+      if (!this.preparationIsCurrent(preparation)) return;
+      const running = this.runVideoTarget({
         targetNodeId: node.id,
         originNodeId: sourceNodeId,
         runningNodeId: node.id,
@@ -821,9 +802,9 @@ export class CanvasGenerationJobsController {
         references,
         referenceInputs: prepared.snapshot,
       });
-    } finally {
-      releaseStarting();
-    }
+      this.finishPreparation(preparation.id);
+      await running;
+    });
   };
 
   readonly runSelectedGeneration = async () => {
@@ -1034,7 +1015,7 @@ export class CanvasGenerationJobsController {
       this.finishPreparation(preparation.id);
     }
     if (!this.preparationIsCurrent(preparation)) return;
-    const count = imageCountFromNode(sourceNode);
+    const count = stringValue(sourceNode.metadata?.batchRootId) ? 1 : imageCountFromNode(sourceNode);
     // Imported asset nodes are source material and must remain intact; generating
     // from their prompt creates a new image node. Generated image nodes continue
     // to reuse their slot for the existing overwrite workflow.
@@ -1044,12 +1025,15 @@ export class CanvasGenerationJobsController {
       || sourceNode.imageSrc
       || looksLikeImageSource(stringValue(sourceNode.metadata?.content))
     );
-    const spawnBatchChildren = count > 1
-      && !sourceNode.metadata?.isBatchRoot
-      && !stringValue(sourceNode.metadata?.batchRootId);
+    const spawnBatchChildren = count > 1;
     const rootId = reuseSourceNode ? sourceNode.id : this.services.createId();
+    const previousChildren = reuseSourceNode && sourceNode.metadata?.isBatchRoot
+      ? (sourceNode.metadata.batchChildIds || []).flatMap(id => {
+        const child = this.bindings.getNodes().find(node => node.id === id && node.metadata?.batchRootId === rootId);
+        return child ? [child] : [];
+      }) : [];
     const childIds = spawnBatchChildren
-      ? Array.from({ length: count - 1 }, () => this.services.createId())
+      ? Array.from({ length: count - 1 }, (_, index) => previousChildren[index]?.id || this.services.createId())
       : [];
     const targetIds = [rootId, ...childIds];
     const { size, quality, imageResolution } = canvasImageGenerationSettings(sourceNode, undefined, model);
@@ -1061,6 +1045,9 @@ export class CanvasGenerationJobsController {
       composerContent: promptTextFromNode(sourceNode),
       prompt,
       status: "loading",
+      jobId: undefined,
+      jobProgress: undefined,
+      generationQueued: undefined,
       model,
       size: sizeFromNode(sourceNode),
       quality,
@@ -1093,13 +1080,11 @@ export class CanvasGenerationJobsController {
         ...(reuseSourceNode ? sourceNode.metadata : {}),
         ...commonMetadata,
         count,
-        isBatchRoot: spawnBatchChildren ? true : sourceNode.metadata?.isBatchRoot,
-        batchStatus: spawnBatchChildren || sourceNode.metadata?.isBatchRoot ? "loading" : undefined,
+        isBatchRoot: spawnBatchChildren || undefined,
+        batchStatus: spawnBatchChildren ? "loading" : undefined,
         batchErrorDetails: undefined,
-        batchChildIds: spawnBatchChildren
-          ? (childIds.length ? childIds : undefined)
-          : sourceNode.metadata?.batchChildIds,
-        batchModelV2: spawnBatchChildren ? true : sourceNode.metadata?.batchModelV2,
+        batchChildIds: childIds.length ? childIds : undefined,
+        batchModelV2: spawnBatchChildren || undefined,
         assetId: hasExistingMedia ? assetIdFromNode(sourceNode) : undefined,
         ownAssetId: hasExistingMedia ? sourceNode.metadata?.ownAssetId : undefined,
         ownImageSrc: hasExistingMedia ? sourceNode.metadata?.ownImageSrc : undefined,
@@ -1116,7 +1101,9 @@ export class CanvasGenerationJobsController {
     };
     const childNodes = childIds.map((id, index): CanvasNodeData => {
       const position = batchChildGridPosition(rootNode, index);
+      const previous = previousChildren[index];
       return {
+        ...previous,
         id,
         kind: "image",
         title: `生成中 ${index + 2}/${count}`,
@@ -1125,11 +1112,26 @@ export class CanvasGenerationJobsController {
         y: position.y,
         width: 320,
         height: 238,
-        metadata: { ...commonMetadata, count: 1, batchRootId: rootId },
+        metadata: {
+          ...previous?.metadata,
+          ...commonMetadata,
+          count: 1,
+          batchRootId: rootId,
+          errorDetails: undefined,
+          jobId: undefined,
+          jobProgress: undefined,
+          generationRevisions: previous ? appendCanvasGenerationRevision(previous, this.services.createId()) : undefined,
+        },
       };
     });
+    const retainedNodes = this.bindings.getNodes().filter(node => !childIds.includes(node.id)).map(node => (
+      // Reducing the next batch must retain older results as independent nodes.
+      previousChildren.some(child => child.id === node.id)
+        ? { ...node, metadata: { ...node.metadata, batchRootId: undefined } }
+        : node
+    ));
     const pendingNodes = reuseSourceNode
-      ? [...this.bindings.getNodes().map(node => node.id === sourceNode.id ? rootNode : node), ...childNodes]
+      ? [...retainedNodes.map(node => node.id === sourceNode.id ? rootNode : node), ...childNodes]
       : [...this.bindings.getNodes(), rootNode, ...childNodes];
     const pendingEdges = reuseSourceNode
       ? this.bindings.getEdges()
@@ -1432,6 +1434,41 @@ export class CanvasGenerationJobsController {
     this.bindings = emptyBindings;
   }
 
+  private async withRetryPreparation(
+    node: CanvasNodeData,
+    projectKey: string,
+    operation: (preparation: CanvasGenerationPreparation) => Promise<void>,
+  ) {
+    const nodes = this.bindings.getNodes();
+    if (!nodes.some(item => item.id === node.id) || this.isLiveCanvasTarget(node.id)) return;
+    const sourceNodeId = stringValue(node.metadata?.sourceNodeId) || node.id;
+    // Register before any asynchronous work, including reference lookup and saving.
+    const preparation = this.startPreparation({
+      projectKey,
+      originNodeId: nodes.some(item => item.id === sourceNodeId) ? sourceNodeId : node.id,
+      targetNodeId: node.id,
+      runningNodeId: stringValue(node.metadata?.batchRootId) || node.id,
+      referenceNodeIds: [],
+    });
+    try {
+      await operation(preparation);
+    } catch (error) {
+      if (isAbortError(error) || !this.preparations.has(preparation.id) || !this.preparationIsCurrent(preparation)) return;
+      const message = publicApiError(error, "准备重试失败，请检查参考素材后重试");
+      const fail = {
+        image: failGeneratedImageTarget,
+        video: failGeneratedVideoTarget,
+        audio: failGeneratedAudioTarget,
+        text: failGeneratedTextTarget,
+      }[generationModeFromNode(node)];
+      const next = this.updateNodes(current => fail(current, node.id, message));
+      this.bindings.onError(message);
+      await this.persist(next);
+    } finally {
+      this.finishPreparation(preparation.id);
+    }
+  }
+
   private startPreparation(input: Omit<CanvasGenerationPreparation, "id" | "controller">) {
     const preparation: CanvasGenerationPreparation = {
       ...input,
@@ -1440,17 +1477,18 @@ export class CanvasGenerationJobsController {
       controller: this.services.createAbortController(),
     };
     this.preparations.set(preparation.id, preparation);
+    this.syncRequestState();
     return preparation;
   }
 
   private finishPreparation(id: string) {
-    this.preparations.delete(id);
+    if (this.preparations.delete(id)) this.syncRequestState();
   }
 
   private preparationIsCurrent(preparation: CanvasGenerationPreparation) {
     if (
       preparation.controller.signal.aborted
-      || this.bindings.getProjectKey() !== preparation.projectKey
+      || !this.sessionCurrent(preparation.projectKey)
     ) return false;
     const ids = new Set(this.bindings.getNodes().map(node => node.id));
     return ids.has(preparation.originNodeId)
@@ -1495,10 +1533,22 @@ export class CanvasGenerationJobsController {
       running.add(request.runningNodeId);
     });
     this.startingTargetIds.forEach(nodeId => running.add(nodeId));
+    this.preparations.forEach(preparation => {
+      if (preparation.targetNodeId) running.add(preparation.targetNodeId);
+      if (preparation.runningNodeId) running.add(preparation.runningNodeId);
+    });
     this.bindings.setRunningNodeIds(running);
     this.bindings.setJobProgressByNode(current => Object.fromEntries(
       Object.entries(current).filter(([nodeId]) => running.has(nodeId)),
     ));
+  }
+
+  private updateWaiting(request: CanvasGenerationRequest, waiting: boolean) {
+    if (!this.currentRequest(request.targetNodeId, request.requestId, request.projectKey)) return;
+    this.updateNodes(nodes => nodes.map(node => node.id === request.targetNodeId ? {
+      ...node,
+      metadata: { ...node.metadata, generationQueued: waiting || undefined },
+    } : node));
   }
 
   private updateProgress(request: CanvasGenerationRequest, progress: number) {
@@ -1645,8 +1695,10 @@ export class CanvasGenerationJobsController {
     nodes: CanvasNodeData[],
     edges: CanvasEdgeData[],
     options?: BuildCanvasMentionGenerationContextOptions,
+    signal?: AbortSignal,
   ) {
     const scope = this.bindings.getScope();
+    const projectKey = this.bindings.getProjectKey();
     if (!scope) throw new Error("正在确认项目工作区");
     const ownPrompt = promptTextFromNode(sourceNode) || sourceNode.title;
     const assetIds = extractCanvasMentionTokens(ownPrompt)
@@ -1658,6 +1710,7 @@ export class CanvasGenerationJobsController {
     const fetched = (await Promise.allSettled(missing.map(id => this.assets(
       () => this.services.getAsset(id, scope),
     )))).flatMap(result => result.status === "fulfilled" ? [result.value] : []);
+    this.assertSession(signal, projectKey);
     if (fetched.length) this.bindings.mergeCanvasAssets(fetched, scope);
     const assets = [
       ...currentAssets.filter(asset => asset.scope === scope),
