@@ -1,4 +1,4 @@
-import { createProject, getProject, getProjects, getProjectSnapshot } from "@/entities/project";
+import { createProject, getProject, getProjectSummaries, getProjectSnapshot } from "@/entities/project";
 import { ApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 
@@ -51,7 +51,7 @@ export async function copyProject(id: string, scope: WorkspaceScope) {
     // Old, untouched projects can lack a versioned snapshot. Network failures are not empty canvases.
     if (!(error instanceof ApiError) || error.status !== 404) throw error;
   }
-  const projects = await getProjects(scope);
-  const title = projectCopyTitle(source.title, new Set((Array.isArray(projects) ? projects : projects.items).map(project => project.title)));
+  const projects = await getProjectSummaries(scope);
+  const title = projectCopyTitle(source.title, new Set(projects.map(project => project.title)));
   return createProject({ title, scope, data: copyProjectSnapshot(data), cover_asset_id: source.cover_asset_id });
 }

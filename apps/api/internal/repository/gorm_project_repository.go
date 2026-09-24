@@ -36,6 +36,14 @@ func (r *GormProjectRepository) ListByOwner(ownerID string) ([]model.Project, er
 }
 
 func (r *GormProjectRepository) ListByWorkspace(workspaceID string) ([]model.Project, error) {
+	projects, err := r.ListSummariesByWorkspace(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	return r.attachProjectData(projects)
+}
+
+func (r *GormProjectRepository) ListSummariesByWorkspace(workspaceID string) ([]model.Project, error) {
 	var projects []model.Project
 	query := r.db.Where("workspace_id = ?", workspaceID)
 	if ownerID, ok := legacyPersonalOwnerID(workspaceID); ok {
@@ -45,7 +53,7 @@ func (r *GormProjectRepository) ListByWorkspace(workspaceID string) ([]model.Pro
 		return nil, err
 	}
 
-	return r.attachProjectData(projects)
+	return projects, nil
 }
 
 func (r *GormProjectRepository) Get(id string) (model.Project, error) {

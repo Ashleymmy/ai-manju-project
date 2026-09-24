@@ -74,11 +74,9 @@ describe("canvas node dock snap", () => {
   });
 
   it("shows alignment guides up to 200px without moving the node", () => {
-    const targetX = 300;
-    const dockX = targetX - 100 - CANVAS_NODE_DOCK_GAP;
     const result = snapMovingBoxesToDock(
-      [box("a", dockX + 324, 100)],
-      [box("b", targetX, 0)],
+      [box("a", 500, 100)],
+      [box("b", 300, 0)],
       canvasNodeDockThreshold(100),
       canvasNodeAlignmentThreshold(100),
     );

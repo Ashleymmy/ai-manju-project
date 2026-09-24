@@ -18,6 +18,8 @@ type ProjectRepository interface {
 	List() ([]model.Project, error)
 	ListByOwner(ownerID string) ([]model.Project, error)
 	ListByWorkspace(workspaceID string) ([]model.Project, error)
+	// ListSummariesByWorkspace returns metadata only, without reading canvas snapshots.
+	ListSummariesByWorkspace(workspaceID string) ([]model.Project, error)
 	Get(id string) (model.Project, error)
 	GetByOwner(id string, ownerID string) (model.Project, error)
 	GetByWorkspace(id string, workspaceID string) (model.Project, error)
@@ -111,6 +113,15 @@ func (r *MemoryProjectRepository) Get(id string) (model.Project, error) {
 	}
 
 	return project, nil
+}
+
+func (r *MemoryProjectRepository) ListSummariesByWorkspace(workspaceID string) ([]model.Project, error) {
+	projects, err := r.ListByWorkspace(workspaceID)
+	for i := range projects {
+		// ListByWorkspace returns copies; never clear data on the stored project.
+		projects[i].Data = nil
+	}
+	return projects, err
 }
 
 func (r *MemoryProjectRepository) GetByOwner(id string, ownerID string) (model.Project, error) {

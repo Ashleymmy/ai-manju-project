@@ -35,6 +35,8 @@ export type CanvasGenerationPreparation = {
   projectKey: string;
   originNodeId: string;
   targetNodeId?: string;
+  /** Batch retries also show preparation on their visible root. */
+  runningNodeId?: string;
   referenceNodeIds: string[];
   controller: AbortController;
 };

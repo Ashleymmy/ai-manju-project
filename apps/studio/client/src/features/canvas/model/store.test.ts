@@ -27,19 +27,19 @@ const node = (title: string) => ({
 
 describe("canvas scoped store", () => {
   it("deduplicates hydration, insertion and edits in the shared store and saved snapshots", () => {
-    const first = { ...node("苹果"), id: "first" };
-    const second = { ...node("苹果"), id: "second", kind: "video" as const };
+    const first = { ...node("苹果.png"), id: "first", kind: "image" as const, metadata: { canvasOrigin: "imported" } };
+    const second = { ...node("苹果.mp4"), id: "second", kind: "video" as const };
     const store = createCanvasStore({ graph: { nodes: [first, second] } });
-    expect(store.getState().graph.nodes.map(item => item.title)).toEqual(["苹果", "苹果1"]);
+    expect(store.getState().graph.nodes.map(item => item.title)).toEqual(["苹果", "苹果（1）"]);
     const actions = store.getState().actions;
-    actions.setField("graph", "nodes", current => [{ ...node("苹果"), id: "new" }, ...current]);
-    expect(store.getState().graph.nodes.map(item => item.title)).toEqual(["苹果2", "苹果", "苹果1"]);
-    actions.commit({ graph: { nodes: store.getState().graph.nodes.map(item => item.id === "first" ? { ...item, title: "苹果1" } : item) } });
-    expect(store.getState().graph.nodes.map(item => item.title)).toEqual(["苹果2", "苹果11", "苹果1"]);
+    actions.setField("graph", "nodes", current => [{ ...node("苹果.wav"), id: "new", kind: "audio" }, ...current]);
+    expect(store.getState().graph.nodes.map(item => item.title)).toEqual(["苹果（2）", "苹果", "苹果（1）"]);
+    actions.commit({ graph: { nodes: store.getState().graph.nodes.map(item => item.id === "first" ? { ...item, title: "苹果1.png" } : item) } });
+    expect(store.getState().graph.nodes.map(item => item.title)).toEqual(["苹果（2）", "苹果1", "苹果（1）"]);
     const saved = buildCanvasSnapshot({}, store.getState().graph.nodes, [], 100, 0, 0);
-    expect(parseCanvasSnapshot(saved)?.nodes.map(item => item.title)).toEqual(["苹果2", "苹果11", "苹果1"]);
+    expect(parseCanvasSnapshot(saved)?.nodes.map(item => item.title)).toEqual(["苹果（2）", "苹果1", "苹果（1）"]);
     const legacy = buildCanvasSnapshot({}, [first, second], [], 100, 0, 0);
-    expect(parseCanvasSnapshot(legacy)?.nodes.map(item => item.title)).toEqual(["苹果", "苹果1"]);
+    expect(parseCanvasSnapshot(legacy)?.nodes.map(item => item.title)).toEqual(["苹果", "苹果（1）"]);
   });
 
   it("isolates equal node ids, default references, commands, and services by instance", async () => {

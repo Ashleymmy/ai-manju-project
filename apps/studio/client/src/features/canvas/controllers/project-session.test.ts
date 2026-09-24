@@ -67,6 +67,28 @@ function createHarness(overrides: Partial<CanvasProjectSessionBindings> = {}) {
 }
 
 describe("CanvasProjectSessionController", () => {
+  it("never enables saving from listing metadata when the full snapshot is unavailable", async () => {
+    const onLoaded = vi.fn();
+    const onSnapshotWarning = vi.fn();
+    const harness = createHarness({
+      getProject: vi.fn(async id => ({ ...project(id), data: undefined })),
+      getSnapshot: vi.fn(async () => { throw new Error("snapshot unavailable"); }),
+      onLoaded,
+      onSnapshotWarning,
+    });
+    await harness.controller.startLoad("a", "personal").completed;
+    expect(harness.autosave.activate).toHaveBeenCalledWith(expect.objectContaining({ base: null, writeReady: false }));
+    expect(onLoaded).toHaveBeenCalledWith(expect.objectContaining({ base: null, writeReady: false }));
+    expect(onSnapshotWarning).toHaveBeenCalled();
+  });
+
+  it("does not switch away while saving the current canvas has failed", async () => {
+    const harness = createHarness();
+    await harness.controller.startLoad("a", "personal").completed;
+    harness.autosave.flush.mockResolvedValueOnce(false);
+    await expect(harness.controller.switchProject("b", "/canvas/b?scope=personal")).resolves.toBe(false);
+    expect(harness.events).not.toContain("navigate:/canvas/b?scope=personal");
+  });
   it("ignores a stale project load after a faster route change", async () => {
     const projectA = deferred<CanvasProject>();
     const projectB = deferred<CanvasProject>();

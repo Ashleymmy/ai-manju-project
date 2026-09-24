@@ -4,10 +4,10 @@ import {
   Megaphone,
   Plus,
 } from "lucide-react";
-import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 
-import { getProjects, type CanvasProject } from "@/entities/project";
+import { useProjectSummaries } from "@/entities/project";
+import { useAuth } from "@/contexts/AuthContext";
 import { ProjectCoverPickerDialog } from "@/components/ProjectCoverPickerDialog";
 import { ChatComposer } from "@/features/chat";
 import {
@@ -22,6 +22,7 @@ import {
   createAndOpenProject,
   ProjectCard,
   ProjectCardTools,
+  ProjectListFeedback,
   projectToCard,
   useProjectActions,
   useProjectCoverUrls,
@@ -188,29 +189,12 @@ function CreditConsumptionPanel() {
 export default function DashboardPage() {
   const [, navigate] = useLocation();
   const { data, refresh: refreshWorkspace } = useWorkspaceDashboardData();
-  const [recentProjects, setRecentProjects] = useState<CanvasProject[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const { user } = useAuth();
+  const { projects: recentProjects, loading: projectsLoading, error: projectsError, refreshing, refresh: refreshProjects } = useProjectSummaries("personal", user?.id || "");
   const { coverProject, setCoverProject, renameProject, saveCover, deleteProjects, duplicateProjects, copyingIds } =
     useProjectActions("personal", () => {
-      setRefreshKey(value => value + 1);
       void refreshWorkspace();
     });
-
-  useEffect(() => {
-    let disposed = false;
-    getProjects("personal")
-      .then(result => {
-        if (!disposed) {
-          setRecentProjects(Array.isArray(result) ? result : result.items || []);
-        }
-      })
-      .catch(() => {
-        if (!disposed) setRecentProjects([]);
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [refreshKey]);
 
   const recentCoverUrls = useProjectCoverUrls(recentProjects, "personal");
   const recentCards = recentProjects.slice(0, 3).map(projectToCard);
@@ -241,6 +225,7 @@ export default function DashboardPage() {
           全部项目 <ChevronRight size={16} />
         </button>
       </section>
+      <ProjectListFeedback error={projectsError} refreshing={refreshing} hasProjects={Boolean(recentProjects.length)} onRetry={() => { void refreshProjects(); }} />
       <div className="project-row">
         {recentCards.length ? (
           recentCards.map((project, index) => (
@@ -259,7 +244,7 @@ export default function DashboardPage() {
               />
             </div>
           ))
-        ) : (
+        ) : projectsLoading ? <p role="status">正在读取项目…</p> : !projectsError ? (
           <button
             className="project-card"
             onClick={() => void createAndOpenProject(navigate)}
@@ -272,7 +257,7 @@ export default function DashboardPage() {
               <Plus size={18} />
             </div>
           </button>
-        )}
+        ) : null}
       </div>
       <ProjectCoverPickerDialog
         open={Boolean(coverProject)}

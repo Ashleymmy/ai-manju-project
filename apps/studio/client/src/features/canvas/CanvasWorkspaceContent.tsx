@@ -20,6 +20,7 @@ import {
   MoreHorizontal,
   Plus,
   Redo2,
+  RefreshCw,
   Save,
   Search,
   Trash2,
@@ -77,7 +78,10 @@ import {
   createProject,
   deleteProject,
   getProject,
-  getProjects,
+  useProjectSummaries,
+  projectSummary,
+  type VerifiedProjectSummary,
+  invalidateProjectList,
   getProjectSnapshot,
   saveProjectSnapshot,
   updateProject,
@@ -473,9 +477,6 @@ export default function CanvasWorkspaceViewContent() {
   const queryClient = useQueryClient();
   const scope = useCanvasStore((state) => state.session.scope);
   const setScope = canvasCommands.session.setScope;
-  const [projects, setProjects] = useState<CanvasProject[]>([]);
-  /* 列表加载中标记：切换空间/刷新列表期间显示"加载中"，避免闪烁误导性的"还没有画布项目" */
-  const [projectListLoading, setProjectListLoading] = useState(true);
   const [coverProjectId, setCoverProjectId] = useState("");
   /* 画布标题行内重命名：双击标题进入编辑（命名带 project 前缀，避开节点标题编辑的 titleDraft） */
   const [projectTitleEditing, setProjectTitleEditing] = useState(false);
@@ -489,6 +490,14 @@ export default function CanvasWorkspaceViewContent() {
   const setProjectTitle = canvasCommands.session.setProjectTitle;
   const canonicalProjectScope = useCanvasStore((state) => state.session.canonicalProjectScope);
   const setCanonicalProjectScope = canvasCommands.session.setCanonicalProjectScope;
+  const [verifiedProject, setVerifiedProject] = useState<VerifiedProjectSummary | null>(null);
+  const projectListScope = projectId ? canonicalProjectScope ?? scope : scope;
+  const {
+    projects, setProjects, loading: projectListLoading, refreshing: projectListRefreshing,
+    error: projectListError, refresh: refreshProjectList,
+    warning: projectListWarning, hasCachedList: hasCachedProjectList,
+  } = useProjectSummaries(projectListScope, user?.id || "", verifiedProject?.project.id === projectId ? verifiedProject : null);
+  const projectListNotice = projectListError || projectListWarning;
   const nodes = useCanvasStore((state) => state.graph.nodes);
   const setNodes = canvasCommands.graph.setNodes;
   const edges = useCanvasStore((state) => state.graph.edges);
@@ -828,6 +837,7 @@ export default function CanvasWorkspaceViewContent() {
     try {
       await updateProject(projectId, { title: nextTitle, scope: canonicalProjectScope || "personal" });
       setProjectTitle(nextTitle);
+      setVerifiedProject(current => current?.project.id === projectId ? { ...current, project: { ...current.project, title: nextTitle } } : current);
       setProjects((items) => items.map((project) => project.id === projectId ? { ...project, title: nextTitle } : project));
       toast.success("项目已重命名");
       setProjectTitleEditing(false);
@@ -973,7 +983,6 @@ export default function CanvasWorkspaceViewContent() {
     ? audioConfigFromNode(selectedNode, audioModel)
     : null;
   const currentProjectDisplayScope = projectId ? canonicalProjectScope ?? scope : scope;
-  const projectListScope = projectId ? canonicalProjectScope ?? scope : scope;
   /* 画布选择页的自定义封面缩略图（无封面时保持默认抽象占位） */
   const projectCoverUrls = useProjectCoverUrls(projects, projectListScope);
   const projectScopePending = Boolean(projectId && !canonicalProjectScope);
@@ -1282,24 +1291,11 @@ export default function CanvasWorkspaceViewContent() {
   }, [searchString]);
 
   useEffect(() => {
-    let disposed = false;
-    setProjectListLoading(true);
-    setProjects([]);
     setSelectedProjectIds(new Set());
     setProjectDeleteIds([]);
     setProjectDeleteError("");
-    getProjects(projectListScope)
-      .then((result) => {
-        if (!disposed) setProjects(Array.isArray(result) ? result : result.items || []);
-      })
-      .catch(() => {
-        if (!disposed) setProjects([]);
-      })
-      .finally(() => {
-        if (!disposed) setProjectListLoading(false);
-      });
-    return () => { disposed = true; };
-  }, [projectListScope]);
+    setCanvasSwitcherQuery("");
+  }, [projectListScope, user?.id]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1532,6 +1528,7 @@ export default function CanvasWorkspaceViewContent() {
     createStarterNodes: starterNodes,
     isUploading: () => uploadingRef.current,
     onReset: targetProjectId => {
+      setVerifiedProject(null);
       abortAllGenerationRequests();
       stageInteractionController.prepareProjectReset();
       setSelectedGroupId("");
@@ -1559,6 +1556,7 @@ export default function CanvasWorkspaceViewContent() {
     onProjectResolved: project => setProjectTitle(project.title),
     onSnapshotWarning: message => toast.warning(message),
     onLoaded: (result: CanvasProjectSessionLoaded) => {
+      setVerifiedProject({ project: projectSummary(result.project), scope: result.scope, userId: user?.id || "" });
       const firstVisibleNode = result.nodes.find(
         node => !isHiddenCanvasBatchChild(node, result.nodes),
       );
@@ -1667,7 +1665,7 @@ export default function CanvasWorkspaceViewContent() {
 
   const openCreateProjectDialog = () => {
     setCreateDialogTitle("未命名画布");
-    setCreateDialogScope(scope);
+    setCreateDialogScope(projectListScope);
     setCreateDialogError("");
     setCreateDialogOpen(true);
   };
@@ -1685,9 +1683,15 @@ export default function CanvasWorkspaceViewContent() {
       const initialNodes = starterNodes();
       const created = await createProject({ scope: createDialogScope, title, data: buildCanvasSnapshot({}, initialNodes, [], 90, 0, 0) });
       const createdScope = projectScopeFromServer(created, createDialogScope);
+      if (createdScope === projectListScope) await setProjects(items => [created, ...items.filter(item => item.id !== created.id)]);
+      else void invalidateProjectList(queryClient, createdScope);
       setCreateDialogOpen(false);
       toast.success("画布已创建");
-      navigate(canvasProjectHref(created.id, createdScope));
+      const targetHref = canvasProjectHref(created.id, createdScope);
+      // Creation from the switcher must flush the current canvas just like switching.
+      // On save failure the new canvas stays in the list and the user stays here.
+      if (projectId) await projectSessionController.switchProject(created.id, targetHref);
+      else navigate(targetHref);
     } catch (error) {
       const message = publicApiError(error, "创建画布失败");
       setCreateDialogError(message);
@@ -3974,7 +3978,10 @@ export default function CanvasWorkspaceViewContent() {
         } catch {
           snapshot = null;
         }
-        snapshot ||= extractProjectCanvasData(project.data);
+        if (!snapshot) {
+          const fullProject = await getProject(project.id, scope);
+          snapshot = extractProjectCanvasData(fullProject.data);
+        }
         if (!snapshot) throw new Error(`画布“${project.title || project.id}”没有可安全导出的完整快照`);
         const result = await buildCanvasProjectArchiveItem(project, scope, snapshot);
         archiveItems.push(result.item);
@@ -4248,7 +4255,8 @@ export default function CanvasWorkspaceViewContent() {
                 </article>
               );
             })}
-            {!projects.length && <div className="empty-output"><p>{projectListLoading ? "正在加载画布列表…" : "还没有画布项目。"}</p></div>}
+            {projectListNotice && <div className="canvas-project-list-error" role="status"><span>{projectListNotice}</span><button type="button" onClick={() => void refreshProjectList()} disabled={projectListRefreshing}>{projectListRefreshing ? "正在重试…" : "重试"}</button></div>}
+            {!projects.length && !projectListNotice && <div className="empty-output"><p>{projectListLoading ? "正在加载画布列表…" : "还没有画布项目。"}</p></div>}
           </div>
         </div>
         <AlertDialog open={projectDeleteIds.length > 0} onOpenChange={(open) => { if (!open && !projectBatchBusy) { setProjectDeleteIds([]); setProjectDeleteError(""); } }}>
@@ -4404,7 +4412,13 @@ export default function CanvasWorkspaceViewContent() {
                 onBlur={() => void commitTitleEdit()}
               />
             ) : (
-            <Popover active={!projectActionDisabled} open={canvasSwitcherOpen} onOpenChange={setCanvasSwitcherOpen}>
+            <Popover active={!projectActionDisabled} open={canvasSwitcherOpen} onOpenChange={(open) => {
+              setCanvasSwitcherOpen(open);
+              if (open) {
+                setCanvasSwitcherQuery("");
+                void refreshProjectList({ cancelRefetch: false });
+              }
+            }}>
               <PopoverTrigger asChild>
                 <button className="canvas-switcher-trigger" disabled={projectActionDisabled} title="单击切换画布 · 双击重命名" onDoubleClick={(event) => { event.preventDefault(); beginTitleEdit(); }}>
                   <span className="canvas-switcher-title">{projectTitle || "无限画布"}</span>
@@ -4420,6 +4434,7 @@ export default function CanvasWorkspaceViewContent() {
                     placeholder="搜索画布…"
                   />
                 </div>
+                {projectListNotice && <div className="canvas-project-list-error" role="status"><span>{projectListNotice}{projectListError && hasCachedProjectList ? "已保留上次加载的画布。" : ""}</span><button type="button" onClick={() => void refreshProjectList()} disabled={projectListRefreshing}>{projectListRefreshing ? "正在重试…" : "重试"}</button></div>}
                 <div className="canvas-switcher-list">
                   {filteredProjects.map((project) => (
                     <button
@@ -4439,13 +4454,17 @@ export default function CanvasWorkspaceViewContent() {
                       {project.id === projectId ? <Check size={14} /> : null}
                     </button>
                   ))}
-                  {!filteredProjects.length ? (
+                  {!filteredProjects.length && !projectListNotice ? (
                     <div className="canvas-switcher-empty">
-                      <p>无匹配画布</p>
+                      <p>{projectListLoading ? "正在加载画布…" : canvasSwitcherQuery.trim() ? "无匹配画布" : "当前空间还没有画布"}</p>
                     </div>
                   ) : null}
                 </div>
                 <div className="canvas-switcher-footer">
+                  <button className="canvas-switcher-new" onClick={() => void refreshProjectList()} disabled={projectListRefreshing}>
+                    <RefreshCw size={14} className={projectListRefreshing ? "animate-spin" : undefined} />
+                    {projectListRefreshing ? "正在刷新" : "刷新列表"}
+                  </button>
                   <button className="canvas-switcher-new" onClick={() => { setCanvasSwitcherOpen(false); openCreateProjectDialog(); }} disabled={projectActionDisabled}>
                     <Plus size={14} />
                     新建画布

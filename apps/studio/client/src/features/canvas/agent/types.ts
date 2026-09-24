@@ -1,5 +1,6 @@
 import type { ResponseInputMessage } from "@/services/api/ai";
 import type { AgentReference } from "./references";
+import type { AgentDocument } from "./documents";
 import type {
   CanvasAgentExecutionResult,
   CanvasAgentOp,
@@ -12,6 +13,7 @@ export type AgentMessage = {
   role: "user" | "assistant" | "error" | "tool";
   text: string;
   references?: AgentReference[];
+  documents?: AgentDocument[];
 };
 
 export type AgentConversation = {

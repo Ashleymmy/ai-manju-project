@@ -1,6 +1,7 @@
 import { fetchModelCatalog, fetchTextModelCatalog, normalizeModelList } from "@/entities/model";
 import type { CapabilityModelCatalog } from "@/entities/model";
 import { ApiError, request } from "./request";
+import { submitWithGenerationAdmission, type GenerationAdmissionOptions } from "@/shared/api/generationAdmission";
 
 export type { AiModelsResponse } from "@/entities/model";
 export type TextModelCatalog = CapabilityModelCatalog;
@@ -70,9 +71,9 @@ export async function fetchTextModels(): Promise<TextModelCatalog> {
   return fetchTextModelCatalog({ includeGenericModels: true, normalizeMetadata: true });
 }
 
-export async function requestAiText(body: AiTextRequest, signal?: AbortSignal) {
+export async function requestAiText(body: AiTextRequest, signal?: AbortSignal, onWaiting?: GenerationAdmissionOptions["onWaiting"]) {
   try {
-    const data = await request<AiTextResponse>("/api/ai/text", {
+    const data = await submitWithGenerationAdmission("text", () => request<AiTextResponse>("/api/ai/text", {
       method: "POST",
       // The server bounds each supplier attempt; keep the complete sequence alive.
       timeoutMs: 0,
@@ -83,7 +84,7 @@ export async function requestAiText(body: AiTextRequest, signal?: AbortSignal) {
         parallel_tool_calls: false,
         stream: false,
       },
-    });
+    }), { signal, onWaiting });
     return {
       content: data.content || data.text || "",
       model: data.model || body.model || "",
@@ -91,11 +92,14 @@ export async function requestAiText(body: AiTextRequest, signal?: AbortSignal) {
       finishReason: data.finish_reason || "",
     };
   } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new AiRequestError("请求超时或已取消", { status: 0, cancelled: true });
+    }
     if (error instanceof ApiError) {
       throw new AiRequestError(formatPublicAiError(error), {
         status: error.status,
         requestId: error.requestId,
-        cancelled: error.status === 0 && error.message.includes("请求已取消"),
+        cancelled: error.status === 0 && error.message.includes("已取消"),
       });
     }
     throw new Error(formatPublicAiError(error));

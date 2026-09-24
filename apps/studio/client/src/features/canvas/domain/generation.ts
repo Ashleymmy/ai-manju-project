@@ -6,7 +6,7 @@ import type { CanvasVideoReferenceSnapshot } from "./video";
 import { videoResultPersistentMetadata } from "./video";
 import { refreshImageBatchRoot } from "./batch";
 import { generatedImageTitle } from "./imageTitles";
-import { canvasImageBatchSlot } from "./imageBatchDiversity";
+import { ensureUniqueCanvasNodeTitles } from "./nodeTitles";
 import type { CanvasNodeData } from "./types";
 import { stringValue } from "./value";
 import {
@@ -23,7 +23,7 @@ export function completeGeneratedAudioTarget(
   sourceNodeId: string,
   scope: WorkspaceScope,
 ) {
-  return nodes.map((node) => node.id === targetNodeId ? {
+  return ensureUniqueCanvasNodeTitles(nodes.map((node) => node.id === targetNodeId ? {
     ...node,
     kind: "audio" as const,
     title: asset.name || "生成音频",
@@ -50,7 +50,7 @@ export function completeGeneratedAudioTarget(
       mimeType: asset.content_type || canvasAudioMimeType(config.format),
       bytes: asset.size,
     },
-  } : node);
+  } : node), nodes);
 }
 
 export function failGeneratedAudioTarget(nodes: CanvasNodeData[], targetNodeId: string, message: string) {
@@ -80,7 +80,7 @@ export function completeGeneratedVideoTarget(
   referenceInputs: CanvasVideoReferenceSnapshot | undefined,
   scope: WorkspaceScope,
 ) {
-  return nodes.map((node) => node.id === targetNodeId ? {
+  return ensureUniqueCanvasNodeTitles(nodes.map((node) => node.id === targetNodeId ? {
     ...node,
     kind: "video" as const,
     title: asset.name || "生成视频",
@@ -114,7 +114,7 @@ export function completeGeneratedVideoTarget(
       naturalHeight: undefined,
       generatedAt: new Date().toISOString(),
     },
-  } : node);
+  } : node), nodes);
 }
 
 export function failGeneratedVideoTarget(nodes: CanvasNodeData[], targetNodeId: string, message: string) {
@@ -135,10 +135,9 @@ export function failGeneratedVideoTarget(nodes: CanvasNodeData[], targetNodeId: 
 export function resolveGeneratedNode(nodes: CanvasNodeData[], childId: string, generated: GeneratedImage | undefined, prompt: string) {
   return nodes.map((node) => {
     if (node.id !== childId) return node;
-    const slot = canvasImageBatchSlot(nodes, childId);
     return {
       ...node,
-      title: generatedImageTitle(generated?.name || "", prompt, slot.count > 1 ? slot.index : undefined),
+      title: generatedImageTitle(generated?.name || "", prompt),
       imageAssetId: generated?.assetId,
       imageSrc: generated?.assetId ? undefined : generated?.src,
       metadata: {
@@ -166,8 +165,7 @@ export function completeGeneratedImageTarget(nodes: CanvasNodeData[], targetNode
   const target = next.find((node) => node.id === targetNodeId);
   // 子节点完成刷所属根；根节点（基底）自身完成也触发聚合
   const rootId = stringValue(target?.metadata?.batchRootId) || (target?.metadata?.isBatchRoot ? target.id : "");
-  if (!rootId) return next;
-  return refreshImageBatchRoot(next, rootId);
+  return ensureUniqueCanvasNodeTitles(rootId ? refreshImageBatchRoot(next, rootId) : next, nodes);
 }
 
 export function failGeneratedImageTarget(nodes: CanvasNodeData[], targetNodeId: string, message: string) {

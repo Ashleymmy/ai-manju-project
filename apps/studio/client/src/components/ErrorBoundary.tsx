@@ -1,4 +1,5 @@
 import { isModuleLoadError } from "@/shared/lib/moduleLoadError";
+import { reportRuntimeError } from "@/shared/lib/runtimeErrorReport";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import {
   savePageError,
@@ -32,6 +33,7 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    reportRuntimeError(error, "render_error", `${error.stack || ""}\n${info.componentStack || ""}`);
     this.setState({
       report: savePageError(error, info.componentStack || ""),
       copyStatus: "",

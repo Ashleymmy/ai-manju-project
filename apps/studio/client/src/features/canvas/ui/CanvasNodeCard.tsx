@@ -9,6 +9,7 @@ import {
   Archive,
   ArrowRight,
   Camera,
+  Clapperboard,
   ChevronRight,
   Copy,
   Crop,
@@ -24,6 +25,7 @@ import {
   Grid2X2,
   Image as ImageIcon,
   Images,
+  LoaderCircle,
   Maximize2,
   Minimize2,
   Minus,
@@ -67,7 +69,6 @@ import {
   mediaKindFromNode,
   nodeEditorTextFromNode,
   nodeInlineEditPlaceholder,
-  nodeKindBadge,
 } from "@/features/canvas/domain/nodeUtils";
 import { CANVAS_PIN_COLORS, normalizeCanvasPinColor } from "@/features/canvas/domain/pin";
 import { imageSrcFromNode } from "@/features/canvas/domain/nodes";
@@ -245,20 +246,30 @@ export function CanvasImageToolGrid({
   );
 }
 
+/** Shared type symbols for compact node labels and empty-node placeholders. */
+const CANVAS_NODE_KIND_PRESENTATION = {
+  image: { icon: ImageIcon, label: "图片节点" },
+  video: { icon: Film, label: "视频节点" },
+  audio: { icon: Music2, label: "音频节点" },
+  text: { icon: Type, label: "文本节点" },
+  prompt: { icon: WandSparkles, label: "提示词节点" },
+  note: { icon: PenLine, label: "备注节点" },
+  config: { icon: SlidersHorizontal, label: "配置节点" },
+  director: { icon: Clapperboard, label: "导演台节点" },
+} as const;
+
 function nodeKindCenterIcon(kind: CanvasNodeKind) {
-  const props = { size: 30, strokeWidth: 1.2 };
-  if (kind === "video") return <Film {...props} />;
-  if (kind === "audio") return <Music2 {...props} />;
-  if (kind === "config") return <SlidersHorizontal {...props} />;
-  if (kind === "text" || kind === "note" || kind === "prompt") return <Type {...props} />;
-  return <ImageIcon {...props} />;
+  const Icon = CANVAS_NODE_KIND_PRESENTATION[kind].icon;
+  return <Icon size={30} strokeWidth={1.2} />;
 }
 
 // Percent values from generation updates must not extend beyond the progress track.
 const GENERATION_PROGRESS_MAX = 100;
 
 function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelected, isSelectedSingle, isHovered, isConnectionTarget, isGrouped, isConnecting, connectActiveTarget, connectActiveSource, isTitleEditing, titleDraft, isInlineEditing, isRunning, progress, captureBusy, isCapturingFrame, imageToolBusy, storyboardBusy, actions, mentionLibrary }: CanvasNodeCardProps) {
+  const { icon: NodeKindIcon, label: nodeKindLabel } = CANVAS_NODE_KIND_PRESENTATION[node.kind];
   const displayProgress = Number.isFinite(progress) ? Math.round(Math.max(0, Math.min(GENERATION_PROGRESS_MAX, progress))) : 0;
+  const generationStatusLabel = node.metadata?.generationQueued ? "排队等待中" : displayProgress > 0 ? "生成中" : "正在准备生成";
   const preview = imageSrcFromNode(node, previews);
   const previewKind = mediaKindFromNode(node);
   const nodeText = nodeEditorTextFromNode(node);
@@ -353,7 +364,9 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
         />
       </> : null}
       <div className="node-float-label" data-node-title-editor onPointerDown={(event) => event.stopPropagation()}>
-        <span className="node-float-kind">{nodeKindBadge(node.kind)}</span>
+        <span className="node-float-kind" role="img" aria-label={nodeKindLabel} title={nodeKindLabel}>
+          <NodeKindIcon size={14} strokeWidth={1.7} aria-hidden="true" />
+        </span>
         {isTitleEditing ? (
           <input
             className="node-title-input node-float-title-input"
@@ -483,12 +496,16 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
           <button
             type="button"
             className="node-video-capture"
-            title="截取当前帧为图片节点"
+            title={isCapturingFrame ? "正在截取当前帧" : "截取当前帧为图片节点"}
+            aria-label="截取当前帧为图片节点"
+            aria-busy={isCapturingFrame}
             disabled={captureBusy}
             onClick={(event) => { event.stopPropagation(); void captureVideoFrameNode(node); }}
             onPointerDown={(event) => event.stopPropagation()}
           >
-            <Camera size={12} /> {isCapturingFrame ? "截取中…" : "截取当前帧"}
+            {isCapturingFrame
+              ? <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              : <Camera size={14} aria-hidden="true" />}
           </button>
         </>
       ) : preview && previewKind === "audio" ? (
@@ -581,7 +598,7 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
       ) : (
         <div className="prompt-body">{node.kind === "image" ? <ImageIcon size={22} /> : <Sparkles size={18} />}<p>{node.content || "空节点"}</p></div>
       )}
-      {node.metadata?.status === "error" && node.metadata.errorDetails ? (
+      {!isRunning && node.metadata?.status === "error" && node.metadata.errorDetails ? (
         <div className="node-error-box">
           <p title={node.metadata.errorDetails}>{node.metadata.errorDetails}</p>
           <button
@@ -605,9 +622,9 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
       {isRunning ? (
         <div className="node-loading-overlay is-pixel">
           <PixelLoadingOverlay />
-          <div className="node-generation-status" role="progressbar" aria-label="生成进度" aria-valuemin={0} aria-valuemax={GENERATION_PROGRESS_MAX} aria-valuenow={displayProgress > 0 ? displayProgress : undefined} aria-valuetext={displayProgress > 0 ? `生成中 ${displayProgress}%` : "正在准备生成"}>
+          <div className="node-generation-status" role="progressbar" aria-label="生成进度" aria-valuemin={0} aria-valuemax={GENERATION_PROGRESS_MAX} aria-valuenow={displayProgress > 0 ? displayProgress : undefined} aria-valuetext={displayProgress > 0 ? `${generationStatusLabel} ${displayProgress}%` : generationStatusLabel}>
             <div className="node-generation-status-label">
-              <span>{displayProgress > 0 ? "生成中" : "正在准备生成"}</span>
+              <span>{generationStatusLabel}</span>
               <span className="node-generation-percent">{displayProgress > 0 ? `${displayProgress}%` : "…"}</span>
             </div>
             <div className={`node-running${displayProgress > 0 ? "" : " is-indeterminate"}`} aria-hidden="true">

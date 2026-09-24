@@ -50,7 +50,7 @@ describe("canvas node transforms", () => {
     expect(normalizeCanvasNode(saved)?.title).toBe("水果摊");
     expect(normalizeCanvasNode({ ...saved, title: "自定义名称 v1.2" })?.title).toBe("自定义名称 v1.2");
     expect(normalizeCanvasNode({ ...saved, metadata: { ...saved.metadata, canvasOrigin: "imported" } })?.title)
-      .toBe("provider_0.Png");
+      .toBe("provider_0");
   });
 
   it("updates managed coordinates without dropping nested position extensions", () => {

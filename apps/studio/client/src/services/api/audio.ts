@@ -4,6 +4,7 @@ import {
   clearAuthToken,
   getAuthToken,
 } from "./request";
+import { submitWithGenerationAdmission, type GenerationAdmissionOptions } from "@/shared/api/generationAdmission";
 
 export const audioVoiceOptions = [
   { value: "alloy", label: "Alloy" },
@@ -52,6 +53,7 @@ export type NormalizedAudioGenerationConfig = {
 type RequestAudioGenerationOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
+  onWaiting?: GenerationAdmissionOptions["onWaiting"];
 };
 
 export function normalizeAudioVoiceValue(
@@ -112,6 +114,14 @@ export async function requestAudioGeneration(
   config: AudioGenerationConfig,
   prompt: string,
   options: RequestAudioGenerationOptions = {}
+): Promise<Blob> {
+  return submitWithGenerationAdmission("audio", () => requestAudioGenerationOnce(config, prompt, options), options);
+}
+
+async function requestAudioGenerationOnce(
+  config: AudioGenerationConfig,
+  prompt: string,
+  options: RequestAudioGenerationOptions,
 ): Promise<Blob> {
   const normalized = normalizeAudioGenerationConfig(config);
   if (!normalized.model) throw new Error("请先配置音频模型");

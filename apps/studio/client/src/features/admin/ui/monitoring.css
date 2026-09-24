@@ -1,0 +1,285 @@
+.runtime-monitor {
+  --text: var(--foreground);
+  --text-muted: var(--muted-foreground);
+  --panel: var(--card);
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 14px;
+}
+.runtime-monitor button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  cursor: pointer;
+  background: var(--panel, #fff);
+}
+.runtime-monitor button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.runtime-monitor button:hover:not(:disabled) {
+  background: var(--muted, #f4f4f4);
+}
+.runtime-monitor-head,
+.runtime-monitor-actions,
+.runtime-monitor-listhead,
+.runtime-monitor-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.runtime-monitor-head h2 {
+  font-size: 20px;
+  font-weight: 650;
+  margin: 0 0 6px;
+}
+.runtime-monitor small,
+.runtime-monitor-head small,
+.runtime-monitor-listhead > span {
+  color: var(--text-muted, #737373);
+  font-size: 12px;
+}
+.runtime-monitor-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.runtime-monitor-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  padding: 20px 0;
+  align-items: end;
+  border-bottom: 1px solid var(--border, #ddd);
+}
+.runtime-monitor-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+}
+.runtime-monitor-filters input,
+.runtime-monitor-filters select {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 5px;
+  padding: 0 9px;
+  color: inherit;
+  background: var(--panel, #fff);
+}
+.runtime-monitor-filters > button {
+  justify-self: start;
+  height: 36px;
+  width: 38px;
+}
+.runtime-monitor-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 18px;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--border, #ddd);
+}
+.runtime-monitor-stats span {
+  color: var(--text-muted, #737373);
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.runtime-monitor-stats strong {
+  font-size: 24px;
+  font-weight: 650;
+}
+.runtime-monitor-red {
+  color: #ed777b;
+}
+.runtime-monitor h3 {
+  font-size: 14px;
+  font-weight: 650;
+  margin: 0 0 14px;
+}
+.runtime-monitor-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(160px, 1fr);
+  gap: 28px;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--border, #ddd);
+}
+.runtime-monitor-chart {
+  height: 190px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+}
+.runtime-monitor-distribution > div {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 7px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+.runtime-monitor-distribution progress {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 5px;
+  accent-color: #248579;
+}
+.runtime-monitor-distribution progress::-webkit-progress-bar {
+  background: var(--muted);
+}
+.runtime-monitor-distribution progress::-webkit-progress-value {
+  background: #53a99c;
+}
+.runtime-monitor-chart .recharts-cartesian-grid line {
+  stroke: var(--border);
+}
+.runtime-monitor-listhead {
+  padding: 20px 0 12px;
+}
+.runtime-monitor-listhead h3 {
+  margin: 0;
+}
+.runtime-monitor-table {
+  position: relative;
+  width: 100%;
+  overflow: auto;
+}
+.runtime-monitor table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+.runtime-monitor th {
+  font-weight: 500;
+  color: var(--text-muted, #737373);
+  white-space: nowrap;
+  padding: 10px 8px;
+  background: var(--muted, #f6f6f6);
+}
+.runtime-monitor td {
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--border, #eee);
+  vertical-align: top;
+  max-width: 230px;
+  overflow-wrap: anywhere;
+}
+.runtime-monitor td:first-child {
+  min-width: 145px;
+}
+.runtime-monitor td small {
+  display: block;
+  margin-top: 6px;
+}
+.runtime-monitor-message {
+  min-width: 180px;
+}
+.runtime-monitor-message > span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.runtime-monitor-status {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #757575;
+}
+.runtime-monitor-status.status-error {
+  color: #ed777b;
+}
+.runtime-monitor-status.status-success {
+  color: #63b5a9;
+}
+.runtime-monitor-status.status-running,
+.runtime-monitor-status.status-queued {
+  color: #ab7a15;
+}
+.runtime-monitor-pagination {
+  justify-content: flex-end;
+  padding: 16px 0;
+  font-size: 13px;
+}
+.runtime-monitor-empty {
+  padding: 35px 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-muted, #737373);
+}
+.runtime-monitor-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-width: 760px;
+  max-height: 85dvh;
+  overflow: auto;
+}
+.runtime-monitor-dialog dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 20px;
+  font-size: 13px;
+}
+.runtime-monitor-dialog dl > div {
+  min-width: 0;
+}
+.runtime-monitor-dialog dl > div:nth-child(6),
+.runtime-monitor-dialog dl > div:nth-child(7),
+.runtime-monitor-dialog dl > div:nth-child(8) {
+  grid-column: 1 / -1;
+}
+.runtime-monitor-dialog dt {
+  color: #737373;
+  margin-bottom: 4px;
+}
+.runtime-monitor-dialog dd {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 230px;
+  overflow: auto;
+}
+@media (max-width: 650px) {
+  .runtime-monitor-charts {
+    grid-template-columns: 1fr;
+  }
+  .runtime-monitor-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .runtime-monitor-dialog dl {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 960px) {
+  .admin-workspace.admin-monitor-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .admin-monitor-workspace > .admin-nav {
+    display: flex;
+    overflow-x: auto;
+    gap: 6px;
+    border-bottom: 1px solid var(--border);
+    border-right: 0;
+  }
+  .admin-monitor-workspace > .admin-nav button {
+    width: auto;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .admin-monitor-workspace > .admin-panel {
+    min-width: 0;
+    padding: 18px 14px;
+  }
+}

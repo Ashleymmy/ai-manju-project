@@ -62,7 +62,7 @@ import {
 } from "@/entities/asset";
 import {
   createProject,
-  getProjects,
+  getProjectSummaries,
   getProjectSnapshot,
   saveProjectSnapshot,
   type CanvasProject,
@@ -691,8 +691,7 @@ export function AssetLibraryView() {
     try {
       if (activeFolder.system_key === "canvas_project") {
         // Read fresh project state: another tab may have just deleted the canvas.
-        const result = await getProjects(scope);
-        const projects = Array.isArray(result) ? result : result.items || [];
+        const projects = await getProjectSummaries(scope);
         if (projects.some((project) => project.id === activeFolder.source_ref_id)) {
           toast.info("关联画布尚未删除，请先在「全部项目」中删除该画布，再删除此文件夹。");
           return;

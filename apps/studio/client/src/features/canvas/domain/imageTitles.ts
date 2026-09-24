@@ -1,10 +1,9 @@
 import type { CanvasNodeData } from "./types";
 import { stringValue } from "./value";
+import { canvasNodeTitle } from "./nodeTitles";
 
 /** Keep automatic titles short enough to scan on an image card. */
 const GENERATED_IMAGE_TITLE_LENGTH = 24;
-/** Only strip image extensions; dots in descriptive names remain intact. */
-const IMAGE_EXTENSION = /\.(png|jpe?g|webp|gif|avif|bmp|tiff?|svg|heic|heif)$/i;
 /** Provider placeholders and upload defaults are not descriptive asset names. */
 const GENERATED_EXACT =
   /^(provider_\d+|generated[-_ ]?image(?:[-_ ]?\d+)?|untitled|未命名|图片占位|新图片|图片|生成图片)$/i;
@@ -16,7 +15,7 @@ const PROMPT_REFERENCE = /@\[(?:node|asset):[^\]]+\]/g;
 export function looksLikeGeneratedAssetName(name: string): boolean {
   const value = name.trim();
   if (!value) return true;
-  const base = value.replace(/\.[a-zA-Z0-9]{1,8}$/i, "");
+  const base = canvasNodeTitle(value);
   return (
     GENERATED_EXACT.test(base) ||
     GENERATED_PREFIX.test(base) ||
@@ -27,10 +26,8 @@ export function looksLikeGeneratedAssetName(name: string): boolean {
 export function generatedImageTitle(
   name: string,
   prompt = "",
-  batchIndex?: number
 ): string {
-  const base = name.trim().replace(IMAGE_EXTENSION, "").trim();
-  if (base && !looksLikeGeneratedAssetName(name)) return base;
+  if (name.trim() && !looksLikeGeneratedAssetName(name)) return canvasNodeTitle(name);
   const summary =
     prompt
       .replace(PROMPT_REFERENCE, "")
@@ -41,13 +38,14 @@ export function generatedImageTitle(
     ? ""
     : summary;
   const characters = Array.from(
-    text.replace(/\s+/g, " ").replace(IMAGE_EXTENSION, "")
+    text ? canvasNodeTitle(text.replace(/\s+/g, " ")) : ""
   );
   const title = characters.length
     ? characters.slice(0, GENERATED_IMAGE_TITLE_LENGTH).join("") +
       (characters.length > GENERATED_IMAGE_TITLE_LENGTH ? "…" : "")
     : "生成图片";
-  return batchIndex === undefined ? title : `${title} · ${batchIndex + 1}`;
+  // The graph assigns collision numbers for all generation results, including batches.
+  return title;
 }
 
 /** Migrate old automatic titles without changing imported images or batch summaries. */

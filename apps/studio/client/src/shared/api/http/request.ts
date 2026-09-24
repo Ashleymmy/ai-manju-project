@@ -155,6 +155,11 @@ export async function request<T>(
       error instanceof DOMException && error.name === "AbortError"
         ? "请求超时或已取消"
         : "无法连接 API 服务";
+    if (typeof window.dispatchEvent === "function" && !signal?.aborted && token === getAuthToken() && !path.startsWith("/api/monitoring")) {
+      window.dispatchEvent(new CustomEvent("ai-manju:network-error", {
+        detail: { message, path: path.split("?")[0], requestId: id },
+      }));
+    }
     throw new ApiError(message, 0, id, error);
   } finally {
     if (timer !== undefined) window.clearTimeout(timer);

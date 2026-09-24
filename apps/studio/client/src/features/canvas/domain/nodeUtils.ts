@@ -5,6 +5,7 @@ import {
   type VideoProvider,
 } from "@/features/video";
 import { isHiddenImageModel } from "@/shared/lib/modelSelection";
+import { MAX_IMAGE_GENERATION_COUNT } from "@/shared/config/generation";
 import { normalizeCanvasAudioGenerationConfig } from "./audioConfig";
 import {
   canvasTextComposerValue,
@@ -255,7 +256,7 @@ export function qualityFromNode(node: CanvasNodeData): ImageQualityValue {
 
 export function imageCountFromNode(node: CanvasNodeData) {
   const value = typeof node.metadata?.count === "number" ? node.metadata.count : Number(node.metadata?.count || 1);
-  return Math.max(1, Math.min(15, Number.isFinite(value) ? Math.floor(value) : 1));
+  return Math.max(1, Math.min(MAX_IMAGE_GENERATION_COUNT, Number.isFinite(value) ? Math.floor(value) : 1));
 }
 
 export function videoConfigFromNode(node: CanvasNodeData, fallbackModel: string): VideoGenerationConfig {

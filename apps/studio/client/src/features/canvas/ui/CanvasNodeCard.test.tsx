@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { CanvasNodeData } from "@/features/canvas/domain/types";
 
+vi.mock("@/components/canvas/PixelLoadingOverlay", () => ({ default: () => null }));
+
 import {
   CanvasNodeCard,
   canvasNodeCardPropsEqual,
@@ -201,6 +203,17 @@ describe("CanvasNodeCard render boundary", () => {
     });
 
     expect(chooseNode).toHaveBeenCalledWith("node-image", expect.anything());
+  });
+
+  it("replaces stale failure controls with preparation feedback and a working stop action", async () => {
+    const node = createNode({ metadata: { status: "error", errorDetails: "Previous failure" } });
+    const actions = createActions();
+    actions.stopGenerationByNodeId = vi.fn();
+    await act(async () => root.render(<CanvasNodeCard {...createProps(node, actions)} isRunning isSelectedSingle />));
+    expect(container.querySelector(".node-error-box")).toBeNull();
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuetext")).toBe("正在准备生成");
+    await act(async () => container.querySelector<HTMLButtonElement>('[title="停止生成"]')!.click());
+    expect(actions.stopGenerationByNodeId).toHaveBeenCalledWith(node.id);
   });
 
   it("removes member connection handles while a node belongs to a group", async () => {

@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/ai-manju/api/internal/monitoring"
 	"github.com/ai-manju/api/internal/response"
 	"github.com/gin-gonic/gin"
 )
@@ -28,6 +29,7 @@ func SafeAccessLog(writer io.Writer) gin.HandlerFunc {
 // Gin 默认 Recovery 会转储完整 URL/Header。保留调用栈，但不输出 panic 值或请求转储。
 func SafeRecovery(writer io.Writer) gin.HandlerFunc {
 	return gin.CustomRecoveryWithWriter(io.Discard, func(c *gin.Context, _ any) {
+		c.Set(monitoring.PanicStackKey, monitoring.SafeText(string(debug.Stack())))
 		body, _ := json.Marshal(map[string]any{"event": "http_panic", "request_id": response.RequestID(c),
 			"path": c.Request.URL.EscapedPath(), "stack": string(debug.Stack())})
 		fmt.Fprintln(writer, string(body))

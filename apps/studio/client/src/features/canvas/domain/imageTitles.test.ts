@@ -24,20 +24,19 @@ describe("generated canvas image titles", () => {
     );
   });
 
-  it("omits reference IDs, shortens long prompts safely, and numbers batch variants", () => {
+  it("omits reference IDs and gives generation results a common base for graph numbering", () => {
     expect(
       generatedImageTitle(
         "provider_0.png",
         "@[node:private-id] 街边   水果摊",
-        1
       )
-    ).toBe("街边 水果摊 · 2");
+    ).toBe("街边 水果摊");
     expect(generatedImageTitle("provider_0.png", "🍎".repeat(30))).toBe(
       `${"🍎".repeat(24)}…`
     );
     expect(
-      generatedImageTitle("provider_0.png", "@[asset:private-id]", 2)
-    ).toBe("生成图片 · 3");
+      generatedImageTitle("provider_0.png", "@[asset:private-id]")
+    ).toBe("生成图片");
     expect(
       generatedImageTitle("provider_0.png", "https://example.test/image.png")
     ).toBe("生成图片");

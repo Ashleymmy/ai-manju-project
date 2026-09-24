@@ -7,6 +7,7 @@ import {
   Ungroup,
   FolderKanban,
   Plus,
+  RefreshCw,
   Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -14,10 +15,9 @@ import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 import {
-  getProjects,
-  getProjectSnapshot,
-  type CanvasProject,
+  useProjectSummaries,
 } from "@/entities/project";
+import { useAuth } from "@/contexts/AuthContext";
 import { createZip } from "@/lib/zip";
 import { ProjectCoverPickerDialog } from "@/components/ProjectCoverPickerDialog";
 import { publicApiError } from "@/shared/api/errors";
@@ -31,6 +31,8 @@ import { ProjectCard } from "./ProjectCard";
 import { ProjectCardTools } from "./ProjectCardTools";
 import { useProjectActions } from "./useProjectActions";
 import { PROJECT_GROUP_TITLE_LIMIT, useProjectGroups } from "./useProjectGroups";
+import { ProjectListFeedback } from "./ProjectListFeedback";
+import { readProjectExport } from "./projectExport";
 import "./styles.css";
 
 const projectsIntro = {
@@ -41,38 +43,20 @@ const projectsIntro = {
 
 export default function ProjectsPage() {
   const [, navigate] = useLocation();
+  const { user } = useAuth();
   const [scope, setScope] = useState<WorkspaceScope>("personal");
-  const [apiProjects, setApiProjects] = useState<CanvasProject[]>([]);
+  const { projects: apiProjects, loading, refreshing, error: listError, hasLoaded, refresh: refreshList } = useProjectSummaries(scope, user?.id || "");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [activeGroup, setActiveGroup] = useState("all");
   const projectGroups = useProjectGroups(scope);
   const coverUrls = useProjectCoverUrls(apiProjects, scope);
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    getProjects(scope)
-      .then(res => {
-        if (cancelled) return;
-        const raw: CanvasProject[] = Array.isArray(res) ? res : res.items;
-        setApiProjects(raw || []);
-        setSelectedIds(ids =>
-          ids.filter(id => (raw || []).some(project => project.id === id))
-        );
-      })
-      .catch(error => {
-        if (cancelled) return;
-        setApiProjects([]);
-        toast.error(publicApiError(error, "读取项目列表失败"));
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [refreshKey, scope]);
+    setSelectedIds(ids => ids.filter(id => apiProjects.some(project => project.id === id)));
+  }, [apiProjects]);
 
-  const refresh = () => setRefreshKey(value => value + 1);
+  const refresh = () => { void refreshList(); };
   const {
     coverProject,
     setCoverProject,
@@ -107,18 +91,10 @@ export default function ProjectsPage() {
       for (const id of ids) {
         const project = apiProjects.find(item => item.id === id);
         if (!project) continue;
-        const snapshot = await getProjectSnapshot(id, scope).catch(() => null);
+        const exported = await readProjectExport(project, scope);
         files.push({
           name: `${project.title.replace(/[^\w一-龥.-]/g, "_") || id}.json`,
-          data: JSON.stringify(
-            {
-              project,
-              snapshot: snapshot?.data ?? null,
-              exportedAt: new Date().toISOString(),
-            },
-            null,
-            2
-          ),
+          data: JSON.stringify(exported, null, 2),
         });
       }
       if (!files.length) throw new Error("没有可导出的项目");
@@ -187,6 +163,9 @@ export default function ProjectsPage() {
           ))}
         </div>
         <div className="project-bulk-bar">
+          <button className="outline-button small" disabled={refreshing} onClick={refresh}>
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} /> {refreshing ? "正在刷新…" : "刷新列表"}
+          </button>
           <span>已选 {selectedIds.length} 项</span>
           <button
             className="outline-button small"
@@ -221,7 +200,7 @@ export default function ProjectsPage() {
           </button>
           <button
             className="outline-button small"
-            disabled={!apiProjects.length}
+            disabled={!apiProjects.length || Boolean(listError) || refreshing}
             onClick={() =>
               void deleteProjects(apiProjects.map(project => project.id))
             }
@@ -232,10 +211,10 @@ export default function ProjectsPage() {
       </div>
       <div className="project-group-navigation">
         <div className="project-group-tabs" aria-label="画布分组">
-          <button className={activeGroup === "all" ? "active" : ""} aria-pressed={activeGroup === "all"} onClick={() => selectGroup("all")}>全部 <span>{apiProjects.length}</span></button>
-          <button className={activeGroup === "ungrouped" ? "active" : ""} aria-pressed={activeGroup === "ungrouped"} disabled={groupBusy} onClick={() => selectGroup("ungrouped")}>未分组 <span>{apiProjects.filter(project => !assigned.has(project.id)).length}</span></button>
+          <button className={activeGroup === "all" ? "active" : ""} aria-pressed={activeGroup === "all"} onClick={() => selectGroup("all")}>全部 <span>{hasLoaded ? apiProjects.length : "—"}</span></button>
+          <button className={activeGroup === "ungrouped" ? "active" : ""} aria-pressed={activeGroup === "ungrouped"} disabled={groupBusy} onClick={() => selectGroup("ungrouped")}>未分组 <span>{hasLoaded ? apiProjects.filter(project => !assigned.has(project.id)).length : "—"}</span></button>
           {projectGroups.groups.map(group => <button key={group.id} className={activeGroup === group.id ? "active" : ""} aria-pressed={activeGroup === group.id} disabled={groupBusy} onClick={() => selectGroup(group.id)}>
-            {group.title} <span>{apiProjects.filter(project => group.projectIds.includes(project.id)).length}</span>
+            {group.title} <span>{hasLoaded ? apiProjects.filter(project => group.projectIds.includes(project.id)).length : "—"}</span>
           </button>)}
         </div>
         {currentGroup ? <div className="project-group-tools">
@@ -246,6 +225,7 @@ export default function ProjectsPage() {
         </div> : null}
         {projectGroups.error ? <div role="alert">{projectGroups.error} <button className="outline-button small" onClick={projectGroups.reload}>重试</button></div> : null}
       </div>
+      <ProjectListFeedback error={listError} refreshing={refreshing} hasProjects={Boolean(apiProjects.length)} onRetry={refresh} />
       <div className="project-grid">
         {loading ? (
           <div className="empty-output">
@@ -282,14 +262,14 @@ export default function ProjectsPage() {
               <ProjectCard {...project} image={(project.id && coverUrls[project.id]) || project.image} scope={scope} />
             </div>
           ); })
-        ) : (
+        ) : !listError ? (
           <div className="empty-output">
             <FolderKanban size={27} />
             <p>
               {activeGroup === "all" ? "还没有画布项目" : "该分组暂无画布"}
             </p>
           </div>
-        )}
+        ) : null}
       </div>
       <ProjectCoverPickerDialog
         open={Boolean(coverProject)}

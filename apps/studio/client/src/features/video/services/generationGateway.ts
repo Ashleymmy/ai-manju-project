@@ -5,6 +5,7 @@ import { videoModelCapabilities, videoOptionAvailable } from "@/entities/model/v
 import { API_BASE_URL, ApiError, getAuthToken, request } from "@/shared/api/http";
 import type { WorkspaceScope } from "@/shared/config";
 import { createRandomUUID } from "@/shared/lib/cryptoRandomUuid";
+import { submitWithGenerationAdmission, type GenerationAdmissionOptions } from "@/shared/api/generationAdmission";
 
 export type VideoProvider = "openai" | "seedance";
 
@@ -83,6 +84,7 @@ export type VideoGenerationTaskState =
 
 type RequestOptions = {
   signal?: AbortSignal;
+  onWaiting?: GenerationAdmissionOptions["onWaiting"];
   projectId?: string;
   nodeId?: string;
   scope?: WorkspaceScope;
@@ -336,9 +338,9 @@ export async function createVideoGenerationTask(
   // Otherwise native jobs fall back to a payload fingerprint and return an old
   // completed task. Keep this key stable across any transport retry of this call.
   const submissionOptions = { ...options, idempotencyKey: options.idempotencyKey || `video-${createRandomUUID()}` };
-  return isSeedanceVideoModel(normalized.model)
+  return submitWithGenerationAdmission("video", () => isSeedanceVideoModel(normalized.model)
     ? createSeedanceTask(normalized, text, referenceSnapshot, submissionOptions)
-    : createOpenAiVideoTask(normalized, text, referenceSnapshot, submissionOptions);
+    : createOpenAiVideoTask(normalized, text, referenceSnapshot, submissionOptions), options);
 }
 
 export function validateVideoGenerationReferences(

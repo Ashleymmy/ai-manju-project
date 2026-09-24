@@ -48,6 +48,7 @@ const primaryRoutes: AppRoute[] = [
   defineAppRoute({ id: "skills", path: "/skills", loader: () => import("@/features/skills"), permission: "authenticated", layout: "studio" }),
   defineAppRoute({ id: "profile", path: "/profile", loader: () => import("@/features/member"), permission: "authenticated", layout: "studio" }),
   defineAppRoute({ id: "queue", path: "/queue", loader: () => import("@/features/queue"), permission: "authenticated", layout: "studio" }),
+  defineAppRoute({ id: "monitoring", path: "/monitoring", loader: () => import("@/features/admin/ui/MonitoringPage"), permission: "authenticated", layout: "studio" }),
   defineAppRoute({ id: "settings", path: "/settings", loader: () => import("@/features/settings"), permission: "authenticated", layout: "studio" }),
   defineAppRoute({ id: "member", path: "/member", loader: () => import("@/features/member"), permission: "authenticated", layout: "studio" }),
   defineAppRoute({ id: "member-plans", path: "/member/plans", loader: () => import("@/features/member"), permission: "authenticated", layout: "studio" }),

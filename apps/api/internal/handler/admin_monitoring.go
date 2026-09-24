@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ai-manju/api/internal/auth"
+	"github.com/ai-manju/api/internal/model"
+	"github.com/ai-manju/api/internal/monitoring"
 	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/response"
 	"github.com/gin-gonic/gin"
@@ -25,6 +28,11 @@ func NewAdminMonitoringHandler(repo repository.MonitoringRepository, storage str
 }
 
 func (h *AdminMonitoringHandler) Get(c *gin.Context) {
+	actor, ok := auth.CurrentUser(c)
+	if !ok || actor.Role != model.UserRoleSuperAdmin {
+		response.Error(c, http.StatusForbidden, "global monitoring requires super administrator")
+		return
+	}
 	if h.repo == nil {
 		response.Error(c, http.StatusServiceUnavailable, "monitoring repository is not available")
 		return
@@ -77,6 +85,15 @@ func (h *AdminMonitoringHandler) Get(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	filtered := recentRequests[:0]
+	for _, entry := range recentRequests {
+		if entry.CreatedAt.Before(since) {
+			continue
+		}
+		entry.ErrorMessage, entry.ErrorReason, entry.ErrorSuggestion = monitoring.SafeText(entry.ErrorMessage), monitoring.SafeText(entry.ErrorReason), monitoring.SafeText(entry.ErrorSuggestion)
+		filtered = append(filtered, entry)
+	}
+	recentRequests = filtered
 	storageStats, err := h.repo.StorageStats()
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, err.Error())
@@ -111,7 +128,7 @@ func (h *AdminMonitoringHandler) Get(c *gin.Context) {
 		"operations":    operations,
 		"buckets":       buckets,
 		"recent":        recentRequests,
-		"logs":          readRecentLogLines(120),
+		"logs":          []gin.H{},
 	})
 }
 

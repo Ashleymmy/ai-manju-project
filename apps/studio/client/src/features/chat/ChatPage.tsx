@@ -15,8 +15,8 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 
 import { useAuth } from "@/contexts/AuthContext";
-import { getProjects, type CanvasProject } from "@/entities/project";
-import { ProjectCard, projectToCard, useProjectCoverUrls } from "@/features/projects";
+import { useProjectSummaries } from "@/entities/project";
+import { ProjectCard, ProjectListFeedback, projectToCard, useProjectCoverUrls } from "@/features/projects";
 
 import ChatComposer, { CHAT_OPEN_MENU_ATTR } from "./ChatComposer";
 import "./styles.css";
@@ -40,19 +40,8 @@ export default function ChatPage() {
   const { user, logout } = useAuth();
   const [location, navigate] = useLocation();
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [recentProjects, setRecentProjects] = useState<CanvasProject[]>([]);
+  const { projects: recentProjects, error: projectError, refreshing, refresh: refreshProjects } = useProjectSummaries("personal", user?.id || "");
   const recentCoverUrls = useProjectCoverUrls(recentProjects, "personal");
-
-  // 最近项目：登录用户读真实个人工作区，未登录静默置空（只保留新建入口）
-  useEffect(() => {
-    if (!user) {
-      setRecentProjects([]);
-      return;
-    }
-    getProjects("personal")
-      .then((result) => setRecentProjects(Array.isArray(result) ? result : result.items || []))
-      .catch(() => setRecentProjects([]));
-  }, [user]);
 
   // 点击页面任意空白处 / 按 Esc 时关闭用户菜单（模型下拉由 ChatComposer 自己处理）
   useEffect(() => {
@@ -147,6 +136,7 @@ export default function ChatPage() {
             <span className="eyebrow">最近使用的项目</span>
             <button onClick={() => navigate("/projects")}>所有项目 →</button>
           </div>
+          <ProjectListFeedback error={projectError} refreshing={refreshing} hasProjects={Boolean(recentProjects.length)} onRetry={() => { void refreshProjects(); }} />
           <div className="project-row">
             <button className="project-card chat-new-card" onClick={() => navigate("/projects")}>
               <Plus size={22} />
