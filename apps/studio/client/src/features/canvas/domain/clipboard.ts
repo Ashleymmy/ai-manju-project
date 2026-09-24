@@ -1,10 +1,12 @@
-import { canvasNodeCopyTitle } from "./nodeTitles";
+import { canvasNodeCopyTitle, canvasNodePlaceholderTitle, isGeneratedCanvasNode } from "./nodeTitles";
+import type { CanvasNodeKind } from "./types";
 
 /** Identifies the in-memory node copy without exposing node data to other apps. */
 export const CANVAS_CLIPBOARD_TOKEN_PREFIX = "ai-manju-canvas-nodes:";
 
 export type CanvasClipboardNode = {
   id: string;
+  kind?: CanvasNodeKind;
   title: string;
   x: number;
   y: number;
@@ -39,10 +41,14 @@ const CANVAS_NODE_DUPLICATE_DETACHED_KEYS = [
 export function duplicateCanvasNode<TNode extends CanvasClipboardNode>(source: TNode, id: string, existing: readonly Pick<CanvasClipboardNode, "title">[] = [source]): TNode {
   const duplicate = structuredClone(source);
   duplicate.id = id;
-  duplicate.title = canvasNodeCopyTitle(source.title, new Set(existing.map(node => node.title)));
+  const generated = isGeneratedCanvasNode(source) && !source.metadata?.titleEdited;
+  const automatic = generated || Boolean(canvasNodePlaceholderTitle(source));
+  duplicate.title = automatic ? source.title : canvasNodeCopyTitle(source.title, new Set(existing.map(node => node.title)));
   duplicate.x += CANVAS_NODE_DUPLICATE_OFFSET;
   duplicate.y += CANVAS_NODE_DUPLICATE_OFFSET;
-  duplicate.metadata = { ...duplicate.metadata, titleEdited: true };
+  duplicate.metadata = automatic
+    ? { ...duplicate.metadata, ...(generated ? { generatedInCanvas: true } : { titleMode: "placeholder" }), titleEdited: false, titleBase: undefined }
+    : { ...duplicate.metadata, titleEdited: true, titleBase: duplicate.title, titleMode: "custom" };
   if (duplicate.metadata) {
     for (const key of CANVAS_NODE_DUPLICATE_DETACHED_KEYS) delete duplicate.metadata[key];
     if (duplicate.metadata.status === "loading") {
@@ -97,7 +103,9 @@ export function pasteCanvasClipboard<TNode extends CanvasClipboardNode, TEdge ex
   const nodes = clipboard.nodes.map((source) => {
     const node = structuredClone(source);
     const id = idMap.get(source.id)!;
-    const title = canvasNodeCopyTitle(node.title, usedTitles);
+    const generated = isGeneratedCanvasNode(node) && !node.metadata?.titleEdited;
+    const automatic = generated || Boolean(canvasNodePlaceholderTitle(node));
+    const title = automatic ? node.title : canvasNodeCopyTitle(node.title, usedTitles);
     usedTitles.add(title);
     return {
       ...node,
@@ -105,7 +113,12 @@ export function pasteCanvasClipboard<TNode extends CanvasClipboardNode, TEdge ex
       title,
       x: Math.round(node.x + offsetX),
       y: Math.round(node.y + offsetY),
-      metadata: { ...remapCanvasClipboardMetadata(node.metadata, idMap), titleEdited: true },
+      metadata: {
+        ...remapCanvasClipboardMetadata(node.metadata, idMap),
+        ...(generated ? { generatedInCanvas: true } : { titleMode: automatic ? "placeholder" : "custom" }),
+        titleEdited: !automatic,
+        titleBase: automatic ? undefined : title,
+      },
     };
   });
 

@@ -40,6 +40,8 @@ export type CanvasImageToolDialogProps = {
   busy: boolean;
   error: string;
   preview: string;
+  loading?: boolean;
+  onRetry?: () => void;
   node?: CanvasNodeData;
   crop: ImageCropRect;
   cropStageRef: RefObject<HTMLDivElement | null>;
@@ -57,6 +59,8 @@ export function CanvasImageToolDialog({
   busy,
   error,
   preview,
+  loading = false,
+  onRetry,
   node,
   crop,
   cropStageRef,
@@ -132,7 +136,7 @@ export function CanvasImageToolDialog({
                   ))}
                 </div>
               </div>
-            ) : <img src={preview} alt={node?.title || "待处理图片"} /> : <div className="empty-output"><ImageIcon size={28} /><p>原图暂不可预览</p></div>}
+            ) : <img src={preview} alt={node?.title || "待处理图片"} /> : <div className="empty-output"><ImageIcon size={28} /><p>{loading ? "正在加载原图…" : "原图暂不可预览"}</p>{!loading && onRetry ? <button type="button" onClick={onRetry}>重试加载原图</button> : null}</div>}
           </div>
           <div className="canvas-image-tool-controls">
             <div className="canvas-image-tool-tabs">

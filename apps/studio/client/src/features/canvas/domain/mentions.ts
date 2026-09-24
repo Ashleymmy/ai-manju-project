@@ -4,6 +4,8 @@ import {
   normalizeAssetCategory,
   type AssetCategory,
 } from "@/entities/asset/model";
+import { canvasNodeTitle } from "./nodeTitles";
+import { compareAssetTypes } from "@/entities/asset/typeOrder";
 import {
   buildCanvasGenerationInputs,
   promptFromCanvasTopology,
@@ -307,7 +309,7 @@ export function filterCanvasMentionReferences(
         reference.active &&
         (!normalized || reference.searchText.includes(normalized))
     )
-    .sort((left, right) => groupOrder(left.group) - groupOrder(right.group));
+    .sort((left, right) => groupOrder(left.group) - groupOrder(right.group) || compareAssetTypes(left.kind, right.kind));
 }
 
 export function filterCanvasMentionAssetCategories(query: string) {
@@ -452,8 +454,8 @@ export function buildCanvasMentionReferences(
     category: normalizeAssetCategory(asset.category),
     kind: asset.type,
     text: asset.text,
-    label: asset.name || asset.id,
-    title: asset.name || asset.id,
+    label: canvasNodeTitle(asset.name || asset.id),
+    title: canvasNodeTitle(asset.name || asset.id),
     searchText: [
       asset.name,
       asset.type,

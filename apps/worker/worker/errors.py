@@ -9,6 +9,12 @@ SENSITIVE_PATTERNS = [
     re.compile(r"(Bearer\s+)[A-Za-z0-9._~+/=-]+", re.IGNORECASE),
 ]
 
+# Task status is public; full exception diagnostics are recorded separately by tasks.py.
+PUBLIC_TASK_ERROR_MESSAGES = {
+    "image_output_size_mismatch": "本次图片未达到所选规格，请调整参数或更换模型后重试。",
+    "image_output_unreadable": "本次图片未能完整生成，请稍后重试或更换模型。",
+}
+
 
 @dataclass
 class SafeTaskError(Exception):
@@ -37,7 +43,7 @@ def safe_message(value: object) -> str:
 def error_payload(exc: BaseException) -> dict[str, object]:
     if isinstance(exc, SafeTaskError):
         payload: dict[str, object] = {
-            "message": safe_message(exc.message),
+            "message": safe_message(PUBLIC_TASK_ERROR_MESSAGES.get(exc.code, exc.message)),
             "code": exc.code,
             "retryable": exc.retryable,
         }

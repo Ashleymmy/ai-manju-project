@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canvasImageGenerationSettings } from "./imageGenerationSettings";
+import { canvasImageGenerationSettings, canvasImageGenerationSettingsIssue } from "./imageGenerationSettings";
 import { toImageSizeValue } from "./nodeUtils";
 import type { CanvasNodeData, CanvasNodeMetadata } from "./types";
 
@@ -7,6 +7,16 @@ const node = (metadata: CanvasNodeMetadata) => ({ metadata, width: 80, height: 6
 const ratios = ["1:1", "2:1", "4:3", "3:4", "5:4", "4:5", "3:2", "2:3", "21:9", "9:21", "16:9", "9:16", "panorama"];
 
 describe("canvas image generation settings", () => {
+  it("blocks saved unavailable resolutions without silently replacing the requested setting", () => {
+    for (const imageResolution of ["2K", "4K"]) {
+      const saved = node({ imageResolution });
+      expect(canvasImageGenerationSettingsIssue(saved)).toContain(`暂不支持 ${imageResolution}`);
+      expect(saved.metadata?.imageResolution).toBe(imageResolution);
+    }
+    expect(canvasImageGenerationSettingsIssue(node({ imageResolution: "1K" }))).toBe("");
+    expect(canvasImageGenerationSettingsIssue(node({}))).toBe("");
+  });
+
   it.each([
     ["1K", "1280x720"], ["2K", "2560x1440"], ["4K", "3840x2160"],
   ])("sends a distinct pixel size for %s independent of detail quality", (imageResolution, size) => {

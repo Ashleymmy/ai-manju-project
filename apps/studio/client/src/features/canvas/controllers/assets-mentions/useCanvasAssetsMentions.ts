@@ -5,6 +5,7 @@ import { workspaceScopeValue } from "@/features/canvas/domain/workspace";
 import { syncCanvasTextAssets } from "@/features/canvas/repositories/textAssetsRepository";
 import { CanvasAssetsMentionsController } from "./controller";
 import type { CanvasAssetsMentionsBindings } from "./types";
+import { subscribeAssetNameChanges } from "@/entities/asset";
 
 type CanvasAssetsMentionsHookInput = CanvasAssetsMentionsBindings & {
   projectId: string;
@@ -32,6 +33,7 @@ export function useCanvasAssetsMentions(input: CanvasAssetsMentionsHookInput) {
     [input.canonicalScope, input.fallbackScope, input.nodes],
   );
   const userId = input.getUserId();
+  useEffect(() => subscribeAssetNameChanges(controller.applyAssetNameChange), [controller]);
   const textSignature = useMemo(() => JSON.stringify(input.nodes.filter(node => node.kind === "text")
     .map(node => [node.id, node.title, node.content, node.metadata?.content, node.metadata?.status,
       node.metadata?.textAssetId, node.metadata?.textAssetScope])), [input.nodes]);

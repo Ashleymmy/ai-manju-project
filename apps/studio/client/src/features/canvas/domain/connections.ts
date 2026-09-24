@@ -97,6 +97,13 @@ export function findCanvasConnectionDropTarget(
         && world.y <= (node.y || 0) + (node.height || 0) + padding;
       if (!hitsHandle && !hitsInside && !hitsExpanded) return;
       isNearNode = true;
+      // The opposite edge of a card is a different port, never an alternate
+      // target. Body drops still snap to the compatible input/output port.
+      const wrongAnchor = canvasConnectionTargetAnchor(node, current.handleType === "source" ? "target" : "source");
+      const wrongDistance = Math.hypot(world.x - wrongAnchor.x, world.y - wrongAnchor.y);
+      const correctDistance = Math.hypot(dx, dy);
+      if (wrongDistance < correctDistance && (wrongDistance <= handleRadius
+        || (current.handleType === "source" ? world.x >= wrongAnchor.x : world.x <= wrongAnchor.x))) return;
       if (!canvasGroupConnections(current.nodeId, node.id, nodes, current.handleType, options.groups).length) return;
       const priority = hitsInside ? 0 : hitsHandle ? 1 : 2;
       if (priority < bestPriority) {
@@ -118,7 +125,6 @@ export function normalizeCanvasConnection(
   const second = nodes.find((node) => node.id === secondNodeId);
   if (!first || !second || first.id === second.id) return null;
   if (first.kind === "config" && second.kind === "config") return null;
-  if (second.kind === "config") return { from: first.id, to: second.id };
   // 从目标端（左柄 / 检查器「+」）发起时，对端是参考源、当前节点是接入点。
   if (firstHandleType === "target") return { from: second.id, to: first.id };
   return { from: first.id, to: second.id };
@@ -151,8 +157,8 @@ export function canvasActiveConnectionPath(
       ? canvasEdgeTargetPoint(target)
       : mouseWorld
     : canvasEdgeTargetPoint(node);
-  const distance = Math.abs(end.x - start.x);
-  return `M ${start.x} ${start.y} C ${start.x + distance * 0.5} ${start.y}, ${end.x - distance * 0.5} ${end.y}, ${end.x} ${end.y}`;
+  const curvature = canvasConnectionCurvature(start.x, end.x);
+  return `M ${start.x} ${start.y} C ${start.x + curvature} ${start.y}, ${end.x - curvature} ${end.y}, ${end.x} ${end.y}`;
 }
 
 /** A temporary selection owns its ports even when it includes an existing group. */

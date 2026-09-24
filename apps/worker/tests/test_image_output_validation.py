@@ -101,11 +101,13 @@ class ImageOutputValidationTest(unittest.TestCase):
                 ("1280x720", (1672, 941), True), ("720x1280", (941, 1672), True),
                 ("1280x720", (2560, 1440), True), ("1280x720", (1672, 943), False),
                 ("1024x1024", (1536, 1024), False), ("2048x2048", (1024, 1024), False),
+                ("2560x1440", (1672, 941), False),
                 ("1280x720", (1279, 720), False),
             ):
                 with self.subTest(operation=operation.__name__, requested=requested, actual=actual), tempfile.TemporaryDirectory() as tmp:
                     settings = test_settings(tmp)
                     store = FakeStore()
+                    store.record_monitoring_error = MagicMock()
                     remote = {"base_url": "https://provider.example/v1", "model": "gpt-image-2", "auth_type": "none"}
                     payload = {"model": "gpt-image-2", "size": requested, "quality": "high", "prompt": "四个苹果",
                                "asset_registration": {"source_type": "canvas"},
@@ -129,7 +131,14 @@ class ImageOutputValidationTest(unittest.TestCase):
                             self.assertEqual(store.results, [])
                             self.assertEqual(register.call_count, 0)
                             self.assertEqual(store.final_errors[0]["code"], "image_output_size_mismatch")
-                            self.assertIn(f"{actual[0]}×{actual[1]}", store.final_errors[0]["message"])
+                            self.assertEqual(store.final_errors[0]["message"], "本次图片未达到所选规格，请调整参数或更换模型后重试。")
+                            self.assertFalse(store.final_errors[0]["retryable"])
+                            event = store.record_monitoring_error.call_args.args[0]
+                            self.assertIn(requested.replace("x", "×"), event["detail"])
+                            self.assertIn(f"{actual[0]}×{actual[1]}", event["detail"])
+                            self.assertEqual(event["error_code"], "image_output_size_mismatch")
+                            self.assertEqual(event["user_id"], store.job["user_id"])
+                            self.assertEqual(event["job_id"], store.job["id"])
                             self.assertEqual(store.retry_errors, [])
                         self.assertEqual(post.call_count, 1)
                         sent = post.call_args.kwargs.get("json") or post.call_args.kwargs["data"]

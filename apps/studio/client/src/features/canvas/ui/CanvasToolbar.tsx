@@ -88,8 +88,8 @@ export function CanvasTopToolbar({
         {/* 暂时隐藏："从当前节点开始连接"按钮（恢复时取消注释，并恢复图标导入 Link2）
         <button title={connecting ? "选择目标节点完成连接" : "从当前节点开始连接"} className={connecting ? "active" : ""} onClick={() => selectedNodeId && onActivateConnection(selectedNodeId)} disabled={disabled}><Link2 size={16} /></button>
         */}
-        <button title="撤销" onClick={onUndo} disabled={!canUndo || disabled}><Undo2 size={16} /></button>
-        <button title="重做" onClick={onRedo} disabled={!canRedo || disabled}><Redo2 size={16} /></button>
+        <button className="canvas-history-button" title={canUndo ? "撤销上一步画布操作" : "暂无可撤销的画布操作"} aria-label="撤销" onClick={onUndo} disabled={!canUndo || disabled}><Undo2 size={16} /></button>
+        <button className="canvas-history-button" title={canRedo ? "重做下一步画布操作" : "暂无可重做的画布操作"} aria-label="重做" onClick={onRedo} disabled={!canRedo || disabled}><Redo2 size={16} /></button>
         <i className="tool-divider" />
         <button title="添加文本" onClick={() => onAddNode("text")} disabled={disabled}><Type size={16} /></button>
         <button title="添加图片" onClick={() => onAddNode("image")} disabled={disabled}><ImageIcon size={16} /></button>

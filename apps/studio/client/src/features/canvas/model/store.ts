@@ -160,10 +160,11 @@ function resolveCanvasStateUpdate<T>(update: CanvasStateUpdate<T>, current: T): 
 }
 
 function mergeInitialState(initialState: CanvasStoreInitialState): CanvasStoreSlices {
+  const session = { ...defaultSessionSlice(), ...initialState.session };
   return {
-    graph: fitCanvasGraph({ ...defaultGraphSlice(), ...initialState.graph }),
+    graph: fitCanvasGraph({ ...defaultGraphSlice(), ...initialState.graph }, undefined, session.projectTitle),
     viewport: { ...defaultViewportSlice(), ...initialState.viewport },
-    session: { ...defaultSessionSlice(), ...initialState.session },
+    session,
     generation: { ...defaultGenerationSlice(), ...initialState.generation },
     ui: { ...defaultUiSlice(), ...initialState.ui },
   };
@@ -171,8 +172,8 @@ function mergeInitialState(initialState: CanvasStoreInitialState): CanvasStoreSl
 
 // Apply geometry in the same transaction as node edits, generation, hydration
 // and undo/redo, so frames and their saved snapshots cannot lag behind members.
-function fitCanvasGraph(graph: CanvasGraphSlice, previous?: CanvasGraphSlice): CanvasGraphSlice {
-  const nodes = ensureUniqueCanvasNodeTitles(graph.nodes, previous?.nodes);
+function fitCanvasGraph(graph: CanvasGraphSlice, previous?: CanvasGraphSlice, projectTitle?: string): CanvasGraphSlice {
+  const nodes = ensureUniqueCanvasNodeTitles(graph.nodes, previous?.nodes, projectTitle);
   const groups = fitCanvasGroupsToNodes(graph.groups, nodes);
   return groups === graph.groups && nodes === graph.nodes ? graph : { ...graph, nodes, groups };
 }
@@ -189,7 +190,11 @@ export function createCanvasStore(initialState: CanvasStoreInitialState = {}): C
           const next = resolveCanvasStateUpdate(update, current);
           if (Object.is(current, next)) return state;
           if (slice === "graph" && (field === "nodes" || field === "groups")) {
-            return { ...state, graph: fitCanvasGraph({ ...state.graph, [field]: next }, state.graph) };
+            return { ...state, graph: fitCanvasGraph({ ...state.graph, [field]: next }, state.graph, state.session.projectTitle) };
+          }
+          if (slice === "session" && field === "projectTitle") {
+            const session = { ...state.session, projectTitle: next as string };
+            return { ...state, session, graph: fitCanvasGraph(state.graph, state.graph, session.projectTitle) };
           }
           return {
             ...state,
@@ -205,11 +210,13 @@ export function createCanvasStore(initialState: CanvasStoreInitialState = {}): C
           const patch = typeof transaction === "function"
             ? transaction(canvasSerializableState(state))
             : transaction;
+          const session = patch.session ? { ...state.session, ...patch.session } : state.session;
           return {
             ...state,
-            graph: patch.graph ? fitCanvasGraph({ ...state.graph, ...patch.graph }, state.graph) : state.graph,
+            graph: patch.graph || session.projectTitle !== state.session.projectTitle
+              ? fitCanvasGraph({ ...state.graph, ...patch.graph }, state.graph, session.projectTitle) : state.graph,
             viewport: patch.viewport ? { ...state.viewport, ...patch.viewport } : state.viewport,
-            session: patch.session ? { ...state.session, ...patch.session } : state.session,
+            session,
             generation: patch.generation ? { ...state.generation, ...patch.generation } : state.generation,
             ui: patch.ui ? { ...state.ui, ...patch.ui } : state.ui,
           };

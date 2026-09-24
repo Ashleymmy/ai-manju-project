@@ -6,6 +6,7 @@ import {
   saveCanvasTextAsset,
   syncCanvasTextAssets,
   canvasNodeTextAssetId,
+  renameCanvasTextAsset,
 } from "./textAssetsRepository";
 import type { CanvasNodeData } from "../domain/types";
 
@@ -18,6 +19,16 @@ function memoryStorage() {
 }
 
 describe("canvas text assets", () => {
+  it("renames a saved text snapshot while preserving its body, folder and category", async () => {
+    const storage = memoryStorage();
+    const saved = await saveCanvasTextAsset({ userId: "u", scope: "personal", title: "旧名", content: "保存时正文", category: "character", folderId: "roles" }, storage);
+    await renameCanvasTextAsset({ userId: "u", scope: "personal", id: saved.id, title: "新名" }, storage);
+    expect(await listCanvasTextAssets("u", "personal", storage)).toEqual([
+      expect.objectContaining({ id: saved.id, title: "新名", content: "保存时正文", category: "character", folderId: "roles", automatic: false }),
+    ]);
+    expect(await renameCanvasTextAsset({ userId: "another", scope: "personal", id: saved.id, title: "错误" }, storage)).toBeUndefined();
+    expect(await renameCanvasTextAsset({ userId: "u", scope: "team", id: saved.id, title: "错误" }, storage)).toBeUndefined();
+  });
   it("automatically archives nonempty text in other and preserves manual classification during concurrent saves", async () => {
     const storage = memoryStorage();
     const text = (id: string, content: string) => ({ id, kind: "text", title: id, content } as CanvasNodeData);

@@ -4,7 +4,11 @@ export type VideoModelCapabilities = {
   supports?: string[];
   durations?: number[];
   has_audio?: boolean;
-  references?: { images: number; videos: number; audios: number; audio_only: boolean };
+  references?: {
+    images: number; videos: number; audios: number; audio_only: boolean;
+    media_min_duration_ms?: number; media_max_duration_ms?: number; media_max_total_duration_ms?: number;
+    image_max_bytes?: number; video_max_bytes?: number; audio_max_bytes?: number;
+  };
   frames_exclusive?: boolean;
 };
 
@@ -22,7 +26,10 @@ export function replaceVideoModelCapabilities(value: unknown) {
     if (typeof raw.has_audio === "boolean") cap.has_audio = raw.has_audio;
     if (typeof raw.frames_exclusive === "boolean") cap.frames_exclusive = raw.frames_exclusive;
     if (raw.references && ["images", "videos", "audios"].every(key => Number.isInteger(raw.references[key]) && raw.references[key] >= 0)) {
-      cap.references = { ...raw.references, audio_only: raw.references.audio_only === true };
+      cap.references = { images: raw.references.images, videos: raw.references.videos, audios: raw.references.audios, audio_only: raw.references.audio_only === true };
+      for (const field of ["media_min_duration_ms", "media_max_duration_ms", "media_max_total_duration_ms", "image_max_bytes", "video_max_bytes", "audio_max_bytes"] as const) {
+        if (Number.isFinite(raw.references[field]) && raw.references[field] > 0) cap.references[field] = raw.references[field];
+      }
     }
     catalog[model] = cap;
   }

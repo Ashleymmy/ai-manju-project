@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VideoWorkbenchConversation } from "../repositories/conversationRepository";
+import { PROMPT_REFERENCE_DISPLAY } from "../model/promptEditor";
 
 const mocks = vi.hoisted(() => ({
   load: vi.fn(), write: vi.fn(), generate: vi.fn(), assetContent: vi.fn(), warning: vi.fn(),
@@ -80,7 +81,8 @@ describe("视频历史消息重新编辑", () => {
     await render();
     await edit();
     const input = container.querySelector("textarea")!;
-    expect(input.value).toBe(originalText);
+    expect(input.value).toBe(`让\n${PROMPT_REFERENCE_DISPLAY}\n在雨中转身`);
+    expect(container.querySelector(".wb-token i")?.textContent).toBe("@图片1");
     expect(input.disabled).toBe(false);
     expect(document.activeElement).toBe(input);
     expect(container.querySelector('[data-testid="duration"]')!.textContent).toBe("10");
@@ -94,7 +96,7 @@ describe("视频历史消息重新编辑", () => {
     mocks.assetContent.mockRejectedValue(new Error("media unavailable"));
     await render();
     await edit();
-    expect(container.querySelector("textarea")!.value).toBe(originalText);
+    expect(container.querySelector("textarea")!.value).toBe(`让\n${PROMPT_REFERENCE_DISPLAY}\n在雨中转身`);
     expect(container.querySelector("textarea")!.disabled).toBe(false);
     expect(mocks.warning).toHaveBeenCalledWith(expect.stringContaining("首帧"));
     expect(mocks.generate).not.toHaveBeenCalled();

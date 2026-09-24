@@ -699,13 +699,7 @@ func exportFolderPath(asset model.Asset, folderPaths map[string]string) string {
 }
 
 func uniqueExportArchivePath(asset model.Asset, folderPath string, used map[string]bool) string {
-	name := safeArchiveSegment(asset.Name)
-	if name == "" || name == "unnamed" {
-		name = asset.ID
-	}
-	if filepath.Ext(name) == "" {
-		name += exportAssetExtension(asset)
-	}
+	name := AssetDownloadFileName(asset)
 	candidate := path.Join(folderPath, name)
 	key := strings.ToLower(candidate)
 	if !used[key] {
@@ -740,30 +734,17 @@ func safeArchiveSegment(value string) string {
 }
 
 func exportAssetExtension(asset model.Asset) string {
-	if extension := strings.ToLower(filepath.Ext(asset.URL)); extension != "" {
+	if extension := strings.ToLower(filepath.Ext(asset.URL)); assetMediaExtension.MatchString(extension) {
 		return extension
 	}
-	switch strings.ToLower(asset.ContentType) {
-	case "image/jpeg":
-		return ".jpg"
-	case "image/webp":
-		return ".webp"
-	case "image/gif":
-		return ".gif"
-	case "video/mp4":
-		return ".mp4"
-	case "video/webm":
-		return ".webm"
-	case "audio/mpeg":
-		return ".mp3"
-	case "audio/wav":
-		return ".wav"
-	default:
-		if asset.Type == "image" {
-			return ".png"
-		}
-		return ".bin"
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(asset.ContentType, ";")[0]))
+	if extension := assetContentTypeExtensions[contentType]; extension != "" {
+		return extension
 	}
+	if asset.Type == "image" {
+		return ".png"
+	}
+	return ".bin"
 }
 
 func copyAssetToZip(archive *zip.Writer, archivePath string, asset model.Asset, reader io.Reader, buffer []byte) (int64, error) {

@@ -1,0 +1,17 @@
+.canvas-video-preflight { margin: 8px 0; padding: 8px 10px; border: 1px solid #373b3c; border-radius: 8px; color: #b8c0c1; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.canvas-video-preflight.error { border-color: #864f43; background: #382721; color: #f5b2a3; }
+.canvas-video-preflight.checking { color: #d9c699; }
+.canvas-video-preflight-status { display: flex; gap: 8px; align-items: center; }
+.canvas-video-preflight-status span { flex: 1; min-width: 0; }
+.canvas-video-preflight button { flex-shrink: 0; padding: 3px 7px; border: 1px solid currentColor; border-radius: 5px; background: transparent; color: inherit; }
+.canvas-video-preflight p { margin: 4px 0; }
+.canvas-video-preflight summary { cursor: pointer; margin-top: 4px; }
+.canvas-video-preflight ul { margin: 6px 0 0; padding-left: 16px; }
+/* Expanded limits scroll within the fixed-size inspector instead of pushing its tools away. */
+.canvas-video-preflight { max-height: 132px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #727b7b transparent; }
+.canvas-video-preflight::-webkit-scrollbar { width: 6px; }
+.canvas-video-preflight::-webkit-scrollbar-thumb { background: #727b7b; border-radius: 4px; }
+.canvas-focus .inspector-panel:has(.canvas-video-preflight) { scrollbar-width: thin; scrollbar-color: #727b7b transparent; }
+.canvas-focus .inspector-panel:has(.canvas-video-preflight)::-webkit-scrollbar { display: block; width: 6px; }
+.canvas-focus .inspector-panel:has(.canvas-video-preflight)::-webkit-scrollbar-thumb { background: #727b7b; border-radius: 4px; }
+.inspector-floating:has(.canvas-video-preflight) .node-send-button:disabled { opacity: .4; cursor: not-allowed; }

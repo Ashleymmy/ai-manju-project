@@ -14,6 +14,25 @@ import (
 
 var ErrAssetNotFound = errors.New("asset not found")
 
+// Material menus group by type before paging, with stable newest-first ties.
+const AssetLibrarySortTypeCreatedAtDesc = "type_created_at_desc"
+const assetLibraryTypeOrderSQL = "CASE type WHEN 'text' THEN 0 WHEN 'image' THEN 1 WHEN 'video' THEN 2 WHEN 'audio' THEN 3 ELSE 4 END ASC, created_at DESC, id DESC"
+
+func assetLibraryTypeRank(kind string) int {
+	switch kind {
+	case "text":
+		return 0
+	case "image":
+		return 1
+	case "video":
+		return 2
+	case "audio":
+		return 3
+	default:
+		return 4
+	}
+}
+
 type AssetRepository interface {
 	ListByUser(userID string) ([]model.Asset, error)
 	ListByWorkspace(workspaceID string) ([]model.Asset, error)
@@ -231,6 +250,14 @@ func (r *MemoryAssetRepository) ListLibrary(filter AssetLibraryFilter) ([]model.
 	}
 	sort.Slice(assets, func(i, j int) bool {
 		switch filter.Sort {
+		case AssetLibrarySortTypeCreatedAtDesc:
+			if left, right := assetLibraryTypeRank(assets[i].Type), assetLibraryTypeRank(assets[j].Type); left != right {
+				return left < right
+			}
+			if !assets[i].CreatedAt.Equal(assets[j].CreatedAt) {
+				return assets[i].CreatedAt.After(assets[j].CreatedAt)
+			}
+			return assets[i].ID > assets[j].ID
 		case "created_at_asc":
 			return assets[i].CreatedAt.Before(assets[j].CreatedAt)
 		case "name_asc":
@@ -581,6 +608,8 @@ func (r *GormAssetRepository) ListLibrary(filter AssetLibraryFilter) ([]model.As
 	}
 	order := "created_at DESC, id DESC"
 	switch filter.Sort {
+	case AssetLibrarySortTypeCreatedAtDesc:
+		order = assetLibraryTypeOrderSQL
 	case "created_at_asc":
 		order = "created_at ASC, id ASC"
 	case "name_asc":

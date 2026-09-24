@@ -212,6 +212,263 @@ function createHarness(
 }
 
 describe("CanvasGenerationJobsController", () => {
+  it("blocks unavailable settings in direct calls but still resumes already accepted jobs", async () => {
+    const services = createServices({
+      waitForImageJob: vi.fn(async () => ({ id: "accepted", type: "image.generate", status: "succeeded", state: "succeeded" })),
+      generatedImagesFromJob: vi.fn(async () => [{ id: "result", assetId: "result", src: "" }]),
+    });
+    const source = imageNode({ metadata: { status: "loading", imageResolution: "2K" } });
+    const harness = createHarness([source], services);
+    const input = {
+      targetNodeId: source.id, originNodeId: source.id, runningNodeId: source.id,
+      projectKey: "personal:project-1", scope: "personal" as const, model: "image-model", prompt: "image",
+      size: "2560x1440" as const, quality: "medium" as const, referenceFiles: [],
+    };
+    expect(await harness.controller.runImageTarget(input)).toBe(false);
+    expect(services.generateImages).not.toHaveBeenCalled();
+    expect(harness.nodes[0].metadata?.status).toBe("error");
+    expect(await harness.controller.runImageTarget({ ...input, existingJobId: "accepted" })).toBe(true);
+    expect(services.waitForImageJob).toHaveBeenCalled();
+    expect(services.generateImages).not.toHaveBeenCalled();
+    expect(harness.nodes[0].metadata?.status).toBe("success");
+  });
+
+  it.each(["2K", "4K"])("blocks saved %s settings before generating, uploading references or clearing retry media", async imageResolution => {
+    const source = imageNode({ imageAssetId: "original", metadata: { imageResolution, size: "16:9", status: "error", prompt: "@[asset:reference]", referenceInputs: [{ nodeId: "ref", assetId: "reference", title: "参考" }] } });
+    const services = createServices();
+    const harness = createHarness([source], services);
+    await harness.controller.generateFromNode(source.id);
+    await harness.controller.retryImageNode(source);
+    expect(services.generateImages).not.toHaveBeenCalled();
+    expect(services.getAssetContentObjectUrl).not.toHaveBeenCalled();
+    expect(services.uploadAsset).not.toHaveBeenCalled();
+    expect(harness.nodes).toEqual([source]);
+    expect(harness.persistSnapshot).not.toHaveBeenCalled();
+    expect(harness.runningIds.size).toBe(0);
+    expect(harness.onWarning).toHaveBeenCalledTimes(2);
+    expect(harness.onWarning).toHaveBeenLastCalledWith(expect.stringContaining(`暂不支持 ${imageResolution}`));
+  });
+
+  it("validates every failed batch target before starting any retries", async () => {
+    const root = imageNode({ metadata: { prompt: "image", status: "error", isBatchRoot: true, batchChildIds: ["child"], imageResolution: "1K" } });
+    const child = imageNode({ id: "child", metadata: { prompt: "image", status: "error", batchRootId: root.id, imageResolution: "2K" } });
+    const services = createServices();
+    const harness = createHarness([root, child], services);
+    await harness.controller.retryImageNode(root);
+    expect(services.generateImages).not.toHaveBeenCalled();
+    expect(harness.nodes).toEqual([root, child]);
+    expect(harness.runningIds.size).toBe(0);
+    expect(harness.onWarning).toHaveBeenCalledWith(expect.stringContaining("暂不支持 2K"));
+  });
+
+  it("shows a friendly size failure without exposing provider dimensions in the toast or node", async () => {
+    const services = createServices({ generateImages: vi.fn(async () => { throw new Error("图片尺寸不符合所选参数：要求 2560×1440 px，实际返回 1672×941 px。"); }) });
+    const harness = createHarness([imageNode()], services);
+    await harness.controller.generateFromNode("image-1");
+    expect(harness.nodes[0].metadata?.status).toBe("error");
+    expect(harness.nodes[0].metadata?.errorDetails).toBe("本次图片未达到所选规格，请调整参数或更换模型后重试。");
+    expect(harness.onError).toHaveBeenCalledWith(harness.nodes[0].metadata?.errorDetails);
+  });
+
+  it("merges independently when two video preparations and completions finish in reverse order", async () => {
+    const pending = new Map<string, () => void>();
+    const services = videoHistoryServices();
+    services.getAsset = vi.fn(async id => {
+      await new Promise<void>(resolve => { pending.set(id, resolve); });
+      return { id, type: "image", name: id };
+    });
+    services.fetchBlob = vi.fn(async () => new Blob(["image"], { type: "image/png" }));
+    services.readImageMetadata = vi.fn(async () => ({ width: 512, height: 512 }));
+    const first = videoNode({ id: "first", content: "@[asset:ref-a]", metadata: { prompt: "@[asset:ref-a]", generationMode: "video" } });
+    const second = videoNode({ id: "second", title: "第二个独立视频", content: "@[asset:ref-b]", metadata: { titleEdited: true, titleMode: "custom", titleBase: "第二个独立视频", prompt: "@[asset:ref-b]", generationMode: "video" } });
+    const harness = createHarness([first, second], services);
+    const a = harness.controller.generateFromNode(first.id);
+    const b = harness.controller.generateFromNode(second.id);
+    await vi.waitFor(() => expect(pending.size).toBe(2));
+    const added = imageNode({ id: "added" });
+    harness.bindings.setNodes([...harness.nodes, added]);
+    harness.setEdges([{ id: "added-edge", from: added.id, to: second.id }]);
+    pending.get("ref-b")!();
+    await b;
+    const secondResult = structuredClone(harness.nodes.find(node => node.id === second.id));
+    expect(secondResult?.metadata?.status).toBe("success");
+    pending.get("ref-a")!();
+    await a;
+    expect(harness.nodes.map(node => node.id)).toEqual([first.id, second.id, added.id]);
+    expect(harness.nodes.find(node => node.id === second.id)).toEqual(secondResult);
+    expect(harness.nodes[0].metadata?.status).toBe("success");
+    expect(harness.edges).toEqual([{ id: "added-edge", from: added.id, to: second.id }]);
+    expect(services.createVideoGenerationTask).toHaveBeenCalledTimes(2);
+    expect(harness.runningIds.size).toBe(0);
+  });
+
+  it.each(["image", "video", "text", "audio"] as const)("does not submit %s if its pending node was deleted during snapshot saving", async kind => {
+    let release!: (saved: boolean) => void;
+    const saving = new Promise<boolean>(resolve => { release = resolve; });
+    const services = createServices();
+    const source = imageNode({ id: "source", kind, metadata: { generationMode: kind, prompt: "生成" } });
+    const harness = createHarness([source], services);
+    harness.persistSnapshot.mockImplementationOnce(() => saving);
+    const running = harness.controller.generateFromNode(source.id);
+    await vi.waitFor(() => expect(harness.persistSnapshot).toHaveBeenCalledOnce());
+    harness.controller.cancelForRemovedNodes(new Set([source.id]));
+    harness.bindings.setNodes([]);
+    release(true);
+    await running;
+    expect(harness.nodes).toEqual([]);
+    expect(services.generateImages).not.toHaveBeenCalled();
+    expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
+    expect(services.requestAiText).not.toHaveBeenCalled();
+    expect(services.requestAudioGeneration).not.toHaveBeenCalled();
+    expect(harness.runningIds.size).toBe(0);
+  });
+
+  it.each(["image", "video", "text", "audio"] as const)("preserves concurrent graph edits while %s references resolve and results arrive", async kind => {
+    let release!: () => void;
+    const resolving = new Promise<void>(resolve => { release = resolve; });
+    const services = videoHistoryServices();
+    services.getAsset = vi.fn(async () => { await resolving; return { id: "ref", type: "image", name: "参考图" }; });
+    services.fetchBlob = vi.fn(async () => new Blob(["image"], { type: "image/png" }));
+    services.readImageMetadata = vi.fn(async () => ({ width: 512, height: 512 }));
+    services.readFileDataUrl = vi.fn(async () => "data:image/png;base64,aW1hZ2U=");
+    services.generateImages = vi.fn(async () => ({ images: [{ id: "result", assetId: "result", src: "" }] }));
+    services.requestAiText = vi.fn(async () => ({ content: "生成结果", model: "text-model" }));
+    services.requestAudioGeneration = vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" }));
+    services.uploadAsset = vi.fn(async () => ({ id: "result", type: "audio" as const, name: "audio.mp3" }));
+    const source = imageNode({ id: "source", kind, content: "生成 @[asset:ref]", metadata: { generationMode: kind, prompt: "生成 @[asset:ref]" } });
+    const edit = imageNode({ id: "edit", title: "保留编辑", metadata: { titleEdited: true, titleBase: "保留编辑", titleMode: "custom" } });
+    const removed = imageNode({ id: "removed" });
+    const harness = createHarness([source, edit, removed], services);
+    harness.setEdges([{ id: "removed-edge", from: removed.id, to: edit.id }]);
+    const running = harness.controller.generateFromNode(source.id);
+    await vi.waitFor(() => expect(services.getAsset).toHaveBeenCalledOnce());
+    const fresh = imageNode({ id: "fresh", title: "等待时新建", metadata: { titleEdited: true, titleBase: "等待时新建", titleMode: "custom" } });
+    const edited = { ...edit, x: 777, content: "等待时编辑的内容" };
+    harness.bindings.setNodes([
+      { ...source, x: 900, y: 600, width: 600, title: "移动后的源节点", metadata: { ...source.metadata, titleEdited: true } },
+      edited, fresh,
+    ]);
+    const edges = [{ id: "new-edge", from: fresh.id, to: edit.id }];
+    harness.setEdges(edges);
+    harness.bindings.applyNodeSelection([fresh.id], fresh.id);
+    release();
+    await running;
+    expect(harness.onError).not.toHaveBeenCalled();
+    expect(harness.nodes.map(node => node.id)).toEqual([source.id, edit.id, fresh.id]);
+    expect(harness.nodes.find(node => node.id === edit.id)).toEqual(edited);
+    expect(harness.nodes.find(node => node.id === fresh.id)).toEqual(fresh);
+    expect(harness.nodes[0]).toMatchObject({ x: 900, y: 600, width: 600, title: "移动后的源节点", metadata: { status: "success" } });
+    expect(harness.edges).toEqual(edges);
+    expect(harness.bindings.getSelectedNodeId()).toBe(fresh.id);
+    for (const [savedNodes, savedEdges] of harness.persistSnapshot.mock.calls) {
+      expect(savedNodes.map(node => node.id)).toEqual([source.id, edit.id, fresh.id]);
+      expect(savedNodes.find(node => node.id === edit.id)).toEqual(edited);
+      expect(savedEdges).toEqual(edges);
+    }
+  });
+
+  it.each(["image", "video", "text", "audio"] as const)("does not resurrect or submit a %s node deleted while asset mentions resolve", async kind => {
+    let release!: () => void;
+    const resolving = new Promise<void>(resolve => { release = resolve; });
+    const services = createServices({ getAsset: vi.fn(async () => { await resolving; return { id: "ref", type: "image", name: "参考图" }; }) });
+    const source = imageNode({ id: "source", kind, content: "生成 @[asset:ref]", metadata: { generationMode: kind, prompt: "生成 @[asset:ref]" } });
+    const harness = createHarness([source], services);
+    const running = harness.controller.generateFromNode(source.id);
+    await vi.waitFor(() => expect(services.getAsset).toHaveBeenCalledOnce());
+    harness.controller.cancelForRemovedNodes(new Set([source.id]));
+    harness.bindings.setNodes([]);
+    release();
+    await running;
+    expect(harness.nodes).toEqual([]);
+    expect(harness.persistSnapshot).not.toHaveBeenCalled();
+    expect(services.getAssetContentObjectUrl).not.toHaveBeenCalled();
+    expect(services.generateImages).not.toHaveBeenCalled();
+    expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
+    expect(services.requestAiText).not.toHaveBeenCalled();
+    expect(services.requestAudioGeneration).not.toHaveBeenCalled();
+  });
+
+  it.each(["image", "video", "text", "audio"] as const)("keeps custom %s names through retry and names default results from the project", async kind => {
+    for (const custom of [false, true]) {
+      const services = videoHistoryServices();
+      services.generateImages = vi.fn(async () => ({ images: [{ id: "asset", assetId: "asset", src: "", name: "provider.png" }] }));
+      services.requestAiText = vi.fn(async () => ({ content: "生成的文字不能成为标题", model: "text-model" }));
+      services.requestAudioGeneration = vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" }));
+      services.uploadAsset = vi.fn(async () => ({ id: "asset", name: "provider.mp3", type: "audio" as const }));
+      const node = imageNode({ kind, title: custom ? "苹果" : "生成失败", metadata: {
+        prompt: "新的提示词", generationMode: kind, status: "error",
+        ...(custom ? { titleEdited: true, titleBase: "苹果" } : {}),
+      } });
+      const harness = createHarness([node], services);
+      const retry = { image: harness.controller.retryImageNode, video: harness.controller.retryVideoNode,
+        text: harness.controller.retryTextNode, audio: harness.controller.retryAudioNode }[kind];
+      await retry(node);
+      expect(harness.onError).not.toHaveBeenCalled();
+      expect(harness.nodes[0]).toMatchObject({ id: node.id, title: custom ? "苹果" : `测试画布${kind}-1`,
+        metadata: { status: "success", generatedInCanvas: true } });
+      if (custom) expect(harness.persistSnapshot.mock.calls.every(([nodes]) => nodes[0].title === "苹果")).toBe(true);
+    }
+  });
+
+  it("keeps existing batch children in place when later nodes exist and the batch is regenerated", async () => {
+    const services = createServices({ generateImages: vi.fn(async () => ({ images: [{ id: "asset", assetId: "asset", src: "" }] })) });
+    const harness = createHarness([imageNode({ metadata: { prompt: "测试", count: 3 } })], services);
+    await harness.controller.generateImageFromNode("image-1");
+    harness.bindings.setNodes([...harness.nodes, imageNode({ id: "later", title: "后创建的图片", metadata: { generatedInCanvas: true } })]);
+    const order = harness.nodes.map(node => node.id);
+    await harness.controller.generateImageFromNode("image-1");
+    expect(harness.nodes.map(node => node.id)).toEqual(order);
+    expect(harness.nodes.map(node => node.title)).toEqual(["测试画布image-1", "测试画布image-2", "测试画布image-3", "测试画布image-4"]);
+    harness.bindings.setNodes(harness.nodes.map(node => node.id === "image-1" ? { ...node, metadata: { ...node.metadata, count: 2 } } : node));
+    await harness.controller.generateImageFromNode("image-1");
+    expect(harness.nodes.map(node => node.id)).toEqual(order);
+    expect(harness.nodes.map(node => node.title)).toEqual(["测试画布image-1", "测试画布image-2", "测试画布image-3", "测试画布image-4"]);
+  });
+
+  it.each(["inspect", "generate", "retry"] as const)("rejects long audio in %s before creating jobs or changing nodes", async entry => {
+    const target = videoNode({ metadata: { model: "seedance-2.0", prompt: "animate", generationMode: "video", status: "success", assetId: "previous" } });
+    const audio = audioNode({ imageSrc: "https://example.test/long.wav" });
+    const image = imageNode({ imageSrc: "https://example.test/image.png" });
+    const services = createServices({
+      fetchBlob: vi.fn(async url => new Blob(["media"], { type: url.endsWith("wav") ? "audio/wav" : "image/png" })),
+      readAudioMetadata: vi.fn(async () => ({ durationMs: 20000 })),
+      readImageMetadata: vi.fn(async () => ({ width: 512, height: 512 })),
+    });
+    const harness = createHarness([target, audio, image], services);
+    harness.setEdges([{ id: "audio", from: audio.id, to: target.id }, { id: "image", from: image.id, to: target.id }]);
+    const original = structuredClone(harness.nodes);
+    if (entry === "inspect") await expect(harness.controller.preflightVideoNode(target.id, new AbortController().signal)).rejects.toThrow("当前为 20.00 秒");
+    else if (entry === "generate") await harness.controller.generateVideoFromNode(target.id);
+    else await harness.controller.retryVideoNode(target);
+    expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
+    expect(services.uploadAsset).not.toHaveBeenCalled();
+    expect(harness.persistSnapshot).not.toHaveBeenCalled();
+    expect(harness.nodes).toEqual(original);
+  });
+
+  it("rejects unsupported audio before downloading it and reuses readable audio when the model changes", async () => {
+    const target = videoNode({ metadata: { model: "openai::video", prompt: "animate", generationMode: "video" } });
+    const audio = audioNode({ imageSrc: "https://example.test/long.wav" });
+    const image = imageNode({ imageSrc: "https://example.test/image.png" });
+    const services = createServices({
+      fetchBlob: vi.fn(async url => new Blob(["media"], { type: url.endsWith("wav") ? "audio/wav" : "image/png" })),
+      readAudioMetadata: vi.fn(async () => ({ durationMs: 20000 })),
+      readImageMetadata: vi.fn(async () => ({ width: 512, height: 512 })),
+    });
+    const harness = createHarness([target, audio, image], services);
+    harness.setEdges([{ id: "audio", from: audio.id, to: target.id }, { id: "image", from: image.id, to: target.id }]);
+    const inspect = () => harness.controller.preflightVideoNode(target.id, new AbortController().signal);
+    await expect(inspect()).rejects.toThrow("仅支持参考图片");
+    expect(services.fetchBlob).not.toHaveBeenCalled();
+    target.metadata!.model = "seedance-2.0";
+    await expect(inspect()).rejects.toThrow("当前为 20.00 秒");
+    const reads = vi.mocked(services.fetchBlob).mock.calls.length;
+    target.metadata!.model = "seedance-2.5";
+    await expect(inspect()).resolves.toEqual(["空音频节点：20.00 秒"]);
+    expect(services.fetchBlob).toHaveBeenCalledTimes(reads);
+    expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.stubGlobal("localStorage", new MemoryStorage());
   });
@@ -409,19 +666,19 @@ describe("CanvasGenerationJobsController", () => {
     });
     const source = imageNode({ kind: "config", metadata: {
       prompt: "人物发丝清晰", generationMode: "image", count: 2,
-      imageResolution: "4K", size: "16:9", quality: "high",
+      imageResolution: "1K", size: "16:9", quality: "high",
     } });
     const harness = createHarness([source], services);
     await harness.controller.generateFromNode(source.id);
     const targets = harness.nodes.filter(node => node.kind === "image");
     expect(targets).toHaveLength(2);
     for (const target of targets) {
-      expect(target.metadata).toMatchObject({ imageResolution: "4K", size: "16:9", quality: "high", requestedImageSize: "3840x2160" });
+      expect(target.metadata).toMatchObject({ imageResolution: "1K", size: "16:9", quality: "high", requestedImageSize: "1280x720" });
     }
     await harness.controller.retryImageNode(targets[1]);
     expect(services.generateImages).toHaveBeenCalledTimes(3);
     for (const [input] of vi.mocked(services.generateImages).mock.calls) {
-      expect(input).toMatchObject({ size: "3840x2160", quality: "high", count: 1 });
+      expect(input).toMatchObject({ size: "1280x720", quality: "high", count: 1 });
     }
     expect(harness.onError).not.toHaveBeenCalled();
   });
@@ -489,8 +746,12 @@ describe("CanvasGenerationJobsController", () => {
       size: "16:9", imageResolution: "4K", quality: "high", requestedImageSize: "1024x1024",
     });
     await harness.controller.generateFromNode(source.id);
+    expect(services.generateImages).toHaveBeenCalledTimes(1);
+    expect(harness.onWarning).toHaveBeenCalledWith(expect.stringContaining("暂不支持 4K"));
+    harness.nodes[0] = { ...harness.nodes[0], metadata: { ...harness.nodes[0].metadata, imageResolution: "1K" } };
+    await harness.controller.generateFromNode(source.id);
     expect(vi.mocked(services.generateImages).mock.calls[1][0]).toMatchObject({
-      size: "3840x2160",
+      size: "1280x720",
       quality: "high",
     });
   });
@@ -741,7 +1002,7 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.nodes[0]).toMatchObject({
       id: "image-1",
       kind: "image",
-      title: "cat",
+      title: "测试画布image-1",
       imageAssetId: "asset-1",
       metadata: { assetId: "asset-1", status: "success" },
     });

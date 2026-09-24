@@ -20,8 +20,8 @@ describe("independent canvas node titles", () => {
     const existing = [node("one", "image", "苹果"), node("two", "video", "苹果1")];
     const inserted = ensureUniqueCanvasNodeTitles([node("new", "audio", "苹果"), ...existing], existing);
     expect(inserted.map(item => item.title)).toEqual(["苹果（1）", "苹果", "苹果1"]);
-    expect(renameCanvasNode(existing, "one", "苹果1").map(item => item.title)).toEqual(["苹果1（1）", "苹果1"]);
-    expect(renameCanvasNode(existing, "two", "苹果").map(item => item.title)).toEqual(["苹果", "苹果（1）"]);
+    expect(renameCanvasNode(existing, "one", "苹果1").map(item => item.title)).toEqual(["苹果1-1", "苹果1-2"]);
+    expect(renameCanvasNode(existing, "two", "苹果").map(item => item.title)).toEqual(["苹果-1", "苹果-2"]);
     const reserved = [node("original", "image", "苹果"), node("numbered", "audio", "苹果（1）")];
     expect(ensureUniqueCanvasNodeTitles([node("new", "video", "苹果.mp4"), ...reserved], reserved).map(item => item.title))
       .toEqual(["苹果（2）", "苹果", "苹果（1）"]);
@@ -105,10 +105,10 @@ describe("independent canvas node titles", () => {
     const raw = [node("image", "image", "001.png"), node("video", "video", "001.mp4"), node("audio", "audio", "001.wav")]
       .map(item => ({ ...item, metadata: { ...item.metadata, titleEdited: true, canvasOrigin: "imported" as const } }));
     const clean = ensureUniqueCanvasNodeTitles(raw);
-    expect(clean.map(item => item.title)).toEqual(["001", "001（1）", "001（2）"]);
+    expect(clean.map(item => item.title)).toEqual(["001-1", "001-2", "001-3"]);
     expect(clean.map(item => normalizeCanvasNode(serializeCanvasNode(item))?.title)).toEqual(clean.map(item => item.title));
-    expect(clean.map(item => item.metadata)).toEqual(raw.map(item => item.metadata));
-    expect(renameCanvasNode(clean, "video", "001.MOV")[1].title).toBe("001（1）");
+    expect(clean.map(item => item.metadata)).toEqual(raw.map(item => ({ ...item.metadata, titleBase: "001", titleMode: "custom" })));
+    expect(renameCanvasNode(clean, "video", "001.MOV")[1].title).toBe("001-2");
     expect(raw.map(item => item.title)).toEqual(["001.png", "001.mp4", "001.wav"]);
   });
 });

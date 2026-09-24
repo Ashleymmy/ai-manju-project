@@ -14,6 +14,17 @@
 .canvas-heading .page-intro h1 { font-size: 27px; }
 .canvas-heading .page-intro > div > p:last-child { margin-top: 8px; font-size: 11px; }
 .canvas-head-actions { display: flex; gap: 8px; }
+/* Both history entrances share a distinct disabled state, including on hover. */
+.canvas-page .canvas-head-actions button.canvas-history-button:disabled,
+.canvas-page .canvas-top-tools button.canvas-history-button:disabled {
+  color: #73757b;
+  opacity: .65;
+  background: rgba(255,255,255,.02);
+  border-color: rgba(255,255,255,.04);
+  box-shadow: none;
+  transform: none;
+  cursor: not-allowed;
+}
 .canvas-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 300px; max-width: 1420px; min-height: 650px; margin: 0 auto; border: 1px solid var(--line); background: #111617; }
 .canvas-stage { position: relative; overflow: hidden; border-right: 1px solid var(--line); }
 .canvas-top-tools { position: absolute; inset: 0 0 auto; z-index: 4; height: 52px; display: flex; align-items: center; gap: 11px; padding: 0 16px; background: #1c1c1c; border-bottom: 1px solid var(--line); color: #c0c0c0; font-size: 11px; }
@@ -2703,8 +2714,10 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
 }
 /* ---- Canvas: 闁煎搫鍊婚崑锝嗙┍閳╁啩绱栭柟顕呭墯鐠囩偤宕烽妸銊ノ濋柣鎰扳偓娑氱憪闁哄倻鎳撻ˇ缁樼瑹瑜濈槐娆戞暜閹间讲鏁嗛柕鍡曡兌閺嗏偓缂傚倹绺块埀顑挎祰缁愶繝姊捐箛銉х ---- */
 .node-float-label {
+  /* Shared name-to-node spacing, including zoom-compensated labels. */
+  --node-label-gap: 6px;
   position: absolute;
-  top: -10px;
+  top: calc(-1 * var(--node-label-gap));
   left: 0;
   transform: translateY(-100%);
   z-index: 6;
@@ -4905,7 +4918,7 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   transform-origin: top left;
 }
 .real-canvas-node > .node-float-label {
-  top: calc(-10px * var(--node-controls-scale));
+  top: calc(-1 * var(--node-label-gap) * var(--node-controls-scale));
   max-width: none;
   border-radius: 3px;
   background: #1c1c1c;

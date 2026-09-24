@@ -75,8 +75,7 @@ describe("image batch primary", () => {
     expect(next.filter((node) => node.metadata?.status === "success").map((node) => node.imageAssetId)).toEqual([
       "asset-r", "asset-a", "asset-b", "asset-c",
     ]);
-    expect(next[0].title).toBe("批量图片 4/4");
-    expect(next.slice(1).map(node => node.title).sort()).toEqual(["prompt", "prompt（1）", "prompt（2）"]);
+    expect(next.map(node => node.title)).toEqual(["未命名画布image-1", "未命名画布image-2", "未命名画布image-3", "未命名画布image-4"]);
   });
 
   it("keeps the failed root retryable without duplicating a successful child", () => {

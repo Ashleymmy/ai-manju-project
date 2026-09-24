@@ -3,11 +3,25 @@ import { describe, expect, it, vi } from "vitest";
 import type { CanvasGenerationInput } from "./connections";
 import {
   canvasSeedanceVideoReferences,
+  canvasVideoReferenceLayout,
   hydrateCanvasVideoReferences,
   mergeCanvasVideoReferences,
   videoResultPersistentMetadata,
   type CanvasVideoReferenceHydrators,
 } from "./video";
+
+it("counts repeated assets exactly as hydration and registered-reference merging do", async () => {
+  const inputs: CanvasGenerationInput[] = [
+    { nodeId: "one", type: "image", title: "A", assetId: "asset-image" },
+    { nodeId: "two", type: "image", title: "B", assetId: "asset-image" },
+    { nodeId: "three", type: "image", title: "C", seedanceVolcanoAssets: [{ id: "registered", volcanoAssetId: "registered" }] },
+  ];
+  const registered = canvasSeedanceVideoReferences([{ id: "registered" }]);
+  const layout = canvasVideoReferenceLayout(inputs, registered);
+  const hydrated = mergeCanvasVideoReferences((await hydrateCanvasVideoReferences(inputs, hydrators())).references, registered);
+  expect(layout.images).toHaveLength(2);
+  expect(layout.images.map(ref => ref.url || ref.id)).toEqual(hydrated.images.map(ref => ref.url || ref.id));
+});
 
 function blob(content: string, type: string) {
   return new Blob([content], { type });

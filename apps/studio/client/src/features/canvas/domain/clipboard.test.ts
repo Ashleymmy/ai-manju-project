@@ -31,7 +31,7 @@ describe("canvas clipboard", () => {
       id: "new-apple", title: "A副本", imageAssetId: "apple-asset", imageSrc: "/apple.png",
     });
     expect(duplicate.metadata).toEqual({
-      nested: { value: 1 }, status: "success", prompt: "一个苹果", model: "image-model", titleEdited: true,
+      nested: { value: 1 }, status: "success", prompt: "一个苹果", model: "image-model", titleEdited: true, titleBase: "A副本", titleMode: "custom",
     });
     duplicate.metadata.nested.value = 99;
     expect(source).toEqual(before);
@@ -39,7 +39,7 @@ describe("canvas clipboard", () => {
 
   it("does not leave a duplicate waiting on the original node's running job", () => {
     const source = { ...nodes[0], metadata: { status: "loading", jobId: "running-job", jobProgress: 50 } };
-    expect(duplicateCanvasNode(source, "copy").metadata).toEqual({ status: "idle", titleEdited: true });
+    expect(duplicateCanvasNode(source, "copy").metadata).toEqual({ status: "idle", titleEdited: true, titleBase: "A副本", titleMode: "custom" });
     expect(source.metadata).toEqual({ status: "loading", jobId: "running-job", jobProgress: 50 });
   });
 

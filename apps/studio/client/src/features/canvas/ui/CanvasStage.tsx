@@ -25,13 +25,12 @@ import type {
   ReactNode,
   RefObject,
 } from "react";
-import { toast } from "sonner";
 import { useMemo, useRef } from "react";
 import { useOutsidePress } from "@/shared/lib/useOutsidePress";
 import MetaBallOrb from "@/components/MetaBallOrb";
 import {
   buildCanvasConnectionLayerBounds,
-  canvasConnectionCurvature,
+  canvasActiveConnectionPath,
   canvasConnectionDisplayNode,
   isHiddenCanvasConnectionEndpoint,
 } from "@/features/canvas/domain/connections";
@@ -401,9 +400,10 @@ export function CanvasStage({
                         }}
                         type="button"
                         className={`canvas-group-connection-handle target canvas-node-handle ${leftNode && connectFrom === leftNode.id && connectHandleType === "target" ? "active" : ""}`}
+                        data-connection-handle-type="target"
                         data-connection-node-id={leftNode?.id || ""}
                         aria-label={group.pending ? "连接到选区" : "连接到分组"}
-                        title={group.pending ? "连接到选区" : "连接到分组"}
+                        title="输入：连接另一节点或分组的右侧输出"
                         onClick={(event) => event.stopPropagation()}
                         onPointerDown={(event) => {
                           event.stopPropagation();
@@ -416,9 +416,10 @@ export function CanvasStage({
                         }}
                         type="button"
                         className={`canvas-group-connection-handle source canvas-node-handle ${rightNode && connectFrom === rightNode.id && connectHandleType === "source" ? "active" : ""}`}
+                        data-connection-handle-type="source"
                         data-connection-node-id={rightNode?.id || ""}
                         aria-label={group.pending ? "从选区连接" : "从分组连接"}
-                        title={group.pending ? "从选区连接" : "从分组连接"}
+                        title="输出：连接另一节点或分组的左侧输入"
                         onClick={(event) => event.stopPropagation()}
                         onPointerDown={(event) => {
                           event.stopPropagation();
@@ -469,12 +470,7 @@ export function CanvasStage({
                   if (!from || !to || isHiddenCanvasConnectionEndpoint(from, nodes) || isHiddenCanvasConnectionEndpoint(to, nodes)) return null;
                   const displayFrom = canvasConnectionDisplayNode(from, fromGroup ? [fromGroup] : []);
                   const displayTo = canvasConnectionDisplayNode(to, toGroup ? [toGroup] : []);
-                  const x1 = displayFrom.x + displayFrom.width;
-                  const y1 = displayFrom.y + displayFrom.height / 2;
-                  const x2 = displayTo.x;
-                  const y2 = displayTo.y + displayTo.height / 2;
-                  const curvature = canvasConnectionCurvature(x1, x2);
-                  const path = `M ${x1} ${y1} C ${x1 + curvature} ${y1}, ${x2 - curvature} ${y2}, ${x2} ${y2}`;
+                  const path = canvasActiveConnectionPath(displayFrom, "source", { x: displayTo.x, y: displayTo.y }, displayTo);
                   const active = selectedEdgeId === edge.id || hoveredEdgeId === edge.id;
                   return (
                 <g key={edge.id} className={selectedEdgeId === edge.id ? "selected-canvas-edge" : ""}>
@@ -566,7 +562,7 @@ export function CanvasStage({
                           <>
                             <button className="full-outline" onClick={() => { void generatePanoramaCanvasImage(contextMenuNode); setContextMenu(null); }}>生成全景图 <CanvasGenerationPrice node={contextMenuNode} edit panorama /></button>
                             <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "angle"); setContextMenu(null); }}>AI 多角度</button>
-                            <button className="full-outline" onClick={() => { toast.info("AI 超分依赖管理员配置的模型服务，本地暂未实现"); setContextMenu(null); }}>AI 超分</button>
+                            <button className="full-outline" disabled title="AI 超分暂未开放">AI 超分（暂未开放）</button>
                             <button className="full-outline" onClick={() => { void createImageReversePromptNodes(contextMenuNode); setContextMenu(null); }}>反推提示词</button>
                             <button className="full-outline" onClick={() => { setStoryboardNodeId(contextMenuNode.id); setContextMenu(null); }}>故事板导出</button>
                           </>

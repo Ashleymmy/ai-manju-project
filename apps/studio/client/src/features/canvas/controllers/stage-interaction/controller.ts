@@ -197,8 +197,8 @@ const emptyBindings: CanvasStageInteractionBindings = {
 
 function canvasConnectionModeHint(handleType: CanvasConnectionHandleType) {
   return handleType === "target"
-    ? "已选择接入节点，请点击参考图节点完成连线；按 Esc 可取消"
-    : "已选择连接起点，请点击目标节点完成连线；按 Esc 可取消";
+    ? "已选择输入，请点击另一节点的右侧输出连接；按 Esc 可取消"
+    : "已选择输出，请点击另一节点的左侧输入连接；按 Esc 可取消";
 }
 
 export class CanvasStageInteractionController {
@@ -1011,6 +1011,16 @@ export class CanvasStageInteractionController {
     if (this.bindings.isSwitching() || event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
+    // Clicking a second port completes click-to-connect instead of replacing
+    // the first port and silently reversing the user's intended direction.
+    if (this.connectFrom && !this.connectionDrag.active && this.connectFrom !== nodeId) {
+      if (this.connectHandleType === handleType) {
+        this.bindings.onWarning("输出只能连接输入，请选择另一侧接口");
+      } else {
+        this.connectNodes(this.connectFrom, nodeId, this.connectHandleType);
+      }
+      return;
+    }
     this.capturePointer("connection", event.currentTarget, event.pointerId);
     const previewPoint = this.screenToCanvasPoint(event.clientX, event.clientY);
     this.connectionDrag = {
@@ -1148,6 +1158,10 @@ export class CanvasStageInteractionController {
     clientY: number,
     current: CanvasConnectionDraft,
   ): CanvasConnectionDropTarget {
+    // Visible handles can be offset/scaled beyond the node bounds. Their
+    // actual DOM port type takes precedence over generous geometry hit areas.
+    const domTarget = this.getConnectionDomDropTarget(clientX, clientY, current);
+    if (domTarget) return domTarget;
     return findCanvasConnectionDropTarget(
       this.currentNodes(),
       current,
@@ -1161,32 +1175,36 @@ export class CanvasStageInteractionController {
     );
   }
 
-  private getConnectionDomDropTargetId(
+  private getConnectionDomDropTarget(
     clientX: number,
     clientY: number,
     current: CanvasConnectionDraft,
-  ) {
+  ): CanvasConnectionDropTarget | null {
     const target = this.adapter.elementFromPoint(clientX, clientY);
+    const handle = this.adapter.closest(target, ".canvas-node-handle");
+    if (handle && this.adapter.getAttribute(handle, "data-connection-handle-type") === current.handleType) {
+      return { nodeId: "", isNearNode: true };
+    }
     const groupHandle = this.adapter.closest(target, ".canvas-group-connection-handle");
     const groupNodeId = this.adapter.getAttribute(groupHandle, "data-connection-node-id");
     if (groupNodeId && groupNodeId !== current.nodeId) {
       const nodes = this.currentNodes();
       const node = nodes.find(item => item.id === groupNodeId);
-      if (node && canvasGroupConnections(current.nodeId, node.id, nodes, current.handleType, this.currentGroups()).length) return node.id;
+      return { nodeId: node && canvasGroupConnections(current.nodeId, node.id, nodes, current.handleType, this.currentGroups()).length ? node.id : "", isNearNode: true };
     }
     const nodeElement = this.adapter.closest(target, ".real-canvas-node");
     const nodeId = this.adapter.getAttribute(nodeElement, "data-node-id");
-    if (!nodeId || nodeId === current.nodeId) return "";
+    if (!nodeId) return handle ? { nodeId: "", isNearNode: true } : null;
     const nodes = this.currentNodes();
     const node = nodes.find(item => item.id === nodeId);
-    if (!node || isHiddenCanvasBatchChild(node, nodes)) return "";
-    return canvasGroupConnections(
+    if (!node || isHiddenCanvasBatchChild(node, nodes)) return { nodeId: "", isNearNode: true };
+    return { nodeId: canvasGroupConnections(
       current.nodeId,
       nodeId,
       nodes,
       current.handleType,
       this.currentGroups(),
-    ).length ? nodeId : "";
+    ).length ? nodeId : "", isNearNode: true };
   }
 
   private finishConnectionDrag(event: Pick<PointerEvent, "clientX" | "clientY">) {
@@ -1206,11 +1224,7 @@ export class CanvasStageInteractionController {
       event.clientY,
       { nodeId: current, handleType },
     );
-    const targetNodeId = dropTarget.nodeId || this.getConnectionDomDropTargetId(
-      event.clientX,
-      event.clientY,
-      { nodeId: current, handleType },
-    );
+    const targetNodeId = dropTarget.nodeId;
     if (targetNodeId) {
       this.connectNodes(current, targetNodeId, handleType);
       this.clearConnectionDraft();
@@ -1651,11 +1665,7 @@ export class CanvasStageInteractionController {
         { nodeId: this.connectFrom, handleType: this.connectHandleType },
       );
       this.connectionPreviewPoint = previewPoint;
-      this.connectionTargetId = dropTarget.nodeId || this.getConnectionDomDropTargetId(
-        event.clientX,
-        event.clientY,
-        { nodeId: this.connectFrom, handleType: this.connectHandleType },
-      );
+      this.connectionTargetId = dropTarget.nodeId;
       this.scheduleConnectionFrame();
       return;
     }

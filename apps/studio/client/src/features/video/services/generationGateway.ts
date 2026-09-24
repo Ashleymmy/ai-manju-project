@@ -1,6 +1,6 @@
 import { getAssetMediaUrl } from "@/entities/asset";
 import { getJob, isTerminalJob, jobErrorMessage, type Job } from "@/entities/job";
-import { fetchModelCatalog, videoModelLabel, videoModelProtocol, videoModelDurations, normalizeVideoDuration, hasVideoDurationCatalog } from "@/entities/model";
+import { fetchModelCatalog, videoModelProtocol, videoModelDurations, normalizeVideoDuration, hasVideoDurationCatalog } from "@/entities/model";
 import { videoModelCapabilities, videoOptionAvailable } from "@/entities/model/videoCapabilities";
 import { API_BASE_URL, ApiError, getAuthToken, request } from "@/shared/api/http";
 import type { WorkspaceScope } from "@/shared/config";
@@ -176,17 +176,25 @@ const seedance25ReferenceLimits = {
 
 export function videoReferenceLimitsForModel(model: string) {
   const capabilities = videoModelCapabilities(model);
+  const name = modelOptionName(model);
+  // Friendly labels can be renamed. Endpoint capabilities must come from the
+  // provider-scoped server contract, never a label that resembles another model.
+  const base = isSeedanceVideoModel(model) && /seedance[-_\s]*2[._-]5(?:$|[^\d])/i.test(name)
+    ? seedance25ReferenceLimits : videoReferenceLimits;
   if (capabilities.references) {
     const refs = capabilities.references;
-    const base = refs.images > videoReferenceLimits.images ? seedance25ReferenceLimits : videoReferenceLimits;
-    return { ...base, images: refs.images, videos: refs.videos, audios: refs.audios, audioOnly: refs.audio_only };
+    // Counts do not identify a model family. Explicit service limits always win.
+    return { ...base, images: refs.images, videos: refs.videos, audios: refs.audios, audioOnly: refs.audio_only,
+      mediaMinDurationMs: refs.media_min_duration_ms ?? base.mediaMinDurationMs,
+      mediaMaxDurationMs: refs.media_max_duration_ms ?? base.mediaMaxDurationMs,
+      mediaMaxTotalDurationMs: refs.media_max_total_duration_ms ?? base.mediaMaxTotalDurationMs,
+      imageMaxBytes: refs.image_max_bytes ?? base.imageMaxBytes,
+      videoMaxBytes: refs.video_max_bytes ?? base.videoMaxBytes,
+      audioMaxBytes: refs.audio_max_bytes ?? base.audioMaxBytes,
+    };
   }
   if (h3VideoSettings(model)) return { ...videoReferenceLimits, images: 9, videos: 0, audios: 0 };
-  const name = modelOptionName(model);
-  // Labels identify opaque Ark endpoints, never override an explicit 2.0/Wan ID.
-  const versionName = name.startsWith("ep-") ? videoModelLabel(model) || "" : name;
-  return isSeedanceVideoModel(model) && /seedance[-_\s]*2[._-]5(?:$|[^\d])/i.test(versionName)
-    ? seedance25ReferenceLimits : videoReferenceLimits;
+  return base;
 }
 
 export const videoModelSettings = {
@@ -320,6 +328,21 @@ export async function createVideoGenerationTask(
   if (!hasVideoDurationCatalog() || (modelOptionName(config.model).startsWith("ep-") && !videoModelProtocol(config.model))) {
     await fetchModelCatalog();
   }
+  validateVideoGenerationConfig(config);
+  const normalized = normalizeVideoGenerationConfig(config);
+  const referenceSnapshot = normalizeReferences(references);
+  const text = prompt.trim();
+  if (!text) throw new Error("请输入视频提示词");
+  validateVideoGenerationReferences(referenceSnapshot, normalized.model);
+  // Each explicit generation is a new intent even with identical parameters.
+  const submissionOptions = { ...options, idempotencyKey: options.idempotencyKey || `video-${createRandomUUID()}` };
+  return submitWithGenerationAdmission("video", () => isSeedanceVideoModel(normalized.model)
+    ? createSeedanceTask(normalized, text, referenceSnapshot, submissionOptions)
+    : createOpenAiVideoTask(normalized, text, referenceSnapshot, submissionOptions), options);
+}
+
+export function validateVideoGenerationConfig(config: VideoGenerationConfig) {
+  if (!config.model.trim()) throw new Error("请先配置视频模型");
   // Do not silently send a different duration if capabilities changed since selection.
   const supportedDurations = videoModelDurations(config.model);
   if (supportedDurations.length && !supportedDurations.includes(Number(config.seconds))) {
@@ -328,23 +351,11 @@ export async function createVideoGenerationTask(
   // Reject stale/raw submissions before normalization, upload or credit freeze.
   if (!h3VideoSettings(config.model) && !videoOptionAvailable(config.model, "resolutions", normalizeVideoResolutionName(config.resolution))) throw new Error("当前模型不支持所选分辨率，请重新选择");
   if (!videoOptionAvailable(config.model, "ratios", config.size)) throw new Error("当前模型不支持所选比例，请重新选择");
-  const normalized = normalizeVideoGenerationConfig(config);
-  const referenceSnapshot = normalizeReferences(references);
-  if (!normalized.model) throw new Error("请先配置视频模型");
-  const text = prompt.trim();
-  if (!text) throw new Error("请输入视频提示词");
-  validateVideoGenerationReferences(referenceSnapshot, normalized.model);
-  // Each explicit generation is a new intent even with identical parameters.
-  // Otherwise native jobs fall back to a payload fingerprint and return an old
-  // completed task. Keep this key stable across any transport retry of this call.
-  const submissionOptions = { ...options, idempotencyKey: options.idempotencyKey || `video-${createRandomUUID()}` };
-  return submitWithGenerationAdmission("video", () => isSeedanceVideoModel(normalized.model)
-    ? createSeedanceTask(normalized, text, referenceSnapshot, submissionOptions)
-    : createOpenAiVideoTask(normalized, text, referenceSnapshot, submissionOptions), options);
 }
 
-export function validateVideoGenerationReferences(
-  references: VideoGenerationReferences,
+/** Check known type/count restrictions before downloading any reference bytes. */
+export function validateVideoReferenceLayout(
+  references: { images: Pick<VideoGenerationImageReference, "kind" | "role">[]; videos: { kind: "video" }[]; audios: { kind: "audio" }[] },
   model: string,
 ) {
   const seedance = isSeedanceVideoModel(model);
@@ -356,7 +367,7 @@ export function validateVideoGenerationReferences(
   if (capabilities.frames_exclusive && frames.length && regular) throw new Error("当前模型的首尾帧不能与普通参考素材同时使用，请选择一种方式");
   for (const item of [...references.images, ...references.videos, ...references.audios]) {
     const role = ("role" in item && item.role) || `reference_${item.kind}`;
-    if (!videoOptionAvailable(model, "supports", role)) throw new Error("当前模型不支持该参考素材类型，请移除后重试");
+    if (!videoOptionAvailable(model, "supports", role)) throw new Error(`当前模型不支持该参考素材类型：${{ image: "图片", video: "视频", audio: "音频" }[item.kind]}，请移除或切换模型`);
   }
   if (h3 && !references.images.length) throw new Error("H3 多参考图生需要至少 1 张参考图片");
   if (references.images.length > limits.images) throw new Error(`参考图片最多 ${limits.images} 张`);
@@ -373,6 +384,12 @@ export function validateVideoGenerationReferences(
   if (!limits.audioOnly && references.audios.length && !references.images.length && !references.videos.length) {
     throw new Error("Seedance 参考音频不能单独使用，请同时添加参考图或参考视频");
   }
+}
+
+export function validateVideoGenerationReferences(references: VideoGenerationReferences, model: string) {
+  validateVideoReferenceLayout(references, model);
+  const seedance = isSeedanceVideoModel(model);
+  const limits = videoReferenceLimitsForModel(model);
   references.images.forEach((reference, index) => {
     if (isAssetReference(reference.url)) {
       if (!seedance) throw new Error("asset:// 素材引用仅支持 Seedance / 火山视频模型");
@@ -381,7 +398,7 @@ export function validateVideoGenerationReferences(
     if (!reference.file) throw new Error(`参考图片${index + 1}读取失败`);
     if (!isSupportedImageReference(reference)) throw new Error(`参考图片${index + 1}格式不支持，请使用图片文件`);
     if (!Number.isFinite(reference.bytes) || reference.bytes <= 0) throw new Error(`参考图片${index + 1}读取失败`);
-    if (reference.bytes > videoReferenceLimits.imageMaxBytes) throw new Error(`参考图片${index + 1}超过 30MB`);
+    if (reference.bytes > limits.imageMaxBytes) throw new Error(`参考图片${index + 1}“${reference.name}”超过 ${limits.imageMaxBytes / 1024 / 1024}MB`);
   });
   let videoDurationMs = 0;
   references.videos.forEach((reference, index) => {
@@ -392,8 +409,8 @@ export function validateVideoGenerationReferences(
     if (!reference.file) throw new Error(`参考视频${index + 1}读取失败`);
     if (!isSupportedVideoReference(reference)) throw new Error(`参考视频${index + 1}格式不支持，请使用 mp4/mov`);
     if (!Number.isFinite(reference.bytes) || reference.bytes <= 0) throw new Error(`参考视频${index + 1}读取失败`);
-    if (reference.bytes > videoReferenceLimits.videoMaxBytes) throw new Error(`参考视频${index + 1}超过 50MB`);
-    assertReferenceDuration(reference.durationMs, `参考视频${index + 1}`, limits.mediaMaxDurationMs);
+    if (reference.bytes > limits.videoMaxBytes) throw new Error(`参考视频${index + 1}“${reference.name}”超过 ${limits.videoMaxBytes / 1024 / 1024}MB`);
+    assertReferenceDuration(reference.durationMs, `参考视频${index + 1}“${reference.name}”`, limits.mediaMaxDurationMs, limits.mediaMinDurationMs);
     assertReferenceVideoGeometry(reference, index);
     videoDurationMs += reference.durationMs;
   });
@@ -407,8 +424,8 @@ export function validateVideoGenerationReferences(
     if (!reference.file) throw new Error(`参考音频${index + 1}读取失败`);
     if (!isSupportedAudioReference(reference)) throw new Error(`参考音频${index + 1}格式不支持，请使用 mp3/wav`);
     if (!Number.isFinite(reference.bytes) || reference.bytes <= 0) throw new Error(`参考音频${index + 1}读取失败`);
-    if (reference.bytes > videoReferenceLimits.audioMaxBytes) throw new Error(`参考音频${index + 1}超过 15MB`);
-    assertReferenceDuration(reference.durationMs, `参考音频${index + 1}`, limits.mediaMaxDurationMs);
+    if (reference.bytes > limits.audioMaxBytes) throw new Error(`参考音频${index + 1}“${reference.name}”超过 ${limits.audioMaxBytes / 1024 / 1024}MB`);
+    assertReferenceDuration(reference.durationMs, `参考音频${index + 1}“${reference.name}”`, limits.mediaMaxDurationMs, limits.mediaMinDurationMs);
     audioDurationMs += reference.durationMs;
   });
   if (audioDurationMs > limits.mediaMaxTotalDurationMs) throw new Error(`参考音频总时长不能超过 ${limits.mediaMaxTotalDurationMs / 1000} 秒`);
@@ -675,13 +692,14 @@ function dataUrlByteSize(dataUrl: string) {
   return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
 }
 
-function assertReferenceDuration(durationMs: number, label: string, maxDurationMs: number) {
+function assertReferenceDuration(durationMs: number, label: string, maxDurationMs: number, minDurationMs: number) {
   if (
     !Number.isFinite(durationMs)
-    || durationMs < videoReferenceLimits.mediaMinDurationMs
+    || durationMs < minDurationMs
     || durationMs > maxDurationMs
   ) {
-    throw new Error(`${label}时长需要在 2-${maxDurationMs / 1000} 秒之间`);
+    const actual = Number.isFinite(durationMs) && durationMs > 0 ? `，当前为 ${(durationMs / 1000).toFixed(2)} 秒` : "，当前无法读取时长";
+    throw new Error(`${label}时长需要在 ${minDurationMs / 1000}-${maxDurationMs / 1000} 秒之间${actual}，请裁剪素材或切换支持该时长的模型`);
   }
 }
 

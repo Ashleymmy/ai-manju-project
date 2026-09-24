@@ -26,6 +26,17 @@ function services() {
 const input = { node, projectId: "project", projectTitle: "同名画布", scope: "personal" as const, folderId: "roles", category: "character" as const };
 
 describe("canvas node archival", () => {
+  it.each(["image", "video", "audio"] as const)("archives a shared %s under its full numbered node name without renaming the original", async kind => {
+    const api = services();
+    const mime = kind === "image" ? "image/png" : kind === "video" ? "video/mp4" : "audio/wav";
+    api.fetch.mockResolvedValueOnce(new Response(new Blob(["original"], { type: mime })));
+    const title = "女王的毒苹果（1）";
+    await archiveCanvasMediaAsset({ ...input, copySharedAsset: true, node: { ...node, kind, title } }, api);
+    expect(api.updateAssetMetadata).not.toHaveBeenCalled();
+    expect(api.uploadAsset).toHaveBeenCalledWith(expect.any(File), expect.objectContaining({ name: title, source_node_id: "node" }), "personal");
+    expect(api.uploadAsset.mock.calls[0][0].name).toBe(`${title}.${mime.split("/")[1]}`);
+    expect(api.revokeObjectURL).toHaveBeenCalledWith("blob:source");
+  });
   it("resolves the exact linked project and defaults to other even when canvas names collide", async () => {
     const api = { getProject: vi.fn(async () => ({} as CanvasProject)), getAssetFolders: vi.fn(async () => folders) };
     expect((await resolveCanvasArchiveFolder("project", "personal", undefined, api)).id).toBe("other");
@@ -38,7 +49,7 @@ describe("canvas node archival", () => {
     const api = services();
     const saved = await archiveCanvasMediaAsset({ ...input, node: { ...node, kind } }, api);
     expect(saved.id).toBe("asset");
-    expect(api.updateAssetMetadata).toHaveBeenCalledWith("asset", { folder_id: "roles", category: "character" }, "personal");
+    expect(api.updateAssetMetadata).toHaveBeenCalledWith("asset", { name: "风景", folder_id: "roles", category: "character" }, "personal");
     expect(api.fetch).not.toHaveBeenCalled();
     expect(api.uploadAsset).not.toHaveBeenCalled();
     expect(node.imageAssetId).toBe("asset");
@@ -56,7 +67,8 @@ describe("canvas node archival", () => {
   it("uploads unarchived media to the chosen category and propagates failures for retry", async () => {
     const api = services();
     await archiveCanvasMediaAsset({ ...input, node: { ...node, imageAssetId: undefined, imageSrc: "data:image/png;base64,aW1hZ2U=" } }, api);
-    expect(api.uploadAsset).toHaveBeenCalledWith(expect.any(File), expect.objectContaining({ folder_id: "roles", category: "character" }), "personal");
+    expect(api.uploadAsset).toHaveBeenCalledWith(expect.any(File), expect.objectContaining({ name: "风景", folder_id: "roles", category: "character" }), "personal");
+    expect(api.uploadAsset.mock.calls[0][0].name).toBe("风景.png");
     api.updateAssetMetadata.mockRejectedValueOnce(new Error("save failed"));
     await expect(archiveCanvasMediaAsset(input, api)).rejects.toThrow("save failed");
     expect(api.uploadAsset).toHaveBeenCalledTimes(1);

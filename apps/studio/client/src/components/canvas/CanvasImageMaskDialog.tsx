@@ -20,13 +20,19 @@ type Props = {
   price?: React.ReactNode;
   dataUrl: string;
   open: boolean;
+  loading?: boolean;
+  sourceError?: string;
+  onRetry?: () => void;
   busy?: boolean;
   error?: string;
   onClose: () => void;
   onConfirm: (payload: CanvasImageMaskPayload) => void | Promise<void>;
 };
 
-export function CanvasImageMaskDialog({ price, dataUrl, open, busy = false, error = "", onClose, onConfirm }: Props) {
+export function CanvasImageMaskDialog({ price, dataUrl, open, loading = false, sourceError = "", onRetry, busy = false, error = "", onClose, onConfirm }: Props) {
+  const [loadedSource, setLoadedSource] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const ready = Boolean(dataUrl && loadedSource === dataUrl && !loading && !sourceError && !loadError);
   const [imageSize, setImageSize] = useState({ width: 1, height: 1 });
   const [brushSize, setBrushSize] = useState(64);
   const [prompt, setPrompt] = useState("");
@@ -37,15 +43,22 @@ export function CanvasImageMaskDialog({ price, dataUrl, open, busy = false, erro
 
   useEffect(() => {
     if (!open || !dataUrl) return;
+    let active = true;
+    setLoadedSource("");
+    setLoadError("");
     const image = new Image();
     image.onload = () => {
+      if (!active) return;
+      setLoadedSource(dataUrl);
       setImageSize({ width: Math.max(1, image.naturalWidth || image.width), height: Math.max(1, image.naturalHeight || image.height) });
       setBrushSize(canvasMaskBrushSize(64, image.naturalWidth || image.width, image.naturalHeight || image.height));
       clearSelection(canvasRef.current);
       setHasPaint(false);
       setPrompt("");
     };
+    image.onerror = () => { if (active) setLoadError("原图读取失败，请重试"); };
     image.src = dataUrl;
+    return () => { active = false; };
   }, [dataUrl, open]);
 
   const pointFromEvent = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -54,7 +67,7 @@ export function CanvasImageMaskDialog({ price, dataUrl, open, busy = false, erro
   };
 
   const beginStroke = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (busy || event.button !== 0) return;
+    if (busy || !ready || event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     const point = pointFromEvent(event);
     drawingRef.current = true;
@@ -82,7 +95,7 @@ export function CanvasImageMaskDialog({ price, dataUrl, open, busy = false, erro
 
   const submit = async () => {
     const selection = canvasRef.current;
-    if (!selection || !hasPaint || !prompt.trim()) return;
+    if (!selection || !ready || !hasPaint || !prompt.trim()) return;
     await onConfirm({ maskDataUrl: buildEditMask(selection), prompt: prompt.trim() });
   };
 
@@ -93,7 +106,8 @@ export function CanvasImageMaskDialog({ price, dataUrl, open, busy = false, erro
           <DialogTitle>蒙版修改</DialogTitle>
           <DialogDescription>涂抹需要 AI 修改的区域，未涂抹区域会保持不变。</DialogDescription>
         </DialogHeader>
-        <div className="canvas-image-mask-layout">
+        {!ready ? <div role="status">{sourceError || loadError || "正在加载原图…"}{(sourceError || loadError) && onRetry ? <button type="button" onClick={onRetry}>重试加载原图</button> : null}</div> : <p className="text-xs text-muted-foreground">原图 {imageSize.width} × {imageSize.height}</p>}
+        <div className="canvas-image-mask-layout" style={!ready ? { display: "none" } : undefined}>
           <div className="canvas-image-mask-stage" style={canvasMaskStageStyle(imageSize.width, imageSize.height)}>
             <img src={dataUrl} alt="蒙版修改原图" draggable={false} />
             <canvas
@@ -130,7 +144,7 @@ export function CanvasImageMaskDialog({ price, dataUrl, open, busy = false, erro
         <DialogFooter>
           {price}
           <button type="button" className="outline-button" onClick={onClose} disabled={busy}><X size={15} /> 取消</button>
-          <button type="button" className="vermilion-button" onClick={() => void submit()} disabled={busy || !hasPaint || !prompt.trim()}><Check size={15} /> {busy ? "生成中…" : "生成局部修改"}</button>
+          <button type="button" className="vermilion-button" onClick={() => void submit()} disabled={busy || !ready || !hasPaint || !prompt.trim()}><Check size={15} /> {busy ? "生成中…" : "生成局部修改"}</button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

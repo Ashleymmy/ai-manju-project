@@ -1,4 +1,12 @@
-import { imageResolutionFromNode, modelFromNode, qualityFromNode, sizeFromNode } from "./nodeUtils";
+import {
+  CANVAS_IMAGE_AVAILABLE_RESOLUTIONS,
+  imageResolutionFromNode,
+  isCanvasImageResolutionAvailable,
+  modelFromNode,
+  qualityFromNode,
+  sizeFromNode,
+  type CanvasImageResolution,
+} from "./nodeUtils";
 import { imageModelSupportsDetail } from "@/entities/model/imageProtocol";
 import type { CanvasNodeData } from "./types";
 
@@ -9,6 +17,16 @@ const IMAGE_MAX_RATIO = 3;
 const IMAGE_MAX_PIXELS = 8_294_400;
 /** Resolution controls pixel budget independently of the model's detail quality. */
 const RESOLUTION_PIXELS = { "1K": 1024 ** 2, "2K": 2048 ** 2, "4K": IMAGE_MAX_PIXELS } as const;
+
+/** Validate persisted selections too; never silently downgrade a requested output. */
+export function canvasImageResolutionIssue(resolution: CanvasImageResolution): string {
+  return isCanvasImageResolutionAvailable(resolution) ? ""
+    : `当前暂不支持 ${resolution} 生成，请在参数中选择 ${CANVAS_IMAGE_AVAILABLE_RESOLUTIONS.join(" / ")} 后再生成。`;
+}
+
+export function canvasImageGenerationSettingsIssue(node: CanvasNodeData): string {
+  return canvasImageResolutionIssue(imageResolutionFromNode(node));
+}
 
 export function canvasImageGenerationSettings(node: CanvasNodeData, size = sizeFromNode(node), model = modelFromNode(node, "")) {
   const imageResolution = imageResolutionFromNode(node);

@@ -26,11 +26,28 @@ type videoModelCapabilities struct {
 }
 
 type videoReferenceCapabilities struct {
-	Images    int  `json:"images"`
-	Videos    int  `json:"videos"`
-	Audios    int  `json:"audios"`
-	AudioOnly bool `json:"audio_only"`
+	Images                  int  `json:"images"`
+	Videos                  int  `json:"videos"`
+	Audios                  int  `json:"audios"`
+	AudioOnly               bool `json:"audio_only"`
+	MediaMinDurationMS      int  `json:"media_min_duration_ms,omitempty"`
+	MediaMaxDurationMS      int  `json:"media_max_duration_ms,omitempty"`
+	MediaMaxTotalDurationMS int  `json:"media_max_total_duration_ms,omitempty"`
+	ImageMaxBytes           int  `json:"image_max_bytes,omitempty"`
+	VideoMaxBytes           int  `json:"video_max_bytes,omitempty"`
+	AudioMaxBytes           int  `json:"audio_max_bytes,omitempty"`
 }
+
+// Reference-media contract used by our Seedance adapter (Create Video Task API).
+// These are input limits, independent of the generated video's duration.
+const (
+	videoReferenceMinDurationMS   = 2000
+	videoReferenceMaxDurationMS   = 15000
+	videoReference25MaxDurationMS = 30000
+	videoReferenceImageMaxBytes   = 30 * 1024 * 1024
+	videoReferenceVideoMaxBytes   = 50 * 1024 * 1024
+	videoReferenceAudioMaxBytes   = 15 * 1024 * 1024
+)
 
 func (h *ModelProviderHandler) SetVideoModelFamilyResolver(resolve func(string) string) {
 	h.modelFamily = resolve
@@ -83,6 +100,17 @@ func catalogVideoCapabilities(modelID string) videoModelCapabilities {
 	if strings.Contains(id, "seedance-2-5") {
 		caps.References = &videoReferenceCapabilities{Images: 30, Videos: 10, Audios: 10, AudioOnly: true}
 	}
+	// Publish the limits the adapter actually enforces so the UI can validate
+	// references before creating a task, including provider-scoped endpoint IDs.
+	caps.References.MediaMinDurationMS = videoReferenceMinDurationMS
+	caps.References.MediaMaxDurationMS = videoReferenceMaxDurationMS
+	if strings.Contains(id, "seedance-2-5") {
+		caps.References.MediaMaxDurationMS = videoReference25MaxDurationMS
+	}
+	caps.References.MediaMaxTotalDurationMS = caps.References.MediaMaxDurationMS
+	caps.References.ImageMaxBytes = videoReferenceImageMaxBytes
+	caps.References.VideoMaxBytes = videoReferenceVideoMaxBytes
+	caps.References.AudioMaxBytes = videoReferenceAudioMaxBytes
 	if wan {
 		caps.Ratios = []string{"16:9", "9:16", "1:1", "4:3", "3:4", "adaptive"}
 		caps.Durations = integerVideoDurations(4, 30, false)
@@ -199,6 +227,9 @@ func validateSDVideoCapabilities(c *gin.Context, client *sdvideo.Client, modelID
 		if item.Key == modelID {
 			caps := catalogVideoCapabilities(modelID)
 			caps.Resolutions, caps.Ratios, caps.Supports, caps.HasAudio = item.Resolutions, item.Ratios, item.Supports, item.HasAudio
+			if item.References != nil {
+				caps.References = item.References
+			}
 			if len(item.Durations) > 0 {
 				caps.Durations = item.Durations
 			}

@@ -30,6 +30,18 @@ const references = buildCanvasMentionReferences("target", nodes, edges, [
 const library: CanvasMentionLibraryState = { ...emptyCanvasMentionLibrary("project-1"), folders };
 
 describe("canvas mention library navigation", () => {
+  it.each(["root", "folder:roles", "favorites"] as const)("groups mixed media in %s, retaining complete numbered names and stable same-type order", target => {
+    const mixed = ["audio", "image", "text", "video", "image"];
+    const inputs = mixed.map((kind, index) => ({ id: `n${index}`, kind, title: `素材（${index}）`, content: "内容", metadata: { assetId: `source${index}` } }));
+    const assets = mixed.map((type, index) => ({ id: `a${index}`, type, name: `素材（${index}）` }));
+    const refs = buildCanvasMentionReferences("target", [...inputs, { id: "target", kind: "text", title: "目标", content: "" }], inputs.map(node => ({ from: node.id, to: "target" })), assets, "personal");
+    const query = target === "root" ? "素材" : "";
+    const menu = buildCanvasMentionLibraryMenu(refs, query, target, { ...library, target, query, assetIds: assets.map(asset => asset.id) });
+    const entries = menu.flatMap(item => item.kind === "reference" ? [item.reference] : []);
+    expect(entries.map(ref => ref.key)).toEqual(["node:n2", "node:n1", "node:n4", "node:n3", "node:n0", "asset:a2", "asset:a1", "asset:a4", "asset:a3", "asset:a0"]);
+    expect(entries.find(ref => ref.key === "asset:a4")?.label).toBe("素材（4）");
+    expect(assets.map(asset => asset.id)).toEqual(["a0", "a1", "a2", "a3", "a4"]);
+  });
   it("lists only direct predecessors before the library entries", () => {
     expect(buildCanvasMentionLibraryMenu(references, "", "root", library).map(item => item.id)).toEqual([
       "node:source", "folder:mine", "favorites", "folder:canvas", "library",

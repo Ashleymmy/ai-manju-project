@@ -52,6 +52,12 @@ func TestVideoCapabilitiesUseExplicitEndpointFamilyAndPreserveH3Variant(t *testi
 		ModelAliases: model.JSONB(`{"ep-mini":"arbitrary renamed label"}`)}
 	data := aggregateModelProviders([]model.ModelProviderConfig{config}, resolve)
 	caps := data["video_model_capabilities"].(map[string]videoModelCapabilities)
+	if caps["mt::ep-mini"].References.MediaMaxDurationMS != 15000 || caps["mt::ep-long"].References.MediaMaxDurationMS != 30000 {
+		t.Fatal("provider-scoped reference duration contract missing")
+	}
+	if caps["mt::ep-long"].References.AudioMaxBytes != 15*1024*1024 {
+		t.Fatal("reference audio size contract missing")
+	}
 	if err := caps["mt::ep-mini"].validate(map[string]any{"resolution": "1080p"}); err == nil {
 		t.Fatal("mapped Mini accepts 1080p")
 	}

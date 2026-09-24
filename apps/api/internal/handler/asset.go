@@ -389,9 +389,11 @@ func (h *AssetHandler) Content(c *gin.Context) {
 	}
 	defer content.Reader.Close()
 	contentType := firstNonEmpty(content.Asset.ContentType, content.Object.ContentType, "application/octet-stream")
-	if h.usage != nil && download {
-		_ = h.usage.RecordDownload(content.Asset.ID, user.ID, scope, response.RequestID(c))
-		c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": content.Asset.Name}))
+	if download {
+		if h.usage != nil {
+			_ = h.usage.RecordDownload(content.Asset.ID, user.ID, scope, response.RequestID(c))
+		}
+		c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": service.AssetDownloadFileName(content.Asset)}))
 	}
 	if variant != "" {
 		original, readErr := io.ReadAll(content.Reader)

@@ -128,6 +128,48 @@ function mentionReference(values: Partial<CanvasMentionReference> = {}): CanvasM
 }
 
 describe("CanvasAssetsMentionsController", () => {
+  it("requests type order before pagination and sorts mixed picker entries without removing name indices", async () => {
+    const media: Asset[] = [
+      { id: "a", type: "audio", name: "台词（2）" }, { id: "v", type: "video", name: "镜头（1）" },
+      { id: "i", type: "image", name: "苹果（1）" }, { id: "i2", type: "image", name: "苹果（2）" },
+    ];
+    const api = createServices({ getAssetLibrary: vi.fn(async (_scope, query) => ({ items: query?.page === 2 ? media.slice(2) : media, total: 8, page: query?.page || 1, page_size: 4 })),
+      listCanvasTextAssets: vi.fn(async () => [{ id: "t", title: "剧本（1）", content: "内容", scope: "personal", createdAt: "", updatedAt: "" }]) });
+    const { controller } = createHarness([], api);
+    await controller.loadMentionCatalog("", "personal", "favorites");
+    await controller.loadMentionCatalog("", "personal", "favorites", 2);
+    expect(api.getAssetLibrary).toHaveBeenLastCalledWith("personal", expect.objectContaining({ sort: "type_created_at_desc", page: 2, smartView: "favorite" }), expect.any(AbortSignal));
+    expect(controller.getSnapshot().mentionLibrary.assetIds).toEqual(["a", "v", "i", "i2"]);
+    controller.openAssetPicker();
+    await vi.waitFor(() => expect(controller.getSnapshot().picker.loading).toBe(false));
+    expect(controller.getSnapshot().picker.items.map(item => item.name)).toEqual(["剧本（1）", "苹果（1）", "苹果（2）", "镜头（1）", "台词（2）"]);
+    expect(api.getAssetLibrary).toHaveBeenLastCalledWith("personal", expect.objectContaining({ sort: "type_created_at_desc", page: 1 }), expect.any(AbortSignal));
+    controller.dispose();
+  });
+  it("keeps confirmed renames in mentions and picker when an older list request finishes later", async () => {
+    let release!: (value: any) => void;
+    const services = createServices({ getAssetLibrary: vi.fn(() => new Promise(resolve => { release = resolve; })) as CanvasAssetsMentionsServices["getAssetLibrary"] });
+    const { controller } = createHarness([], services);
+    controller.mergeAssets([imageAsset], "personal");
+    controller.mergeAssets([imageAsset], "team");
+    const reading = controller.loadMentionCatalog();
+    await vi.waitFor(() => expect(services.getAssetLibrary).toHaveBeenCalled());
+    controller.applyAssetNameChange({ assetId: imageAsset.id, name: "新名称", scope: "personal" });
+    release({ items: [imageAsset], total: 1, page: 1, page_size: 60 });
+    await reading;
+    expect(controller.getAssets().find(asset => asset.scope === "personal")?.name).toBe("新名称");
+    expect(controller.getAssets().find(asset => asset.scope === "team")?.name).toBe("参考图.png");
+    controller.openAssetPicker();
+    await vi.waitFor(() => expect(services.getAssetLibrary).toHaveBeenCalledTimes(2));
+    controller.applyAssetNameChange({ assetId: imageAsset.id, name: "再次改名", scope: "personal" });
+    release({ items: [imageAsset], total: 1, page: 1, page_size: 60 });
+    await vi.waitFor(() => expect(controller.getSnapshot().picker.loading).toBe(false));
+    expect(controller.getSnapshot().picker.items[0].name).toBe("再次改名");
+    expect(controller.getSnapshot().picker.items[0].serverAsset?.name).toBe("再次改名");
+    controller.applyAssetNameChange({ assetId: imageAsset.id, name: "最终名", scope: "personal" });
+    expect(controller.getSnapshot().picker.items[0].name).toBe("最终名");
+    controller.dispose();
+  });
   const registered: SeedanceAsset = {
     id: "registered-1", name: "拟真人角色", status: "Active", asset_type: "Image",
     volcano_asset_id: "upstream-1", source_url: "/api/sd-video/volcano/assets/registered-1/content?scope=personal",
@@ -152,14 +194,14 @@ describe("CanvasAssetsMentionsController", () => {
     expect(picker.thumbnails["registered::registered-1"]).toContain("/registered-1/thumbnail?scope=personal");
     picker.items.forEach(item => harness.controller.toggleAssetPickerItem(item.id));
     await harness.controller.insertAssetPickerSelection();
-    expect(harness.nodes.map(node => node.kind)).toEqual(["image", "video", "image"]);
+    expect(harness.nodes.map(node => node.kind)).toEqual(["image", "image", "video"]);
     expect(new Set(harness.nodes.map(node => node.id)).size).toBe(3);
     expect(harness.nodes[0].imageSrc).toContain("/registered-1/content?scope=personal");
     expect(harness.nodes[0].imageSrc).not.toMatch(/^blob:/);
     expect(harness.nodes[0].metadata?.assetId).toBeUndefined();
     expect(savedSeedanceRegistration(harness.nodes[0])).toMatchObject({ id: "registered-1", volcano_asset_id: "upstream-1" });
-    expect(harness.nodes[2].metadata?.seedanceVolcanoAssets?.[0].providerId).toBe("official");
-    const context = buildCanvasMentionGenerationContext("target", harness.nodes, [], `参考 @[node:${harness.nodes[0].id}] @[node:${harness.nodes[1].id}]`, [], "personal");
+    expect(harness.nodes[1].metadata?.seedanceVolcanoAssets?.[0].providerId).toBe("official");
+    const context = buildCanvasMentionGenerationContext("target", harness.nodes, [], `参考 @[node:${harness.nodes[0].id}] @[node:${harness.nodes[2].id}]`, [], "personal");
     expect(context.missingKeys).toEqual([]);
     expect(context.inputs).toHaveLength(2);
     expect(context.inputs[0].seedanceVolcanoAssets?.[0].volcanoAssetId).toBe("upstream-1");

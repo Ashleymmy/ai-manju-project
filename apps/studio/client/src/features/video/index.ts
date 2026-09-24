@@ -8,6 +8,11 @@ export {
   pollVideoGenerationTask,
   videoGenerationResultToBlob,
   videoModelSettings,
+  videoReferenceLimits,
+  videoReferenceLimitsForModel,
+  validateVideoGenerationConfig,
+  validateVideoGenerationReferences,
+  validateVideoReferenceLayout,
 } from "./services/generationGateway";
 export type {
   VideoGenerationAudioReference,

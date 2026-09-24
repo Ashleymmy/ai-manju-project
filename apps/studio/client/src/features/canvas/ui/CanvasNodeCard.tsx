@@ -1,4 +1,5 @@
 import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
+import { canvasImageGenerationError } from "../domain/imageGenerationError";
 import { canvasNodeDisplayTitle } from "../domain/nodeTitles";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { RetryImage } from "@/shared/ui/RetryImage";
@@ -57,7 +58,6 @@ import {
   useState,
   useEffect,
 } from "react";
-import { toast } from "sonner";
 import { CanvasPopover as Popover, CanvasPopoverContent as PopoverContent, CanvasPopoverTrigger as PopoverTrigger } from "./CanvasPopover";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/CanvasResourceMentionTextarea";
 import PixelLoadingOverlay from "@/components/canvas/PixelLoadingOverlay";
@@ -235,7 +235,7 @@ export function CanvasImageToolGrid({
       <button title="压缩图片体积" onClick={() => openImageToolDialog(node.id, "compress")} disabled={imageToolBusy}><Minimize2 size={14} /> 压缩</button>
       <button title="基于原图生成 2:1 全景图" onClick={() => void generatePanoramaCanvasImage(node)} disabled={imageToolBusy}><Images size={14} /> 全景图 <CanvasGenerationPrice node={node} edit panorama /></button>
       <button title="基于原图重新生成其他机位" onClick={() => openImageToolDialog(node.id, "angle")} disabled={imageToolBusy}><Camera size={14} /> 多角度</button>
-      <button title="AI 超分依赖管理员配置的模型服务" onClick={() => toast.info("AI 超分依赖管理员配置的模型服务，本地暂未实现")}><Sparkles size={14} /> AI 超分</button>
+      <button disabled title="AI 超分暂未开放"><Sparkles size={14} /> AI 超分</button>
       <button title="把所选图片排成故事板 PNG" onClick={() => generateStoryboard(node)} disabled={storyboardBusy}><GalleryHorizontalEnd size={14} /> 故事板</button>
       <button title="创建反推提示词的文本配置节点" onClick={() => void createImageReversePromptNodes(node)}><WandSparkles size={14} /> 反推提示词</button>
       <button title="查看原图" onClick={() => setImagePreviewNodeId(node.id)}><Maximize2 size={14} /> 查看原图</button>
@@ -343,7 +343,8 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
           type="button"
           className={`canvas-connection-handle target canvas-node-handle ${connectActiveTarget ? "active" : ""}`}
           aria-label="连接到此节点"
-          title="拖到另一节点，或单击后再点目标节点"
+          data-connection-handle-type="target"
+          title="输入：连接另一节点的右侧输出"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => {
             event.stopPropagation();
@@ -355,7 +356,8 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
           type="button"
           className={`canvas-connection-handle source canvas-node-handle ${connectActiveSource ? "active" : ""}`}
           aria-label="从此节点连接"
-          title="拖到另一节点，或单击后再点目标节点"
+          data-connection-handle-type="source"
+          title="输出：连接另一节点的左侧输入"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => {
             event.stopPropagation();
@@ -600,7 +602,7 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
       )}
       {!isRunning && node.metadata?.status === "error" && node.metadata.errorDetails ? (
         <div className="node-error-box">
-          <p title={node.metadata.errorDetails}>{node.metadata.errorDetails}</p>
+          <p title={canvasImageGenerationError(node.metadata.errorDetails)}>{canvasImageGenerationError(node.metadata.errorDetails)}</p>
           <button
             type="button"
             className="node-error-retry"
@@ -712,7 +714,7 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
                 ) : null}
                 {node.kind === "image" && !preview ? <button title="上传图片" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setReplaceImageNodeId(node.id); replaceImageInputRef.current?.click(); }}><Upload size={13} /></button> : null}
                 {node.kind === "video" && preview ? <button title="从当前播放帧创建图片节点" disabled={captureBusy} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void captureVideoFrameNode(node); }}><Camera size={13} /></button> : null}
-                {node.kind === "video" && preview ? <button title="AI 超分（依赖管理员配置的模型服务）" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); toast.info("视频超分依赖管理员配置的模型服务，本地暂未实现"); }}><Sparkles size={13} /></button> : null}
+                {node.kind === "video" && preview ? <button disabled title="视频 AI 超分暂未开放"><Sparkles size={13} /></button> : null}
                 {node.kind === "image" && preview ? <CanvasSeedanceRegistrationButton node={node} state={seedanceRegistrationState} onRegister={registerImageAsSeedanceAsset} /> : null}
                 {node.kind === "video" && preview ? <button title="全屏播放" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); document.querySelector<HTMLVideoElement>(`.real-canvas-node[data-node-id="${node.id}"] video`)?.requestFullscreen?.(); }}><Maximize2 size={13} /></button> : null}
                 {preview || node.kind === "text" ? <button title="加入素材库" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void (node.kind === "text" ? archiveCanvasTextNode(node) : archiveCanvasMediaNode(node)); }}><FolderOpen size={13} /></button> : null}

@@ -164,6 +164,8 @@ describe("video API", () => {
     const opaque = model.includes("::ep-");
     if (opaque) vi.mocked(fetch).mockResolvedValueOnce(apiResponse({
       video_models: [model], video_model_protocols: { [model]: "seedance" }, model_labels: { [model]: "seedance 2.5" },
+      video_model_capabilities: { [model]: { references: { images: 30, videos: 10, audios: 10, audio_only: true,
+        media_min_duration_ms: 2000, media_max_duration_ms: 30000, media_max_total_duration_ms: 30000 } } },
     }));
     vi.mocked(fetch).mockResolvedValueOnce(apiResponse({ id: "job_full_refs" }));
     const image = { id: "image", kind: "image" as const, name: "image", mime: "image/png", bytes: 0, width: 0, height: 0 };
@@ -172,7 +174,7 @@ describe("video API", () => {
       videos: Array.from({ length: 10 }, (_, i) => ({ ...image, kind: "video" as const, mime: "video/mp4", durationMs: 0, url: `asset://video-${i}` })),
       audios: Array.from({ length: 10 }, (_, i) => ({ ...image, kind: "audio" as const, mime: "audio/mpeg", durationMs: 0, url: `asset://audio-${i}` })),
     };
-    // Cold endpoint lookup must populate both the protocol and the version label.
+    // Cold endpoint lookup must populate the protocol and actual service limits.
     await createVideoGenerationTask({ ...config, model }, "参考全部素材", references);
     const call = vi.mocked(fetch).mock.calls[opaque ? 1 : 0];
     const body = JSON.parse(String(call[1]?.body));

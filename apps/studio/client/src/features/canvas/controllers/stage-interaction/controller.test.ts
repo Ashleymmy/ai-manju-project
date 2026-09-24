@@ -205,6 +205,52 @@ function createHarness(initialNodes: CanvasNodeData[] = [node("a"), node("b", 30
 }
 
 describe("CanvasStageInteractionController", () => {
+  it.each(["source", "target"] as const)("click-connects only the opposite port when starting from %s", handleType => {
+    const onWarning = vi.fn();
+    const harness = createHarness(undefined, [], { onWarning });
+    const handle = {} as HTMLElement;
+    harness.controller.activateConnectionMode("a", handleType);
+    harness.controller.beginConnection(pointer(handle), "b", handleType);
+    expect(harness.edges).toHaveLength(0);
+    expect(onWarning).toHaveBeenCalledWith("输出只能连接输入，请选择另一侧接口");
+    expect(harness.controller.getSnapshot().connectFrom).toBe("a");
+    harness.controller.beginConnection(pointer(handle), "b", handleType === "source" ? "target" : "source");
+    expect(harness.edges).toEqual([expect.objectContaining(handleType === "source" ? { from: "a", to: "b" } : { from: "b", to: "a" })]);
+    expect(harness.controller.getSnapshot().connectFrom).toBe("");
+    harness.controller.dispose();
+  });
+
+  it.each([false, true])("validates actual offset DOM ports before geometric fallback (group=%s)", grouped => {
+    for (const handleType of ["source", "target"] as const) {
+      const initial = [node("a"), node("b", 300)];
+      const groups: CanvasGroupData[] = grouped ? [{ id: "group", title: "Group", nodeIds: ["b"], position: { x: 280, y: -20 }, width: 140, height: 140, color: "#fff" }] : [];
+      const harness = createHarness(initial, groups);
+      const handle = {} as HTMLElement;
+      const card = {} as HTMLElement;
+      vi.spyOn(harness.adapter, "elementFromPoint").mockReturnValue(handle);
+      vi.spyOn(harness.adapter, "closest").mockImplementation((_target, selector) => selector === ".canvas-node-handle" ? handle
+        : selector === ".canvas-group-connection-handle" ? grouped ? handle : null : card);
+      let endType = handleType;
+      vi.spyOn(harness.adapter, "getAttribute").mockImplementation((element, name) => !element ? "" : name === "data-connection-handle-type" ? endType : "b");
+      const drop = { pointerId: 1, clientX: 250, clientY: 102 };
+      const drag = () => {
+        harness.controller.beginConnection(pointer(handle, { clientX: 100, clientY: 102 }), "a", handleType);
+        harness.adapter.emit("pointermove", drop);
+        harness.adapter.runFrames();
+        return harness.controller.getSnapshot().connectionTargetId;
+      };
+      expect(drag()).toBe("");
+      harness.adapter.emit("pointerup", drop);
+      expect(harness.edges).toHaveLength(0);
+      expect(harness.controller.getSnapshot().pendingConnectionCreate).toBeNull();
+      endType = handleType === "source" ? "target" : "source";
+      expect(drag()).toBe("b");
+      harness.adapter.emit("pointerup", drop);
+      expect(harness.edges).toEqual([expect.objectContaining(handleType === "source" ? { from: "a", to: "b" } : { from: "b", to: "a" })]);
+      harness.controller.dispose();
+    }
+  });
+
   it("centers minimap navigation without changing zoom, nodes or selection", () => {
     const harness = createHarness();
     const original = structuredClone(harness.nodes);

@@ -1,4 +1,5 @@
 import type { AssetFolder } from "@/entities/asset";
+import { compareAssetTypes } from "@/entities/asset/typeOrder";
 import type { WorkspaceScope } from "@/shared/config";
 import { visibleCanvasAssetFolders } from "./assetFolders";
 import { filterCanvasMentionReferences, type CanvasMentionReference } from "./mentions";
@@ -102,6 +103,6 @@ export function buildCanvasMentionLibraryMenu(
     ? library.assetIds.flatMap(id => {
       const reference = byId.get(id);
       return reference ? [{ kind: "reference" as const, id: reference.id, reference }] : [];
-    }) : [];
+    }).sort((left, right) => compareAssetTypes(left.reference.kind, right.reference.kind)) : [];
   return [...nodes, ...folders, ...assets];
 }

@@ -55,6 +55,9 @@ export type CanvasImageAnnotationPayload = {
 type Props = {
   dataUrl: string;
   open: boolean;
+  loading?: boolean;
+  sourceError?: string;
+  onRetry?: () => void;
   onClose: () => void;
   onConfirm: (payload: CanvasImageAnnotationPayload) => void | Promise<void>;
 };
@@ -95,7 +98,9 @@ const toolOptions: Array<{ id: CanvasAnnotationTool; label: string; icon: typeof
   { id: "text", label: "文字", icon: Type },
 ];
 
-export function CanvasImageAnnotationDialog({ dataUrl, open, onClose, onConfirm }: Props) {
+export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, sourceError = "", onRetry, onClose, onConfirm }: Props) {
+  const [loadedSource, setLoadedSource] = useState("");
+  const ready = Boolean(dataUrl && loadedSource === dataUrl && !loading && !sourceError);
   const [imageSize, setImageSize] = useState({ width: 1, height: 1 });
   const [tool, setTool] = useState<CanvasAnnotationTool>("rect");
   const [color, setColor] = useState(CANVAS_ANNOTATION_DEFAULT_COLOR);
@@ -129,10 +134,13 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, onClose, onConfirm 
   useEffect(() => {
     if (!open || !dataUrl) return;
     let active = true;
+    setLoadedSource("");
+    setError("");
     const image = new Image();
     image.onload = () => {
       if (!active) return;
       setImageSize({ width: Math.max(1, image.naturalWidth || image.width), height: Math.max(1, image.naturalHeight || image.height) });
+      setLoadedSource(dataUrl);
       marksRef.current = [];
       draftMarkRef.current = null;
       setMarks([]);
@@ -539,7 +547,7 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, onClose, onConfirm 
 
   const submit = async () => {
     if (textEditorRef.current) commitTextEditor();
-    if (!marksRef.current.length || applying) return;
+    if (!marksRef.current.length || applying || !ready) return;
     setApplying(true);
     setError("");
     try {
@@ -564,7 +572,8 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, onClose, onConfirm 
           <DialogTitle>图片标注</DialogTitle>
           <DialogDescription>在原图上添加矩形、圆形、箭头、画笔和文字，结果会保存为新的图片节点。</DialogDescription>
         </DialogHeader>
-        <div className="canvas-annotation-layout">
+        {!ready ? <div role="status">{sourceError || error || "正在加载原图…"}{(sourceError || error) && onRetry ? <button type="button" onClick={onRetry}>重试加载原图</button> : null}</div> : <p className="text-xs text-muted-foreground">原图 {imageSize.width} × {imageSize.height} · 按原分辨率保存</p>}
+        <div className="canvas-annotation-layout" style={!ready ? { display: "none" } : undefined}>
           <div className="canvas-annotation-workspace">
             <div className="canvas-annotation-toolbar" role="toolbar" aria-label="标注工具">
               {toolOptions.map((option) => {
@@ -705,7 +714,7 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, onClose, onConfirm 
         </div>
         <DialogFooter className="canvas-annotation-footer">
           <button type="button" className="outline-button" onClick={() => { cancelTextEditor(); onClose(); }} disabled={applying}><X size={15} /> 取消</button>
-          <button type="button" className="vermilion-button" onClick={() => void submit()} disabled={applying || !canSave}><Check size={15} /> {applying ? "合成中…" : "保存标注图片"}</button>
+          <button type="button" className="vermilion-button" onClick={() => void submit()} disabled={applying || !canSave || !ready}><Check size={15} /> {applying ? "合成中…" : "保存标注图片"}</button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

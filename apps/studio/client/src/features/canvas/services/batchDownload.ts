@@ -1,7 +1,8 @@
 import { BlobReader, BlobWriter, ZipWriter } from "@zip.js/zip.js";
 import type { WorkspaceScope } from "@/shared/config";
+import { assetDownloadFileName } from "@/entities/asset/fileName";
 import { assetIdFromNode, imageSrcFromNode } from "../domain/nodes";
-import { mediaFileName, mediaKindFromNode } from "../domain/nodeUtils";
+import { mediaKindFromNode } from "../domain/nodeUtils";
 import type { CanvasNodeData } from "../domain/types";
 import { downloadCanvasOriginalMedia } from "./originalMedia";
 
@@ -18,7 +19,7 @@ export function downloadableCanvasNodes(nodes: readonly CanvasNodeData[], select
 }
 
 function uniqueFileName(node: CanvasNodeData, type: string, used: Set<string>) {
-  const original = mediaFileName(node.title || node.id, mediaKindFromNode(node), type).replace(/[\u0000-\u001f]/g, "-");
+  const original = assetDownloadFileName({ name: node.title || node.id, type: mediaKindFromNode(node), content_type: type });
   const dot = original.lastIndexOf(".");
   const stem = original.slice(0, dot), extension = original.slice(dot);
   let name = original, copy = 1;

@@ -118,6 +118,22 @@ export async function saveCanvasTextAsset(
   });
 }
 
+/** Renaming a linked text asset keeps its saved content and classification. */
+export async function renameCanvasTextAsset(
+  input: { userId: string; scope: "personal" | "team"; id: string; title: string },
+  storage: CanvasTextAssetStorage = canvasTextAssetStorage,
+) {
+  if (!input.userId.trim() || !input.title.trim()) return;
+  return writeTextAssets(storage, canvasTextAssetStorageKey(input.userId, input.scope), async () => {
+    const current = await listCanvasTextAssets(input.userId, input.scope, storage);
+    const previous = current.find(asset => asset.id === input.id);
+    if (!previous) return;
+    const asset = { ...previous, title: input.title.trim(), updatedAt: new Date().toISOString() };
+    await storage.setItem(canvasTextAssetStorageKey(input.userId, input.scope), current.map(item => item.id === asset.id ? asset : item));
+    return asset;
+  });
+}
+
 function normalizeCanvasTextAssets(value: unknown, scope: "personal" | "team") {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {

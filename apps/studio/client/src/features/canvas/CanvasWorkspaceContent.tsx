@@ -3,7 +3,8 @@ import { CreditBalance } from "@/features/member";
 import { registrationProviderId, savedSeedanceRegistration, seedanceRegistrationKey, seedanceRegistrationPhase, seedanceRegistrationSource } from "./services/seedanceRegistration";
 import { useCanvasSeedanceRegistration } from "./controllers/useCanvasSeedanceRegistration";
 import { pickDefaultImageModel, resolveModel } from "@/shared/lib/modelSelection";
-import { canvasImageGenerationSettings } from "./domain/imageGenerationSettings";
+import { canvasImageGenerationSettings, canvasImageGenerationSettingsIssue } from "./domain/imageGenerationSettings";
+import { canvasImageGenerationError } from "./domain/imageGenerationError";
 import {
   Archive,
   Check,
@@ -96,6 +97,7 @@ import {
   getAssetExport,
   getAssetLibrary,
   invalidateAssetRecord,
+  publishAssetNameChange,
   updateAssetMetadata,
   updateAssetUserState,
   uploadAsset,
@@ -108,6 +110,9 @@ import { cancelJob, getJobs } from "@/entities/job";
 import { canvasGenerationModelOptions, canvasModelName, canvasVideoModelOptions, pickDefaultCanvasVideoModel } from "./domain/generationModels";
 import type { CanvasLibraryCategory } from "./domain/assetFolders";
 import { archiveCanvasMediaAsset, resolveCanvasArchiveFolder } from "./services/assetArchive";
+import { syncCanvasNodeAssetName } from "./services/assetNames";
+import { assetDownloadFileName } from "@/entities/asset/fileName";
+import { useCanvasAssetNameSync } from "./controllers/useCanvasAssetNameSync";
 import type { PromptPreset } from "@/entities/prompt";
 import { fetchAiModels } from "@/services/api/ai";
 import { audioFormatOptions, audioVoiceOptions } from "@/services/api/audio";
@@ -311,7 +316,6 @@ import type {
 } from "@/features/canvas/domain/types";
 import {
   assetKindFromFile,
-  audioFileExtension,
   canvasGenerationInputsFromVideoSnapshot,
   canvasVideoReferenceSnapshot,
   cloneCanvasEdges,
@@ -783,6 +787,7 @@ export default function CanvasWorkspaceViewContent() {
     mentionPreview: mentionMediaPreview,
     mentionLibrary,
   } = assetsMentionsSnapshot;
+  useCanvasAssetNameSync(user?.id || "", projectId, canvasAssets);
   const {
     cancelAssetPicker,
     closeMentionPreview: closeMentionMediaPreview,
@@ -888,12 +893,15 @@ export default function CanvasWorkspaceViewContent() {
   }, [visibleNodes, panX, panY, zoom, stageBounds.width, stageBounds.height]);
   const contextMenuNode = contextMenu?.nodeId ? nodeMap.get(contextMenu.nodeId) : undefined;
   const imageToolNode = imageToolDialog ? nodeMap.get(imageToolDialog.nodeId) : undefined;
-  const imageToolPreview = imageToolNode ? imageSrcFromNode(imageToolNode, previews) : "";
+  const originalToolImage = useCanvasOriginalImage(imageToolNode, projectSessionController.canonicalScope || "personal");
+  const imageToolPreview = originalToolImage.source;
   const imageToolCrop = imageCropRectFromDraft(imageToolDraft);
   const imageAnnotationNode = imageAnnotationNodeId ? nodeMap.get(imageAnnotationNodeId) : undefined;
-  const imageAnnotationPreview = imageAnnotationNode ? imageSrcFromNode(imageAnnotationNode, previews) : "";
+  const originalAnnotationImage = useCanvasOriginalImage(imageAnnotationNode, projectSessionController.canonicalScope || "personal");
+  const imageAnnotationPreview = originalAnnotationImage.source;
   const imageMaskNode = imageMaskNodeId ? nodeMap.get(imageMaskNodeId) : undefined;
-  const imageMaskPreview = imageMaskNode ? imageSrcFromNode(imageMaskNode, previews) : "";
+  const originalMaskImage = useCanvasOriginalImage(imageMaskNode, projectSessionController.canonicalScope || "personal");
+  const imageMaskPreview = originalMaskImage.source;
   const imagePreviewNode = imagePreviewNodeId ? nodeMap.get(imagePreviewNodeId) : undefined;
   const originalImagePreview = useCanvasOriginalImage(imagePreviewNode, projectSessionController.canonicalScope || "personal");
   /** 预览弹窗的兄弟图集合：批次根 → [根, ...子图]；子图 → 同组全部；独立节点 → 自身。 */
@@ -1016,18 +1024,26 @@ export default function CanvasWorkspaceViewContent() {
         { width: savedInspectorHeight(selectedNode.metadata?.promptPanelWidth), height: savedInspectorHeight(selectedNode.metadata?.promptPanelHeight) },
       );
     if (!placement) return { reframe: inspectorViewportForNode(selectedNode, viewport, { zoom, panX, panY }, CANVAS_STAGE_OFFSET) };
-    const { resizeX, resizeY, resizeCenterDistance, resizeBoundaryDistance, ...layout } = placement;
+    const { resizeX, resizeY, resizeCenterDistance, resizeBoundaryDistance,
+      resizeLeftCenterDistance, resizeRightCenterDistance,
+      resizeLeftBoundaryDistance, resizeRightBoundaryDistance, ...layout } = placement;
     return { style: {
       ...layout,
       "--inspector-resize-x": resizeX,
       "--inspector-resize-y": resizeY,
       "--inspector-resize-center-distance": resizeCenterDistance,
       "--inspector-resize-boundary-distance": resizeBoundaryDistance,
+      "--inspector-resize-left-center-distance": resizeLeftCenterDistance,
+      "--inspector-resize-right-center-distance": resizeRightCenterDistance,
+      "--inspector-resize-left-boundary-distance": resizeLeftBoundaryDistance,
+      "--inspector-resize-right-boundary-distance": resizeRightBoundaryDistance,
       "--inspector-resize-left": resizeX < 0 ? "0px" : "auto",
       "--inspector-resize-right": resizeX < 0 ? "auto" : "0px",
       "--inspector-resize-top": resizeY < 0 ? "0px" : "auto",
       "--inspector-resize-bottom": resizeY < 0 ? "auto" : "0px",
       "--inspector-resize-cursor": resizeX === resizeY ? "nwse-resize" : "nesw-resize",
+      "--inspector-resize-left-cursor": -1 === resizeY ? "nwse-resize" : "nesw-resize",
+      "--inspector-resize-right-cursor": 1 === resizeY ? "nwse-resize" : "nesw-resize",
       right: "auto", bottom: "auto",
     } };
   }, [panX, panY, selectedNode, stageBounds.height, stageBounds.width, zoom]);
@@ -1441,7 +1457,7 @@ export default function CanvasWorkspaceViewContent() {
     nextZoom = viewportRef.current.zoom,
     options: { quiet?: boolean; panX?: number; panY?: number } = {},
   ): Promise<boolean> => autosaveController.persist({
-    nodes: ensureUniqueCanvasNodeTitles(nextNodes, nodesRef.current),
+    nodes: ensureUniqueCanvasNodeTitles(nextNodes, nodesRef.current, canvasStore.getState().session.projectTitle),
     edges: nextEdges,
     groups: persistedGroups,
     zoom: nextZoom,
@@ -2114,6 +2130,7 @@ export default function CanvasWorkspaceViewContent() {
     const blob = await response.blob();
     const contentType = blob.type.startsWith("image/") ? blob.type : "image/png";
     const file = new File([blob], imageFileName(title, contentType), { type: contentType });
+    const dimensions = await readCanvasImageSize(dataUrl);
     const asset = await uploadAsset(file, {
       type: "image",
       name: file.name,
@@ -2126,7 +2143,7 @@ export default function CanvasWorkspaceViewContent() {
     if (projectSessionController.switching || projectSessionController.canonicalKey !== expectedProjectKey) {
       throw new DOMException("Aborted", "AbortError");
     }
-    return { asset, contentType, bytes: blob.size, scope: activeScope };
+    return { asset, contentType, bytes: blob.size, scope: activeScope, dimensions };
   };
 
   const persistCanvasImageToolResults = async (
@@ -2174,6 +2191,12 @@ export default function CanvasWorkspaceViewContent() {
           mimeType: archived.asset.content_type || archived.contentType,
           bytes: archived.asset.size || archived.bytes,
           editRelation: result.relation,
+          naturalWidth: archived.dimensions.width,
+          naturalHeight: archived.dimensions.height,
+          model: source.metadata?.model,
+          size: source.metadata?.size,
+          quality: source.metadata?.quality,
+          imageResolution: source.metadata?.imageResolution,
           ...(result.metadata || {}),
         },
       });
@@ -2220,6 +2243,8 @@ export default function CanvasWorkspaceViewContent() {
           mimeType: archived.asset.content_type || archived.contentType,
           bytes: archived.asset.size || archived.bytes,
           editRelation: relation,
+          naturalWidth: archived.dimensions.width,
+          naturalHeight: archived.dimensions.height,
         },
       } : item);
       nodesRef.current = nextNodes;
@@ -2391,6 +2416,8 @@ export default function CanvasWorkspaceViewContent() {
     if (!activeScope || !projectKey || projectSessionController.switching) throw new Error("正在确认项目工作区，暂不能编辑图片");
     const model = modelFromNode(sourceNode, imageModel);
     if (!model) throw new Error("当前没有可用图片模型");
+    const settingsIssue = canvasImageGenerationSettingsIssue(sourceNode);
+    if (settingsIssue) throw new Error(settingsIssue);
     const imageSettings = canvasImageGenerationSettings(sourceNode, options.size, model);
     let source: Awaited<ReturnType<typeof imageSourceForNode>> | null = null;
     try {
@@ -2627,7 +2654,7 @@ export default function CanvasWorkspaceViewContent() {
       const saved = await saveCanvasTextAsset({
         userId: user.id,
         scope: activeScope,
-        title: stringValue(sourceNode.metadata?.prompt).slice(0, 24) || sourceNode.title || "画布文本",
+        title: sourceNode.title || "画布文本",
         content: canvasTextDisplayValue(sourceNode).trim(),
         id: (sourceNode.metadata?.textAssetScope === activeScope ? stringValue(sourceNode.metadata?.textAssetId) : "") || canvasNodeTextAssetId(projectId, sourceNode.id),
         folderId: folder.id, category, projectId,
@@ -2637,9 +2664,14 @@ export default function CanvasWorkspaceViewContent() {
         metadata: { ...node.metadata, textAssetId: saved.id, textAssetScope: activeScope },
       });
     } else {
-      const asset = await archiveCanvasMediaAsset({ node: sourceNode, projectId, projectTitle, scope: activeScope, folderId: folder.id, category });
+      const sourceAssetId = assetIdFromNode(sourceNode);
+      const sourceScope = workspaceScopeValue(sourceNode.metadata?.assetScope) || activeScope;
+      const copySharedAsset = Boolean(sourceAssetId && nodesRef.current.some(node => node.id !== sourceNode.id
+        && assetIdFromNode(node) === sourceAssetId && (workspaceScopeValue(node.metadata?.assetScope) || activeScope) === sourceScope));
+      const asset = await archiveCanvasMediaAsset({ node: sourceNode, projectId, projectTitle, scope: activeScope, folderId: folder.id, category, copySharedAsset });
       if (!isCurrentProject()) return;
       mergeCanvasAssetCatalog([asset], activeScope);
+      publishAssetNameChange({ assetId: asset.id, name: asset.name, scope: activeScope });
       void invalidateAssetRecord(queryClient, activeScope, asset.id);
       patch = node => ({
         ...node,
@@ -2659,7 +2691,14 @@ export default function CanvasWorkspaceViewContent() {
     });
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
-    await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+    const archivedNode = nextNodes.find(node => node.id === sourceNode.id);
+    // A rename can happen while upload is pending, before the node has an asset
+    // ID. Catch up from the current node instead of restoring the old title.
+    if (archivedNode && archivedNode.title !== sourceNode.title) {
+      await syncCanvasNodeAssetName(archivedNode, { userId: user?.id || "", projectId, scope: activeScope });
+    }
+    if (!isCurrentProject()) return;
+    await persistSnapshot(nodesRef.current, edgesRef.current, viewportRef.current.zoom, { quiet: true });
     if (!isCurrentProject()) return;
     void assetsMentionsController.loadMentionCatalog("", activeScope);
     toast.success(`已加入 ${projectTitle} / ${folder.name}`);
@@ -2794,7 +2833,11 @@ export default function CanvasWorkspaceViewContent() {
     if (!sourceNode || (sourceNode.kind !== "image" && sourceNode.kind !== "video")) return;
     // Ignore a late metadata event from a video replaced on this node.
     if (source && imageSrcFromNode(sourceNode, previews) !== source) return;
-    const nextNode = applyCanvasImageNaturalSize(sourceNode, naturalWidth, naturalHeight);
+    // Asset previews are thumbnails; do not replace known original dimensions with their size.
+    const originalWidth = numberValue(sourceNode.metadata?.naturalWidth) || 0;
+    const originalHeight = numberValue(sourceNode.metadata?.naturalHeight) || 0;
+    const hasOriginalSize = sourceNode.kind === "image" && assetIdFromNode(sourceNode) && originalWidth > 0 && originalHeight > 0;
+    const nextNode = applyCanvasImageNaturalSize(sourceNode, hasOriginalSize ? originalWidth : naturalWidth, hasOriginalSize ? originalHeight : naturalHeight);
     if (nextNode === sourceNode) return;
     const nextNodes = nodesRef.current.map((node) => node.id === nodeId ? nextNode : node);
     nodesRef.current = nextNodes;
@@ -3145,9 +3188,9 @@ export default function CanvasWorkspaceViewContent() {
     renameNodeTitle(node, nextTitle);
   };
 
-  const commitInspectorNodeTitle = (node: CanvasNodeData) => {
+  const commitInspectorNodeTitle = (node: CanvasNodeData, title: string) => {
     const current = nodesRef.current.find(item => item.id === node.id) || node;
-    renameNodeTitle(current, current.title);
+    renameNodeTitle(current, title);
   };
 
   const startPanelResize = useInspectorResize({
@@ -3181,7 +3224,7 @@ export default function CanvasWorkspaceViewContent() {
     try {
       const blob = await downloadCanvasOriginalMedia(node, projectSessionController.canonicalScope);
       const name = node.title || assetIdFromNode(node) || node.id;
-      downloadBlob(blob, mediaKindFromNode(node) === "image" ? imageFileName(name, blob.type) : name);
+      downloadBlob(blob, assetDownloadFileName({ name, type: mediaKindFromNode(node), content_type: blob.type || stringValue(node.metadata?.mimeType) }));
     } catch (error) {
       toast.error(publicApiError(error, "下载媒体失败"));
     }
@@ -3399,6 +3442,11 @@ export default function CanvasWorkspaceViewContent() {
         setNodes(prompted);
       }
       const beforeIds = new Set(nodesRef.current.map((node) => node.id));
+      const settingsIssue = mode === "image" ? canvasImageGenerationSettingsIssue(target) : "";
+      if (settingsIssue) {
+        generationResults.push({ nodeId: op.nodeId, mode, status: "blocked", outputNodeIds: [], jobIds: [], error: settingsIssue });
+        continue;
+      }
       try {
         if (mode === "text") await generateTextFromNode(op.nodeId);
         else if (mode === "image") await generateImageFromNode(op.nodeId);
@@ -3412,7 +3460,7 @@ export default function CanvasWorkspaceViewContent() {
           status: failed ? "failed" : "succeeded",
           outputNodeIds: outputNodes.map((node) => node.id),
           jobIds: outputNodes.map((node) => stringValue(node.metadata?.jobId)).filter(Boolean),
-          error: failed ? stringValue(nodesRef.current.find((node) => node.id === op.nodeId)?.metadata?.errorDetails) || "生成失败" : undefined,
+          error: failed ? canvasImageGenerationError(stringValue(nodesRef.current.find((node) => node.id === op.nodeId)?.metadata?.errorDetails) || "生成失败") : undefined,
         });
       } catch (error) {
         generationResults.push({ nodeId: op.nodeId, mode, status: "failed", outputNodeIds: [], jobIds: [], error: publicApiError(error, "生成失败") });
@@ -3719,7 +3767,6 @@ export default function CanvasWorkspaceViewContent() {
     toast.success("节点已复制为独立节点，不继承连线");
   };
 
-  const imageAssetIds = () => nodesRef.current.map((node) => assetIdFromNode(node)).filter(Boolean) as string[];
 
   const prepareCanvasFragmentNodes = async (selectedIds: ReadonlySet<string>, activeScope: WorkspaceScope) => {
     let nextNodes = nodesRef.current;
@@ -4065,8 +4112,9 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const exportImageNodes = async () => {
-    const assetIds = imageAssetIds();
-    if (!assetIds.length || exporting) return toast.info("当前画布没有可导出的图片节点");
+    if (exporting) return;
+    const images = nodesRef.current.filter(node => node.kind === "image" && (assetIdFromNode(node) || imageSrcFromNode(node, {})));
+    if (!images.length) return toast.info("当前画布没有可导出的图片节点");
     const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) {
       toast.warning("正在确认项目工作区，暂不能导出画布素材");
@@ -4074,11 +4122,12 @@ export default function CanvasWorkspaceViewContent() {
     }
     setExporting(true);
     try {
-      const batch = await createAssetExport({ selection_mode: "selected", asset_ids: assetIds }, activeScope);
-      toast.message(`导出任务已创建：${batch.id.slice(-8)}，正在等待 ZIP...`);
-      const ready = await waitForAssetExportReady(batch.id, activeScope);
-      await startAssetExportDownload(ready.id, activeScope);
-      toast.success(ready.status === "partial_failed" ? "导出包已下载，部分文件失败请查看 manifest" : "画布图片导出包已下载");
+      // Export node instances, not deduplicated asset IDs: copied nodes may
+      // share a source file but have distinct, fully numbered names.
+      const result = await createCanvasSelectionDownload(images, new Set(images.map(node => node.id)), activeScope, () => {});
+      downloadBlob(result.blob, `${safeArchiveSegment(projectTitle || "画布")}-图片.zip`);
+      if (result.failures.length) toast.warning(`已导出 ${result.completed} 张图片；部分文件失败，详情见包内说明`);
+      else toast.success("画布图片导出包已下载");
     } catch (error) {
       toast.error(publicApiError(error, "创建画布图片导出失败"));
     } finally {
@@ -4095,28 +4144,7 @@ export default function CanvasWorkspaceViewContent() {
       toast.warning("正在确认项目工作区，暂不能下载画布素材");
       return;
     }
-    try {
-      if (assetId) {
-        const sourceScope = selectedNode ? workspaceScopeValue(selectedNode.metadata?.assetScope) || activeScope : activeScope;
-        const exportBatch = await createAssetExport({ selection_mode: "selected", asset_ids: [assetId] }, sourceScope);
-        const ready = await waitForAssetExportReady(exportBatch.id, sourceScope);
-        await startAssetExportDownload(ready.id, sourceScope);
-        toast.success("媒体导出包已下载");
-        return;
-      }
-      if (!selectedNode) return;
-      const blob = await downloadCanvasOriginalMedia(selectedNode, activeScope);
-      const mediaKind = selectedNode ? mediaKindFromNode(selectedNode) : "image";
-      const extension = mediaKind === "video"
-        ? "mp4"
-        : mediaKind === "audio"
-          ? audioFileExtension(stringValue(selectedNode?.metadata?.mimeType))
-          : "png";
-      const name = selectedNode.title || selectedNode.id || "canvas-media";
-      downloadBlob(blob, mediaKind === "image" ? imageFileName(name, blob.type) : `${name}.${extension}`);
-    } catch (error) {
-      toast.error(publicApiError(error, "下载媒体节点失败"));
-    }
+    if (selectedNode) await downloadNodeMedia(selectedNode);
   };
 
   /* 画布选择页：设置/清除项目自定义封面，只更新列表内的字段，不整表重拉 */
@@ -4482,8 +4510,8 @@ export default function CanvasWorkspaceViewContent() {
           {/* 空间切换是"离开当前画布"的导航出口：项目加载中/未确认时直接回列表页，不参与保存门禁，避免按钮卡死 */}
           {/* "团队空间"已全局暂时隐藏：team 入口在 scopeOptions 数组定义处注释掉了，恢复见该处 */}
           <div className="scope-switch mini-scope">{scopeOptions.map((item) => <button key={item.value} className={currentProjectDisplayScope === item.value ? "active" : ""} onClick={() => { if (loading || projectScopePending) { navigate(canvasListHref(item.value)); return; } void switchCanvasScope(item.value); }} disabled={switching} title={loading || projectScopePending ? "返回该工作区的画布列表" : undefined}>{item.label}</button>)}</div>
-          <button className="outline-button small canvas-icon-button" title="撤销" aria-label="撤销" onClick={() => void undoCanvas()} disabled={!canUndo || projectActionDisabled}><Undo2 size={15} /></button>
-          <button className="outline-button small canvas-icon-button" title="重做" aria-label="重做" onClick={() => void redoCanvas()} disabled={!canRedo || projectActionDisabled}><Redo2 size={15} /></button>
+          <button className="outline-button small canvas-icon-button canvas-history-button" title={canUndo ? "撤销上一步画布操作" : "暂无可撤销的画布操作"} aria-label="撤销" onClick={() => void undoCanvas()} disabled={!canUndo || projectActionDisabled}><Undo2 size={15} /></button>
+          <button className="outline-button small canvas-icon-button canvas-history-button" title={canRedo ? "重做下一步画布操作" : "暂无可重做的画布操作"} aria-label="重做" onClick={() => void redoCanvas()} disabled={!canRedo || projectActionDisabled}><Redo2 size={15} /></button>
           <button
             className="outline-button small"
             onClick={() => void persistSnapshot()}
@@ -4677,6 +4705,8 @@ export default function CanvasWorkspaceViewContent() {
         />
 
         <CanvasInspector
+          preflightProjectKey={projectSessionController.canonicalKey}
+          preflightVideoNode={generationController.preflightVideoNode}
           seedanceRegistrationState={selectedNode ? seedanceRegistrationStates[seedanceRegistrationKey(projectSessionController.canonicalKey, selectedNode)] : undefined}
           panelRef={panelRef}
           selectedNode={selectedNode}
@@ -4808,7 +4838,8 @@ export default function CanvasWorkspaceViewContent() {
           onSave: saveCanvasNodeToLibrary,
         }}
         imageTool={{
-          dialog: imageToolDialog, busy: imageToolBusy, error: imageToolError, preview: imageToolPreview,
+          dialog: imageToolDialog, busy: imageToolBusy, error: imageToolError || originalToolImage.error, preview: imageToolPreview,
+          loading: originalToolImage.loading, onRetry: originalToolImage.retry,
           node: imageToolNode, crop: imageToolCrop, cropStageRef: imageCropStageRef, draft: imageToolDraft,
           onOpenChange: (open) => {
             if (!open && imageToolBusy) return;
@@ -4823,13 +4854,15 @@ export default function CanvasWorkspaceViewContent() {
         annotationMask={{
           annotation: {
             dataUrl: imageAnnotationPreview,
-            open: Boolean(imageAnnotationNode && imageAnnotationPreview),
+            open: Boolean(imageAnnotationNode),
+            loading: originalAnnotationImage.loading, sourceError: originalAnnotationImage.error, onRetry: originalAnnotationImage.retry,
             onClose: () => setImageAnnotationNodeId(""),
             onConfirm: annotateCanvasImage,
           },
           mask: {
             price: imageMaskNode ? <CanvasGenerationPrice node={imageMaskNode} edit /> : undefined,
-            dataUrl: imageMaskPreview, open: Boolean(imageMaskNode && imageMaskPreview),
+            dataUrl: imageMaskPreview, open: Boolean(imageMaskNode),
+            loading: originalMaskImage.loading, sourceError: originalMaskImage.error, onRetry: originalMaskImage.retry,
             busy: imageToolBusy, error: imageToolError,
             onClose: () => { setImageMaskNodeId(""); setImageToolError(""); },
             onConfirm: maskEditCanvasImage,

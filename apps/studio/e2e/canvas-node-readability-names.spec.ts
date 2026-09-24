@@ -58,7 +58,7 @@ test("all node kinds share unique names and controls stay readable when zoomed o
   await page.goto(`/canvas/${project.id}?scope=personal`);
   const original = page.locator('[data-node-id="image"]');
   await original.locator(".node-float-label b").dblclick();
-  await expect(original.locator(".node-title-input")).toHaveValue("苹果");
+  await expect(original.locator(".node-title-input")).toHaveValue("苹果-1");
   await original.locator(".node-title-input").press("Escape");
   await original.locator(".node-float-label").click();
   await original.getByRole("button", { name: "复制", exact: true }).click();
@@ -73,7 +73,7 @@ test("all node kinds share unique names and controls stay readable when zoomed o
   await page.keyboard.press("Control+v");
   await expect.poll(() => snapshot.nodes.length).toBe(11);
   expect(snapshot.nodes.map((node: any) => node.title)).toEqual([
-    "苹果", "苹果（1）", "苹果（2）", "苹果（3）", "苹果（4）", "苹果（5）", "苹果（6）", "苹果（7）", "苹果副本", "苹果副本（1）", "苹果副本（2）",
+    "苹果-1", "苹果-2", "苹果-3", "苹果-4", "苹果-5", "苹果-6", "苹果-7", "苹果-8", "苹果-1副本", "苹果-1副本（1）", "苹果-1副本（2）",
   ]);
   await page.reload();
   await original.locator(".node-float-label b").dblclick();

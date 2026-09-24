@@ -2,9 +2,10 @@ import { GenerationPrice } from "@/features/member";
 import type { VideoGenerationConfig } from "../services/generationGateway";
 import { FileText, Image as ImageIcon, Loader2, Music2, Plus, Send, Upload, Video, X } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { getAssetContentObjectUrl } from "@/entities/asset";
+import { applyPromptInput, buildPromptEditor, buildPromptReferenceLayout, PROMPT_LONG_REFERENCE_MAX_FIGURES, PROMPT_REFERENCE_DISPLAY, promptDisplayOffset, promptRawOffset, promptRawSelection, separatePromptReferences } from "../model/promptEditor";
 
 import type {
   WorkbenchImageReference,
@@ -77,14 +78,44 @@ export function Composer({
   thumbUrlFor: (reference: WorkbenchReference) => string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const selectionRef = useRef<{ start: number; end: number; value: string } | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const frameInputRef = useRef<HTMLInputElement | null>(null);
   const frameRoleRef = useRef<"first_frame" | "last_frame">("first_frame");
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
-  const [tokenWidths, setTokenWidths] = useState<Record<string, number>>({});
+  const [referenceCapacity, setReferenceCapacity] = useState(PROMPT_LONG_REFERENCE_MAX_FIGURES);
+  const referenceCapacityRef = useRef(referenceCapacity);
+  const referenceLayout = useMemo(() => buildPromptReferenceLayout(references, referenceCapacity), [references, referenceCapacity]);
   const promptRef = useRef(prompt);
-  promptRef.current = prompt;
+  const emittedPromptRef = useRef<string | null>(null);
+  const normalized = useMemo(() => separatePromptReferences(prompt, undefined, referenceLayout, prompt === emittedPromptRef.current).value, [prompt, referenceLayout]);
+  const editor = useMemo(() => buildPromptEditor(normalized, referenceLayout), [normalized, referenceLayout]);
+  const editorRef = useRef(editor);
+  editorRef.current = editor;
+  const resizeSelectionRef = useRef<{ start: number; end: number; direction: "forward" | "backward" | "none" } | null>(null);
+  const measuredMetricsRef = useRef("");
+  promptRef.current = normalized;
+  const composingRef = useRef(false);
+  const pendingCaretRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (normalized !== prompt) {
+      emittedPromptRef.current = normalized;
+      onPromptChange(normalized);
+    }
+  }, [normalized, prompt, onPromptChange]);
+  useLayoutEffect(() => {
+    if (composingRef.current) return;
+    const selection = resizeSelectionRef.current;
+    resizeSelectionRef.current = null;
+    if (pendingCaretRef.current === null) {
+      if (selection) textareaRef.current?.setSelectionRange(promptDisplayOffset(editor, selection.start), promptDisplayOffset(editor, selection.end), selection.direction);
+      return;
+    }
+    const caret = promptDisplayOffset(editor, pendingCaretRef.current);
+    pendingCaretRef.current = null;
+    textareaRef.current?.setSelectionRange(caret, caret);
+  }, [editor]);
 
   useEffect(() => {
     if (!focusRequest) return;
@@ -95,23 +126,52 @@ export function Composer({
   }, [focusRequest]);
 
   const referenceById = useMemo(() => new Map(references.map((item) => [item.id, item])), [references]);
-  const parts = useMemo(() => splitPromptTokens(prompt), [prompt]);
+  const parts = useMemo(() => splitPromptTokens(normalized), [normalized]);
 
-  // token chip 与画布 mention 同款：宽度 = 原文本宽度，可视层与透明文字层对齐
+  const syncOverlay = useCallback(() => {
+    const textarea = textareaRef.current;
+    const overlay = overlayRef.current;
+    if (!textarea || !overlay) return;
+    // Exclude the native scrollbar so both layers wrap at the same pixel.
+    overlay.style.width = `${textarea.clientWidth}px`;
+    overlay.style.height = `${textarea.clientHeight}px`;
+    overlay.scrollTop = textarea.scrollTop;
+    overlay.scrollLeft = textarea.scrollLeft;
+    const style = getComputedStyle(textarea);
+    const metrics = `${textarea.clientWidth}:${style.font}`;
+    if (metrics === measuredMetricsRef.current) return;
+    measuredMetricsRef.current = metrics;
+    const probe = document.createElement("span");
+    Object.assign(probe.style, { position: "fixed", visibility: "hidden", whiteSpace: "pre", font: style.font, letterSpacing: "0" });
+    probe.textContent = PROMPT_REFERENCE_DISPLAY;
+    document.body.append(probe);
+    const figureWidth = probe.getBoundingClientRect().width / PROMPT_REFERENCE_DISPLAY.length;
+    probe.remove();
+    if (!figureWidth) return;
+    const available = textarea.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const capacity = Math.max(1, Math.floor(available / figureWidth));
+    if (capacity === referenceCapacityRef.current) return;
+    referenceCapacityRef.current = capacity;
+    if (textarea.value === editorRef.current.display) {
+      resizeSelectionRef.current = { ...promptRawSelection(editorRef.current, textarea.selectionStart, textarea.selectionEnd), direction: textarea.selectionDirection };
+    }
+    setReferenceCapacity(capacity);
+  }, []);
+  useLayoutEffect(syncOverlay, [editor, syncOverlay]);
   useEffect(() => {
     const textarea = textareaRef.current;
-    if (!textarea || !prompt) return;
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const computed = getComputedStyle(textarea);
-    ctx.font = `${computed.fontWeight} ${computed.fontSize} ${computed.fontFamily}`;
-    const next: Record<string, number> = {};
-    parts.forEach((part) => {
-      if (part.type === "token") next[part.raw] = Math.ceil(ctx.measureText(part.raw).width);
-    });
-    setTokenWidths(next);
-  }, [parts, prompt]);
+    if (!textarea || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(syncOverlay);
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [syncOverlay]);
+  useEffect(() => {
+    const fonts = document.fonts;
+    if (!fonts) return;
+    const measure = () => { measuredMetricsRef.current = ""; syncOverlay(); };
+    fonts.addEventListener("loadingdone", measure);
+    return () => fonts.removeEventListener("loadingdone", measure);
+  }, [syncOverlay]);
 
   const closeMention = () => {
     setMention(null);
@@ -131,21 +191,74 @@ export function Composer({
   };
 
   const insertTokenAt = (id: string, start: number, end: number) => {
-    const insert = `@[ref:${id}] `;
+    const insert = `@[ref:${id}]`;
     const current = promptRef.current;
-    const next = `${current.slice(0, start)}${insert}${current.slice(end)}`;
-    onPromptChange(next);
+    const next = separatePromptReferences(`${current.slice(0, start)}${insert}${current.slice(end)}`, start + insert.length, referenceLayout);
+    emittedPromptRef.current = next.value;
+    promptRef.current = next.value;
+    pendingCaretRef.current = next.caret;
+    selectionRef.current = { start: next.caret, end: next.caret, value: next.value };
+    onPromptChange(next.value);
     requestAnimationFrame(() => {
+      if (promptRef.current !== next.value) return;
       const textarea = textareaRef.current;
       textarea?.focus();
-      textarea?.setSelectionRange(start + insert.length, start + insert.length);
+      const caret = promptDisplayOffset(buildPromptEditor(next.value, editorRef.current.layout), next.caret);
+      textarea?.setSelectionRange(caret, caret);
+      syncOverlay();
     });
   };
 
   const insertToken = (id: string) => {
     if (!mention) return;
-    const end = textareaRef.current?.selectionStart ?? prompt.length;
+    const end = promptRawOffset(editor, textareaRef.current?.selectionStart ?? editor.display.length);
     insertTokenAt(id, mention.start, end);
+    closeMention();
+  };
+
+  const rememberSelection = (textarea: HTMLTextAreaElement) => {
+    if (textarea.value !== editor.display) return;
+    const range = promptRawSelection(editor, textarea.selectionStart, textarea.selectionEnd);
+    selectionRef.current = { ...range, value: editor.value };
+    if (composingRef.current) return;
+    const start = promptDisplayOffset(editor, range.start), end = promptDisplayOffset(editor, range.end);
+    if (start !== textarea.selectionStart || end !== textarea.selectionEnd) {
+      textarea.setSelectionRange(start, end, textarea.selectionDirection);
+    }
+  };
+
+  const changePrompt = (value: string, caret: number) => {
+    const next = separatePromptReferences(value, caret, referenceLayout, true);
+    emittedPromptRef.current = next.value;
+    promptRef.current = next.value;
+    pendingCaretRef.current = next.caret;
+    selectionRef.current = { start: next.caret, end: next.caret, value: next.value };
+    onPromptChange(next.value);
+    // Also restore the caret when normalization leaves the controlled value unchanged.
+    const displayCaret = promptDisplayOffset(buildPromptEditor(next.value, referenceLayout), next.caret);
+    if (!composingRef.current) textareaRef.current?.setSelectionRange(displayCaret, displayCaret);
+  };
+
+  const copySelection = (event: React.ClipboardEvent<HTMLTextAreaElement>, cut = false) => {
+    const range = promptRawSelection(editor, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
+    if (range.start === range.end) return;
+    event.preventDefault();
+    event.clipboardData.setData("text/plain", editor.value.slice(range.start, range.end));
+    if (cut && !disabled) changePrompt(editor.value.slice(0, range.start) + editor.value.slice(range.end), range.start);
+  };
+
+  const insertShelfReference = (id: string) => {
+    if (disabled) return;
+    if (mention) {
+      insertToken(id);
+      return;
+    }
+    const current = promptRef.current;
+    const textarea = textareaRef.current;
+    if (textarea && document.activeElement === textarea && editor.value === current) rememberSelection(textarea);
+    // The library dialog and keyboard navigation can move focus away from the editor.
+    const selection = selectionRef.current?.value === current ? selectionRef.current : null;
+    insertTokenAt(id, selection?.start ?? current.length, selection?.end ?? current.length);
     closeMention();
   };
 
@@ -154,7 +267,7 @@ export function Composer({
     if (candidate.source === "asset") {
       // 资产要先读回文件入库，异步完成后回到原 @ 位置插入 token
       const start = mention.start;
-      const end = textareaRef.current?.selectionStart ?? prompt.length;
+      const end = promptRawOffset(editor, textareaRef.current?.selectionStart ?? editor.display.length);
       void onInsertAssetMention(candidate).then((id) => {
         if (id) insertTokenAt(id, start, end);
       });
@@ -185,32 +298,43 @@ export function Composer({
                 return (
                   <span
                     key={`k-${index}`}
-                    className={`wb-token ${reference ? "" : "missing"}`}
-                    style={tokenWidths[part.raw] ? { width: tokenWidths[part.raw] } : undefined}
+                    className={`wb-token ${reference ? "" : "missing"} ${referenceLayout.get(part.id)?.long ? "long" : ""}`}
                     title={reference ? reference.name : "引用已失效"}
                   >
-                    {thumb ? <img src={thumb} alt="" draggable={false} /> : null}
-                    <i>{reference ? reference.token || reference.name : "已失效"}</i>
+                    <span className="wb-token-source">{referenceLayout.get(part.id)?.display ?? PROMPT_REFERENCE_DISPLAY}</span>
+                    <span className="wb-token-label">
+                      {reference?.kind === "image" && thumb ? <img src={thumb} alt="" draggable={false} /> : null}
+                      {reference?.kind === "video" ? <Video size={14} /> : null}
+                      {reference?.kind === "audio" ? <Music2 size={14} /> : null}
+                      <i>{reference ? reference.token || reference.name : "已失效"}</i>
+                    </span>
                   </span>
                 );
-              })}
+              })}<span>{normalized.endsWith("\n") ? "\u200b" : ""}</span>
             </div>
           ) : null}
           <textarea
             ref={textareaRef}
-            value={prompt}
+            value={editor.display}
             disabled={disabled}
+            spellCheck={false}
+            aria-label="视频提示词"
+            onCompositionStart={() => { composingRef.current = true; }}
+            onCompositionEnd={(event) => {
+              composingRef.current = false;
+              pendingCaretRef.current = null;
+              syncMention(promptRef.current, promptRawOffset(buildPromptEditor(promptRef.current, referenceLayout), event.currentTarget.selectionStart));
+            }}
             onChange={(event) => {
-              onPromptChange(event.target.value);
-              syncMention(event.target.value, event.target.selectionStart);
+              const next = applyPromptInput(editor, event.target.value, event.target.selectionStart);
+              changePrompt(next.value, next.caret);
+              if (!composingRef.current) syncMention(next.value, next.caret);
             }}
-            onScroll={(event) => {
-              const overlay = overlayRef.current;
-              if (overlay) {
-                overlay.scrollTop = event.currentTarget.scrollTop;
-                overlay.scrollLeft = event.currentTarget.scrollLeft;
-              }
-            }}
+            onSelect={(event) => rememberSelection(event.currentTarget)}
+            onBlur={(event) => rememberSelection(event.currentTarget)}
+            onScroll={syncOverlay}
+            onCopy={copySelection}
+            onCut={(event) => copySelection(event, true)}
             onPaste={(event) => {
               const files = Array.from(event.clipboardData?.items || [])
                 .filter((item) => item.kind === "file")
@@ -219,9 +343,35 @@ export function Composer({
               if (files.length) {
                 event.preventDefault();
                 onPasteFiles(files);
+              } else {
+                const text = event.clipboardData.getData("text/plain");
+                if (text) {
+                  event.preventDefault();
+                  const range = promptRawSelection(editor, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
+                  changePrompt(editor.value.slice(0, range.start) + text + editor.value.slice(range.end), range.start + text.length);
+                }
               }
             }}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+              const textarea = event.currentTarget;
+              if (textarea.selectionStart === textarea.selectionEnd) {
+                const cursor = textarea.selectionStart;
+                const segment = editor.segments.find(item => event.key === "ArrowLeft" || event.key === "Backspace"
+                  ? cursor > item.start && cursor <= item.end
+                  : cursor >= item.start && cursor < item.end);
+                if (segment && ["ArrowLeft", "ArrowRight", "Backspace", "Delete"].includes(event.key) && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+                  event.preventDefault();
+                  if (event.key === "Backspace" || event.key === "Delete") {
+                    changePrompt(editor.value.slice(0, segment.rawStart) + editor.value.slice(segment.rawEnd), segment.rawStart);
+                  } else {
+                    const caret = event.key === "ArrowLeft" ? segment.start : segment.end;
+                    textarea.setSelectionRange(caret, caret);
+                    rememberSelection(textarea);
+                  }
+                  return;
+                }
+              }
               if (mention && event.key === "ArrowDown" && mentionCandidates.length) {
                 event.preventDefault();
                 setMentionIndex((index) => (index + 1) % mentionCandidates.length);
@@ -246,16 +396,13 @@ export function Composer({
               if (event.key === "Backspace") {
                 const textarea = event.currentTarget;
                 if (textarea.selectionStart === textarea.selectionEnd) {
-                  const before = prompt.slice(0, textarea.selectionStart);
+                  const cursor = promptRawOffset(editor, textarea.selectionStart);
+                  const before = editor.value.slice(0, cursor);
                   const match = /@\[ref:[^\]]+\]\s?$/.exec(before);
                   if (match) {
                     event.preventDefault();
-                    const next = before.slice(0, before.length - match[0].length) + prompt.slice(textarea.selectionStart);
-                    onPromptChange(next);
-                    requestAnimationFrame(() => {
-                      const caret = before.length - match[0].length;
-                      textarea.setSelectionRange(caret, caret);
-                    });
+                    const next = before.slice(0, before.length - match[0].length) + editor.value.slice(cursor);
+                    changePrompt(next, before.length - match[0].length);
                     return;
                   }
                 }
@@ -334,11 +481,21 @@ export function Composer({
           <div className="wb-shelf">
             {references.map((reference) => (
               <span key={reference.id} className="wb-shelf-item" title={`${reference.name} · ${reference.token || "参考"}`}>
-                {reference.kind === "image" ? <img src={thumbUrlFor(reference)} alt="" draggable={false} /> : null}
-                {reference.kind === "video" ? <video src={thumbUrlFor(reference)} muted preload="metadata" /> : null}
-                {reference.kind === "audio" ? <Music2 size={14} /> : null}
-                <i>{reference.token || reference.name}</i>
-                <button type="button" title="移除引用" onClick={() => onRemoveReference(reference.id)}><X size={11} /></button>
+                <button
+                  type="button"
+                  className="wb-shelf-insert"
+                  title={`引用 ${reference.token || reference.name} 到提示词`}
+                  aria-label={`引用 ${reference.token || reference.name}`}
+                  disabled={disabled}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => insertShelfReference(reference.id)}
+                >
+                  {reference.kind === "image" ? <img src={thumbUrlFor(reference)} alt="" draggable={false} /> : null}
+                  {reference.kind === "video" ? <video src={thumbUrlFor(reference)} muted preload="metadata" /> : null}
+                  {reference.kind === "audio" ? <Music2 size={14} /> : null}
+                  <i>{reference.token || reference.name}</i>
+                </button>
+                <button type="button" className="wb-shelf-remove" title="移除引用" onClick={() => onRemoveReference(reference.id)}><X size={11} /></button>
               </span>
             ))}
           </div>

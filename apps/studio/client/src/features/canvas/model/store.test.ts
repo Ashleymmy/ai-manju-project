@@ -13,6 +13,7 @@ import {
 import { createCanvasServices } from "@/features/canvas/services/contracts";
 import { createCanvasGroup } from "@/features/canvas/domain/groups";
 import { buildCanvasSnapshot, parseCanvasSnapshot } from "../domain/snapshotCodec";
+import { renameCanvasNode } from "../domain/nodeTitles";
 
 const node = (title: string) => ({
   id: "shared-node",
@@ -26,6 +27,36 @@ const node = (title: string) => ({
 });
 
 describe("canvas scoped store", () => {
+  it("uses hydrated project titles and compacts generated names through deletion and history restoration", () => {
+    const outputs = ["a", "b", "c"].map(id => ({ ...node("旧提示词"), id, metadata: { generatedInCanvas: true } }));
+    const blank = { ...node("文本"), id: "blank", content: "" };
+    const store = createCanvasStore({ graph: { nodes: [blank, ...outputs] }, session: { projectTitle: "测试" } });
+    const actions = store.getState().actions;
+    const titles = () => store.getState().graph.nodes.map(item => item.title);
+    expect(titles()).toEqual(["文本", "测试text-1", "测试text-2", "测试text-3"]);
+    const before = structuredClone(store.getState().graph.nodes);
+    actions.setField("graph", "nodes", current => current.filter(item => item.id !== "b"));
+    expect(titles()).toEqual(["文本", "测试text-1", "测试text-2"]);
+    const after = structuredClone(store.getState().graph.nodes);
+    actions.commit({ graph: { nodes: before } });
+    expect(titles()).toEqual(["文本", "测试text-1", "测试text-2", "测试text-3"]);
+    actions.commit({ graph: { nodes: after } });
+    expect(titles()).toEqual(["文本", "测试text-1", "测试text-2"]);
+    actions.setField("graph", "nodes", current => renameCanvasNode(current, "a", "苹果"));
+    actions.setField("session", "projectTitle", "新画布");
+    expect(titles()).toEqual(["文本", "苹果", "新画布text-1"]);
+    actions.commit({ session: { projectTitle: "下一画布" }, graph: { nodes: outputs } });
+    expect(titles()).toEqual(["下一画布text-1", "下一画布text-2", "下一画布text-3"]);
+  });
+
+  it("replaces fallback project prefixes when project details arrive after the snapshot", () => {
+    const store = createCanvasStore({ graph: { nodes: [{ ...node("生成结果"), metadata: { generatedInCanvas: true } }] } });
+    store.getState().actions.setField("session", "projectTitle", "真实画布");
+    expect(store.getState().graph.nodes[0].title).toBe("真实画布text-1");
+    const saved = buildCanvasSnapshot({}, store.getState().graph.nodes, [], 100, 0, 0);
+    expect(parseCanvasSnapshot(saved)?.nodes[0].title).toBe("真实画布text-1");
+  });
+
   it("deduplicates hydration, insertion and edits in the shared store and saved snapshots", () => {
     const first = { ...node("苹果.png"), id: "first", kind: "image" as const, metadata: { canvasOrigin: "imported" } };
     const second = { ...node("苹果.mp4"), id: "second", kind: "video" as const };

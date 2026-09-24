@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -112,6 +113,29 @@ func TestAssetUploadListContentAndUserScope(t *testing.T) {
 	router.ServeHTTP(otherContent, otherContentReq)
 	if otherContent.Code != http.StatusNotFound {
 		t.Fatalf("other content status = %d, want 404; body = %s", otherContent.Code, otherContent.Body.String())
+	}
+}
+
+func TestAssetDownloadAfterExtensionFreeRename(t *testing.T) {
+	router := newAssetTestRouter(t, t.TempDir())
+	cookie := loginCookie(t, router, "owner", "secret")
+	upload := uploadAsset(t, router, cookie, "image", "original.png", "image/png", []byte("\x89PNG\r\n\x1a\nasset-bytes"))
+	var body struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(upload.Body.Bytes(), &body); err != nil || body.Data.ID == "" {
+		t.Fatalf("upload = %s", upload.Body.String())
+	}
+	metadata := performJSON(router, http.MethodPut, "/api/assets/"+body.Data.ID+"/metadata", `{"name":"镜头1.2"}`, cookie)
+	if metadata.Code != http.StatusOK {
+		t.Fatalf("rename = %d %s", metadata.Code, metadata.Body.String())
+	}
+	download := performJSON(router, http.MethodGet, "/api/assets/"+body.Data.ID+"/content?download=1", "", cookie)
+	_, params, err := mime.ParseMediaType(download.Header().Get("Content-Disposition"))
+	if download.Code != http.StatusOK || err != nil || params["filename"] != "镜头1.2.png" {
+		t.Fatalf("download = %d header=%q error=%v", download.Code, download.Header().Get("Content-Disposition"), err)
 	}
 }
 

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { replaceVideoModelProtocols } from "@/entities/model/videoProtocol";
+import { replaceVideoModelCapabilities } from "@/entities/model/videoCapabilities";
 import { validateVideoGenerationReferences, videoReferenceLimitsForModel, type VideoGenerationReferences } from "./generationGateway";
 
 const seedance25 = "official::doubao-seedance-2-5-260628";
@@ -17,7 +18,7 @@ function references(images = 0, videos = 0, audios = 0, durationMs = 3000): Vide
   };
 }
 
-afterEach(() => replaceVideoModelProtocols({}));
+afterEach(() => { replaceVideoModelProtocols({}); replaceVideoModelCapabilities({}); });
 
 describe("Seedance model-specific reference contracts", () => {
   it.each([seedance25, "sdvideo/seedance-2.5", "proxy::seedance_2_5", "seedance-2.5-pro"])(
@@ -56,19 +57,29 @@ describe("Seedance model-specific reference contracts", () => {
     expect(() => validateVideoGenerationReferences(references(1, 0, 2, 8000), seedance20)).toThrow("参考音频总时长不能超过 15 秒");
   });
 
-  it("resolves opaque endpoints by provider-scoped catalog labels and refreshes them", () => {
+  it("uses explicit provider-scoped endpoint limits instead of friendly labels", () => {
     replaceVideoModelProtocols({ "a::ep-test": "seedance", "b::ep-test": "seedance", "c::ep-test": "openai" }, {
       "a::ep-test": "seedance 2.5", "b::ep-test": "Seedance 2.0", "c::ep-test": "Seedance 2.5",
       [seedance20]: "Seedance 2.5",
     });
+    expect(() => validateVideoGenerationReferences(references(30, 10, 10), "a::ep-test")).toThrow();
+    replaceVideoModelCapabilities({ "a::ep-test": { references: { images: 30, videos: 10, audios: 10, audio_only: true, media_max_duration_ms: 30_000, media_max_total_duration_ms: 30_000 } } });
     expect(() => validateVideoGenerationReferences(references(30, 10, 10), "a::ep-test")).not.toThrow();
     for (const model of ["b::ep-test", "c::ep-test", seedance20, "wan3.0-video", "seedance-2.50"]) {
       expect(videoReferenceLimitsForModel(model).images).toBe(9);
     }
     replaceVideoModelProtocols({ "a::ep-test": "seedance" }, { "a::ep-test": "Seedance 2.0" });
-    expect(videoReferenceLimitsForModel("a::ep-test").images).toBe(9);
+    expect(videoReferenceLimitsForModel("a::ep-test").images).toBe(30);
+    replaceVideoModelCapabilities({});
     replaceVideoModelProtocols({});
     expect(videoReferenceLimitsForModel("a::ep-test").images).toBe(9);
+  });
+
+  it("does not infer durations from image count and reports actual named audio duration", () => {
+    replaceVideoModelCapabilities({ [seedance20]: { references: { images: 40, videos: 3, audios: 3, audio_only: true, media_min_duration_ms: 1000, media_max_duration_ms: 12000, media_max_total_duration_ms: 20000 } } });
+    expect(videoReferenceLimitsForModel(seedance20).mediaMaxDurationMs).toBe(12000);
+    expect(() => validateVideoGenerationReferences(references(0, 0, 1, 12001), seedance20)).toThrow('参考音频1“0.mp3”时长需要在 1-12 秒之间，当前为 12.00 秒');
+    expect(() => validateVideoGenerationReferences(references(0, 0, 1, 1000), seedance20)).not.toThrow();
   });
 
   it("keeps OpenAI limits and counts registered assets without requiring local files", () => {

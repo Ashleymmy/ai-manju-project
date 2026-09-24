@@ -1,4 +1,5 @@
 import type { CanvasNodeData } from "../domain/types";
+import { canvasImageGenerationError } from "../domain/imageGenerationError";
 
 /** Compare against the submitted request, never against settings edited afterwards. */
 export function CanvasImageOutputStatus({ node }: { node: CanvasNodeData }) {
@@ -6,7 +7,7 @@ export function CanvasImageOutputStatus({ node }: { node: CanvasNodeData }) {
   if (node.metadata?.status === "error" && node.metadata.errorDetails) {
     return (
       <p role="alert" className="px-3 py-2 text-xs text-red-300">
-        {node.metadata.errorDetails}
+        {canvasImageGenerationError(node.metadata.errorDetails)}
       </p>
     );
   }

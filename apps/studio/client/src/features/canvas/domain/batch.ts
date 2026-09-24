@@ -1,6 +1,7 @@
 import type { CanvasNodeData, CanvasNodeStatus } from "./types";
 import { stringValue } from "./value";
 import { assetIdFromNode } from "./nodes";
+import { preserveCanvasNodeTitle } from "./nodeTitles";
 
 /** 批次子图的网格间距（画布单位）。 */
 export const BATCH_GRID_GAP = 36;
@@ -50,7 +51,7 @@ export function refreshImageBatchRoot(nodes: CanvasNodeData[], rootId: string) {
   const errorDetails = loading || !failed.length ? undefined : succeeded.length ? `${failed.length} 个结果失败，可单独重试。` : "全部图片生成失败，可重试。";
   return nodes.map((node) => node.id === rootId ? {
     ...node,
-    title: loading ? "批量生成中…" : succeeded.length ? `批量图片 ${succeeded.length}/${total}` : "批量生成失败",
+    title: preserveCanvasNodeTitle(node, loading ? "批量生成中…" : succeeded.length ? `批量图片 ${succeeded.length}/${total}` : "批量生成失败"),
     imageAssetId: rootOwnAssetId || undefined,
     imageSrc: rootOwnAssetId ? undefined : rootOwnImageSrc,
     metadata: {
@@ -158,7 +159,7 @@ export function resetInterruptedCanvasGenerations(nodes: CanvasNodeData[]) {
     if (node.metadata?.isBatchRoot && batchChildren.some((id) => loadingJobIds.has(id))) return node;
     return {
       ...node,
-      title: node.metadata?.isBatchRoot ? "批量生成已中断" : "生成已中断",
+      title: preserveCanvasNodeTitle(node, node.metadata?.isBatchRoot ? "批量生成已中断" : "生成已中断"),
       metadata: { ...node.metadata, status: "error" as const, errorDetails: "页面刷新后生成已中断，请重新生成。" },
     };
   });

@@ -18,6 +18,13 @@ async function unzip(blob: Blob) {
 }
 
 describe("canvas selection download", () => {
+  it("keeps each node's full index even when multiple nodes share one source asset", async () => {
+    const nodes = [node("a", { title: "苹果", imageAssetId: "shared" }), node("b", { title: "苹果（1）", imageAssetId: "shared" }),
+      node("c", { kind: "video", title: "镜头（2）" }), node("d", { kind: "audio", title: "旁白（3）" }), node("long", { title: `${"a".repeat(80)}（1）` })];
+    const read = vi.fn(async (n: CanvasNodeData) => new Blob([n.id], { type: n.kind === "video" ? "video/mp4" : n.kind === "audio" ? "audio/wav" : "image/png" }));
+    const result = await createCanvasSelectionDownload(nodes, new Set(nodes.map(n => n.id)), "personal", vi.fn(), read);
+    expect([...(await unzip(result.blob)).keys()]).toEqual(["苹果.png", "苹果（1）.png", "镜头（2）.mp4", "旁白（3）.wav", `${"a".repeat(80)}（1）.png`]);
+  });
   it("downloads only selected originals, preserves duplicate names and processes one file at a time", async () => {
     const nodes = [node("a"), node("b", { metadata: { assetScope: "team" } }), node("excluded"), node("text", { kind: "text" }), node("empty", { imageAssetId: undefined }),
       node("audio", { kind: "audio", title: "音频", metadata: { mimeType: "audio/wav" } })];

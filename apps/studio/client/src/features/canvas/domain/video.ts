@@ -139,6 +139,19 @@ export function mergeCanvasVideoReferences(
   };
 }
 
+/** Match hydration/merge identities without downloading media for the type/count check. */
+export function canvasVideoReferenceLayout(inputs: readonly CanvasGenerationInput[], registered: VideoGenerationReferences) {
+  const media = uniqueGenerationInputs(inputs).filter(input => input.type !== "text");
+  return {
+    images: uniqueReferences([...media.filter(input => input.type === "image").map(input => {
+      const assetId = input.seedanceVolcanoAssets?.find(item => item.volcanoAssetId.trim())?.volcanoAssetId.trim();
+      return { id: input.nodeId, kind: "image" as const, ...(assetId ? { url: `asset://${assetId}` } : {}) };
+    }), ...registered.images]),
+    videos: uniqueReferences([...media.filter(input => input.type === "video").map(input => ({ id: input.nodeId, kind: "video" as const })), ...registered.videos]),
+    audios: uniqueReferences([...media.filter(input => input.type === "audio").map(input => ({ id: input.nodeId, kind: "audio" as const })), ...registered.audios]),
+  };
+}
+
 export async function hydrateCanvasVideoReferences(
   inputs: readonly CanvasGenerationInput[],
   hydrators: CanvasVideoReferenceHydrators

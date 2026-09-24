@@ -6,8 +6,7 @@ import type {
   CanvasNodeStatus,
 } from "./types";
 import { isRecord, numberValue, stringValue } from "./value";
-import { normalizeGeneratedImageTitle } from "./imageTitles";
-import { canvasNodeTitle } from "./nodeTitles";
+import { CANVAS_NODE_PLACEHOLDER_TITLES, canvasNodeTitle } from "./nodeTitles";
 
 export function normalizeCanvasNodeKind(value: unknown): CanvasNodeKind {
   const kind = stringValue(value).toLowerCase();
@@ -25,17 +24,7 @@ export function legacyTypeForKind(kind: CanvasNodeKind) {
 }
 
 export function nodeKindTitle(kind: CanvasNodeKind) {
-  const labels: Record<CanvasNodeKind, string> = {
-    prompt: "新提示词",
-    text: "剧本提示词",
-    note: "备注",
-    image: "图片占位",
-    config: "生成配置",
-    video: "视频片段",
-    audio: "音频轨道",
-    director: "3D 导演台",
-  };
-  return labels[kind] || "节点";
+  return CANVAS_NODE_PLACEHOLDER_TITLES[kind] || "节点";
 }
 
 export function normalizeNodeStatus(value: unknown): CanvasNodeStatus {
@@ -117,7 +106,7 @@ export function normalizeCanvasNode(value: unknown): CanvasNodeData | null {
       status: normalizeNodeStatus(metadata.status),
     },
   };
-  node.title = canvasNodeTitle(normalizeGeneratedImageTitle(node));
+  node.title = canvasNodeTitle(node.title);
   return node;
 }
 

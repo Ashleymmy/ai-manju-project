@@ -50,7 +50,8 @@ func TestSDVideoCatalogAndSubmissionShareCreationPolicy(t *testing.T) {
 					return
 				}
 				_ = json.NewEncoder(w).Encode(gin.H{"success": true, "data": gin.H{"items": []gin.H{
-					{"key": "seedance-2.5", "id": "ep-upstream", "name": "Seedance 2.5", "available": true, "enabled": true, "durations": []int{5, 10, 25}},
+					{"key": "seedance-2.5", "id": "ep-upstream", "name": "Seedance 2.5", "available": true, "enabled": true, "durations": []int{5, 10, 25},
+						"references": gin.H{"images": 12, "videos": 2, "audios": 1, "audio_only": true, "media_min_duration_ms": 1000, "media_max_duration_ms": 12000, "media_max_total_duration_ms": 12000, "audio_max_bytes": 8388608}},
 					{"key": "seedance-2.0", "id": "ep-20", "name": "Seedance 2.0", "available": true, "enabled": true},
 					{"key": "seedance-2.0-ark", "id": "ep-official", "available": false, "enabled": true, "disabled_reason": "provider_credentials_missing"},
 				}}})
@@ -116,6 +117,11 @@ func TestSDVideoCatalogAndSubmissionShareCreationPolicy(t *testing.T) {
 				durations := data["video_model_durations"].(map[string]any)["sdvideo/seedance-2.5"]
 				if !reflect.DeepEqual(durations, []any{float64(5), float64(10), float64(25)}) {
 					t.Fatalf("live durations lost: %v", durations)
+				}
+				caps := data["video_model_capabilities"].(map[string]any)["sdvideo/seedance-2.5"].(map[string]any)
+				refs := caps["references"].(map[string]any)
+				if refs["audios"] != float64(1) || refs["media_max_duration_ms"] != float64(12000) || refs["audio_max_bytes"] != float64(8388608) {
+					t.Fatalf("live reference limits were replaced by family defaults: %v", refs)
 				}
 			}
 			if len(data["text_models"].([]any)) != 1 {

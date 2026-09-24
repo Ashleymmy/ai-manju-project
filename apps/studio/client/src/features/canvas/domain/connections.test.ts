@@ -38,6 +38,7 @@ describe("canvas connection rules", () => {
     expect(normalizeCanvasConnection("config", "image", nodes, "target")).toEqual({ from: "image", to: "config" });
     expect(normalizeCanvasConnection("config", "image", nodes, "source")).toEqual({ from: "config", to: "image" });
     expect(normalizeCanvasConnection("image", "prompt", nodes, "target")).toEqual({ from: "prompt", to: "image" });
+    expect(normalizeCanvasConnection("image", "config", nodes, "target")).toEqual({ from: "config", to: "image" });
   });
 
   it("uses the production default handle for config nodes", () => {
@@ -62,6 +63,41 @@ describe("canvas connection rules", () => {
     expect(canvasActiveConnectionPath(source, "target", { x: 420, y: 160 }, target)).toBe(
       "M 740 280 C 1060 280, -220 140, 100 140",
     );
+  });
+
+  it.each(["image", "video", "audio", "text", "prompt", "note", "config", "director"])("keeps %s connections output-to-input for both drag directions", kind => {
+    const pair = [
+      { id: "first", kind, x: 100, y: 80, width: 200, height: 120 },
+      { id: "second", kind: "text", x: 550, y: 280, width: 200, height: 120 },
+    ];
+    expect(normalizeCanvasConnection("first", "second", pair, "source")).toEqual({ from: "first", to: "second" });
+    expect(normalizeCanvasConnection("second", "first", pair, "target")).toEqual({ from: "first", to: "second" });
+    const path = "M 300 140 C 425 140, 425 340, 550 340";
+    expect(canvasActiveConnectionPath(pair[0], "source", { x: 0, y: 0 }, pair[1])).toBe(path);
+    expect(canvasActiveConnectionPath(pair[1], "target", { x: 0, y: 0 }, pair[0])).toBe(path);
+  });
+
+  it.each([25, 50, 100, 200])("rejects the wrong side for nodes and group frames at %s percent zoom", zoom => {
+    const pair = [
+      { id: "a", kind: "audio", x: 0, y: 0, width: 300, height: 200 },
+      { id: "b", kind: "text", x: 700, y: 300, width: 300, height: 200 },
+    ];
+    for (const groups of [[], [{ id: "group", title: "Group", nodeIds: ["b"], position: { x: 700, y: 300 }, width: 300, height: 200, color: "#fff" }]]) {
+      for (const handleType of ["source", "target"] as const) {
+        const options = { zoom, groups };
+        const draft = { nodeId: "a", handleType };
+        const compatible = { x: handleType === "source" ? 700 : 1000, y: 400 };
+        const incompatible = { x: handleType === "source" ? 1000 : 700, y: 400 };
+        expect(findCanvasConnectionDropTarget(pair, draft, compatible, options)).toEqual({ nodeId: "b", isNearNode: true });
+        expect(findCanvasConnectionDropTarget(pair, draft, incompatible, options)).toEqual({ nodeId: "", isNearNode: true });
+      }
+    }
+  });
+
+  it("keeps short preview curves identical to finished edge curvature", () => {
+    const from = { id: "a", kind: "audio", x: 0, y: 0, width: 100, height: 100 };
+    const to = { id: "b", kind: "text", x: 148, y: 200, width: 100, height: 100 };
+    expect(canvasActiveConnectionPath(from, "source", { x: 148, y: 250 }, to)).toBe("M 100 50 C 150 50, 98 250, 148 250");
   });
 
   it.each([false, true])("anchors both preview directions to group frames (pending=%s) without mutating members", pending => {

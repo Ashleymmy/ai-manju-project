@@ -780,6 +780,8 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
     try {
       const failedAssets: string[] = [];
       let addedCount = 0;
+      // React state is a render snapshot; each batch check must include earlier accepted media.
+      let importedReferences = references;
       // 火山真人素材：先确保 Active，再以 asset:// 引用加入（无本地文件）
       if (volcanoAssets.length) {
         await ensureSeedanceAssetsActive(volcanoAssets.map((asset) => asset.volcano_asset_id), "personal");
@@ -787,8 +789,9 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
           const reference = createVolcanoWorkbenchReference(asset);
           reference.scope = "personal";
           reference.previewUrl = trackUrl(await getSeedanceAssetPreviewUrl(reference.previewSourceUrl));
-          const plan = planWorkbenchReferenceBatch(splitWorkbenchReferences(references), [reference], effectiveConfig.model);
+          const plan = planWorkbenchReferenceBatch(splitWorkbenchReferences(importedReferences), [reference], effectiveConfig.model);
           if (plan.accepted.length) {
+            importedReferences = [...importedReferences, plan.accepted[0]];
             setReferences((current) => assignReferenceTokens([...current, plan.accepted[0]]));
             addedCount += 1;
           } else {
@@ -796,7 +799,8 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
           }
         }
       }
-      for (const asset of assets) {
+      const orderedAssets = (["image", "video", "audio"] as const).flatMap(kind => assets.filter(asset => asset.type === kind));
+      for (const asset of orderedAssets) {
         try {
           const kind = asset.type === "image" || asset.type === "video" || asset.type === "audio" ? asset.type : null;
           if (!kind) continue;
@@ -814,8 +818,9 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
           reference.source = "asset";
           reference.assetId = asset.id;
           reference.scope = pickerScope;
-          const plan = planWorkbenchReferenceBatch(splitWorkbenchReferences(references), [reference], effectiveConfig.model);
+          const plan = planWorkbenchReferenceBatch(splitWorkbenchReferences(importedReferences), [reference], effectiveConfig.model);
           if (plan.accepted.length) {
+            importedReferences = [...importedReferences, plan.accepted[0]];
             setReferences((current) => assignReferenceTokens([...current, plan.accepted[0]]));
             addedCount += 1;
           } else {

@@ -89,6 +89,10 @@ export function inspectorLayout(node: InspectorRect, viewport: InspectorRect, sa
   // Put the handle on the roomier side, so it can keep moving after the opposite edge hits the viewport.
   const resizeX = area.side === "left" || (centered && center > (area.left + area.right) / 2) ? -1 : 1;
   const resizeEdge = resizeX < 0 ? left : left + width;
+  const resizeLeftCenterDistance = centered ? center - left : undefined;
+  const resizeRightCenterDistance = centered ? left + width - center : undefined;
+  const resizeLeftBoundaryDistance = centered ? area.right - left : undefined;
+  const resizeRightBoundaryDistance = centered ? left + width - area.left : undefined;
   return {
     left,
     top: area.side === "above" ? area.bottom - height : top,
@@ -98,6 +102,10 @@ export function inspectorLayout(node: InspectorRect, viewport: InspectorRect, sa
     // Distances in panel screen pixels also let the drag calculation invert viewport clamping.
     resizeCenterDistance: centered ? resizeX * (resizeEdge - center) : undefined,
     resizeBoundaryDistance: centered ? resizeX * (resizeEdge - (resizeX < 0 ? area.right : area.left)) : undefined,
+    resizeLeftCenterDistance,
+    resizeRightCenterDistance,
+    resizeLeftBoundaryDistance,
+    resizeRightBoundaryDistance,
   };
 }
 

@@ -33,13 +33,28 @@ export function useInspectorResize({ panelRef, nodeId, limits, onResize }: Optio
     const startY = event.clientY;
     // Left/above panels expand away from the node, using their outer edges.
     const style = getComputedStyle(panel);
-    const directionX = style.getPropertyValue("--inspector-resize-x").trim() === "-1" ? -1 : 1;
+    const handle = event.currentTarget;
+    const resizeSide = handle.dataset.inspectorResizeSide;
+    const directionX = resizeSide === "left"
+      ? -1
+      : resizeSide === "right"
+        ? 1
+        : style.getPropertyValue("--inspector-resize-x").trim() === "-1" ? -1 : 1;
     const directionY = style.getPropertyValue("--inspector-resize-y").trim() === "-1" ? -1 : 1;
-    const centerDistance = parseFloat(style.getPropertyValue("--inspector-resize-center-distance"));
-    const boundaryDistance = parseFloat(style.getPropertyValue("--inspector-resize-boundary-distance"));
+    const readDistance = (property: string, fallback: string) => {
+      const value = parseFloat(style.getPropertyValue(property));
+      return Number.isFinite(value) ? value : parseFloat(style.getPropertyValue(fallback));
+    };
+    const centerDistance = readDistance(resizeSide === "left"
+      ? "--inspector-resize-left-center-distance"
+      : resizeSide === "right" ? "--inspector-resize-right-center-distance" : "--inspector-resize-center-distance",
+      "--inspector-resize-center-distance");
+    const boundaryDistance = readDistance(resizeSide === "left"
+      ? "--inspector-resize-left-boundary-distance"
+      : resizeSide === "right" ? "--inspector-resize-right-boundary-distance" : "--inspector-resize-boundary-distance",
+      "--inspector-resize-boundary-distance");
     const centered = Number.isFinite(centerDistance) && Number.isFinite(boundaryDistance);
     const pointerId = event.pointerId;
-    const handle = event.currentTarget;
     const move = (next: globalThis.PointerEvent) => {
       if (next.pointerId !== pointerId || latest.current.nodeId !== nodeId) return;
       const outwardX = (next.clientX - startX) * directionX;

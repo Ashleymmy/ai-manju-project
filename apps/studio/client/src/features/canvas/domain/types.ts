@@ -58,6 +58,14 @@ export type CanvasImageReferenceSnapshot = {
 export type CanvasNodeMetadata = Record<string, unknown> & {
   /** Preserve an explicitly edited node title across snapshot normalization. */
   titleEdited?: boolean;
+  /** The user's literal name, without any collision index added by the canvas. */
+  titleBase?: string;
+  /** Distinguish explicit names from legacy placeholders marked edited by deduplication. */
+  titleMode?: "custom" | "placeholder";
+  /** Completed canvas output; blank placeholders and imported media do not set this. */
+  generatedInCanvas?: boolean;
+  /** Persist the default-name prefix so snapshot round trips need no live session. */
+  titleProjectName?: string;
   content?: string;
   prompt?: string;
   /** Original editable prompt, including @ tokens, separate from the resolved model request. */

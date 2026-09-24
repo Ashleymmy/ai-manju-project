@@ -1,4 +1,5 @@
 import type { Asset } from "@/entities/asset";
+import type { CanvasImageResolution } from "@/features/canvas/domain/nodeUtils";
 import type { AudioGenerationConfig } from "@/services/api/audio";
 import type { ResponseInputMessage } from "@/services/api/ai";
 import type {
@@ -54,6 +55,7 @@ export type CanvasImageTargetRunInput = {
   model: string;
   size: ImageSizeValue;
   quality: ImageQualityValue;
+  imageResolution?: CanvasImageResolution;
   referenceFiles: File[];
   maskFile?: File;
   existingJobId?: string;
@@ -153,9 +155,9 @@ export type CanvasGenerationServices = {
   createFile(parts: BlobPart[], name: string, options?: FilePropertyBag): File;
   fetchBlob(url: string, signal?: AbortSignal, label?: string): Promise<Blob>;
   readFileDataUrl(file: File, signal?: AbortSignal): Promise<string>;
-  readImageMetadata(file: File): Promise<{ width: number; height: number }>;
-  readVideoMetadata(file: File): Promise<{ width: number; height: number; durationMs: number }>;
-  readAudioMetadata(file: File): Promise<{ durationMs: number }>;
+  readImageMetadata(file: File, signal?: AbortSignal): Promise<{ width: number; height: number }>;
+  readVideoMetadata(file: File, signal?: AbortSignal): Promise<{ width: number; height: number; durationMs: number }>;
+  readAudioMetadata(file: File, signal?: AbortSignal): Promise<{ durationMs: number }>;
   revokeObjectURL(url: string): void;
   waitForPoll(signal: AbortSignal): Promise<void>;
 };

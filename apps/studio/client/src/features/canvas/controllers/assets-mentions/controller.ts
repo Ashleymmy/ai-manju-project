@@ -28,6 +28,8 @@ import type {
   CanvasAssetsMentionsSnapshot,
   CanvasPreviewSyncInput,
 } from "./types";
+import type { AssetNameSyncMessage } from "@/entities/asset";
+import { ASSET_TYPE_LIBRARY_SORT, compareAssetTypes } from "@/entities/asset/typeOrder";
 
 const PICKER_THUMBNAIL_WIDTH = 320 as const;
 // Canvas nodes only need a lightweight preview; full-size files load in the detail dialog.
@@ -68,6 +70,8 @@ export class CanvasAssetsMentionsController {
   private mentionOwnedUrl = "";
   private mentionPreviewRevision = 0;
   private disposed = false;
+  // Confirmed rename events win over library requests started before the edit.
+  private readonly savedNames = new Map<string, string>();
 
   constructor(
     initialScope: "personal" | "team" = "personal",
@@ -108,10 +112,30 @@ export class CanvasAssetsMentionsController {
 
   readonly getAssets = () => this.snapshot.assets;
 
+  readonly applyAssetNameChange = (message: AssetNameSyncMessage) => {
+    if (this.disposed) return;
+    this.savedNames.set(`${message.scope}:${message.assetId}`, message.name);
+    this.patch({
+      assets: this.snapshot.assets.map(asset => asset.scope === message.scope && asset.id === message.assetId
+        ? { ...asset, name: message.name } : asset),
+      picker: { ...this.snapshot.picker, items: this.snapshot.picker.items.map(item => {
+        const id = item.serverAsset?.id || (item.textAsset ? LOCAL_TEXT_MENTION_PREFIX + item.textAsset.id : "");
+        return item.scope === message.scope && id === message.assetId ? { ...item, name: message.name,
+          ...(item.serverAsset ? { serverAsset: { ...item.serverAsset, name: message.name } } : {}),
+          ...(item.textAsset ? { textAsset: { ...item.textAsset, title: message.name } } : {}),
+        } : item;
+      }) },
+    });
+  };
+
+  private savedName(id: string, scope: "personal" | "team", name: string) {
+    return this.savedNames.get(`${scope}:${id}`) || name;
+  }
+
   readonly mergeAssets = (items: import("@/entities/asset").Asset[], scope: "personal" | "team") => {
     if (!items.length) return;
     const byKey = new Map(this.snapshot.assets.map(asset => [`${asset.scope}:${asset.id}`, asset]));
-    items.forEach(asset => byKey.set(`${scope}:${asset.id}`, { ...asset, scope }));
+    items.forEach(asset => byKey.set(`${scope}:${asset.id}`, { ...asset, name: this.savedName(asset.id, scope, asset.name), scope }));
     this.patch({ assets: Array.from(byKey.values()) });
   };
 
@@ -157,7 +181,7 @@ export class CanvasAssetsMentionsController {
         smartView: target === "favorites" ? "favorite" : undefined,
         page,
         pageSize: CANVAS_MENTION_PAGE_SIZE,
-        sort: "created_at_desc",
+        sort: ASSET_TYPE_LIBRARY_SORT,
       }, controller.signal)), this.bindings.getUserId()
         ? this.assets(() => this.services.listCanvasTextAssets(this.bindings.getUserId(), targetScope)).catch((error): CanvasTextAsset[] => {
           // A browser storage failure must not hide the server's media library
@@ -170,7 +194,8 @@ export class CanvasAssetsMentionsController {
         })
         : Promise.resolve([])]);
       if (!current()) return;
-      const textAssets = resolveTextAssetFolders(storedTextAssets, folders);
+      const textAssets = resolveTextAssetFolders(storedTextAssets, folders).map(asset => ({ ...asset,
+        title: this.savedName(LOCAL_TEXT_MENTION_PREFIX + asset.id, targetScope, asset.title) }));
       this.mergeAssets(result.items || [], targetScope);
       this.patch({ assets: [
         ...this.snapshot.assets.filter(asset => asset.scope !== targetScope || asset.type !== "text"),
@@ -391,6 +416,7 @@ export class CanvasAssetsMentionsController {
     this.searchTimer = null;
     this.releaseMentionOwnedUrl();
     this.listeners.clear();
+    this.savedNames.clear();
     this.bindings = emptyBindings;
   }
 
@@ -422,7 +448,7 @@ export class CanvasAssetsMentionsController {
             includeDescendants: folderId ? true : undefined,
             page: 1,
             pageSize: 60,
-            sort: "created_at_desc",
+            sort: ASSET_TYPE_LIBRARY_SORT,
           }, controller.signal)),
         includeLocalText && this.bindings.getUserId()
           ? this.assets(() => this.services.listCanvasTextAssets(this.bindings.getUserId(), scope))
@@ -431,8 +457,10 @@ export class CanvasAssetsMentionsController {
       ]);
       if (controller.signal.aborted) return;
       const query = keyword.trim().toLowerCase();
-      const serverAssets = serverResult.status === "fulfilled" ? serverResult.value.items || [] : [];
-      const textAssets = resolveTextAssetFolders(textResult.status === "fulfilled" ? textResult.value : [], foldersResult.status === "fulfilled" ? foldersResult.value : []);
+      const serverAssets = (serverResult.status === "fulfilled" ? serverResult.value.items || [] : []).map(asset => ({ ...asset,
+        name: this.savedName(asset.id, scope, asset.name) }));
+      const textAssets = resolveTextAssetFolders(textResult.status === "fulfilled" ? textResult.value : [], foldersResult.status === "fulfilled" ? foldersResult.value : []).map(asset => ({ ...asset,
+        title: this.savedName(LOCAL_TEXT_MENTION_PREFIX + asset.id, scope, asset.title) }));
       const folderPatch = foldersResult.status === "fulfilled"
         ? { folders: pickerFolderOptions(foldersResult.value) }
         : this.snapshot.picker.folders.length
@@ -462,7 +490,7 @@ export class CanvasAssetsMentionsController {
             textAsset: asset,
           }))
         : [];
-      const items = [...localTextItems, ...mediaItems];
+      const items = [...localTextItems, ...mediaItems].sort((left, right) => compareAssetTypes(left.type, right.type));
       this.patchPicker({
         items,
         thumbnails: this.pickerThumbnails(items, scope),
@@ -528,7 +556,7 @@ export class CanvasAssetsMentionsController {
       }
     }
     if (signal.aborted) return;
-    const assets = [...items.values()];
+    const assets = [...items.values()].sort((left, right) => compareAssetTypes(left.type, right.type));
     this.patchPicker({ items: assets, thumbnails: this.pickerThumbnails(assets, scope),
       error: errors.length ? `${assets.length ? "部分拟真人素材库读取失败：" : ""}${[...new Set(errors)].join("；")}` : "" });
   }

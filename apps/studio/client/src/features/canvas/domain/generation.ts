@@ -5,8 +5,7 @@ import type { WorkspaceScope } from "@/shared/config/workspace";
 import type { CanvasVideoReferenceSnapshot } from "./video";
 import { videoResultPersistentMetadata } from "./video";
 import { refreshImageBatchRoot } from "./batch";
-import { generatedImageTitle } from "./imageTitles";
-import { ensureUniqueCanvasNodeTitles } from "./nodeTitles";
+import { ensureUniqueCanvasNodeTitles, preserveCanvasNodeTitle } from "./nodeTitles";
 import type { CanvasNodeData } from "./types";
 import { stringValue } from "./value";
 import {
@@ -26,7 +25,7 @@ export function completeGeneratedAudioTarget(
   return ensureUniqueCanvasNodeTitles(nodes.map((node) => node.id === targetNodeId ? {
     ...node,
     kind: "audio" as const,
-    title: asset.name || "生成音频",
+    title: preserveCanvasNodeTitle(node, "生成音频"),
     content: prompt,
     imageAssetId: undefined,
     imageSrc: undefined,
@@ -37,6 +36,7 @@ export function completeGeneratedAudioTarget(
       content: prompt,
       prompt,
       generationMode: "audio" as const,
+      generatedInCanvas: true,
       model: config.model,
       audioVoice: config.voice,
       audioFormat: config.format,
@@ -56,7 +56,7 @@ export function completeGeneratedAudioTarget(
 export function failGeneratedAudioTarget(nodes: CanvasNodeData[], targetNodeId: string, message: string) {
   return nodes.map((node) => node.id === targetNodeId ? {
     ...node,
-    title: "音频生成失败",
+    title: preserveCanvasNodeTitle(node, "音频生成失败"),
     metadata: {
       ...node.metadata,
       generationMode: "audio" as const,
@@ -83,7 +83,7 @@ export function completeGeneratedVideoTarget(
   return ensureUniqueCanvasNodeTitles(nodes.map((node) => node.id === targetNodeId ? {
     ...node,
     kind: "video" as const,
-    title: asset.name || "生成视频",
+    title: preserveCanvasNodeTitle(node, "生成视频"),
     content: prompt,
     imageAssetId: undefined,
     imageSrc: undefined,
@@ -94,6 +94,7 @@ export function completeGeneratedVideoTarget(
       content: prompt,
       prompt,
       generationMode: "video" as const,
+      generatedInCanvas: true,
       videoProvider: task.provider,
       model: task.model || config.model,
       size: config.size,
@@ -120,7 +121,7 @@ export function completeGeneratedVideoTarget(
 export function failGeneratedVideoTarget(nodes: CanvasNodeData[], targetNodeId: string, message: string) {
   return nodes.map((node) => node.id === targetNodeId ? {
     ...node,
-    title: "视频生成失败",
+    title: preserveCanvasNodeTitle(node, "视频生成失败"),
     metadata: {
       ...node.metadata,
       generationMode: "video" as const,
@@ -137,11 +138,12 @@ export function resolveGeneratedNode(nodes: CanvasNodeData[], childId: string, g
     if (node.id !== childId) return node;
     return {
       ...node,
-      title: generatedImageTitle(generated?.name || "", prompt),
+      title: preserveCanvasNodeTitle(node, "生成图片"),
       imageAssetId: generated?.assetId,
       imageSrc: generated?.assetId ? undefined : generated?.src,
       metadata: {
         ...node.metadata,
+        generatedInCanvas: Boolean(generated) || node.metadata?.generatedInCanvas,
         assetId: generated?.assetId,
         // 批次根节点自身也是生成目标：把"自己的"结果单独留档，避免主图切换后被覆盖丢失
         ...(node.metadata?.isBatchRoot ? { ownAssetId: generated?.assetId, ownImageSrc: generated?.assetId ? undefined : generated?.src } : {}),
@@ -171,7 +173,7 @@ export function completeGeneratedImageTarget(nodes: CanvasNodeData[], targetNode
 export function failGeneratedImageTarget(nodes: CanvasNodeData[], targetNodeId: string, message: string) {
   let next = nodes.map((node) => node.id === targetNodeId ? {
     ...node,
-    title: "生成失败",
+    title: preserveCanvasNodeTitle(node, "生成失败"),
     metadata: {
       ...node.metadata,
       status: "error" as const,
@@ -189,7 +191,7 @@ export function failGeneratedImageTarget(nodes: CanvasNodeData[], targetNodeId: 
 export function failGeneratedTextTarget(nodes: CanvasNodeData[], targetNodeId: string, message: string) {
   return nodes.map((node) => node.id === targetNodeId ? {
     ...node,
-    title: "文本生成失败",
+    title: preserveCanvasNodeTitle(node, "文本生成失败"),
     metadata: {
       ...node.metadata,
       generationMode: "text" as const,

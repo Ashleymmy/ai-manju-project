@@ -1,4 +1,6 @@
 import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
+import { CanvasVideoPreflight } from "./CanvasVideoPreflight";
+import { useVideoPreflight, type VideoPreflightCheck } from "../controllers/useVideoPreflight";
 import { IMAGE_GENERATION_COUNTS } from "@/shared/config/generation";
 import { imageModelSupportsDetail } from "@/entities/model/imageProtocol";
 import { videoModelCapabilities, videoOptionAvailable } from "@/entities/model/videoCapabilities";
@@ -56,7 +58,7 @@ import {
   videoSubModePlaceholder,
 } from "@/features/canvas/domain/nodeUtils";
 import { imageSrcFromNode } from "@/features/canvas/domain/nodes";
-import { canvasImageGenerationSettings } from "@/features/canvas/domain/imageGenerationSettings";
+import { canvasImageGenerationSettings, canvasImageGenerationSettingsIssue } from "@/features/canvas/domain/imageGenerationSettings";
 import type {
   CanvasEdgeData,
   CanvasGenerationMode,
@@ -163,7 +165,7 @@ export type CanvasInspectorActions = {
   ungroupCanvasGroup: (groupId: string) => void;
   updateNode: (nodeId: string, patch: Partial<CanvasNodeData>) => void;
   disconnectIncomingSource: (sourceId: string, targetId: string) => void;
-  commitInspectorNodeTitle: (node: CanvasNodeData) => void;
+  commitInspectorNodeTitle: (node: CanvasNodeData, title: string) => void;
   generateFromNode: (nodeId?: string) => Promise<unknown>;
   openAssetPicker: () => void;
   selectGenerationModel: (value: string) => void;
@@ -180,6 +182,8 @@ export type CanvasInspectorActions = {
 };
 
 export type CanvasInspectorProps = {
+  preflightProjectKey?: string;
+  preflightVideoNode?: VideoPreflightCheck;
   seedanceRegistrationState?: SeedanceRegistrationState;
   panelRef: RefObject<HTMLElement | null>;
   selectedNode?: CanvasNodeData;
@@ -216,6 +220,8 @@ export type CanvasInspectorProps = {
 };
 
 export function CanvasInspector({
+  preflightProjectKey,
+  preflightVideoNode,
   seedanceRegistrationState,
   panelRef,
   selectedNode,
@@ -306,6 +312,19 @@ export function CanvasInspector({
     startPanelResize,
   } = actions;
   const promptReferences = selectedNode ? mentionReferencesForNode(selectedNode.id) : [];
+  // Positions/selection do not change media compatibility. Source contents,
+  // references, model parameters and graph connections do.
+  const videoPreflightKey = selectedGenerationMode === "video" ? JSON.stringify([
+    preflightProjectKey, selectedNode?.id, selectedVideoConfig, videoModelCapabilities(selectedVideoConfig?.model || ""),
+    nodes.map(node => [node.id, node.kind, node.title, node.content, node.imageSrc, node.imageAssetId, node.metadata?.assetId, node.metadata?.assetScope,
+      node.metadata?.content, node.metadata?.composerContent, node.metadata?.prompt, node.metadata?.status,
+      node.metadata?.seedanceMaterialAssets, node.metadata?.seedanceVolcanoAssets, node.metadata?.videoReferenceInputs]),
+    edges.map(edge => [edge.from, edge.to]),
+  ]) : "";
+  const videoPreflight = useVideoPreflight(inspectorOpen && !selectedGroup && !projectActionDisabled && selectedGenerationMode === "video" ? selectedNode?.id || "" : "", videoPreflightKey, preflightVideoNode);
+  const imageSettingsIssue = selectedNode && selectedGenerationMode === "image" ? canvasImageGenerationSettingsIssue(selectedNode) : "";
+  const generationBlocked = videoPreflight.blocked || Boolean(imageSettingsIssue);
+  const generationBlockedMessage = imageSettingsIssue || videoPreflight.message;
   const connectedSources = selectedNode
     ? edges
       .filter((edge) => edge.to === selectedNode.id)
@@ -429,7 +448,7 @@ export function CanvasInspector({
                   mentionLibrary={mentionLibrary}
                   placeholder={selectedNode.kind === "video" ? videoSubModePlaceholder(videoSubModeFromNode(selectedNode)) : "输入 @ 可引用已连接节点或资产…，Enter 换行，Ctrl+Enter 生成"}
                   onMentionQueryChange={queueMentionAssetSearch}
-                  onSubmit={() => void generateFromNode(selectedNode.id)}
+                  onSubmit={() => { if (!generationBlocked) void generateFromNode(selectedNode.id); }}
                   onChange={(value) => updateNodePrompt(selectedNode.id, value)}
                   thumbnailForReference={mentionThumbnailFor}
                   onPreviewReference={previewMentionReference}
@@ -592,18 +611,20 @@ export function CanvasInspector({
                       <button className="node-send-button node-send-cancel" title="取消任务" onClick={() => stopGenerationByNodeId(selectedNode.id)}><Square size={13} /> 取消</button>
                     </div>
                   ) : selectedNode.metadata?.status === "error" ? (
-                    <button className="node-send-button" onClick={() => {
+                    <button className="node-send-button" disabled={generationBlocked} title={generationBlocked ? generationBlockedMessage : undefined} onClick={() => {
                       if (selectedGenerationMode === "image") void retryImageNode(selectedNode);
                       else if (selectedGenerationMode === "video") void retryVideoNode(selectedNode);
                       else if (selectedGenerationMode === "audio") void retryAudioNode(selectedNode);
                       else void retryTextNode(selectedNode);
                     }}><RotateCcw size={14} /> 重试</button>
                   ) : (
-                    <button className="node-send-button node-send-button-compact" onClick={() => void generateFromNode()} aria-label="生成" title="生成"><ArrowUp size={15} /></button>
+                    <button className="node-send-button node-send-button-compact" disabled={generationBlocked} onClick={() => void generateFromNode()} aria-label="生成" title={generationBlocked ? generationBlockedMessage : "生成"}><ArrowUp size={15} /></button>
                   )}
                 </div>
               </div>
 
+              {selectedGenerationMode === "video" ? <CanvasVideoPreflight model={selectedVideoConfig?.model || selectedGenerationModel} state={videoPreflight} onRetry={videoPreflight.retry} /> : null}
+              {imageSettingsIssue ? <p role="alert" className="px-3 py-2 text-xs text-amber-300">{imageSettingsIssue}</p> : null}
               <div className="node-card-ops">
                 {/* 暂时隐藏「从此节点连接」入口（需求暂定，后期恢复时取消本行与顶部 Link2 导入的注释）
                 <button title="从此节点连接" onClick={() => activateConnectionMode(selectedNode.id)}><Link2 size={14} /></button> */}
@@ -663,11 +684,15 @@ export function CanvasInspector({
                     <div className="node-pop-field">
                       <span className="field-label">节点标题</span>
                       <input
-                        value={selectedNode.title}
-                        onChange={(event) => updateNode(selectedNode.id, { title: event.target.value, metadata: { ...selectedNode.metadata, titleEdited: true } })}
-                        onBlur={() => actions.commitInspectorNodeTitle(selectedNode)}
+                        key={`${selectedNode.id}:${selectedNode.title}`}
+                        defaultValue={selectedNode.title}
+                        onBlur={(event) => {
+                          const title = event.currentTarget.value.trim();
+                          if (title && title !== selectedNode.title) actions.commitInspectorNodeTitle(selectedNode, title);
+                          else event.currentTarget.value = selectedNode.title;
+                        }}
                         onKeyDown={(event) => {
-                          if (event.key !== "Enter") return;
+                          if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
                           event.preventDefault();
                           event.currentTarget.blur();
                         }}
