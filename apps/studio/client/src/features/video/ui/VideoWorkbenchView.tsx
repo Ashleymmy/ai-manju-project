@@ -1,4 +1,5 @@
 import { resolveModel } from "@/shared/lib/modelSelection";
+import { videoModelCapabilities, videoOptionAvailable } from "@/entities/model/videoCapabilities";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -660,7 +661,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
     const normalized = assignReferenceTokens(restored);
     return {
       text: userMessage.text,
-      config: systemMessage?.config || effectiveConfig,
+      config: normalizeVideoGenerationConfig(systemMessage?.config || effectiveConfig),
       references: normalized,
     };
   }, [effectiveConfig, trackUrl]);
@@ -950,7 +951,10 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
               thumbUrlFor={(reference) => reference.previewUrl}
             />
             <div className="wb-editor-tools">
-              <button type="button" className={framesEnabled ? "wb-toggle active" : "wb-toggle"} onClick={() => setFramesEnabled((value) => !value)}>
+              <button type="button" className={framesEnabled ? "wb-toggle active" : "wb-toggle"}
+                disabled={!framesEnabled && ((!videoOptionAvailable(effectiveConfig.model, "supports", "first_frame") && !videoOptionAvailable(effectiveConfig.model, "supports", "last_frame")) || (videoModelCapabilities(effectiveConfig.model).frames_exclusive && references.length > 0))}
+                title="首尾帧按当前模型能力开放；Wan 的首尾帧与普通参考素材不能混用"
+                onClick={() => setFramesEnabled((value) => !value)}>
                 首尾帧控制
               </button>
               <button type="button" className="wb-toggle" onClick={() => setPickerOpen(true)}>

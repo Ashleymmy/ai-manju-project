@@ -1,5 +1,6 @@
 import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
 import { imageModelSupportsDetail } from "@/entities/model/imageProtocol";
+import { videoModelCapabilities, videoOptionAvailable } from "@/entities/model/videoCapabilities";
 import { CanvasSeedanceRegistrationButton } from "./CanvasSeedanceRegistrationButton";
 import type { SeedanceRegistrationState } from "../services/seedanceRegistration";
 import {
@@ -538,14 +539,14 @@ export function CanvasInspector({
                       <div className="param-group"><span className="param-group-label">分辨率</span>
                         <div className="param-segments">
                           {selectedVideoResolutions.map((item) => (
-                            <button key={item} type="button" className={selectedVideoConfig.resolution === item ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), resolution: item } })}>{item}</button>
+                            <button key={item} type="button" disabled={!videoOptionAvailable(selectedVideoConfig.model, "resolutions", item)} title={!videoOptionAvailable(selectedVideoConfig.model, "resolutions", item) ? "当前模型不支持此分辨率" : undefined} className={selectedVideoConfig.resolution === item ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), resolution: item } })}>{item}</button>
                           ))}
                         </div>
                       </div>
                       <div className="param-group"><span className="param-group-label">宽高比</span>
                         <div className="param-ratio-grid">
                           {selectedVideoRatios.map((ratio) => (
-                            <button key={ratio} type="button" className={selectedVideoConfig.size === ratio || sizeToRatioLabel(selectedVideoConfig.size) === ratio ? "param-ratio active" : "param-ratio"} title={ratio} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: ratio } })}>
+                            <button key={ratio} type="button" disabled={!videoOptionAvailable(selectedVideoConfig.model, "ratios", ratio)} className={selectedVideoConfig.size === ratio || sizeToRatioLabel(selectedVideoConfig.size) === ratio ? "param-ratio active" : "param-ratio"} title={!videoOptionAvailable(selectedVideoConfig.model, "ratios", ratio) ? "当前模型不支持此比例" : ratio} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: ratio } })}>
                               <i className="param-ratio-icon" style={ratioIconStyle(ratio)} />
                               <span>{ratio === "adaptive" ? "自适应" : ratio}</span>
                             </button>
@@ -553,7 +554,7 @@ export function CanvasInspector({
                         </div>
                       </div>
                       {selectedVideoSeedance ? <>
-                        <label className="parameter-row"><span>生成音频</span><input type="checkbox" checked={selectedVideoConfig.generateAudio} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), generateAudio: event.target.checked } })} /></label>
+                        <label className="parameter-row"><span>生成音频</span><input type="checkbox" disabled={videoModelCapabilities(selectedVideoConfig.model).has_audio === false} checked={selectedVideoConfig.generateAudio} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), generateAudio: event.target.checked } })} /></label>
                         <label className="parameter-row"><span>添加水印</span><input type="checkbox" checked={selectedVideoConfig.watermark} onChange={(event) => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), watermark: event.target.checked } })} /></label>
                       </> : null}
                     </> : null}

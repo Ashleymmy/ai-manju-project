@@ -2,9 +2,17 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { replaceVideoModelDurations } from "@/entities/model/videoDuration";
 import { ParamsBar } from "./ParamsBar";
+import { replaceVideoModelCapabilities } from "@/entities/model/videoCapabilities";
 
 describe("video model selector", () => {
-  afterEach(() => replaceVideoModelDurations({}));
+  afterEach(() => { replaceVideoModelDurations({}); replaceVideoModelCapabilities({}); });
+
+  it.each(["sdvideo/seedance-2.0-mini", "sdvideo/seedance-fast", "mt::ep-mini"])("disables unavailable resolution for %s but keeps 1:1 selectable", model => {
+    replaceVideoModelCapabilities({ [model]: { resolutions: ["480p", "720p"] } });
+    const html = renderToStaticMarkup(<ParamsBar models={[model]} labels={{}} config={{ model, size: "1:1", resolution: "1080p", seconds: "5", generateAudio: true, watermark: false }} onChange={() => undefined} disabled={false} />);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>1080p<\/button>/);
+    if (!model.includes("ep-")) expect(html).toMatch(/<button type="button" class="active">1:1<\/button>/);
+  });
 
   it.each(["480p", "768p"])("combines H3 %s settings with catalog duration controls", resolution => {
     const model = `zizi::zzdh-minimax-h3-限时优惠-多参考图生-${resolution}`;

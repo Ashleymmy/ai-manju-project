@@ -103,6 +103,10 @@ func (h *AIHandler) createSDVideoTask(c *gin.Context, body map[string]any) {
 		response.Error(c, http.StatusServiceUnavailable, "job service unavailable")
 		return
 	}
+	if err := validateSDVideoCapabilities(c, h.sdVideo, modelID, body); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	payload := map[string]any{
 		"idempotency_key": c.GetHeader("Idempotency-Key"),
 		"model":           modelID,

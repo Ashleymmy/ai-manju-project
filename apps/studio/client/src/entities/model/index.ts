@@ -16,3 +16,4 @@ export { modelQueryKeys } from "./queries";
 export { invalidateModelCatalog } from "./cache";
 export { videoModelProtocol, videoModelLabel } from "./videoProtocol";
 export { videoModelDurations, normalizeVideoDuration, hasVideoDurationCatalog } from "./videoDuration";
+export { videoModelCapabilities, videoOptionAvailable } from "./videoCapabilities";

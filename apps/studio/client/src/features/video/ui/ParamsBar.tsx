@@ -1,11 +1,11 @@
 import { videoModelOptions } from "@/shared/lib/modelSelection";
 import { videoModelDurations } from "@/entities/model";
+import { videoModelCapabilities, videoOptionAvailable } from "@/entities/model/videoCapabilities";
 import { VideoDurationInput } from "@/shared/ui/VideoDurationInput";
 import type { PricingRulesConfig } from "@/features/member";
 
 import {
   h3VideoSettings,
-  isSeedanceFastVideoModel,
   isSeedanceVideoModel,
   normalizeVideoGenerationConfig,
   videoModelSettings,
@@ -33,7 +33,7 @@ export function ParamsBar({
 }) {
   const normalized = normalizeVideoGenerationConfig(config);
   const seedance = !normalized.model || isSeedanceVideoModel(normalized.model);
-  const fastSeedance = isSeedanceFastVideoModel(normalized.model);
+  const capabilities = videoModelCapabilities(normalized.model);
   const h3 = h3VideoSettings(normalized.model);
   const ratios = h3 ? ["1280x720", "720x1280"] : seedance ? videoModelSettings.seedanceRatios : videoModelSettings.openAiSizes;
   const durations = videoModelDurations(normalized.model);
@@ -60,7 +60,8 @@ export function ParamsBar({
             <button
               key={ratio}
               type="button"
-              disabled={disabled}
+              disabled={disabled || !videoOptionAvailable(normalized.model, "ratios", ratio)}
+              title={!videoOptionAvailable(normalized.model, "ratios", ratio) ? "当前模型不支持此比例" : undefined}
               className={normalized.size === ratio ? "active" : ""}
               onClick={() => patch({ size: ratio })}
             >{ratio}</button>
@@ -74,7 +75,8 @@ export function ParamsBar({
             <button
               key={resolution}
               type="button"
-              disabled={disabled || (fastSeedance && resolution === "1080p")}
+              disabled={disabled || !videoOptionAvailable(normalized.model, "resolutions", resolution)}
+              title={!videoOptionAvailable(normalized.model, "resolutions", resolution) ? "当前模型不支持此分辨率" : undefined}
               className={normalized.resolution === resolution ? "active" : ""}
               onClick={() => patch({ resolution })}
             >{resolution}</button>
@@ -91,7 +93,7 @@ export function ParamsBar({
         <div className="wb-segments">
           <button
             type="button"
-            disabled={disabled}
+            disabled={disabled || capabilities.has_audio === false}
             className={normalized.generateAudio ? "active" : ""}
             onClick={() => patch({ generateAudio: !normalized.generateAudio })}
           >音频</button>

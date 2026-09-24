@@ -24,7 +24,7 @@ func (h *AIHandler) enqueueNativeVideo(c *gin.Context, body map[string]any) {
 	if !ok {
 		return
 	}
-	if err := validateCatalogVideoDuration(candidates[0].Model, body["duration"]); err != nil {
+	if err := h.providerHandler.videoCapabilities(candidates[0].Model).validate(body); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}

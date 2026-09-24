@@ -26,10 +26,11 @@ const providerModelSeparator = "::"
 var errModelProviderCapabilityMismatch = errors.New("selected model provider does not support the requested capability")
 
 type ModelProviderHandler struct {
-	repo       repository.ModelProviderRepository
-	secretBox  provider.SecretBox
-	gateSecret string
-	sdVideo    *sdvideo.Client
+	repo        repository.ModelProviderRepository
+	secretBox   provider.SecretBox
+	gateSecret  string
+	sdVideo     *sdvideo.Client
+	modelFamily func(string) string
 }
 
 type modelProviderRequest struct {
@@ -819,7 +820,7 @@ func (h *ModelProviderHandler) AggregatedModels(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	response.OK(c, aggregateModelProviders(configs))
+	response.OK(c, aggregateModelProviders(configs, h.modelFamily))
 }
 
 // AggregatedModelsWithSDVideo keeps the browser-facing model contract stable
@@ -835,7 +836,7 @@ func (h *ModelProviderHandler) AggregatedModelsWithSDVideo(c *gin.Context, clien
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	result := aggregateModelProviders(configs)
+	result := aggregateModelProviders(configs, h.modelFamily)
 	if client == nil || !client.Enabled() {
 		response.OK(c, result)
 		return
@@ -854,6 +855,7 @@ func (h *ModelProviderHandler) AggregatedModelsWithSDVideo(c *gin.Context, clien
 			Name      string          `json:"name"`
 			Available bool            `json:"available"`
 			Durations json.RawMessage `json:"durations"`
+			videoModelCapabilities
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(remote.Data, &payload); err != nil {
@@ -866,6 +868,7 @@ func (h *ModelProviderHandler) AggregatedModelsWithSDVideo(c *gin.Context, clien
 	labels, _ := result["model_labels"].(map[string]string)
 	providerNames, _ := result["model_provider_names"].(map[string]string)
 	videoDurations, _ := result["video_model_durations"].(map[string][]float64)
+	videoCaps := result["video_model_capabilities"].(map[string]videoModelCapabilities)
 	for _, item := range payload.Items {
 		key := strings.TrimSpace(item.Key)
 		if key == "" || !item.Available || !client.AllowsCreation(workspaceID, key) {
@@ -878,9 +881,13 @@ func (h *ModelProviderHandler) AggregatedModelsWithSDVideo(c *gin.Context, clien
 			labels[encoded] = name
 		}
 		providerNames[encoded] = "SD-video"
+		caps := catalogVideoCapabilities(key)
+		caps.Resolutions, caps.Ratios, caps.Supports, caps.HasAudio = item.Resolutions, item.Ratios, item.Supports, item.HasAudio
 		if durations := remoteVideoDurations(item.Durations); len(durations) > 0 {
 			videoDurations[encoded] = durations
+			caps.Durations = durations
 		}
+		videoCaps[encoded] = caps
 		if stringFromAny(result["default_video_model"]) == "" {
 			result["default_video_model"] = encoded
 		}
@@ -913,7 +920,7 @@ func (h *ModelProviderHandler) normalizedProviders() ([]model.ModelProviderConfi
 	return configs, nil
 }
 
-func aggregateModelProviders(configs []model.ModelProviderConfig) gin.H {
+func aggregateModelProviders(configs []model.ModelProviderConfig, resolvers ...func(string) string) gin.H {
 	all := make([]string, 0)
 	byCapability := map[string][]string{
 		model.ModelCapabilityText:  {},
@@ -926,6 +933,7 @@ func aggregateModelProviders(configs []model.ModelProviderConfig) gin.H {
 	modelProviderNames := make(map[string]string)
 	videoModelProtocols := make(map[string]string)
 	videoModelDurations := make(map[string][]float64)
+	videoCapabilities := make(map[string]videoModelCapabilities)
 	imageModelProtocols := make(map[string]string)
 	agentTextModels := make([]string, 0)
 	for _, config := range configs {
@@ -947,7 +955,12 @@ func aggregateModelProviders(configs []model.ModelProviderConfig) gin.H {
 				modelProviderNames[encoded] = config.Name
 				if capability == model.ModelCapabilityVideo {
 					videoModelProtocols[encoded] = catalogVideoProtocol(config, modelID)
-					if durations := catalogVideoDurations(modelID); len(durations) > 0 {
+					family := modelID
+					if len(resolvers) > 0 && resolvers[0] != nil {
+						family = capabilityModelID(modelID, resolvers[0])
+					}
+					videoCapabilities[encoded] = catalogVideoCapabilities(family)
+					if durations := catalogVideoDurations(family); len(durations) > 0 {
 						videoModelDurations[encoded] = durations
 					}
 				}
@@ -969,21 +982,22 @@ func aggregateModelProviders(configs []model.ModelProviderConfig) gin.H {
 		}
 	}
 	return gin.H{
-		"models":                uniqueStrings(all),
-		"text_models":           uniqueStrings(byCapability[model.ModelCapabilityText]),
-		"agent_text_models":     uniqueStrings(agentTextModels),
-		"image_models":          uniqueStrings(byCapability[model.ModelCapabilityImage]),
-		"video_models":          uniqueStrings(byCapability[model.ModelCapabilityVideo]),
-		"audio_models":          uniqueStrings(byCapability[model.ModelCapabilityAudio]),
-		"default_text_model":    defaults[model.ModelCapabilityText],
-		"default_image_model":   defaults[model.ModelCapabilityImage],
-		"default_video_model":   defaults[model.ModelCapabilityVideo],
-		"default_audio_model":   defaults[model.ModelCapabilityAudio],
-		"model_labels":          modelLabels,
-		"model_provider_names":  modelProviderNames,
-		"video_model_protocols": videoModelProtocols,
-		"video_model_durations": videoModelDurations,
-		"image_model_protocols": imageModelProtocols,
+		"models":                   uniqueStrings(all),
+		"text_models":              uniqueStrings(byCapability[model.ModelCapabilityText]),
+		"agent_text_models":        uniqueStrings(agentTextModels),
+		"image_models":             uniqueStrings(byCapability[model.ModelCapabilityImage]),
+		"video_models":             uniqueStrings(byCapability[model.ModelCapabilityVideo]),
+		"audio_models":             uniqueStrings(byCapability[model.ModelCapabilityAudio]),
+		"default_text_model":       defaults[model.ModelCapabilityText],
+		"default_image_model":      defaults[model.ModelCapabilityImage],
+		"default_video_model":      defaults[model.ModelCapabilityVideo],
+		"default_audio_model":      defaults[model.ModelCapabilityAudio],
+		"model_labels":             modelLabels,
+		"model_provider_names":     modelProviderNames,
+		"video_model_protocols":    videoModelProtocols,
+		"video_model_durations":    videoModelDurations,
+		"video_model_capabilities": videoCapabilities,
+		"image_model_protocols":    imageModelProtocols,
 	}
 }
 

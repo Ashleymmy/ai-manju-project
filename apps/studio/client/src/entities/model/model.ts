@@ -15,6 +15,7 @@ export type AiModelsResponse = {
   model_provider_names?: Record<string, string>;
   video_model_protocols?: Record<string, "seedance" | "openai">;
   video_model_durations?: Record<string, number[]>;
+  video_model_capabilities?: Record<string, import("./videoCapabilities").VideoModelCapabilities>;
   image_model_protocols?: Record<string, string>;
 };
 

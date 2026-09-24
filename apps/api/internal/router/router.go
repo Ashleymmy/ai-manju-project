@@ -143,6 +143,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	}
 	assetExportHandler := handler.NewAssetExportHandler(assetExportService)
 	modelProviderHandler := handler.NewModelProviderHandler(repos.modelProviderRepo, secretBox, cfg.AppSecret)
+	modelProviderHandler.SetVideoModelFamilyResolver(service.NewCreditPricer(repos.billingRepo).ResolveModelFamily)
 	comicAssetService := service.NewComicAssetService(repos.comicAssetRepo, jobService)
 	comicAssetService.SetSourceStorage(assetStore)
 	comicAssetService.SetReferenceServices(assetService, jobInputService)

@@ -66,6 +66,10 @@ func (h *JobHandler) Retry(c *gin.Context) {
 		response.Error(c, 403, err.Error())
 		return
 	}
+	if err := validateSDVideoCapabilities(c, h.sdVideo, stringFromAny(payload["model"]), payload); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	payload["idempotency_key"], payload["retry_of"] = "retry:"+previous.ID, previous.ID
 	if previous.ExternalTaskID != "" {
 		payload["retry_task_id"] = previous.ExternalTaskID

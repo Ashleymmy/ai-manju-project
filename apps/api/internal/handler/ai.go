@@ -431,7 +431,7 @@ func (h *AIHandler) VideoTaskCreate(c *gin.Context) {
 		writeProviderError(c, config.BaseURL, errors.New("video model is not configured"))
 		return
 	}
-	if err := validateCatalogVideoDuration(modelID, payloadMap["seconds"]); err != nil {
+	if err := h.providerHandler.videoCapabilities(modelID).validate(payloadMap); err != nil {
 		h.cleanupStagedInputs(c, workspaceID, stagedInputs)
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return

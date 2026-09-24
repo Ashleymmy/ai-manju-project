@@ -2,6 +2,7 @@ import { modelDisplayName, pickDefaultImageModel, visibleImageModels } from "@/s
 import { request } from "@/shared/api/http";
 import { replaceVideoModelProtocols } from "./videoProtocol";
 import { replaceVideoModelDurations } from "./videoDuration";
+import { replaceVideoModelCapabilities } from "./videoCapabilities";
 import { replaceImageModelProtocols } from "./imageProtocol";
 
 import type {
@@ -17,6 +18,7 @@ export async function fetchModelCatalog(): Promise<ModelCatalog> {
   const modelLabels = normalizeStringRecord(data.model_labels);
   replaceVideoModelProtocols(data.video_model_protocols, modelLabels);
   replaceVideoModelDurations(data.video_model_durations);
+  replaceVideoModelCapabilities(data.video_model_capabilities);
   replaceImageModelProtocols(data.image_model_protocols);
   const models = normalizeModelList(data.models);
   const textModels = normalizeModelList(

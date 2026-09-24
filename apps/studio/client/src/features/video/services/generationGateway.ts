@@ -1,6 +1,7 @@
 import { getAssetMediaUrl } from "@/entities/asset";
 import { getJob, isTerminalJob, jobErrorMessage, type Job } from "@/entities/job";
 import { fetchModelCatalog, videoModelLabel, videoModelProtocol, videoModelDurations, normalizeVideoDuration, hasVideoDurationCatalog } from "@/entities/model";
+import { videoModelCapabilities, videoOptionAvailable } from "@/entities/model/videoCapabilities";
 import { API_BASE_URL, ApiError, getAuthToken, request } from "@/shared/api/http";
 import type { WorkspaceScope } from "@/shared/config";
 import { createRandomUUID } from "@/shared/lib/cryptoRandomUuid";
@@ -172,6 +173,12 @@ const seedance25ReferenceLimits = {
 } as const;
 
 export function videoReferenceLimitsForModel(model: string) {
+  const capabilities = videoModelCapabilities(model);
+  if (capabilities.references) {
+    const refs = capabilities.references;
+    const base = refs.images > videoReferenceLimits.images ? seedance25ReferenceLimits : videoReferenceLimits;
+    return { ...base, images: refs.images, videos: refs.videos, audios: refs.audios, audioOnly: refs.audio_only };
+  }
   if (h3VideoSettings(model)) return { ...videoReferenceLimits, images: 9, videos: 0, audios: 0 };
   const name = modelOptionName(model);
   // Labels identify opaque Ark endpoints, never override an explicit 2.0/Wan ID.
@@ -235,14 +242,16 @@ export function normalizeVideoGenerationConfig(config: VideoGenerationConfig): V
   }
   // 未选择模型时保留工作台默认比例；时长能力始终来自模型目录。
   const seedance = !config.model.trim() || isSeedanceVideoModel(config.model);
+  const capabilities = videoModelCapabilities(config.model);
+  const ratio = seedance ? normalizeSeedanceRatio(config.size) : normalizeVideoSizeValue(config.size);
   return {
     model: config.model.trim(),
-    size: seedance ? normalizeSeedanceRatio(config.size) : normalizeVideoSizeValue(config.size),
+    size: videoOptionAvailable(config.model, "ratios", ratio) ? ratio : capabilities.ratios?.[0] || ratio,
     resolution: seedance
       ? normalizeSeedanceResolution(config.resolution, config.model)
       : normalizeVideoResolutionName(config.resolution),
     seconds: normalizeVideoDuration(config.model, config.seconds),
-    generateAudio: Boolean(config.generateAudio),
+    generateAudio: capabilities.has_audio === false ? false : Boolean(config.generateAudio),
     watermark: Boolean(config.watermark),
   };
 }
@@ -264,7 +273,10 @@ export function normalizeVideoResolutionName(value: string) {
 
 export function normalizeSeedanceResolution(value: string, model = "") {
   const normalized = normalizeVideoResolutionName(value);
-  if (isSeedanceFastVideoModel(model) && normalized === "1080p") return "720p";
+  if (!videoOptionAvailable(model, "resolutions", normalized)) {
+    const choices = videoModelCapabilities(model).resolutions || [];
+    return choices.find(item => item.toLowerCase() === "720p")?.toLowerCase() || choices[0]?.toLowerCase() || "720p";
+  }
   return seedanceResolutions.includes(normalized as (typeof seedanceResolutions)[number]) ? normalized : "720p";
 }
 
@@ -311,6 +323,9 @@ export async function createVideoGenerationTask(
   if (supportedDurations.length && !supportedDurations.includes(Number(config.seconds))) {
     throw new Error("所选时长不在当前模型支持范围内，请重新选择时长");
   }
+  // Reject stale/raw submissions before normalization, upload or credit freeze.
+  if (!h3VideoSettings(config.model) && !videoOptionAvailable(config.model, "resolutions", normalizeVideoResolutionName(config.resolution))) throw new Error("当前模型不支持所选分辨率，请重新选择");
+  if (!videoOptionAvailable(config.model, "ratios", config.size)) throw new Error("当前模型不支持所选比例，请重新选择");
   const normalized = normalizeVideoGenerationConfig(config);
   const referenceSnapshot = normalizeReferences(references);
   if (!normalized.model) throw new Error("请先配置视频模型");
@@ -333,6 +348,14 @@ export function validateVideoGenerationReferences(
   const seedance = isSeedanceVideoModel(model);
   const limits = videoReferenceLimitsForModel(model);
   const h3 = h3VideoSettings(model);
+  const capabilities = videoModelCapabilities(model);
+  const frames = references.images.filter(item => item.role === "first_frame" || item.role === "last_frame");
+  const regular = references.images.length - frames.length + references.videos.length + references.audios.length;
+  if (capabilities.frames_exclusive && frames.length && regular) throw new Error("当前模型的首尾帧不能与普通参考素材同时使用，请选择一种方式");
+  for (const item of [...references.images, ...references.videos, ...references.audios]) {
+    const role = ("role" in item && item.role) || `reference_${item.kind}`;
+    if (!videoOptionAvailable(model, "supports", role)) throw new Error("当前模型不支持该参考素材类型，请移除后重试");
+  }
   if (h3 && !references.images.length) throw new Error("H3 多参考图生需要至少 1 张参考图片");
   if (references.images.length > limits.images) throw new Error(`参考图片最多 ${limits.images} 张`);
   if (references.videos.length > limits.videos) throw new Error(`参考视频最多 ${limits.videos} 个`);

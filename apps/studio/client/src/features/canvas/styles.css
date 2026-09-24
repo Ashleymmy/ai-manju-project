@@ -146,6 +146,8 @@
 .canvas-image-tool-grid button svg { flex-shrink: 0; }
 .canvas-image-tool-grid button:hover { border-color: rgba(255, 255, 255, 0.67); background: rgba(255,255,255,.11); color: #f6f6f6; }
 .canvas-image-tool-grid button:disabled { opacity: .5; cursor: wait; }
+/* Unsupported model options remain visible but cannot be selected. */
+.param-segments button:disabled, .param-ratio-grid button:disabled { opacity: .35; cursor: not-allowed; pointer-events: none; }
 .canvas-image-tool-layout { display: grid; grid-template-columns: minmax(0,1.05fr) minmax(260px,.95fr); gap: 16px; min-height: 330px; }
 .canvas-image-tool-preview { display: grid; place-items: center; min-height: 330px; overflow: hidden; border: 1px solid var(--line); background: #0c1112; }
 .canvas-image-tool-preview img { display: block; max-width: 100%; max-height: 430px; object-fit: contain; }

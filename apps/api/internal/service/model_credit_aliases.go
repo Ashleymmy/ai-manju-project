@@ -52,3 +52,9 @@ func (p *CreditPricer) creditModelName(requested string) string {
 	}
 	return name
 }
+
+// ResolveModelFamily uses stable IDs and administrator mappings, never display names.
+// Capability discovery shares this identity mapping without depending on prices.
+func (p *CreditPricer) ResolveModelFamily(requested string) string {
+	return p.creditModelName(requested)
+}

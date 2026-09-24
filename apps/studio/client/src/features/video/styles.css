@@ -1042,6 +1042,7 @@
 .wb-segments button:hover:not(:disabled) { color: #e5e4db; }
 .wb-segments button.active { background: rgba(255, 255, 255, 0.85); color: #fff; }
 .wb-segments button:disabled { opacity: 0.35; cursor: default; }
+.wb-toggle:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* ---- 娴犺濮熼崢鍡楀蕉 / 瀹搞儱鍙跨粻?---- */
 .wb-history,
