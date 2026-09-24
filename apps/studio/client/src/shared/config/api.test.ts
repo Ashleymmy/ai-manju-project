@@ -40,10 +40,12 @@ describe("API runtime config", () => {
     expect(normalizeApiBaseUrl("http://custom-api:3101/")).toBe("http://custom-api:3101");
   });
 
-  it("preserves the production fallback when no API is configured", () => {
+  it("uses same-origin in production when the API build setting is omitted", () => {
     vi.stubEnv("DEV", false);
     vi.stubGlobal("window", { location: { origin: "https://studio.example.com" } });
-    expect(normalizeApiBaseUrl(undefined)).toBe(DEFAULT_API_BASE_URL);
+    expect(normalizeApiBaseUrl(undefined)).toBe("https://studio.example.com");
+    expect(normalizeApiBaseUrl("")).toBe("https://studio.example.com");
+    expect(new URL(`${normalizeApiBaseUrl(undefined)}/api/auth/login`).pathname).toBe("/api/auth/login");
   });
 
   it("resolves the same-origin build option without a localhost fallback", async () => {
