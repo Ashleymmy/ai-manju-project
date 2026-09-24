@@ -86,8 +86,10 @@ func (g *EntitlementGate) CheckAdmission(userID string, jobType string) error {
 		types = []string{model.JobTypeImageGenerate, model.JobTypeImageEdit}
 		limit, err = g.ImageConcurrency(userID)
 	case jobType == model.JobTypeVideoGenerate:
-		types = []string{model.JobTypeVideoGenerate}
-		limit, err = g.VideoConcurrency(userID)
+		// Video submissions are durable queue entries. Provider/global capacity
+		// is enforced when workers claim a slot; never reject the user's request
+		// merely because another video is still running.
+		return nil
 	default:
 		return nil // 转码等非计费类型不设准入
 	}

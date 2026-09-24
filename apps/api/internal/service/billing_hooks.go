@@ -44,7 +44,10 @@ func (h *BillingHooks) ConcurrentLimitForJob(userID, jobType string) (int, error
 	case model.JobTypeImageGenerate, model.JobTypeImageEdit:
 		return h.gate.ImageConcurrency(userID)
 	case model.JobTypeVideoGenerate:
-		return h.gate.VideoConcurrency(userID)
+		// Video jobs are durable queue entries.  Provider capacity is enforced by
+		// the worker/SD-video gate, so a user's membership concurrency value must
+		// never reject creation of a queued video job.
+		return 0, nil
 	default:
 		return 0, nil
 	}
@@ -84,7 +87,7 @@ func (h *BillingHooks) NormalizePayloadForJob(userID string, jobType string, pay
 
 // ReserveForJob 先过并发准入（WP-M6），再冻结积分（WP-M3）。
 func (h *BillingHooks) ReserveForJob(userID string, jobType string, jobID string, payload model.JSONB) error {
-	if h.gate != nil {
+	if h.gate != nil && jobType != model.JobTypeVideoGenerate {
 		if err := h.gate.CheckAdmission(userID, jobType); err != nil {
 			return err
 		}

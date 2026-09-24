@@ -90,10 +90,10 @@ func TestEntitlementConcurrencyLimitsByTier(t *testing.T) {
 		t.Fatalf("member at 4/4 err = %v, want limit exceeded", err)
 	}
 
-	// 视频并发独立计算：免费 1 路。
+	// 视频提交进入持久队列，不因免费账户已有运行任务而拒绝。
 	fx.enqueueJob(t, "free_user", model.JobTypeVideoGenerate, model.JobStatusQueued)
-	if err := fx.gate.CheckAdmission("free_user", model.JobTypeVideoGenerate); !errors.Is(err, ErrConcurrencyLimitExceeded) {
-		t.Fatalf("free user at 1 video job err = %v, want limit exceeded", err)
+	if err := fx.gate.CheckAdmission("free_user", model.JobTypeVideoGenerate); err != nil {
+		t.Fatalf("free user queued video err = %v, want nil", err)
 	}
 }
 

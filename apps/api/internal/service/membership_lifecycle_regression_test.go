@@ -269,7 +269,7 @@ func TestMembershipLifecycleRegression(t *testing.T) {
 					t.Fatalf("expired membership retains %d credits after retry; want 0", v.LimitedAvailable)
 				}
 			})
-			t.Run("ConcurrentVideoAdmissionHonorsLimit", func(t *testing.T) {
+			t.Run("ConcurrentVideoAdmissionQueuesPastMembershipLimit", func(t *testing.T) {
 				f := newLifecycleFixture(t, backend.db)
 				if _, err := f.engine.RechargePermanent(f.user, 1000, f.user+"_fund"); err != nil {
 					t.Fatal(err)
@@ -298,8 +298,8 @@ func TestMembershipLifecycleRegression(t *testing.T) {
 				for err := range errs {
 					t.Fatal(err)
 				}
-				if accepted.Load() > int32(model.FreeVideoConcurrency) {
-					t.Fatalf("accepted %d simultaneous video jobs; free tier limit=%d", accepted.Load(), model.FreeVideoConcurrency)
+				if accepted.Load() != 2 {
+					t.Fatalf("accepted %d video jobs; queued video submissions should not be rejected by the membership limit", accepted.Load())
 				}
 			})
 			t.Run("ReconcilerReachesCompletedJobsPastRunningBatch", func(t *testing.T) {
