@@ -1696,10 +1696,13 @@ export class CanvasGenerationJobsController {
     const inputs = node.metadata?.status === "error" && !context.inputs.length && !extractCanvasMentionTokens(context.prompt).length
       ? canvasGenerationInputsFromVideoSnapshot({ items: canvasVideoReferenceSnapshot(node.metadata.videoReferenceInputs).items.filter(item => item.nodeId !== node.id) }, nodes)
       : context.inputs;
-    const prepared = await this.prepareValidatedVideoReferences(inputs, node, config, scope, signal);
+    // Selecting a node must not download every reference just to enable Generate.
+    // Full file/metadata validation still runs before submission in both generate
+    // and retry; this passive check only validates locally available constraints.
+    const registered = canvasSeedanceVideoReferences(node.metadata?.seedanceMaterialAssets, node.metadata?.seedanceVolcanoAssets);
+    validateVideoReferenceLayout(canvasVideoReferenceLayout(inputs, registered), config.model);
     this.assertSession(signal, projectKey);
-    return prepared.snapshot.items.filter(item => item.type === "audio" || item.type === "video")
-      .map(item => `${item.title}：${"durationMs" in item && item.durationMs ? `${(item.durationMs / 1000).toFixed(2)} 秒` : "平台已注册素材"}`);
+    return [];
   };
 
   private async prepareValidatedVideoReferences(inputs: ReturnType<typeof buildCanvasGenerationInputs>, node: CanvasNodeData,

@@ -425,7 +425,7 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.nodes.map(node => node.title)).toEqual(["测试画布image-1", "测试画布image-2", "测试画布image-3", "测试画布image-4"]);
   });
 
-  it.each(["inspect", "generate", "retry"] as const)("rejects long audio in %s before creating jobs or changing nodes", async entry => {
+  it.each(["generate", "retry"] as const)("rejects long audio in %s before creating jobs or changing nodes", async entry => {
     const target = videoNode({ metadata: { model: "seedance-2.0", prompt: "animate", generationMode: "video", status: "success", assetId: "previous" } });
     const audio = audioNode({ imageSrc: "https://example.test/long.wav" });
     const image = imageNode({ imageSrc: "https://example.test/image.png" });
@@ -437,8 +437,7 @@ describe("CanvasGenerationJobsController", () => {
     const harness = createHarness([target, audio, image], services);
     harness.setEdges([{ id: "audio", from: audio.id, to: target.id }, { id: "image", from: image.id, to: target.id }]);
     const original = structuredClone(harness.nodes);
-    if (entry === "inspect") await expect(harness.controller.preflightVideoNode(target.id, new AbortController().signal)).rejects.toThrow("当前为 20.00 秒");
-    else if (entry === "generate") await harness.controller.generateVideoFromNode(target.id);
+    if (entry === "generate") await harness.controller.generateVideoFromNode(target.id);
     else await harness.controller.retryVideoNode(target);
     expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
     expect(services.uploadAsset).not.toHaveBeenCalled();
@@ -446,7 +445,7 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.nodes).toEqual(original);
   });
 
-  it("rejects unsupported audio before downloading it and reuses readable audio when the model changes", async () => {
+  it("checks reference types without downloading media while inspecting a node", async () => {
     const target = videoNode({ metadata: { model: "openai::video", prompt: "animate", generationMode: "video" } });
     const audio = audioNode({ imageSrc: "https://example.test/long.wav" });
     const image = imageNode({ imageSrc: "https://example.test/image.png" });
@@ -461,11 +460,10 @@ describe("CanvasGenerationJobsController", () => {
     await expect(inspect()).rejects.toThrow("仅支持参考图片");
     expect(services.fetchBlob).not.toHaveBeenCalled();
     target.metadata!.model = "seedance-2.0";
-    await expect(inspect()).rejects.toThrow("当前为 20.00 秒");
-    const reads = vi.mocked(services.fetchBlob).mock.calls.length;
+    await expect(inspect()).resolves.toEqual([]);
     target.metadata!.model = "seedance-2.5";
-    await expect(inspect()).resolves.toEqual(["空音频节点：20.00 秒"]);
-    expect(services.fetchBlob).toHaveBeenCalledTimes(reads);
+    await expect(inspect()).resolves.toEqual([]);
+    expect(services.fetchBlob).toHaveBeenCalledTimes(0);
     expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
   });
 

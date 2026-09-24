@@ -1,6 +1,8 @@
 import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
 import { CanvasVideoPreflight } from "./CanvasVideoPreflight";
 import { useVideoPreflight, type VideoPreflightCheck } from "../controllers/useVideoPreflight";
+import { buildCanvasGenerationInputs } from "../domain/connections";
+import { extractCanvasMentionTokens } from "../domain/mentions";
 import { IMAGE_GENERATION_COUNTS } from "@/shared/config/generation";
 import { imageModelSupportsDetail } from "@/entities/model/imageProtocol";
 import { videoModelCapabilities, videoOptionAvailable } from "@/entities/model/videoCapabilities";
@@ -312,14 +314,18 @@ export function CanvasInspector({
     startPanelResize,
   } = actions;
   const promptReferences = selectedNode ? mentionReferencesForNode(selectedNode.id) : [];
+  const preflightNodeIds = new Set(selectedNode ? [selectedNode.id,
+    ...buildCanvasGenerationInputs(selectedNode.id, nodes, edges).map(input => input.nodeId),
+    ...extractCanvasMentionTokens(promptTextFromNode(selectedNode)).filter(token => token.source === "node").map(token => token.targetId),
+  ] : []);
   // Positions/selection do not change media compatibility. Source contents,
   // references, model parameters and graph connections do.
   const videoPreflightKey = selectedGenerationMode === "video" ? JSON.stringify([
     preflightProjectKey, selectedNode?.id, selectedVideoConfig, videoModelCapabilities(selectedVideoConfig?.model || ""),
-    nodes.map(node => [node.id, node.kind, node.title, node.content, node.imageSrc, node.imageAssetId, node.metadata?.assetId, node.metadata?.assetScope,
+    nodes.filter(node => preflightNodeIds.has(node.id)).map(node => [node.id, node.kind, node.title, node.content, node.imageSrc, node.imageAssetId, node.metadata?.assetId, node.metadata?.assetScope,
       node.metadata?.content, node.metadata?.composerContent, node.metadata?.prompt, node.metadata?.status,
       node.metadata?.seedanceMaterialAssets, node.metadata?.seedanceVolcanoAssets, node.metadata?.videoReferenceInputs]),
-    edges.map(edge => [edge.from, edge.to]),
+    edges.filter(edge => edge.to === selectedNode?.id).map(edge => [edge.from, edge.to]),
   ]) : "";
   const videoPreflight = useVideoPreflight(inspectorOpen && !selectedGroup && !projectActionDisabled && selectedGenerationMode === "video" ? selectedNode?.id || "" : "", videoPreflightKey, preflightVideoNode);
   const imageSettingsIssue = selectedNode && selectedGenerationMode === "image" ? canvasImageGenerationSettingsIssue(selectedNode) : "";

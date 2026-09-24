@@ -36,3 +36,27 @@ it("blocks until checked, ignores stale results and permits retry without genera
     expect(host.querySelector("button")!.disabled).toBe(true);
   } finally { await act(async () => root.unmount()); }
 });
+
+it("releases a slow passive check after three seconds and ignores its late result", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); vi.useFakeTimers();
+  const host = document.createElement("div"); const root = createRoot(host);
+  let signal!: AbortSignal;
+  let resolve!: (value: string[]) => void;
+  const check: VideoPreflightCheck = (_id, currentSignal) => {
+    signal = currentSignal;
+    return new Promise(done => { resolve = done; });
+  };
+  function Harness() {
+    const state = useVideoPreflight("video", "same", check);
+    return <><button disabled={state.blocked}>生成</button><p>{state.message}</p></>;
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(signal.aborted).toBe(true);
+    expect(host.querySelector("button")!.disabled).toBe(false);
+    expect(host.textContent).toContain("提交前将校验参考素材");
+    await act(async () => resolve(["late"]));
+    expect(host.textContent).toContain("提交前将校验参考素材");
+  } finally { await act(async () => root.unmount()); }
+});
