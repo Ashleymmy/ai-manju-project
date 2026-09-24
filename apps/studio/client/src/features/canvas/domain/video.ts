@@ -12,6 +12,10 @@ import type { CanvasGenerationInput } from "./connections";
 type MediaInput = CanvasGenerationInput & { type: "image" | "video" | "audio" };
 type MediaKind = MediaInput["type"];
 
+// Read a small number of references together without flooding storage or
+// decoding every large video simultaneously. Preserve input order below.
+const VIDEO_REFERENCE_READ_CONCURRENCY = 4;
+
 export type CanvasVideoReferenceSnapshotItem =
   | {
       nodeId: string;
@@ -163,7 +167,26 @@ export async function hydrateCanvasVideoReferences(
   };
   const snapshot: CanvasVideoReferenceSnapshot = { items: [] };
 
-  for (const input of uniqueGenerationInputs(inputs)) {
+  const uniqueInputs = uniqueGenerationInputs(inputs);
+  const hydratedMedia = new Map<number, Awaited<ReturnType<typeof hydrateMediaInput>>>();
+  let nextIndex = 0;
+  let failed = false;
+  await Promise.all(Array.from({ length: Math.min(VIDEO_REFERENCE_READ_CONCURRENCY, uniqueInputs.length) }, async () => {
+    while (!failed) {
+      const index = nextIndex++;
+      const input = uniqueInputs[index];
+      if (!input) return;
+      if (input.type === "text") continue;
+      try {
+        hydratedMedia.set(index, await hydrateMediaInput(input as MediaInput, hydrators));
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    }
+  }));
+
+  for (const [index, input] of uniqueInputs.entries()) {
     if (input.type === "text") {
       snapshot.items.push({
         nodeId: input.nodeId,
@@ -175,7 +198,7 @@ export async function hydrateCanvasVideoReferences(
       continue;
     }
 
-    const hydrated = await hydrateMediaInput(input as MediaInput, hydrators);
+    const hydrated = hydratedMedia.get(index)!;
     snapshot.items.push(hydrated.snapshot);
     if (hydrated.reference.kind === "image")
       references.images.push(hydrated.reference);

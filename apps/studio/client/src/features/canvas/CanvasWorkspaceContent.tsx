@@ -4705,8 +4705,6 @@ export default function CanvasWorkspaceViewContent() {
         />
 
         <CanvasInspector
-          preflightProjectKey={projectSessionController.canonicalKey}
-          preflightVideoNode={generationController.preflightVideoNode}
           seedanceRegistrationState={selectedNode ? seedanceRegistrationStates[seedanceRegistrationKey(projectSessionController.canonicalKey, selectedNode)] : undefined}
           panelRef={panelRef}
           selectedNode={selectedNode}

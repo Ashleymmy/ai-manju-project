@@ -20,7 +20,7 @@ describe("Inspector connected thumbnails", () => {
   let preview: ReturnType<typeof vi.fn>;
   let generate: ReturnType<typeof vi.fn>;
   let disconnect: ReturnType<typeof vi.fn>;
-  function Harness({ kind = "image", id = "target" }: { kind?: CanvasNodeKind; id?: string }) {
+  function Harness({ kind = "image", id = "target", videoMode = false }: { kind?: CanvasNodeKind; id?: string; videoMode?: boolean }) {
     const [prompts, setPrompts] = useState<Record<string, string>>({ target: "原提示词", second: "另一节点" });
     const selected: CanvasNodeData = { id, kind, title: id, content: "", x: 400, y: 0, width: 320, height: 240, metadata: { composerContent: prompts[id] } };
     const ancestor: CanvasNodeData = { ...source, id: "ancestor", title: "更前置的参考图" };
@@ -44,7 +44,7 @@ describe("Inspector connected thumbnails", () => {
     return <>
       <CanvasInspector panelRef={createRef()} selectedNode={selected} inspectorOpen projectActionDisabled={false}
         selectedPanelStyle={{ display: "block" }} nodes={nodes} edges={edges} previews={{}} visiblePromptPresets={[]}
-        imageToolBusy={false} storyboardBusy={false} selectedGenerationMode="image" selectedGenerationModel="" selectedGenerationModelLabel=""
+        imageToolBusy={false} storyboardBusy={false} selectedGenerationMode={videoMode ? "video" : "image"} selectedGenerationModel="" selectedGenerationModelLabel=""
         generationModelOptions={[]} selectedVideoConfig={null} selectedVideoSeedance={false} selectedVideoDurations={[]}
         selectedVideoResolutions={[]} selectedVideoRatios={[]} selectedAudioConfig={null} audioVoiceOptions={[]} audioFormatOptions={[]}
         runningGroupId="" runningNodeIds={new Set()} captureFrameNodeId="" styleCategory="" promptOptimizing={false} enabledSkills={[]} actions={actions} />
@@ -66,6 +66,16 @@ describe("Inspector connected thumbnails", () => {
   });
   const thumbnail = () => container.querySelector<HTMLButtonElement>(".canvas-connected-preview")!;
   const textarea = () => container.querySelector<HTMLTextAreaElement>("textarea.node-card-prompt")!;
+
+  it("lets a video node submit immediately without a passive preflight gate", async () => {
+    await act(async () => root.render(<Harness kind="video" videoMode />));
+    expect(container.querySelector(".canvas-video-preflight")).toBeNull();
+    const submit = container.querySelector<HTMLButtonElement>(".node-send-button")!;
+    expect(submit).not.toBeNull();
+    expect(submit.disabled).toBe(false);
+    await act(async () => submit.click());
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
 
   it.each(kinds)("disconnects only the thumbnail's source and selected %s node without inserting a mention", async kind => {
     await act(async () => root.render(<Harness kind={kind} />));

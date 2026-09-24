@@ -1,8 +1,4 @@
 import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
-import { CanvasVideoPreflight } from "./CanvasVideoPreflight";
-import { useVideoPreflight, type VideoPreflightCheck } from "../controllers/useVideoPreflight";
-import { buildCanvasGenerationInputs } from "../domain/connections";
-import { extractCanvasMentionTokens } from "../domain/mentions";
 import { IMAGE_GENERATION_COUNTS } from "@/shared/config/generation";
 import { imageModelSupportsDetail } from "@/entities/model/imageProtocol";
 import { videoModelCapabilities, videoOptionAvailable } from "@/entities/model/videoCapabilities";
@@ -184,8 +180,6 @@ export type CanvasInspectorActions = {
 };
 
 export type CanvasInspectorProps = {
-  preflightProjectKey?: string;
-  preflightVideoNode?: VideoPreflightCheck;
   seedanceRegistrationState?: SeedanceRegistrationState;
   panelRef: RefObject<HTMLElement | null>;
   selectedNode?: CanvasNodeData;
@@ -222,8 +216,6 @@ export type CanvasInspectorProps = {
 };
 
 export function CanvasInspector({
-  preflightProjectKey,
-  preflightVideoNode,
   seedanceRegistrationState,
   panelRef,
   selectedNode,
@@ -314,23 +306,9 @@ export function CanvasInspector({
     startPanelResize,
   } = actions;
   const promptReferences = selectedNode ? mentionReferencesForNode(selectedNode.id) : [];
-  const preflightNodeIds = new Set(selectedNode ? [selectedNode.id,
-    ...buildCanvasGenerationInputs(selectedNode.id, nodes, edges).map(input => input.nodeId),
-    ...extractCanvasMentionTokens(promptTextFromNode(selectedNode)).filter(token => token.source === "node").map(token => token.targetId),
-  ] : []);
-  // Positions/selection do not change media compatibility. Source contents,
-  // references, model parameters and graph connections do.
-  const videoPreflightKey = selectedGenerationMode === "video" ? JSON.stringify([
-    preflightProjectKey, selectedNode?.id, selectedVideoConfig, videoModelCapabilities(selectedVideoConfig?.model || ""),
-    nodes.filter(node => preflightNodeIds.has(node.id)).map(node => [node.id, node.kind, node.title, node.content, node.imageSrc, node.imageAssetId, node.metadata?.assetId, node.metadata?.assetScope,
-      node.metadata?.content, node.metadata?.composerContent, node.metadata?.prompt, node.metadata?.status,
-      node.metadata?.seedanceMaterialAssets, node.metadata?.seedanceVolcanoAssets, node.metadata?.videoReferenceInputs]),
-    edges.filter(edge => edge.to === selectedNode?.id).map(edge => [edge.from, edge.to]),
-  ]) : "";
-  const videoPreflight = useVideoPreflight(inspectorOpen && !selectedGroup && !projectActionDisabled && selectedGenerationMode === "video" ? selectedNode?.id || "" : "", videoPreflightKey, preflightVideoNode);
   const imageSettingsIssue = selectedNode && selectedGenerationMode === "image" ? canvasImageGenerationSettingsIssue(selectedNode) : "";
-  const generationBlocked = videoPreflight.blocked || Boolean(imageSettingsIssue);
-  const generationBlockedMessage = imageSettingsIssue || videoPreflight.message;
+  const generationBlocked = Boolean(imageSettingsIssue);
+  const generationBlockedMessage = imageSettingsIssue;
   const connectedSources = selectedNode
     ? edges
       .filter((edge) => edge.to === selectedNode.id)
@@ -628,8 +606,6 @@ export function CanvasInspector({
                   )}
                 </div>
               </div>
-
-              {selectedGenerationMode === "video" ? <CanvasVideoPreflight model={selectedVideoConfig?.model || selectedGenerationModel} state={videoPreflight} onRetry={videoPreflight.retry} /> : null}
               {imageSettingsIssue ? <p role="alert" className="px-3 py-2 text-xs text-amber-300">{imageSettingsIssue}</p> : null}
               <div className="node-card-ops">
                 {/* 暂时隐藏「从此节点连接」入口（需求暂定，后期恢复时取消本行与顶部 Link2 导入的注释）

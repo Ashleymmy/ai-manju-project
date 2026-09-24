@@ -425,26 +425,44 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.nodes.map(node => node.title)).toEqual(["测试画布image-1", "测试画布image-2", "测试画布image-3", "测试画布image-4"]);
   });
 
-  it.each(["generate", "retry"] as const)("rejects long audio in %s before creating jobs or changing nodes", async entry => {
-    const target = videoNode({ metadata: { model: "seedance-2.0", prompt: "animate", generationMode: "video", status: "success", assetId: "previous" } });
-    const audio = audioNode({ imageSrc: "https://example.test/long.wav" });
-    const image = imageNode({ imageSrc: "https://example.test/image.png" });
-    const services = createServices({
-      fetchBlob: vi.fn(async url => new Blob(["media"], { type: url.endsWith("wav") ? "audio/wav" : "image/png" })),
-      readAudioMetadata: vi.fn(async () => ({ durationMs: 20000 })),
-      readImageMetadata: vi.fn(async () => ({ width: 512, height: 512 })),
+  it.each(["generate", "retry"] as const)("keeps slow video references readable after 20 seconds during %s", async entry => {
+    vi.useFakeTimers();
+    let release!: (url: string) => void;
+    let readSignal: AbortSignal | undefined;
+    const referenceReady = new Promise<string>(resolve => { release = resolve; });
+    const services = videoHistoryServices();
+    services.getAssetContentObjectUrl = vi.fn((_id, _scope, _options, signal) => {
+      readSignal = signal;
+      return referenceReady;
     });
-    const harness = createHarness([target, audio, image], services);
-    harness.setEdges([{ id: "audio", from: audio.id, to: target.id }, { id: "image", from: image.id, to: target.id }]);
-    const original = structuredClone(harness.nodes);
-    if (entry === "generate") await harness.controller.generateVideoFromNode(target.id);
-    else await harness.controller.retryVideoNode(target);
-    expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
-    expect(services.uploadAsset).not.toHaveBeenCalled();
-    expect(harness.persistSnapshot).not.toHaveBeenCalled();
-    expect(harness.nodes).toEqual(original);
+    services.fetchBlob = vi.fn(async () => new Blob(["image"], { type: "image/png" }));
+    services.readImageMetadata = vi.fn(async () => ({ width: 512, height: 512 }));
+    const target = videoNode({ metadata: { prompt: "animate", generationMode: "video", status: "success", assetId: "previous" } });
+    const reference = imageNode({ id: "reference", imageAssetId: "reference-asset" });
+    const harness = createHarness([target, reference], services);
+    harness.setEdges([{ id: "reference-edge", from: reference.id, to: target.id }]);
+    try {
+      const running = entry === "generate"
+        ? harness.controller.generateVideoFromNode(target.id)
+        : harness.controller.retryVideoNode(target);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(services.getAssetContentObjectUrl).toHaveBeenCalledOnce();
+      expect(readSignal).toBeDefined();
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(readSignal!.aborted).toBe(false);
+      expect(harness.onError).not.toHaveBeenCalled();
+      expect(harness.onWarning).not.toHaveBeenCalled();
+      expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
+      release("blob:reference");
+      await running;
+      expect(services.createVideoGenerationTask).toHaveBeenCalledOnce();
+      expect(harness.nodes[0].metadata?.status).toBe("success");
+      expect(harness.runningIds.size).toBe(0);
+    } finally {
+      harness.controller.abortAllGenerationRequests();
+      vi.useRealTimers();
+    }
   });
-
   it("checks reference types without downloading media while inspecting a node", async () => {
     const target = videoNode({ metadata: { model: "openai::video", prompt: "animate", generationMode: "video" } });
     const audio = audioNode({ imageSrc: "https://example.test/long.wav" });

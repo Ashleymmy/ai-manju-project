@@ -86,8 +86,7 @@ import type {
   CanvasNodeMetadata,
 } from "@/features/canvas/domain/types";
 import { browserCanvasGenerationServices } from "./browser-services";
-import { VideoReferenceCache } from "./videoReferenceCache";
-import { validateVideoGenerationConfig, validateVideoGenerationReferences, validateVideoReferenceLayout, type VideoGenerationConfig } from "@/features/video";
+import { validateVideoGenerationConfig, validateVideoReferenceLayout } from "@/features/video";
 import {
   forgetPendingCanvasJob,
   pendingCanvasJobsForProject,
@@ -143,7 +142,6 @@ const emptyBindings: CanvasGenerationBindings = {
 
 export class CanvasGenerationJobsController {
   private bindings = emptyBindings;
-  private readonly videoReferenceCache = new VideoReferenceCache();
   private readonly requests = new Map<string, CanvasGenerationRequest>();
   private readonly preparations = new Map<string, CanvasGenerationPreparation>();
   private readonly recoveredJobIds = new Set<string>();
@@ -159,7 +157,6 @@ export class CanvasGenerationJobsController {
   }
 
   readonly abortAllGenerationRequests = () => {
-    this.videoReferenceCache.clear();
     this.preparations.forEach(preparation => preparation.controller.abort());
     this.preparations.clear();
     this.requests.forEach(request => request.controller.abort());
@@ -776,18 +773,12 @@ export class CanvasGenerationJobsController {
         .map(input => input.nodeId)
         .filter(nodeId => nodes.some(item => item.id === nodeId));
       if (!this.preparationIsCurrent(preparation)) return;
-      let prepared: Awaited<ReturnType<CanvasGenerationJobsController["prepareValidatedVideoReferences"]>>;
-      try {
-        prepared = await this.prepareValidatedVideoReferences(generationInputs, node, config, scope, preparation.controller.signal);
-      } catch (error) {
-        if (isAbortError(error)) throw error;
-        // A preflight failure is not a failed generation. Keep previous results
-        // and node status intact; no task has been submitted at this point.
-        if (this.preparationIsCurrent(preparation)) this.bindings.onWarning(publicApiError(error, "视频素材检查失败"));
-        return;
-      }
+      const prepared = await this.prepareVideoReferences(generationInputs, scope, preparation.controller.signal);
       if (!this.preparationIsCurrent(preparation)) return;
-      const references = prepared.references;
+      const references = mergeCanvasVideoReferences(
+        prepared.references,
+        canvasSeedanceVideoReferences(node.metadata?.seedanceMaterialAssets, node.metadata?.seedanceVolcanoAssets),
+      );
       const next = this.updateNodes(current => current.map(item => item.id === node.id ? {
         ...item,
         title: "重新生成视频中…",
@@ -1239,7 +1230,7 @@ export class CanvasGenerationJobsController {
     });
     let prepared: Awaited<ReturnType<CanvasGenerationJobsController["prepareVideoReferences"]>>;
     try {
-      prepared = await this.prepareValidatedVideoReferences(context.inputs, sourceNode, config, session.scope, preparation.controller.signal);
+      prepared = await this.prepareVideoReferences(context.inputs, session.scope, preparation.controller.signal);
     } catch (error) {
       if (isAbortError(error) || this.bindings.getProjectKey() !== session.projectKey) return;
       this.bindings.onError(publicApiError(error, "读取视频参考素材失败"));
@@ -1251,7 +1242,10 @@ export class CanvasGenerationJobsController {
     const currentGraph = this.currentGenerationGraph(session.projectKey, sourceNode.id);
     if (!currentGraph) return;
     const currentSourceNode = currentGraph.source;
-    const references = prepared.references;
+    const references = mergeCanvasVideoReferences(
+      prepared.references,
+      canvasSeedanceVideoReferences(sourceNode.metadata?.seedanceMaterialAssets, sourceNode.metadata?.seedanceVolcanoAssets),
+    );
     // Mirror the image-node overwrite workflow: generated video nodes reuse their
     // slot when the prompt is edited and regenerated; imported source material
     // always spawns a new node so the original asset stays intact.
@@ -1705,24 +1699,12 @@ export class CanvasGenerationJobsController {
     return [];
   };
 
-  private async prepareValidatedVideoReferences(inputs: ReturnType<typeof buildCanvasGenerationInputs>, node: CanvasNodeData,
-    config: VideoGenerationConfig, scope: WorkspaceScope, signal?: AbortSignal) {
-    validateVideoGenerationConfig(config);
-    const registered = canvasSeedanceVideoReferences(node.metadata?.seedanceMaterialAssets, node.metadata?.seedanceVolcanoAssets);
-    // Unsupported kinds/counts are known without reading or downloading files.
-    validateVideoReferenceLayout(canvasVideoReferenceLayout(inputs, registered), config.model);
-    const prepared = await this.prepareVideoReferences(inputs, scope, signal);
-    const references = mergeCanvasVideoReferences(prepared.references, registered);
-    validateVideoGenerationReferences(references, config.model);
-    return { ...prepared, references };
-  }
-
   private prepareVideoReferences(
     inputs: ReturnType<typeof buildCanvasGenerationInputs>,
     scope: "personal" | "team",
     signal?: AbortSignal,
   ) {
-    return this.videoReferenceCache.read(this.bindings.getProjectKey(), scope, inputs, signal, readSignal => hydrateCanvasVideoReferences(inputs, {
+    return hydrateCanvasVideoReferences(inputs, {
       scope,
       createFile: (blob, name, mime) => this.services.createFile([blob], name, { type: mime }),
       resolveAssetBlob: async input => {
@@ -1730,21 +1712,21 @@ export class CanvasGenerationJobsController {
           input.assetId,
           input.assetScope || scope,
           undefined,
-          readSignal,
+          signal,
         ));
         try {
-          return await this.services.fetchBlob(url, readSignal, `读取引用“${input.title}”`);
+          return await this.services.fetchBlob(url, signal, `读取引用“${input.title}”`);
         } finally {
           this.services.revokeObjectURL(url);
         }
       },
       resolveNodeBlob: input => isReadableMediaSource(input.content)
-        ? this.services.fetchBlob(input.content, readSignal, `读取引用“${input.title}”`)
+        ? this.services.fetchBlob(input.content, signal, `读取引用“${input.title}”`)
         : Promise.resolve(null),
-      readImageMetadata: file => this.services.readImageMetadata(file, readSignal),
-      readVideoMetadata: file => this.services.readVideoMetadata(file, readSignal),
-      readAudioMetadata: file => this.services.readAudioMetadata(file, readSignal),
-    }));
+      readImageMetadata: file => this.services.readImageMetadata(file, signal),
+      readVideoMetadata: file => this.services.readVideoMetadata(file, signal),
+      readAudioMetadata: file => this.services.readAudioMetadata(file, signal),
+    });
   }
 
   private filesFromReferenceSnapshots(
