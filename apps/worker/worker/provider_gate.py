@@ -14,6 +14,8 @@ WAITING_PROVIDER_PHASE = "waiting_provider_slot"
 DEFAULT_PROVIDER_MAX_CONCURRENCY = 3
 MIN_PROVIDER_MAX_CONCURRENCY = 1
 MAX_PROVIDER_MAX_CONCURRENCY = 8
+# Bound each acquisition's repair work; subsequent retries continue a longer cleanup.
+MAX_EXPIRED_WAITER_HEADS_PER_ACQUIRE = 16
 
 
 @dataclass(frozen=True)
@@ -42,11 +44,17 @@ redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now_ms)
 
 if redis.call('EXISTS', KEYS[4]) == 0 then
   local queue_was_empty = redis.call('LLEN', KEYS[3]) == 0
-  redis.call('RPUSH', KEYS[3], job_id)
+  -- A ticket can expire while its list entry survives. Reuse that entry.
+  if not redis.call('LPOS', KEYS[3], job_id) then
+    redis.call('RPUSH', KEYS[3], job_id)
+  end
   redis.call('SET', KEYS[4], workspace, 'PX', ticket_ttl)
   if queue_was_empty then
     redis.call('RPUSH', KEYS[2], workspace)
   end
+else
+  -- Jobs that still retry for capacity must not lose their waiting ticket.
+  redis.call('PEXPIRE', KEYS[4], ticket_ttl)
 end
 
 local cooldown_until = tonumber(redis.call('GET', KEYS[5]) or '0')
@@ -88,6 +96,29 @@ redis.call('DEL', KEYS[4])
 redis.call('ZADD', KEYS[1], lease_until, job_id)
 redis.call('SET', KEYS[6], workspace)
 return {1, lease_until}
+"""
+
+    _PRUNE_EXPIRED_HEAD_SCRIPT = """
+-- Python computes the existing SHA-256 keys. Recheck both heads and ticket
+-- atomically so an intervening acquisition, removal or renewal wins safely.
+if redis.call('LINDEX', KEYS[1], 0) ~= ARGV[1] then
+  return 0
+end
+local head = redis.call('LINDEX', KEYS[2], 0)
+if not head then
+  redis.call('LPOP', KEYS[1])
+  redis.call('DEL', KEYS[2])
+  return 1
+end
+if head ~= ARGV[2] or redis.call('EXISTS', KEYS[3]) ~= 0 then
+  return 0
+end
+redis.call('LPOP', KEYS[2])
+if redis.call('LLEN', KEYS[2]) == 0 then
+  redis.call('LPOP', KEYS[1])
+  redis.call('DEL', KEYS[2])
+end
+return 1
 """
 
     _REMOVE_WAITER_SCRIPT = """
@@ -133,6 +164,7 @@ return 1
         return f"{self.prefix}:last-workspace"
 
     def acquire(self, workspace_id: str, job_id: str, max_concurrency: int) -> GateDecision:
+        self._prune_expired_heads()
         now_ms = int(time.time() * 1000)
         lease_until = now_ms + self.lease_seconds * 1000
         ticket_ttl = max(self.lease_seconds * 4, 3600) * 1000
@@ -160,6 +192,25 @@ return 1
             return GateDecision(acquired=True)
         wait_ms = max(250, int(result[1] or 1000))
         return GateDecision(acquired=False, retry_after_seconds=max(1, math.ceil(wait_ms / 1000)))
+
+    def _prune_expired_heads(self) -> None:
+        for _ in range(MAX_EXPIRED_WAITER_HEADS_PER_ACQUIRE):
+            workspace = self.client.lindex(self.ring_key, 0)
+            if workspace is None:
+                return
+            pending_key = self._workspace_key(workspace)
+            job_id = self.client.lindex(pending_key, 0)
+            removed = self.client.eval(
+                self._PRUNE_EXPIRED_HEAD_SCRIPT,
+                3,
+                self.ring_key,
+                pending_key,
+                self._ticket_key(job_id or ""),
+                workspace,
+                job_id or "",
+            )
+            if not removed:
+                return
 
     def remove_waiter(self, workspace_id: str, job_id: str) -> None:
         self.client.eval(
