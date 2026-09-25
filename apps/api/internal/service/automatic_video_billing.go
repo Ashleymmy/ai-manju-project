@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
+	"strconv"
 	"strings"
 
 	"github.com/ai-manju/api/internal/model"
@@ -136,11 +138,26 @@ func (p *CreditPricer) QuoteForJobWithVideoPolicy(jobType string, payload model.
 }
 
 func automaticVideoCredits(rate int64, seconds float64, discount int64) int64 {
-	amount := math.Ceil(float64(rate) * seconds * float64(discount) / float64(videoCreditRatePrecision*videoCreditDiscountScale))
-	if math.IsNaN(amount) || math.IsInf(amount, 0) || amount < 0 || amount >= float64(math.MaxInt64) {
+	if rate < 0 || discount < 0 || seconds < 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
 		return -1
 	}
-	return int64(amount)
+	// ffprobe durations are decimal seconds. Recover that exact decimal before
+	// multiplying; float products such as 70*1.1 can otherwise ceil to 78.
+	duration, ok := new(big.Rat).SetString(strconv.FormatFloat(seconds, 'f', -1, 64))
+	if !ok {
+		return -1
+	}
+	amount := new(big.Rat).Mul(duration, big.NewRat(rate, videoCreditRatePrecision))
+	amount.Mul(amount, big.NewRat(discount, videoCreditDiscountScale))
+	whole, remainder := new(big.Int), new(big.Int)
+	whole.QuoRem(amount.Num(), amount.Denom(), remainder)
+	if remainder.Sign() > 0 {
+		whole.Add(whole, big.NewInt(1))
+	}
+	if !whole.IsInt64() {
+		return -1
+	}
+	return whole.Int64()
 }
 
 // SettleCompletedJob uses only a frozen price snapshot and Worker-owned ffprobe
@@ -182,6 +199,21 @@ func (s *CreditLedgerService) SettleCompletedJob(job model.Job) (repository.Sett
 		resolution = fmt.Sprintf("%dp", min(result.Metrics.Width, result.Metrics.Height))
 	}
 	rate, ok := snapshot.Rates[resolution]
+	if !ok && snapshot.RequestedResolution == "" {
+		// Square/pixel-budget outputs need a provider-specific tier mapping. When
+		// every frozen tier costs exactly the same, billing is unambiguous even
+		// without that mapping; do not invent an actual resolution label.
+		var uniform int64 = -1
+		for _, candidate := range snapshot.Rates {
+			if candidate.PerSecondScaled < 0 || (uniform >= 0 && uniform != candidate.PerSecondScaled) {
+				return repository.SettleOutcome{}, ErrVideoBillingMetricsPending
+			}
+			uniform = candidate.PerSecondScaled
+		}
+		if uniform >= 0 {
+			rate, ok, resolution = videoRateSnapshot{PerSecondScaled: uniform}, true, ""
+		}
+	}
 	if !ok || rate.PerSecondScaled < 0 {
 		return repository.SettleOutcome{}, ErrVideoBillingMetricsPending
 	}
@@ -192,7 +224,18 @@ func (s *CreditLedgerService) SettleCompletedJob(job model.Job) (repository.Sett
 	}
 	params["actual_duration_sec"], params["duration_sec"] = result.Metrics.Duration, result.Metrics.Duration
 	params["billable_duration_sec"] = billableDuration
-	params["actual_resolution"], params["released_credits"] = resolution, consumption.CreditsQuoted-actual
+	params["released_credits"] = consumption.CreditsQuoted - actual
+	params["actual_width"], params["actual_height"] = result.Metrics.Width, result.Metrics.Height
+	params["per_second"] = float64(rate.PerSecondScaled) / float64(videoCreditRatePrecision)
+	if resolution != "" {
+		params["actual_resolution"] = resolution
+		params["base_per_second"], params["reference_per_second"] = rate.BasePerSecond, rate.ReferencePerSecond
+	} else {
+		delete(params, "actual_resolution")
+		delete(params, "base_per_second")
+		delete(params, "reference_per_second")
+		params["settlement_resolution_basis"] = "uniform_frozen_rate"
+	}
 	params["settlement_status"] = "settled"
 	updatedParams, err := json.Marshal(params)
 	if err != nil {

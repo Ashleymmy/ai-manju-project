@@ -133,6 +133,41 @@ func measuredVideoResult(seconds float64, width, height int) model.JSONB {
 }
 
 func runAutomaticVideoBillingSuite(t *testing.T, db *gorm.DB) {
+	t.Run("UnmappedSquareWithSingleFrozenRateSettlesWithoutInventingTier", func(t *testing.T) {
+		f := newLifecycleFixture(t, db)
+		job, _ := reserveAutomaticVideo(t, f, `{"model":"seedance-2.5","duration":-1,"resolution":"auto"}`, &VideoBillingPolicy{MaxDurationSeconds: 30, Resolutions: []string{"720p"}})
+		job.Result = measuredVideoResult(10, 960, 960)
+		outcome, err := f.engine.SettleCompletedJob(job)
+		if err != nil || outcome.Consumption.CreditsSettled != 2200 {
+			t.Fatalf("settlement=%+v err=%v", outcome, err)
+		}
+		var params map[string]any
+		_ = json.Unmarshal(outcome.Consumption.Params, &params)
+		if _, exists := params["actual_resolution"]; exists || params["settlement_resolution_basis"] != "uniform_frozen_rate" || params["actual_width"] != float64(960) {
+			t.Fatalf("invented tier or missing evidence: %+v", params)
+		}
+	})
+	t.Run("UnmappedGeometryWithDifferentFrozenRatesKeepsReservation", func(t *testing.T) {
+		f := newLifecycleFixture(t, db)
+		job, c := reserveAutomaticVideo(t, f, `{"model":"seedance-2.5","duration":-1,"resolution":"auto"}`, &VideoBillingPolicy{MaxDurationSeconds: 30, Resolutions: []string{"720p", "1080p"}})
+		job.Result = measuredVideoResult(10, 960, 960)
+		if _, err := f.engine.SettleCompletedJob(job); !errors.Is(err, ErrVideoBillingMetricsPending) {
+			t.Fatalf("guessed price tier: %v", err)
+		}
+		current, _ := f.credits.GetConsumptionByJobID(job.ID)
+		if current.Status != model.TaskConsumptionStatusReserved || current.CreditsQuoted != c.CreditsQuoted || current.CreditsSettled != 0 {
+			t.Fatal("pending reservation mutated")
+		}
+	})
+	t.Run("UnmappedGeometryWithEqualFrozenRatesSettles", func(t *testing.T) {
+		f := newLifecycleFixture(t, db)
+		job, c := reserveAutomaticVideo(t, f, `{"model":"opaque-video-model","duration":-1,"resolution":"auto"}`, &VideoBillingPolicy{MaxDurationSeconds: 30, Resolutions: []string{"480p", "720p"}})
+		job.Result = measuredVideoResult(10, 960, 960)
+		outcome, err := f.engine.SettleCompletedJob(job)
+		if err != nil || outcome.Consumption.CreditsSettled != c.CreditsQuoted/3 {
+			t.Fatalf("equal tier settlement=%+v err=%v", outcome, err)
+		}
+	})
 	t.Run("ActualDurationUsesFrozenDiscountAndReferenceRate", func(t *testing.T) {
 		f := newLifecycleFixture(t, db)
 		if err := f.billing.UpsertConfig(model.BillingConfigKeyActivity, model.JSONB(`{"enabled":true,"discount_bps":5000}`), "test", f.now); err != nil {
