@@ -134,6 +134,9 @@ def run_origin():
             match = re.fullmatch(r"bytes=(\d+)-(\d*)", requested_range)
             if match:
                 start = int(match[1])
+                if self.server.server_port != 3101 and match[2] and int(match[2]) >= len(body):
+                    self.reply(500, b"NAS cannot serve ranges past EOF")
+                    return
                 end = min(int(match[2]) if match[2] else len(body) - 1, len(body) - 1)
                 if start >= len(body):
                     self.reply(416, headers={"Content-Range": f"bytes */{len(body)}"})
@@ -257,6 +260,17 @@ class NasMediaProxyTests(unittest.TestCase):
             self.assertEqual(status, 206)
             self.assertEqual(body, source[-length:])
             self.assertEqual(headers["content-range"], f"bytes {len(source)-length}-{len(source)-1}/{len(source)}")
+
+    def test_absolute_ranges_past_eof_use_adapter(self):
+        path = signed_path("personal/u1/video.mp4")
+        for requested, start in [("bytes=0-999999", 0), (f"bytes={len(BODY)-6}-999999", len(BODY)-6), (f"bytes={len(BODY)-6}-", len(BODY)-6)]:
+            status, headers, body = self.request(path, headers={"Range": requested})
+            self.assertEqual(status, 206)
+            self.assertEqual(body, BODY[start:])
+            self.assertEqual(headers["content-range"], f"bytes {start}-{len(BODY)-1}/{len(BODY)}")
+        status, headers, _ = self.request(path, headers={"Range": f"bytes={len(BODY)}-999999"})
+        self.assertEqual(status, 416)
+        self.assertEqual(headers["content-range"], f"bytes */{len(BODY)}")
 
     def test_01_existing_routes_are_unchanged(self):
         base = CONFIG.parents[2] / "apps/studio/nginx.conf"

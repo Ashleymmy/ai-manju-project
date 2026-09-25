@@ -15,7 +15,8 @@ var signedMediaRequest = regexp.MustCompile(`^/storage/v1/object/sign/(?:studio-
 
 // ServeSignedSuffixRange compensates for NAS suffix-range and past-EOF bugs.
 // Obtain the size through the same signed URL, then request a bounded absolute
-// range. Only the requested tail crosses the API; no whole-file buffering.
+// range. The historical method name is retained for router compatibility; all
+// single byte ranges are supported. No whole-file buffering is needed.
 func (s *SupabaseStorage) ServeSignedSuffixRange(w http.ResponseWriter, r *http.Request) {
 	uri := r.URL.RequestURI()
 	if r.Method != http.MethodGet || !signedMediaRequest.MatchString(uri) {
@@ -29,12 +30,26 @@ func (s *SupabaseStorage) ServeSignedSuffixRange(w http.ResponseWriter, r *http.
 		}
 	}
 	rangeValue := r.Header.Get("Range")
-	if !strings.HasPrefix(rangeValue, "bytes=-") {
-		http.Error(w, "suffix range required", http.StatusBadRequest)
+	if !strings.HasPrefix(rangeValue, "bytes=") {
+		http.Error(w, "byte range required", http.StatusBadRequest)
 		return
 	}
-	n, err := strconv.ParseInt(strings.TrimPrefix(rangeValue, "bytes=-"), 10, 64)
-	if err != nil || n <= 0 {
+	left, right, found := strings.Cut(strings.TrimPrefix(rangeValue, "bytes="), "-")
+	parseOffset := func(value string) (int64, error) {
+		if value == "" || strings.IndexFunc(value, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+			return 0, fmt.Errorf("invalid byte offset")
+		}
+		return strconv.ParseInt(value, 10, 64)
+	}
+	var first, last int64
+	var parseErr error
+	if left != "" {
+		first, parseErr = parseOffset(left)
+	}
+	if parseErr == nil && right != "" {
+		last, parseErr = parseOffset(right)
+	}
+	if !found || (left == "" && right == "") || parseErr != nil || (left == "" && last == 0) || (left != "" && right != "" && last < first) {
 		http.Error(w, "invalid media range", http.StatusRequestedRangeNotSatisfiable)
 		return
 	}
@@ -68,8 +83,18 @@ func (s *SupabaseStorage) ServeSignedSuffixRange(w http.ResponseWriter, r *http.
 		http.Error(w, "invalid media length", http.StatusBadGateway)
 		return
 	}
-	start := max(int64(0), size-n)
-	upstream, err := request(http.MethodGet, fmt.Sprintf("bytes=%d-%d", start, size-1))
+	start, end := first, size-1
+	if left == "" {
+		start = max(int64(0), size-last)
+	} else if right != "" {
+		end = min(last, size-1)
+	}
+	if start >= size {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
+		http.Error(w, "media range outside file", http.StatusRequestedRangeNotSatisfiable)
+		return
+	}
+	upstream, err := request(http.MethodGet, fmt.Sprintf("bytes=%d-%d", start, end))
 	if err != nil {
 		http.Error(w, "media download unavailable", http.StatusBadGateway)
 		return
@@ -79,7 +104,7 @@ func (s *SupabaseStorage) ServeSignedSuffixRange(w http.ResponseWriter, r *http.
 		writeSignedMediaFailure(w, upstream.StatusCode)
 		return
 	}
-	if upstream.StatusCode == http.StatusPartialContent && (upstream.Header.Get("Content-Range") != fmt.Sprintf("bytes %d-%d/%d", start, size-1, size) || upstream.ContentLength != size-start) {
+	if upstream.StatusCode == http.StatusPartialContent && (upstream.Header.Get("Content-Range") != fmt.Sprintf("bytes %d-%d/%d", start, end, size) || upstream.ContentLength != end-start+1) {
 		http.Error(w, "invalid media range response", http.StatusBadGateway)
 		return
 	}

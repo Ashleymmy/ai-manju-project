@@ -11,6 +11,67 @@ import (
 
 const testSignedMediaPath = "/storage/v1/object/sign/studio-test-assets/personal/u/video.mp4?token=a.b.c"
 
+func TestSignedMediaRangesClampToFileLength(t *testing.T) {
+	const body = "0123456789"
+	for _, tc := range []struct {
+		requested, forwarded, contentRange, expected string
+		status                                       int
+	}{
+		{"bytes=0-3", "bytes=0-3", "bytes 0-3/10", "0123", 206},
+		{"bytes=7-65542", "bytes=7-9", "bytes 7-9/10", "789", 206},
+		{"bytes=7-", "bytes=7-9", "bytes 7-9/10", "789", 206},
+		{"bytes=0-999999", "bytes=0-9", "bytes 0-9/10", body, 206},
+		{"bytes=10-100", "", "bytes */10", "", 416},
+		{"bytes=11-", "", "bytes */10", "", 416},
+	} {
+		t.Run(tc.requested, func(t *testing.T) {
+			gets := 0
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodHead {
+					w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+					return
+				}
+				gets++
+				if got := r.Header.Get("Range"); got != tc.forwarded || tc.forwarded == "" {
+					t.Errorf("unexpected NAS range: %s", got)
+				}
+				w.Header().Set("Content-Length", strconv.Itoa(len(tc.expected)))
+				w.Header().Set("Content-Range", tc.contentRange)
+				w.WriteHeader(206)
+				fmt.Fprint(w, tc.expected)
+			}))
+			defer upstream.Close()
+			s := &SupabaseStorage{origin: upstream.URL, client: upstream.Client()}
+			r := httptest.NewRequest(http.MethodGet, testSignedMediaPath, nil)
+			r.Header.Set("Range", tc.requested)
+			w := httptest.NewRecorder()
+			s.ServeSignedSuffixRange(w, r)
+			if w.Code != tc.status || w.Header().Get("Content-Range") != tc.contentRange {
+				t.Fatalf("status=%d range=%s", w.Code, w.Header().Get("Content-Range"))
+			}
+			if tc.status == 206 && (w.Body.String() != tc.expected || gets != 1) {
+				t.Fatal("incorrect range bytes")
+			}
+			if tc.status == 416 && gets != 0 {
+				t.Fatal("out-of-file request reached NAS GET")
+			}
+		})
+	}
+}
+
+func TestSignedMediaRangesRejectInvalidOffsets(t *testing.T) {
+	s := &SupabaseStorage{origin: "http://unused.invalid", client: http.DefaultClient}
+	for _, value := range []string{"bytes=-", "bytes=-0", "bytes=5-3", "bytes=0-3,5-8", "bytes=+1-2", "bytes=0-9223372036854775808", "bytes=0--1"} {
+		r := httptest.NewRequest(http.MethodGet, testSignedMediaPath, nil)
+		r.Header.Set("Range", value)
+		w := httptest.NewRecorder()
+		s.ServeSignedSuffixRange(w, r)
+		if w.Code != 416 {
+			t.Errorf("range %q returned %d", value, w.Code)
+		}
+	}
+}
+
 func TestSignedSuffixRangeUsesExactIntervalWithoutCredentials(t *testing.T) {
 	body := strings.Repeat("media", 100000)
 	for _, suffix := range []int{6, 400000, len(body) + 1} {
