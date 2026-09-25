@@ -8,8 +8,25 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/queue"
 )
+
+func TestJobResponsesNeverExposeWorkerRecoveryState(t *testing.T) {
+	raw := model.JSONB(`{"task_status":"processing","_worker_video_checkpoint":{"task_id":"private-task","result":{"outputs":[{"path":"private-path"}]}},"_worker_future_private":true}`)
+	job := model.Job{ID: "job", BridgeMetadata: raw}
+	response := jobResponse(job)
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "private") || strings.Contains(string(encoded), "_worker_") || !strings.Contains(string(encoded), `"task_status":"processing"`) {
+		t.Fatal("private recovery state leaked or public bridge fields removed")
+	}
+	if string(job.BridgeMetadata) != string(raw) {
+		t.Fatal("filter changed stored checkpoint")
+	}
+}
 
 func TestJobRecoveryParametersRequireBoundedNodeSetAndFilterCanvas(t *testing.T) {
 	router := newJobTestRouter(&queue.MemoryProducer{})

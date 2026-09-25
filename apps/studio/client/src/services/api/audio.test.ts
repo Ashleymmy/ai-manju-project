@@ -31,6 +31,17 @@ class MemoryStorage implements Storage {
 describe("audio API", () => {
   const dispatchEvent = vi.fn();
 
+  it.each([
+    ["", "audio/mpeg"],
+    ["<html>login</html>", "text/html"],
+    ["<!DOCTYPE html><html>gateway error</html>", "application/octet-stream"],
+    ['{"success":true,"task_id":"not-audio"}', "application/json"],
+  ])("rejects non-audio success bodies with MIME %s / %s", async (body, contentType) => {
+    vi.mocked(fetch).mockResolvedValue(new Response(body, { status: 200, headers: { "Content-Type": contentType } }));
+    await expect(requestAudioGeneration({ model: "tts" }, "测试")).rejects.toMatchObject({ name: "ApiError", message: "音频服务没有返回可用音频，请联系管理员检查模型配置" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   beforeEach(() => {
     dispatchEvent.mockReset();
     vi.stubGlobal("window", {

@@ -13,6 +13,10 @@ from worker.generation_failover import PROVIDER_CANDIDATES_FIELD
 
 
 class NativeVideoFailoverTest(unittest.TestCase):
+    def setUp(self):
+        from video_checkpoint_fakes import isolated_checkpoint
+        self.enterContext(patch("worker.video.checkpoint_for_video", side_effect=isolated_checkpoint))
+
     def test_native_result_preserves_nested_url_formats_and_rejects_nonvideo_content(self):
         self.assertEqual(video.native_video_url({"data": {"outputs": [{"downloadUrl": "https://storage.test/video"}]}}), "https://storage.test/video")
         with tempfile.TemporaryDirectory() as tmp, patch.object(video.requests, "get", return_value=FakeVideoResponse(content=b"error", content_type="text/html")):

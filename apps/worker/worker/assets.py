@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import secrets
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -41,8 +43,7 @@ def register_result_assets(
         key = asset_storage_key(str(job.get("workspace_id") or ""), asset_id, extension)
         target = settings.asset_storage_dir / key
         target.parent.mkdir(parents=True, exist_ok=True)
-        if source.resolve() != target.resolve() and not target.exists():
-            shutil.copy2(source, target)
+        content_sha256 = copy_output_atomically(source, target)
         if object_storage.enabled():
             object_storage.upload(key.as_posix(), target, content_type)
 
@@ -69,7 +70,7 @@ def register_result_assets(
             "source_item_id": str(registration.get("source_item_id") or ""),
             "source_job_id": str(job.get("id") or ""),
             "source_metadata": source_metadata,
-            "content_sha256": file_sha256(target),
+            "content_sha256": content_sha256,
             "ingestion_mode": "automatic",
             "parent_asset_ids": normalized_parent_asset_ids(registration.get("parent_asset_ids")),
             "relation_type": normalized_lineage_relation(registration.get("relation_type")),
@@ -157,6 +158,34 @@ def file_sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def copy_output_atomically(source: Path, target: Path) -> str:
+    """Publish complete output, and repair a partial file left by an old worker.
+
+    The deterministic asset ID makes retries address the same target. File
+    existence alone cannot prove a previous import finished copying its bytes.
+    """
+    source_digest = file_sha256(source)
+    if source.resolve() == target.resolve():
+        return source_digest
+    if target.is_file() and target.stat().st_size == source.stat().st_size and file_sha256(target) == source_digest:
+        return source_digest
+
+    # Same-directory replace is atomic on the mounted asset filesystem.
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as destination, source.open("rb") as origin:
+            shutil.copyfileobj(origin, destination)
+            destination.flush()
+            os.fsync(destination.fileno())
+        if file_sha256(temporary) != source_digest:
+            raise OSError("generated asset changed during import")
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return source_digest
 
 
 def asset_storage_key(workspace_id: str, asset_id: str, extension: str) -> Path:

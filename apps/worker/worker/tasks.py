@@ -10,8 +10,8 @@ from celery import Celery, Task
 
 from .assets import register_result_assets
 from .config import load_settings
-from .db import JOB_STATUS_CANCELED, JOB_STATUS_FAILED, JOB_STATUS_SUCCEEDED, JobStore, json_compatible
-from .errors import SafeTaskError, VideoTaskAcceptedError, VideoSubmissionUncertainError, error_payload, job_canceled_error
+from .db import JOB_STATUS_CANCELED, JOB_STATUS_FAILED, JOB_STATUS_SUCCEEDED, TERMINAL_STATUSES, JobStore, json_compatible
+from .errors import SafeTaskError, VideoTaskAcceptedError, VideoSubmissionUncertainError, VideoRecoveryPendingError, VideoReferenceError, error_payload, job_canceled_error
 from .monitoring import attempt_event
 from .generation_failover import PROVIDER_CANDIDATES_FIELD, generation_attempt, is_provider_failure, unavailable_error
 from .image_output_validation import validate_canvas_image_outputs
@@ -20,6 +20,7 @@ from .provider import edit_image, generate_image, provider_has_remote
 from .provider_gate import ProviderGate, provider_gate_from_payload
 from .staged_inputs import JOB_WORKSPACE_FIELD, cleanup_staged_inputs
 from .video import generate_video, transcode_video
+from .video_checkpoint import VIDEO_CHECKPOINT_PAYLOAD_KEY, VIDEO_RECOVERY_DELAY_SECONDS, VideoCheckpoint, recovery_error
 
 
 settings = load_settings()
@@ -123,7 +124,7 @@ def extract_request(args: tuple[Any, ...], kwargs: dict[str, Any]) -> tuple[str,
         raw_payload = {}
     if not isinstance(raw_payload, dict):
         raise SafeTaskError("payload must be a JSON object", code="invalid_payload", retryable=False)
-    raw_payload = {key: value for key, value in raw_payload.items() if key not in ("provider_candidates", PROVIDER_CANDIDATES_FIELD)}
+    raw_payload = {key: value for key, value in raw_payload.items() if key not in ("provider_candidates", PROVIDER_CANDIDATES_FIELD, VIDEO_CHECKPOINT_PAYLOAD_KEY)}
     if isinstance(kwargs.get("provider"), dict):
         raw_payload = {**raw_payload, "provider": kwargs["provider"]}
     if isinstance(kwargs.get("provider_candidates"), list):
@@ -172,11 +173,11 @@ def execute_job(
                 waiting = store.mark_waiting_provider(job_id)
                 if waiting is None:
                     current = store.get_job(job_id)
-                    if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
+                    if isinstance(current, dict) and current.get("status") in TERMINAL_STATUSES:
                         remove_provider_waiter(payload, job, job_id)
                         cleanup_job_inputs(payload, job, job_id)
-                        log_job("job_canceled", job_id)
-                        return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
+                        log_job("job_skipped", job_id, status=current["status"])
+                        return {"job_id": job_id, "status": current["status"]}
                 raise task.retry(
                     exc=gate_error,
                     countdown=retry_countdown(int(job.get("attempts") or 0)),
@@ -186,11 +187,11 @@ def execute_job(
                 waiting = store.mark_waiting_provider(job_id)
                 if waiting is None:
                     current = store.get_job(job_id)
-                    if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
+                    if isinstance(current, dict) and current.get("status") in TERMINAL_STATUSES:
                         remove_provider_waiter(payload, job, job_id)
                         cleanup_job_inputs(payload, job, job_id)
-                        log_job("job_canceled", job_id)
-                        return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
+                        log_job("job_skipped", job_id, status=current["status"])
+                        return {"job_id": job_id, "status": current["status"]}
                 log_job("job_waiting_provider_slot", job_id, workspace_id=job.get("workspace_id"), retry_after=decision.retry_after_seconds)
                 raise task.retry(
                     exc=SafeTaskError("waiting for provider concurrency slot", code="provider_gate_wait", retryable=True),
@@ -207,20 +208,26 @@ def execute_job(
             running = store.mark_running(job_id, 5)
             if running is None:
                 current = store.get_job(job_id)
-                if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
+                if isinstance(current, dict) and current.get("status") in TERMINAL_STATUSES:
                     cleanup_job_inputs(payload, job, job_id)
-                    log_job("job_canceled", job_id)
-                    return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
+                    log_job("job_skipped", job_id, status=current["status"])
+                    return {"job_id": job_id, "status": current["status"], "skipped": True}
             generation_completed = False
+            video_checkpoint = None
             try:
                 execution_payload = {**payload, JOB_WORKSPACE_FIELD: str(job.get("workspace_id") or "")}
+                if job.get("type") == "video.generate" and not job.get("external_provider"):
+                    video_checkpoint = VideoCheckpoint(store, job_id, payload.get("provider") or {})
+                    execution_payload[VIDEO_CHECKPOINT_PAYLOAD_KEY] = video_checkpoint
 
                 def update_progress(progress: int) -> None:
                     updated = store.update_progress(job_id, progress)
                     if updated is None:
                         current = store.get_job(job_id)
-                        if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
-                            raise job_canceled_error()
+                        if isinstance(current, dict) and current.get("status") in TERMINAL_STATUSES:
+                            if current["status"] == JOB_STATUS_CANCELED:
+                                raise job_canceled_error()
+                            raise SafeTaskError("job already finished", code="job_finished", retryable=False)
 
                 update_progress(5)
                 if generation_max_attempts and not provider_has_remote(payload.get("provider")):
@@ -228,10 +235,10 @@ def execute_job(
                 result = executor(job_id, execution_payload, settings, update_progress)
                 generation_completed = True
                 current = store.get_job(job_id)
-                if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
+                if isinstance(current, dict) and current.get("status") in TERMINAL_STATUSES:
                     cleanup_job_inputs(payload, job, job_id)
-                    log_job("job_canceled", job_id)
-                    return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
+                    log_job("job_skipped", job_id, status=current["status"])
+                    return {"job_id": job_id, "status": current["status"]}
                 if asset_type == "image":
                     validate_canvas_image_outputs(payload, result, settings)
                 result = register_result_assets(store, job, result, settings, asset_type)
@@ -239,19 +246,40 @@ def execute_job(
                 stored = store.set_result(job_id, result)
                 if stored is None:
                     current = store.get_job(job_id)
-                    if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
+                    if isinstance(current, dict) and current.get("status") in TERMINAL_STATUSES:
                         cleanup_job_inputs(payload, job, job_id)
-                        log_job("job_canceled", job_id)
-                        return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
+                        log_job("job_skipped", job_id, status=current["status"])
+                        return {"job_id": job_id, "status": current["status"]}
                 cleanup_job_inputs(payload, job, job_id)
                 log_job("job_succeeded", job_id, asset_type=asset_type)
                 return {"job_id": job_id, "status": JOB_STATUS_SUCCEEDED, "result": result}
             except Exception as exc:
+                if (isinstance(exc, VideoRecoveryPendingError)
+                        or (isinstance(exc, VideoSubmissionUncertainError) and job.get("type") == "video.generate")
+                        or (video_checkpoint is not None and (video_checkpoint.active or isinstance(exc, VideoSubmissionUncertainError)))):
+                    # A paid task/result exists (or submit was uncertain). Keep
+                    # its inputs/credits, and recover without creating again.
+                    try:
+                        current = store.get_job(job_id)
+                    except Exception:
+                        current = None
+                    if isinstance(current, dict) and current.get("status") in TERMINAL_STATUSES:
+                        return {"job_id": job_id, "status": current["status"], "skipped": True}
+                    uncertain = isinstance(exc, VideoSubmissionUncertainError)
+                    try:
+                        waiting = store.mark_video_recovery(job_id, uncertain=uncertain)
+                    except Exception:
+                        waiting = None
+                    if uncertain and waiting is not None:
+                        log_job("video_submission_needs_reconciliation", job_id)
+                        return {"job_id": job_id, "status": "queued", "queue_phase": "video_submission_uncertain"}
+                    log_job("video_recovery_pending", job_id)
+                    raise task.retry(exc=recovery_error(), countdown=VIDEO_RECOVERY_DELAY_SECONDS, max_retries=100000)
                 current = store.get_job(job_id)
-                if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
+                if isinstance(current, dict) and current.get("status") in TERMINAL_STATUSES:
                     cleanup_job_inputs(payload, job, job_id)
-                    log_job("job_canceled", job_id)
-                    return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
+                    log_job("job_skipped", job_id, status=current["status"])
+                    return {"job_id": job_id, "status": current["status"]}
                 payload_error = error_payload(exc)
                 record_error = getattr(store, "record_monitoring_error", None)
                 if callable(record_error):
@@ -284,26 +312,26 @@ def execute_job(
                     stored = store.record_retry(job_id, payload_error)
                     if stored is None:
                         current = store.get_job(job_id)
-                        if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
+                        if isinstance(current, dict) and current.get("status") in TERMINAL_STATUSES:
                             cleanup_job_inputs(payload, job, job_id)
-                            log_job("job_canceled", job_id)
-                            return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
+                            log_job("job_skipped", job_id, status=current["status"])
+                            return {"job_id": job_id, "status": current["status"]}
                     log_job("job_retry", job_id, retry=attempts + 1)
                     raise task.retry(
                         exc=SafeTaskError("generation pending", code="generation_pending") if generation_max_attempts else exc,
                         countdown=retry_after_seconds(exc, int(job.get("attempts") or 0)),
                         max_retries=100000,
                     )
-                if generation_max_attempts and not isinstance(exc, (ImageParameterError, VideoTaskAcceptedError, VideoSubmissionUncertainError)):
+                if generation_max_attempts and not isinstance(exc, (ImageParameterError, VideoTaskAcceptedError, VideoSubmissionUncertainError, VideoReferenceError)):
                     exc = unavailable_error() if generation_retry else SafeTaskError("任务处理失败，请稍后重试", code="generation_processing_failed", retryable=False)
                     payload_error = error_payload(exc)
                 stored = store.set_error(job_id, payload_error)
                 if stored is None:
                     current = store.get_job(job_id)
-                    if isinstance(current, dict) and current.get("status") == JOB_STATUS_CANCELED:
+                    if isinstance(current, dict) and current.get("status") in TERMINAL_STATUSES:
                         cleanup_job_inputs(payload, job, job_id)
-                        log_job("job_canceled", job_id)
-                        return {"job_id": job_id, "status": JOB_STATUS_CANCELED}
+                        log_job("job_skipped", job_id, status=current["status"])
+                        return {"job_id": job_id, "status": current["status"]}
                 cleanup_job_inputs(payload, job, job_id)
                 log_job("job_failed", job_id, error=payload_error.get("message"), code=payload_error.get("code"))
                 raise exc

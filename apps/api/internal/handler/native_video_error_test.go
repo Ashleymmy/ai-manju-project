@@ -21,3 +21,10 @@ func TestNativeVideoJobErrorsDistinguishAcceptedTasksWithoutExposingDiagnostics(
 		}
 	}
 }
+
+func TestNativeVideoReferenceTimeoutIsNotModelUnavailable(t *testing.T) {
+	got := nativeVideoJobError(model.JSONB(`{"code":"video_reference_timeout","message":"private supplier diagnostics"}`))
+	if got["code"] != "video_reference_timeout" || !strings.Contains(got["message"].(string), "参考视频") || strings.Contains(got["message"].(string), "private") {
+		t.Fatalf("incorrect public reference error: %v", got)
+	}
+}

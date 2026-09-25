@@ -12,6 +12,8 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 import psycopg
 
+from .video_checkpoint import VIDEO_CHECKPOINT_KEY
+
 
 JOB_STATUS_QUEUED = "queued"
 JOB_STATUS_RUNNING = "running"
@@ -76,6 +78,41 @@ class JobStore:
         with self.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT * FROM jobs WHERE id = %s", (job_id,))
+                return cur.fetchone()
+
+    def get_video_checkpoint(self, job_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT status, bridge_metadata -> %s AS checkpoint FROM jobs WHERE id = %s AND type = 'video.generate' AND COALESCE(external_provider, '') = ''", (VIDEO_CHECKPOINT_KEY, job_id))
+                return cur.fetchone()
+
+    def save_video_checkpoint(self, job_id: str, checkpoint: dict[str, Any], expected_revision: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """UPDATE jobs SET bridge_metadata = jsonb_set(
+                           CASE WHEN jsonb_typeof(bridge_metadata) = 'object' THEN bridge_metadata ELSE '{}'::jsonb END,
+                           ARRAY[%s], %s::jsonb), updated_at = timezone('utc', now())
+                       WHERE id = %s AND type = 'video.generate' AND COALESCE(external_provider, '') = ''
+                         AND status IN ('queued', 'running')
+                         AND COALESCE((bridge_metadata -> %s ->> 'revision')::bigint, 0) = %s
+                       RETURNING id, status""",
+                    (VIDEO_CHECKPOINT_KEY, Jsonb(json_compatible(checkpoint)), job_id, VIDEO_CHECKPOINT_KEY, expected_revision),
+                )
+                return cur.fetchone()
+
+    def mark_video_recovery(self, job_id: str, *, uncertain: bool = False) -> dict[str, Any] | None:
+        # Keep credits reserved and generation attempts unchanged while only
+        # polling/downloading/importing an existing paid task.
+        phase = 'video_submission_uncertain' if uncertain else 'video_recovery_pending'
+        message = '视频提交结果待确认，请勿重复提交，请联系管理员核查' if uncertain else '视频任务正在恢复处理，请勿重复提交'
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""UPDATE jobs SET status = 'queued', queue_phase = %s, error = %s,
+                           updated_at = timezone('utc', now()), finished_at = NULL
+                       WHERE id = %s AND type = 'video.generate' AND COALESCE(external_provider, '') = ''
+                         AND status IN ('queued', 'running') RETURNING id, status, progress, attempts""",
+                            (phase, Jsonb({"code": phase, "message": message, "retryable": not uncertain}), job_id))
                 return cur.fetchone()
 
     def count_by_status(self) -> dict[str, int]:
@@ -160,10 +197,10 @@ class JobStore:
                            finished_at = NULL,
                            updated_at = timezone('utc', now())
                      WHERE id = %s
-                       AND status <> %s
+                       AND status IN (%s, %s)
                     RETURNING id, status, progress, attempts
                     """,
-                    (JOB_STATUS_QUEUED, job_id, JOB_STATUS_CANCELED),
+                    (JOB_STATUS_QUEUED, job_id, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
                 )
                 return cur.fetchone()
 
@@ -195,10 +232,10 @@ class JobStore:
                            attempts = attempts + 1,
                            updated_at = timezone('utc', now())
                      WHERE id = %s
-                       AND status <> %s
+                       AND status IN (%s, %s)
                     RETURNING id, status, progress, attempts
                     """,
-                    (JOB_STATUS_QUEUED, Jsonb(error), job_id, JOB_STATUS_CANCELED),
+                    (JOB_STATUS_QUEUED, Jsonb(error), job_id, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
                 )
                 return cur.fetchone()
 
@@ -231,10 +268,10 @@ class JobStore:
                            updated_at = timezone('utc', now()),
                            finished_at = timezone('utc', now())
                      WHERE id = %s
-                       AND status <> %s
+                       AND status IN (%s, %s)
                     RETURNING id, status, progress, attempts
                     """,
-                    (JOB_STATUS_SUCCEEDED, Jsonb(result), job_id, JOB_STATUS_CANCELED),
+                    (JOB_STATUS_SUCCEEDED, Jsonb(result), job_id, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
                 )
                 return cur.fetchone()
 
@@ -251,10 +288,10 @@ class JobStore:
                            updated_at = timezone('utc', now()),
                            finished_at = timezone('utc', now())
                      WHERE id = %s
-                       AND status <> %s
+                       AND status IN (%s, %s)
                     RETURNING id, status, progress, attempts
                     """,
-                    (JOB_STATUS_FAILED, Jsonb(error), job_id, JOB_STATUS_CANCELED),
+                    (JOB_STATUS_FAILED, Jsonb(error), job_id, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
                 )
                 return cur.fetchone()
 

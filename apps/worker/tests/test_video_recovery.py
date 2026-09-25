@@ -13,6 +13,10 @@ from worker.errors import SafeTaskError, VideoSubmissionUncertainError, VideoTas
 
 
 class VideoRecoveryTest(unittest.TestCase):
+    def setUp(self):
+        from video_checkpoint_fakes import isolated_checkpoint
+        self.enterContext(patch("worker.video.checkpoint_for_video", side_effect=isolated_checkpoint))
+
     def payload(self):
         return {"model": "seedance", "provider": {
             "base_url": "https://api.test/v1/", "auth_type": "none", "model": "seedance",
@@ -55,7 +59,7 @@ class VideoRecoveryTest(unittest.TestCase):
              patch.object(video.time, "sleep"):
             with self.assertRaises(VideoTaskAcceptedError) as caught:
                 video.generate_video("job_transfer_failure", self.payload(), test_settings(tmp), lambda _: None)
-            self.assertFalse(caught.exception.retryable)
+            self.assertTrue(caught.exception.retryable)
             self.assertEqual(download.call_count, video.VIDEO_DOWNLOAD_ATTEMPTS)
             create.assert_called_once()
 
@@ -100,7 +104,7 @@ class VideoRecoveryTest(unittest.TestCase):
              patch.object(video.requests, "get", side_effect=SoftTimeLimitExceeded()):
             with self.assertRaises(VideoTaskAcceptedError) as caught:
                 video.generate_video("job_accepted_timeout", self.payload(), test_settings(tmp), lambda _: None)
-            self.assertFalse(caught.exception.retryable)
+            self.assertTrue(caught.exception.retryable)
             create.assert_called_once()
 
     def test_soft_timeout_after_download_cannot_recreate_completed_video(self):
@@ -129,8 +133,8 @@ class VideoRecoveryTest(unittest.TestCase):
              patch.object(video.time, "sleep"):
             with self.assertRaises(VideoTaskAcceptedError) as caught:
                 video.generate_video("job_content_busy", self.payload(), test_settings(tmp), lambda _: None)
-            self.assertEqual(caught.exception.code, "provider_rate_limited")
-            self.assertFalse(caught.exception.retryable)
+            self.assertEqual(caught.exception.code, "video_recovery_pending")
+            self.assertTrue(caught.exception.retryable)
             self.assertEqual(download.call_count, video.VIDEO_DOWNLOAD_ATTEMPTS)
             create.assert_called_once()
 

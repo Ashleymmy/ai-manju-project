@@ -205,9 +205,20 @@ async function requestAudioGenerationOnce(
 }
 
 async function assertAudioBlob(blob: Blob, status: number, requestId: string) {
-  if (!blob.type.includes("json")) return;
-  const message = await readJsonBlobError(blob);
-  if (message) throw new ApiError(message, status, requestId);
+  const invalid = "音频服务没有返回可用音频，请联系管理员检查模型配置";
+  if (!blob.size) throw new ApiError(invalid, status, requestId);
+  const type = blob.type.toLowerCase().split(";", 1)[0];
+  if (type.includes("json")) {
+    throw new ApiError(await readJsonBlobError(blob) || invalid, status, requestId);
+  }
+  if (type && !type.startsWith("audio/") && !["application/octet-stream", "binary/octet-stream", "application/ogg"].includes(type)) {
+    throw new ApiError(invalid, status, requestId);
+  }
+  // Error pages are sometimes mislabeled as audio or generic binary data.
+  const prefix = (await blob.slice(0, 512).text()).trimStart();
+  if (/^(?:<!doctype\s+html|<html\b|<\?xml\b)/i.test(prefix)) {
+    throw new ApiError(invalid, status, requestId);
+  }
 }
 
 async function readAudioErrorResponse(response: Response, fallback: string) {

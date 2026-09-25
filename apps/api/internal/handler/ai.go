@@ -900,6 +900,10 @@ func (h *AIHandler) AudioSpeech(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if strings.TrimSpace(stringFromAny(body["input"])) == "" {
+		response.Error(c, http.StatusBadRequest, "音频生成内容不能为空")
+		return
+	}
 	candidates, ok := h.providerHandler.LoadGenerationCandidates(c, model.ModelCapabilityAudio, stringFromAny(body["model"]))
 	if !ok {
 		return
@@ -918,7 +922,7 @@ func (h *AIHandler) AudioSpeech(c *gin.Context) {
 				continue
 			}
 			content, contentType, err := client.ProxyBlob(c.Request.Context(), http.MethodPost, providerProxyPath(config, "/audio/speech"), body, true)
-			if err == nil && len(content) > 0 {
+			if err == nil && validSpeechOutput(content, contentType) {
 				c.Data(http.StatusOK, firstNonEmpty(contentType, "application/octet-stream"), content)
 				return
 			}

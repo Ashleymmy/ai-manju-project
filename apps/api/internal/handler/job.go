@@ -396,8 +396,30 @@ func jobResponse(job model.Job) gin.H {
 		"external_provider": job.ExternalProvider,
 		"external_task_id":  job.ExternalTaskID,
 		"external_status":   job.ExternalStatus,
-		"bridge_metadata":   job.BridgeMetadata,
+		"bridge_metadata":   publicJobBridgeMetadata(job.BridgeMetadata),
 	}
+}
+
+// Worker recovery checkpoints contain private execution state. The bridge's
+// public metadata remains compatible, but reserved worker keys never leave the API.
+func publicJobBridgeMetadata(raw model.JSONB) model.JSONB {
+	if len(raw) == 0 {
+		return raw
+	}
+	var metadata map[string]json.RawMessage
+	if json.Unmarshal(raw, &metadata) != nil {
+		return model.JSONB("{}")
+	}
+	for key := range metadata {
+		if strings.HasPrefix(key, "_worker_") {
+			delete(metadata, key)
+		}
+	}
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return model.JSONB("{}")
+	}
+	return encoded
 }
 
 func writeJobSSE(c *gin.Context, name string, payload any) {

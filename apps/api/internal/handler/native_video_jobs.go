@@ -141,6 +141,8 @@ func nativeVideoJobError(raw model.JSONB) gin.H {
 		return gin.H{"code": failure.Code, "message": "视频提交结果待确认，请勿重复提交，请联系管理员核查"}
 	case "video_result_pending":
 		return gin.H{"code": failure.Code, "message": "视频任务已提交，查询或下载结果中断，请联系管理员核查，勿重复生成"}
+	case "video_reference_timeout":
+		return gin.H{"code": failure.Code, "message": "参考视频读取超时，请稍后重试或改用较小的视频。"}
 	default:
 		return gin.H{"message": errGenerationUnavailable.Error()}
 	}

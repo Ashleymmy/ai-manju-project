@@ -237,6 +237,14 @@ describe("CanvasNodeCard render boundary", () => {
     expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuetext")).toBe("排队等待中");
   });
 
+  it("shows a recovery notice without exposing failed-task retry controls", async () => {
+    const notice = "提交结果待确认，请联系管理员，勿重复生成";
+    const node = createNode({ kind: "video", metadata: { status: "loading", jobId: "job-pending", generationNotice: notice } });
+    await act(async () => root.render(<CanvasNodeCard {...createProps(node)} isRunning />));
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuetext")).toBe(notice);
+    expect(container.querySelector(".node-error-box")).toBeNull();
+  });
+
   it.each(["success", "error"] as const)("does not reuse a previous %s job ID as the new submission state", async status => {
     const node = createNode({ kind: "video", metadata: { status, jobId: "previous-job" } });
     await act(async () => root.render(<CanvasNodeCard {...createProps(node)} isRunning />));

@@ -272,7 +272,9 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
   // Providers can accept a job without reporting numeric progress. A previous
   // result's job ID must not make a new retry's material preparation look submitted.
   const hasSubmittedGeneration = node.metadata?.status === "loading" && Boolean(node.metadata.jobId?.trim());
-  const generationStatusLabel = node.metadata?.generationQueued ? "排队等待中" : hasSubmittedGeneration || displayProgress > 0 ? "生成中" : "正在准备生成";
+  const generationStatusLabel = node.metadata?.status === "loading" && node.metadata?.generationNotice
+    ? node.metadata.generationNotice
+    : node.metadata?.generationQueued ? "排队等待中" : hasSubmittedGeneration || displayProgress > 0 ? "生成中" : "正在准备生成";
   const preview = imageSrcFromNode(node, previews);
   const previewKind = mediaKindFromNode(node);
   const nodeText = nodeEditorTextFromNode(node);

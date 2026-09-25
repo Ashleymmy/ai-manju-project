@@ -16,7 +16,7 @@ import {
   type Asset,
   type SeedanceAsset,
 } from "@/entities/asset";
-import { cancelJob } from "@/entities/job";
+import { cancelJob, jobProgressNotice } from "@/entities/job";
 
 import { publicApiError, toastGenerationError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
@@ -503,7 +503,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
         if (controller.signal.aborted) return;
         const state = await pollVideoGenerationTask(payload.config, task, {
           signal: controller.signal,
-          onProgress: (job) => setRuntime(message.id, { progress: job.progress }),
+          onProgress: (job) => setRuntime(message.id, { progress: job.progress, notice: jobProgressNotice(job) }),
         });
         if (controller.signal.aborted) return;
         if (state.status === "completed") {
@@ -610,7 +610,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
         if (controller.signal.aborted) return;
         const state = await pollVideoGenerationTask(message.config, task, {
           signal: controller.signal,
-          onProgress: (job) => setRuntime(message.id, { progress: job.progress }),
+          onProgress: (job) => setRuntime(message.id, { progress: job.progress, notice: jobProgressNotice(job) }),
         });
         if (controller.signal.aborted) return;
         if (state.status === "completed") {

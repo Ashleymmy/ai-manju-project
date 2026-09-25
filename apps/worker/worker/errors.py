@@ -13,6 +13,7 @@ SENSITIVE_PATTERNS = [
 PUBLIC_TASK_ERROR_MESSAGES = {
     "image_output_size_mismatch": "本次图片未达到所选规格，请调整参数或更换模型后重试。",
     "image_output_unreadable": "本次图片未能完整生成，请稍后重试或更换模型。",
+    "video_reference_timeout": "参考视频读取超时，请稍后重试或改用较小的视频。",
 }
 
 
@@ -33,6 +34,14 @@ class VideoTaskAcceptedError(SafeTaskError):
 
 class VideoSubmissionUncertainError(SafeTaskError):
     """The submit may have been accepted; a new POST risks duplicate charges."""
+
+
+class VideoRecoveryPendingError(VideoTaskAcceptedError):
+    """Resume this durable task; never count recovery as a generation attempt."""
+
+
+class VideoReferenceError(SafeTaskError):
+    """The supplier rejected reference media, not the model's availability."""
 
 
 def job_canceled_error() -> SafeTaskError:

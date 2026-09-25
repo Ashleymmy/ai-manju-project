@@ -19,6 +19,10 @@ def inline(kind="image", data=b"reference bytes"):
 
 
 class NativeVideoReferencesTest(unittest.TestCase):
+    def setUp(self):
+        from video_checkpoint_fakes import isolated_checkpoint
+        self.enterContext(patch("worker.video.checkpoint_for_video", side_effect=isolated_checkpoint))
+
     def test_unconfirmed_remote_task_keeps_its_downloadable_references(self):
         for error_type in (VideoTaskAcceptedError, VideoSubmissionUncertainError):
             with self.subTest(error_type=error_type), tempfile.TemporaryDirectory() as tmp, patch.object(refs.object_storage, "enabled", return_value=True), patch.object(refs.object_storage, "upload") as upload, patch.object(refs.object_storage, "signed_reference_url", return_value="https://media.test/signed"), patch.object(refs.object_storage, "delete") as delete:

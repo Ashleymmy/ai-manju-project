@@ -1,5 +1,5 @@
 import type { Asset } from "@/entities/asset";
-import { jobErrorMessage } from "@/entities/job";
+import { jobErrorMessage, jobProgressNotice, type Job } from "@/entities/job";
 import { publicApiError } from "@/shared/api/errors";
 import { ApiError } from "@/shared/api/http";
 import {
@@ -467,7 +467,7 @@ export class CanvasGenerationJobsController {
           task!,
           {
             signal: request.controller.signal,
-            onProgress: job => this.updateProgress(request, job.progress ?? 0),
+            onProgress: job => this.updateVideoJobProgress(request, job),
           },
         ));
         if (state.status === "failed") throw new Error(state.error);
@@ -1633,6 +1633,15 @@ export class CanvasGenerationJobsController {
       [request.targetNodeId]: normalized,
       [request.runningNodeId]: normalized,
     }));
+  }
+
+  private updateVideoJobProgress(request: CanvasGenerationRequest, job: Job) {
+    if (!this.currentRequest(request.targetNodeId, request.requestId, request.projectKey)) return;
+    this.updateProgress(request, job.progress ?? 0);
+    const notice = jobProgressNotice(job);
+    this.updateNodes(nodes => nodes.map(node => node.id === request.targetNodeId && node.metadata?.generationNotice !== notice ? {
+      ...node, metadata: { ...node.metadata, generationNotice: notice },
+    } : node));
   }
 
   private async referenceFile(

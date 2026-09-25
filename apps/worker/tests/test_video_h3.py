@@ -15,6 +15,10 @@ MODEL = "zzdh-minimax-h3-限时优惠-多参考图生-768p"
 
 
 class H3VideoTest(unittest.TestCase):
+    def setUp(self):
+        from video_checkpoint_fakes import isolated_checkpoint
+        self.enterContext(patch("worker.video.checkpoint_for_video", side_effect=isolated_checkpoint))
+
     def staged_payload(self, root, count=1):
         files = []
         for index in range(count):

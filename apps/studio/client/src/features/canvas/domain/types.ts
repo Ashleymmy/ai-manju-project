@@ -77,6 +77,7 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   jobProgress?: number;
   /** Waiting for a submission slot; no server job has been accepted yet. */
   generationQueued?: boolean;
+  generationNotice?: string;
   model?: string;
   videoProvider?: "openai" | "seedance";
   size?: string;

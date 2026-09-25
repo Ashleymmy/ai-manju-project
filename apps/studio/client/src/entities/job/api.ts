@@ -70,6 +70,14 @@ export function isTerminalJob(job: Pick<Job, "status">) {
   );
 }
 
+/** Recovery retains the original task ID; these notices must not enable resubmit. */
+export function jobProgressNotice(job: Pick<Job, "status" | "queue_phase">): string | undefined {
+  if (isTerminalJob(job)) return undefined;
+  if (job.queue_phase === "video_submission_uncertain") return "提交结果待确认，请联系管理员，勿重复生成";
+  if (job.queue_phase === "video_recovery_pending") return "正在恢复原视频任务，无需重新生成";
+  return undefined;
+}
+
 export function jobErrorMessage(
   job: Pick<Job, "error">,
   fallback = "任务执行失败"

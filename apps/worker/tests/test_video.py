@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -104,6 +105,10 @@ class FakeVideoResponse:
 
 
 class VideoGenerationTest(unittest.TestCase):
+    def setUp(self):
+        from video_checkpoint_fakes import isolated_checkpoint
+        self.enterContext(patch("worker.video.checkpoint_for_video", side_effect=isolated_checkpoint))
+
     def test_generates_polls_and_persists_openai_compatible_video(self) -> None:
         captured: dict[str, Any] = {}
         original_post = video_module.requests.post

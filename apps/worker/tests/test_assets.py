@@ -4,11 +4,12 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from worker.assets import asset_storage_key, register_result_assets, registered_asset_id
+from worker.assets import asset_storage_key, copy_output_atomically, file_sha256, register_result_assets, registered_asset_id
 from worker.config import Settings
 
 
@@ -32,6 +33,44 @@ class TimestampStore(FakeStore):
 
 
 class AssetsTest(unittest.TestCase):
+    def test_import_repairs_partial_or_same_size_corrupt_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source, target = Path(tmp) / "source.mp4", Path(tmp) / "asset.mp4"
+            source.write_bytes(b"complete-video")
+            for corrupt in (b"partial", b"X" * source.stat().st_size):
+                with self.subTest(corrupt=corrupt):
+                    target.write_bytes(corrupt)
+                    digest = copy_output_atomically(source, target)
+                    self.assertEqual(target.read_bytes(), b"complete-video")
+                    self.assertEqual(digest, file_sha256(target))
+
+    def test_interrupted_copy_never_publishes_partial_asset(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source, target = Path(tmp) / "source.mp4", Path(tmp) / "asset.mp4"
+            source.write_bytes(b"complete-video")
+
+            def interrupted(origin, destination):
+                destination.write(b"partial")
+                self.assertFalse(target.exists())
+                raise OSError("simulated interrupted write")
+
+            with patch("worker.assets.shutil.copyfileobj", side_effect=interrupted):
+                with self.assertRaises(OSError):
+                    copy_output_atomically(source, target)
+            self.assertFalse(target.exists())
+            copy_output_atomically(source, target)
+            self.assertEqual(target.read_bytes(), b"complete-video")
+            self.assertEqual(list(Path(tmp).glob("*.tmp")), [])
+
+    def test_complete_asset_retry_reuses_existing_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source, target = Path(tmp) / "source.mp4", Path(tmp) / "asset.mp4"
+            source.write_bytes(b"complete-video")
+            target.write_bytes(source.read_bytes())
+            with patch("worker.assets.os.replace") as replace:
+                copy_output_atomically(source, target)
+            replace.assert_not_called()
+
     def test_asset_storage_key_matches_go_personal_layout(self) -> None:
         self.assertEqual(
             asset_storage_key("default:user_123", "asset_abc", ".png").as_posix(),
