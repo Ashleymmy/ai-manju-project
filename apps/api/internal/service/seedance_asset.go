@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ai-manju/api/internal/httpsecurity"
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/provider"
 	"github.com/ai-manju/api/internal/repository"
@@ -218,7 +219,7 @@ func NewSeedanceAssetService(providerRepo repository.ModelProviderRepository, as
 		secretBox:          secretBox,
 		storage:            store,
 		publicAssetBaseURL: strings.TrimRight(strings.TrimSpace(publicAssetBaseURL), "/"),
-		client:             &http.Client{Timeout: 60 * time.Second},
+		client:             &http.Client{Timeout: 60 * time.Second, CheckRedirect: httpsecurity.SameOriginRedirect},
 	}
 }
 

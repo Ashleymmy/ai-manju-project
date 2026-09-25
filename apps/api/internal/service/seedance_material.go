@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ai-manju/api/internal/httpsecurity"
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/provider"
 	"github.com/ai-manju/api/internal/repository"
@@ -55,7 +56,7 @@ func NewSeedanceMaterialService(repo repository.ModelProviderRepository, secretB
 	return &SeedanceMaterialService{
 		repo:      repo,
 		secretBox: secretBox,
-		client:    &http.Client{Timeout: 60 * time.Second},
+		client:    &http.Client{Timeout: 60 * time.Second, CheckRedirect: httpsecurity.SameOriginRedirect},
 	}
 }
 

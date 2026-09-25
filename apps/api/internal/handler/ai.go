@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/ai-manju/api/internal/auth"
+	"github.com/ai-manju/api/internal/httpsecurity"
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/monitoring"
 	"github.com/ai-manju/api/internal/provider"
@@ -896,7 +897,7 @@ func (h *AIHandler) SeedanceTaskContent(c *gin.Context) {
 		response.Error(c, http.StatusBadGateway, "Seedance task did not return a video URL")
 		return
 	}
-	body, contentType, err := downloadSeedanceVideoContent(c.Request.Context(), videoURL)
+	body, contentType, err := downloadSeedanceVideoContent(c.Request.Context(), videoURL, config.BaseURL)
 	if err != nil {
 		response.Error(c, http.StatusBadGateway, err.Error())
 		return
@@ -1498,7 +1499,7 @@ func seedanceAssetIDsFromPayload(payload map[string]any) []string {
 	return ids
 }
 
-func downloadSeedanceVideoContent(ctx context.Context, rawURL string) ([]byte, string, error) {
+func downloadSeedanceVideoContent(ctx context.Context, rawURL string, trustedOrigins ...string) ([]byte, string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || parsed.Host == "" || parsed.User != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return nil, "", errors.New("Seedance returned an invalid video URL")
@@ -1508,10 +1509,10 @@ func downloadSeedanceVideoContent(ctx context.Context, rawURL string) ([]byte, s
 		return nil, "", err
 	}
 	req.Header.Set("Accept", "video/*,application/octet-stream;q=0.9,*/*;q=0.1")
-	client := &http.Client{Timeout: 10 * time.Minute}
+	client := httpsecurity.NewMediaClient(10*time.Minute, trustedOrigins...)
 	res, err := client.Do(req)
 	if err != nil {
-		return nil, "", err
+		return nil, "", errors.New("Seedance video download temporarily unavailable")
 	}
 	defer res.Body.Close()
 

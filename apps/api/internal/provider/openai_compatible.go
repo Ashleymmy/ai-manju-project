@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ai-manju/api/internal/httpsecurity"
 	"github.com/ai-manju/api/internal/model"
 )
 
@@ -44,10 +45,11 @@ var imageURLKeys = []string{"url", "image_url", "imageUrl", "output_url", "outpu
 var imageContainerKeys = []string{"data", "images", "image", "output", "outputs", "result", "results", "items", "files", "candidates", "content", "parts"}
 
 type OpenAICompatibleClient struct {
-	httpClient *http.Client
-	longClient *http.Client
-	config     model.ModelProviderConfig
-	apiKey     string
+	httpClient  *http.Client
+	longClient  *http.Client
+	mediaClient *http.Client
+	config      model.ModelProviderConfig
+	apiKey      string
 }
 
 type ProviderHTTPError struct {
@@ -213,10 +215,11 @@ func NewOpenAICompatibleClient(config model.ModelProviderConfig, apiKey string) 
 	longTimeout := ImageRequestTimeout(config.TimeoutMS)
 
 	return &OpenAICompatibleClient{
-		httpClient: &http.Client{Timeout: timeout, Transport: transport},
-		longClient: &http.Client{Timeout: longTimeout, Transport: transport},
-		config:     config,
-		apiKey:     apiKey,
+		httpClient:  &http.Client{Timeout: timeout, Transport: transport, CheckRedirect: httpsecurity.SameOriginRedirect},
+		longClient:  &http.Client{Timeout: longTimeout, Transport: transport, CheckRedirect: httpsecurity.SameOriginRedirect},
+		mediaClient: httpsecurity.NewMediaClient(longTimeout, config.BaseURL),
+		config:      config,
+		apiKey:      apiKey,
 	}, nil
 }
 
@@ -1362,6 +1365,27 @@ func (c *OpenAICompatibleClient) ProxyBlob(ctx context.Context, method string, p
 	res, err := client.Do(req)
 	if err != nil {
 		return nil, "", err
+	}
+	// Content endpoints may redirect to a signed CDN URL. Start a new,
+	// uncredentialed GET: never copy API headers or replay a generation POST.
+	if (method == http.MethodGet || method == http.MethodHead) && res.StatusCode >= 300 && res.StatusCode < 400 {
+		location, locationErr := res.Location()
+		if locationErr == nil && !httpsecurity.SameOrigin(res.Request.URL, location) {
+			res.Body.Close()
+			mediaReq, requestErr := http.NewRequestWithContext(ctx, method, location.String(), nil)
+			if requestErr != nil {
+				return nil, "", httpsecurity.ErrMediaTarget
+			}
+			mediaReq.Header.Set("Accept", "*/*")
+			mediaClient := c.mediaClient
+			if mediaClient == nil {
+				mediaClient = httpsecurity.NewMediaClient(client.Timeout, c.config.BaseURL)
+			}
+			res, err = mediaClient.Do(mediaReq)
+			if err != nil {
+				return nil, "", httpsecurity.ErrMediaTarget
+			}
+		}
 	}
 	defer res.Body.Close()
 
