@@ -269,7 +269,10 @@ const GENERATION_PROGRESS_MAX = 100;
 function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelected, isSelectedSingle, isHovered, isConnectionTarget, isGrouped, isConnecting, connectActiveTarget, connectActiveSource, isTitleEditing, titleDraft, isInlineEditing, isRunning, progress, captureBusy, isCapturingFrame, imageToolBusy, storyboardBusy, actions, mentionLibrary }: CanvasNodeCardProps) {
   const { icon: NodeKindIcon, label: nodeKindLabel } = CANVAS_NODE_KIND_PRESENTATION[node.kind];
   const displayProgress = Number.isFinite(progress) ? Math.round(Math.max(0, Math.min(GENERATION_PROGRESS_MAX, progress))) : 0;
-  const generationStatusLabel = node.metadata?.generationQueued ? "排队等待中" : displayProgress > 0 ? "生成中" : "正在准备生成";
+  // Providers can accept a job without reporting numeric progress. A previous
+  // result's job ID must not make a new retry's material preparation look submitted.
+  const hasSubmittedGeneration = node.metadata?.status === "loading" && Boolean(node.metadata.jobId?.trim());
+  const generationStatusLabel = node.metadata?.generationQueued ? "排队等待中" : hasSubmittedGeneration || displayProgress > 0 ? "生成中" : "正在准备生成";
   const preview = imageSrcFromNode(node, previews);
   const previewKind = mediaKindFromNode(node);
   const nodeText = nodeEditorTextFromNode(node);

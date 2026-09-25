@@ -222,6 +222,35 @@ describe("CanvasNodeCard render boundary", () => {
     expect(container.querySelectorAll(".canvas-connection-handle")).toHaveLength(0);
   });
 
+  it.each(["image", "video"] as const)("shows an accepted %s job as generating even without numeric progress", async kind => {
+    const node = createNode({ kind, metadata: { status: "loading", jobId: "job-accepted" } });
+    await act(async () => root.render(<CanvasNodeCard {...createProps(node)} isRunning />));
+    const progress = container.querySelector('[role="progressbar"]');
+    expect(progress?.getAttribute("aria-valuetext")).toBe("生成中");
+    expect(progress?.hasAttribute("aria-valuenow")).toBe(false);
+    expect(container.querySelector(".node-running")?.classList.contains("is-indeterminate")).toBe(true);
+  });
+
+  it("keeps explicit queue status visible for an accepted video job", async () => {
+    const node = createNode({ kind: "video", metadata: { status: "loading", jobId: "job-queued", generationQueued: true } });
+    await act(async () => root.render(<CanvasNodeCard {...createProps(node)} isRunning />));
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuetext")).toBe("排队等待中");
+  });
+
+  it.each(["success", "error"] as const)("does not reuse a previous %s job ID as the new submission state", async status => {
+    const node = createNode({ kind: "video", metadata: { status, jobId: "previous-job" } });
+    await act(async () => root.render(<CanvasNodeCard {...createProps(node)} isRunning />));
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuetext")).toBe("正在准备生成");
+  });
+
+  it("shows preparation until a loading video receives a task ID", async () => {
+    const node = createNode({ kind: "video", metadata: { status: "loading" } });
+    await act(async () => root.render(<CanvasNodeCard {...createProps(node)} isRunning />));
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuetext")).toBe("正在准备生成");
+    await act(async () => root.render(<CanvasNodeCard {...createProps({ ...node, metadata: { ...node.metadata, jobId: "job-accepted" } })} isRunning />));
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuetext")).toBe("生成中");
+  });
+
   it("keeps title double-clicks out of node dragging and media preview", async () => {
     const actions = createActions();
     actions.startDrag = vi.fn();

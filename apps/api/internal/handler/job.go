@@ -80,7 +80,7 @@ func (h *JobHandler) Retry(c *gin.Context) {
 		response.Error(c, 500, "could not persist retry")
 		return
 	}
-	response.Accepted(c, jobResponse(created.Job))
+	response.Accepted(c, requestedJobResponse(c, created.Job))
 }
 
 func (h *JobHandler) Create(c *gin.Context) {
@@ -124,21 +124,16 @@ func (h *JobHandler) Create(c *gin.Context) {
 			return
 		}
 		response.ErrorWithData(c, http.StatusBadGateway, "failed to enqueue job", gin.H{
-			"job":   jobResponse(result.Job),
+			"job":   requestedJobResponse(c, result.Job),
 			"error": err.Error(),
 		})
 		return
 	}
-	response.Accepted(c, jobResponse(result.Job))
+	response.Accepted(c, requestedJobResponse(c, result.Job))
 }
 
 func (h *JobHandler) List(c *gin.Context) {
 	user := auth.MustCurrentUser(c)
-	jobs, err := h.jobs.ListForUser(user.ID)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, err.Error())
-		return
-	}
 	workspaceID := service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID)
 	statuses := commaSeparatedSet(c.Query("status"))
 	types := commaSeparatedSet(c.Query("type"))
@@ -149,12 +144,32 @@ func (h *JobHandler) List(c *gin.Context) {
 	if limit > 100 {
 		limit = 100
 	}
+	var jobs []model.Job
+	var err error
+	if c.Query("view") == "status" {
+		keys := func(set map[string]bool) []string {
+			values := make([]string, 0, len(set))
+			for key := range set {
+				values = append(values, key)
+			}
+			return values
+		}
+		jobs, err = h.jobs.ListStatusesForUser(c.Request.Context(), user.ID, repository.JobStatusFilter{
+			WorkspaceID: workspaceID, Statuses: keys(statuses), Types: keys(types), Limit: limit,
+		})
+	} else {
+		jobs, err = h.jobs.ListForUser(user.ID)
+	}
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
 	result := make([]gin.H, 0, min(limit, len(jobs)))
 	for _, job := range jobs {
 		if job.WorkspaceID != workspaceID || (len(statuses) > 0 && !statuses[job.Status]) || (len(types) > 0 && !types[job.Type]) {
 			continue
 		}
-		result = append(result, jobResponse(job))
+		result = append(result, requestedJobResponse(c, job))
 		if len(result) >= limit {
 			break
 		}
@@ -174,7 +189,7 @@ func commaSeparatedSet(value string) map[string]bool {
 
 func (h *JobHandler) Get(c *gin.Context) {
 	user := auth.MustCurrentUser(c)
-	job, err := h.jobs.GetForUser(c.Param("id"), user.ID)
+	job, err := h.getRequestedJob(c, c.Param("id"), user.ID)
 	if err != nil {
 		if errors.Is(err, repository.ErrJobNotFound) && h.sdVideo != nil && h.sdVideo.Enabled() && strings.HasPrefix(c.Param("id"), "sdv_") {
 			workspaceID := service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID)
@@ -193,7 +208,7 @@ func (h *JobHandler) Get(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	response.OK(c, jobResponse(job))
+	response.OK(c, requestedJobResponse(c, job))
 }
 
 func (h *JobHandler) Cancel(c *gin.Context) {
@@ -216,7 +231,7 @@ func (h *JobHandler) Cancel(c *gin.Context) {
 			response.Error(c, http.StatusInternalServerError, "could not cancel job")
 			return
 		}
-		response.OK(c, jobResponse(canceled))
+		response.OK(c, requestedJobResponse(c, canceled))
 		return
 	}
 	if h.sdVideo != nil && h.sdVideo.Enabled() && strings.HasPrefix(c.Param("id"), "sdv_") {
@@ -249,7 +264,7 @@ func (h *JobHandler) Cancel(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	response.OK(c, jobResponse(job))
+	response.OK(c, requestedJobResponse(c, job))
 }
 
 func (h *JobHandler) Stream(c *gin.Context) {
@@ -277,7 +292,7 @@ func (h *JobHandler) Stream(c *gin.Context) {
 			writeJobSSE(c, jobEventHeartbeat, gin.H{"type": jobEventHeartbeat})
 			flushSSE(c)
 		case <-ticker.C:
-			job, err := h.jobs.GetForUser(jobID, user.ID)
+			job, err := h.getRequestedJob(c, jobID, user.ID)
 			if err != nil {
 				writeJobSSE(c, jobEventFailed, gin.H{"type": jobEventFailed, "error": "job not found"})
 				flushSSE(c)
@@ -293,7 +308,7 @@ func (h *JobHandler) Stream(c *gin.Context) {
 			} else if job.Status == model.JobStatusFailed || job.Status == model.JobStatusCanceled {
 				eventName = jobEventFailed
 			}
-			writeJobSSE(c, eventName, gin.H{"type": eventName, "job": jobResponse(job)})
+			writeJobSSE(c, eventName, gin.H{"type": eventName, "job": requestedJobResponse(c, job)})
 			flushSSE(c)
 			if isTerminalJobStatus(job.Status) {
 				return
@@ -367,4 +382,19 @@ func writeJobSSE(c *gin.Context, name string, payload any) {
 
 func isTerminalJobStatus(status string) bool {
 	return status == model.JobStatusSucceeded || status == model.JobStatusFailed || status == model.JobStatusCanceled
+}
+
+// Status views are opt-in: old integrations retain the full payload contract.
+func (h *JobHandler) getRequestedJob(c *gin.Context, id, userID string) (model.Job, error) {
+	if c.Query("view") == "status" {
+		return h.jobs.GetStatusForUser(c.Request.Context(), id, userID)
+	}
+	return h.jobs.GetForUser(id, userID)
+}
+
+func requestedJobResponse(c *gin.Context, job model.Job) gin.H {
+	if c.Query("view") == "status" {
+		job = repository.CompactJobStatus(job)
+	}
+	return jobResponse(job)
 }

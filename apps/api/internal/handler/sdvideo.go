@@ -41,7 +41,7 @@ func (h *AIHandler) shouldUseSDVideoTask(c *gin.Context) bool {
 	}
 	if h.jobs != nil && strings.HasPrefix(c.Param("id"), "job_") {
 		user := auth.MustCurrentUser(c)
-		job, err := h.jobs.GetForUser(c.Param("id"), user.ID)
+		job, err := h.jobs.GetStatusForUser(c.Request.Context(), c.Param("id"), user.ID)
 		return err == nil && job.ExternalProvider == "sd-video"
 	}
 	// Standalone task IDs are deliberately namespaced.  This makes refreshed
@@ -267,7 +267,7 @@ func (h *AIHandler) prepareSDVideoReferences(c *gin.Context, user model.User, sc
 func (h *AIHandler) getSDVideoTask(c *gin.Context) {
 	user := auth.MustCurrentUser(c)
 	if h.jobs != nil && strings.HasPrefix(c.Param("id"), "job_") {
-		job, err := h.jobs.GetForUser(c.Param("id"), user.ID)
+		job, err := h.jobs.GetStatusForUser(c.Request.Context(), c.Param("id"), user.ID)
 		if err != nil || job.WorkspaceID != service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID) {
 			response.Error(c, http.StatusNotFound, "job not found")
 			return
@@ -404,7 +404,7 @@ func (h *AIHandler) getSDVideoTaskContent(c *gin.Context) {
 	workspaceID := service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID)
 	taskID := c.Param("id")
 	if strings.HasPrefix(taskID, "job_") {
-		job, err := h.jobs.GetForUser(taskID, user.ID)
+		job, err := h.jobs.GetStatusForUser(c.Request.Context(), taskID, user.ID)
 		if err != nil || job.WorkspaceID != workspaceID {
 			response.Error(c, http.StatusNotFound, "job not found")
 			return
