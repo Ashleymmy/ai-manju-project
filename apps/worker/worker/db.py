@@ -258,11 +258,11 @@ class JobStore:
                 cur.execute(
                     """
                     SELECT
-                        COALESCE(MAX(EXTRACT(EPOCH FROM (timezone('utc', now()) - created_at))
+                        COALESCE(MAX(EXTRACT(EPOCH FROM (now() - created_at))
                             FILTER (WHERE status = %s)), 0) AS oldest_queued_seconds,
-                        COALESCE(MAX(EXTRACT(EPOCH FROM (timezone('utc', now()) - created_at))
+                        COALESCE(MAX(EXTRACT(EPOCH FROM (now() - created_at))
                             FILTER (WHERE status = %s)), 0) AS oldest_running_seconds,
-                        COALESCE(MAX(EXTRACT(EPOCH FROM (timezone('utc', now()) - created_at))
+                        COALESCE(MAX(EXTRACT(EPOCH FROM (now() - created_at))
                             FILTER (WHERE status = %s AND queue_phase = 'waiting_provider_slot')), 0)
                             AS oldest_waiting_provider_slot_seconds,
                         COUNT(*) FILTER (WHERE status = %s AND queue_phase IN
