@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { CanvasNodeData } from "./types";
 import {
   applyPendingCanvasJobIds,
+  CANVAS_INTERRUPTED_REQUEST_NOTICE,
   canvasJobSourceNodeId,
   canvasJobSourceProjectId,
   markUnrecoverableCanvasGenerations,
+  markInterruptedCanvasRequests,
   matchLoadingNodesToJobs,
 } from "./generationResume";
 import { resetInterruptedCanvasGenerations } from "./batch";
@@ -69,7 +71,27 @@ describe("generation resume", () => {
     const next = resetInterruptedCanvasGenerations(nodes);
     expect(next[0]?.metadata?.status).toBe("loading");
     expect(next[1]?.metadata?.status).toBe("error");
-    expect(next[1]?.metadata?.errorDetails).toContain("页面刷新后生成已中断");
+    expect(next[1]?.metadata?.errorDetails).toBe(CANVAS_INTERRUPTED_REQUEST_NOTICE);
+  });
+
+  it.each(["text", "audio"] as const)("marks refreshed %s without a durable task as uncertain and retains previous content", kind => {
+    const node: CanvasNodeData = { ...imageNode("original", { status: "loading", assetId: "old-asset", mimeType: "audio/mpeg", bytes: 42, titleEdited: true, titleBase: "保留标题" }), kind, title: "保留标题", content: "原来的结果" };
+    const next = resetInterruptedCanvasGenerations([node]);
+    expect(next[0]).toMatchObject({ title: "保留标题", content: "原来的结果", metadata: {
+      status: "error", assetId: "old-asset", mimeType: "audio/mpeg", bytes: 42,
+      errorDetails: CANVAS_INTERRUPTED_REQUEST_NOTICE,
+    } });
+    expect(next[0].metadata?.errorDetails).toContain("勿重复生成");
+    expect(next[0].metadata?.errorDetails).not.toContain("请重新生成");
+  });
+
+  it("leaves live targets and persisted task IDs untouched when detecting interrupted requests", () => {
+    const nodes: CanvasNodeData[] = [
+      { ...imageNode("live", { status: "loading" }), kind: "text" },
+      { ...imageNode("durable", { status: "loading", jobId: "job-audio" }), kind: "audio" },
+      { ...imageNode("done", { status: "success" }), kind: "text" },
+    ];
+    expect(markInterruptedCanvasRequests(nodes, new Set(["durable", "done"]))).toBe(nodes);
   });
 
   it("matches queued jobs to loading nodes by target then origin", () => {

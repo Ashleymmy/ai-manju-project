@@ -15,7 +15,7 @@ const (
 	// Bound the entire background analysis, including supplier retries. GET also
 	// uses this deadline to resolve abandoned tasks after a process restart.
 	ComicAnalysisTaskTimeout      = 20 * time.Minute
-	comicAnalysisTimeoutMessage   = "剧本分析超时或服务中断，上传文件已保留，请重新发起分析"
+	comicAnalysisTimeoutMessage   = "剧本分析超时或服务中断，结果尚未确认，上传文件已保留；请勿重复提交，请联系管理员核查"
 	comicAnalysisProviderMessage  = "模型服务未能完成剧本分析，上传文件已保留，请稍后重试或更换模型"
 	comicAnalysisCandidateMessage = "模型返回的资产清单格式不完整，上传文件已保留，请重新分析"
 )
@@ -35,12 +35,15 @@ func (s *ComicAssetService) runPendingAnalysis(parent context.Context, session m
 			log.Printf("comic analysis completion failed session_id=%s error=%v", session.ID, err)
 		}
 	}()
-	generated, err := s.textGenerator(ctx, requestedModel, request)
+	generated, err := s.textGenerator(ctx, session.OwnerID, requestedModel, request)
 	if ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) {
 		failure = comicAnalysisTimeoutMessage
 		return
 	}
 	if err != nil {
+		if errors.Is(err, ErrComicTextSubmissionUncertain) {
+			failure = ErrComicTextSubmissionUncertain.Error()
+		}
 		log.Printf("comic analysis generation failed session_id=%s", session.ID)
 		return
 	}

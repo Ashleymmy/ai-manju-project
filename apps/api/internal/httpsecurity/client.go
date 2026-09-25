@@ -51,6 +51,11 @@ func SameOriginRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) > maxRedirects || origin(req.URL) == "" || origin(req.URL) != origin(via[0].URL) {
 		return http.ErrUseLastResponse
 	}
+	// 307/308 must not silently replay a paid POST even on the same host.
+	// 301/302/303 may switch to a result GET; callers retain its uncertainty.
+	if via[0].Method != http.MethodGet && via[0].Method != http.MethodHead && req.Method != http.MethodGet && req.Method != http.MethodHead {
+		return http.ErrUseLastResponse
+	}
 	req.Header.Del("Referer")
 	return nil
 }

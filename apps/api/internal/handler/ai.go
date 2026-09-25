@@ -189,7 +189,7 @@ func (h *AIHandler) Text(c *gin.Context) {
 	text, config, err := generateTextWithCandidates(c.Request.Context(), candidates, req)
 	if err != nil {
 		h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: config, Operation: "text", Model: modelID, InputCount: inputCount, OutputCount: 0, Err: err})
-		response.Error(c, http.StatusBadGateway, errGenerationUnavailable.Error())
+		response.Error(c, http.StatusBadGateway, generationPublicError(err))
 		return
 	}
 	outputCount := len(text.ToolCalls)
@@ -906,6 +906,7 @@ func (h *AIHandler) SeedanceTaskContent(c *gin.Context) {
 }
 
 func (h *AIHandler) AudioSpeech(c *gin.Context) {
+	startedAt := time.Now().UTC()
 	var body map[string]any
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
@@ -920,8 +921,11 @@ func (h *AIHandler) AudioSpeech(c *gin.Context) {
 		return
 	}
 	removeGenerationPrivateFields(body)
+	var lastConfig model.ModelProviderConfig
+	var lastErr error
 	for _, candidate := range candidates {
 		config := candidate.Config
+		lastConfig = config
 		config.TimeoutMS = max(config.TimeoutMS, int(model.GenerationMediaRequestTimeout.Milliseconds()))
 		body["model"] = candidate.Model
 		for attempt := 0; attempt < model.GenerationAttemptsPerProvider; attempt++ {
@@ -930,15 +934,28 @@ func (h *AIHandler) AudioSpeech(c *gin.Context) {
 			}
 			client, err := provider.NewOpenAICompatibleClient(config, candidate.APIKey)
 			if err != nil {
+				lastErr = err
 				continue
 			}
 			content, contentType, err := client.ProxyBlob(c.Request.Context(), http.MethodPost, providerProxyPath(config, "/audio/speech"), body, true)
 			if err == nil && validSpeechOutput(content, contentType) {
+				h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: config, Operation: "audio", Model: candidate.Model, InputCount: 1, OutputCount: 1})
 				c.Data(http.StatusOK, firstNonEmpty(contentType, "application/octet-stream"), content)
+				return
+			}
+			if err == nil {
+				err = errors.New("provider returned invalid speech media")
+			}
+			lastErr = err
+			if !safeToRepeatGeneration(err) {
+				err = uncertainGeneration(err)
+				h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: config, Operation: "audio", Model: candidate.Model, InputCount: 1, Err: err})
+				response.Error(c, http.StatusBadGateway, generationPublicError(err))
 				return
 			}
 		}
 	}
+	h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: lastConfig, Operation: "audio", Model: stringFromAny(body["model"]), InputCount: 1, Err: lastErr})
 	response.Error(c, http.StatusBadGateway, errGenerationUnavailable.Error())
 }
 

@@ -213,6 +213,114 @@ function createHarness(
 }
 
 describe("CanvasGenerationJobsController", () => {
+  it.each([false, true])("rebuilds text retry image references from source and current edges (source removed=%s)", async sourceRemoved => {
+    const source = imageNode({ id: "source", kind: "config", content: "源提示词", metadata: { generationMode: "text", prompt: "源提示词" } });
+    const target = imageNode({ id: "text-target", kind: "text", content: "上次内容", metadata: { generationMode: "text", status: "error", prompt: "重试使用的原提示词", sourceNodeId: source.id } });
+    const reference = imageNode({ id: "ref-image", imageAssetId: "asset-reference", metadata: { status: "success", assetScope: "team" } });
+    const services = createServices({
+      getAssetContentObjectUrl: vi.fn(async () => "blob:reference"),
+      fetchBlob: vi.fn(async () => new Blob(["reference"], { type: "image/png" })),
+      readFileDataUrl: vi.fn(async () => "data:image/png;base64,cmVm"),
+      requestAiText: vi.fn(async () => ({ content: "含图片的新文本", model: "text-model" })),
+    });
+    const harness = createHarness(sourceRemoved ? [target, reference] : [source, target, reference], services);
+    harness.setEdges([
+      { id: "image-source", from: reference.id, to: source.id },
+      { id: "image-target", from: reference.id, to: target.id },
+      { id: "source-target", from: source.id, to: target.id },
+    ]);
+    await harness.controller.retryTextNode(target);
+    expect(services.getAssetContentObjectUrl).toHaveBeenCalledTimes(1);
+    expect(services.getAssetContentObjectUrl).toHaveBeenCalledWith("asset-reference", "team", undefined, expect.any(AbortSignal));
+    expect(services.requestAiText).toHaveBeenCalledWith({ model: "text-model", messages: [{ role: "user", content: [
+      { type: "input_text", text: "重试使用的原提示词" }, { type: "input_image", image_url: { url: "data:image/png;base64,cmVm" } },
+    ] }] }, expect.any(AbortSignal), expect.any(Function));
+    expect(harness.nodes.find(item => item.id === target.id)?.content).toBe("含图片的新文本");
+  });
+
+  it("does not submit text retry when its source image fails to load", async () => {
+    const source = imageNode({ id: "source", kind: "config", content: "描述图片", metadata: { generationMode: "text" } });
+    const target = imageNode({ id: "text-target", kind: "text", metadata: { generationMode: "text", status: "error", prompt: "描述图片", sourceNodeId: source.id } });
+    const reference = imageNode({ id: "ref", imageAssetId: "asset-reference" });
+    const services = createServices({ getAssetContentObjectUrl: vi.fn(async () => { throw new Error("参考图片读取失败"); }) });
+    const harness = createHarness([source, target, reference], services);
+    harness.setEdges([{ id: "ref-source", from: reference.id, to: source.id }]);
+    await harness.controller.retryTextNode(target);
+    expect(services.requestAiText).not.toHaveBeenCalled();
+    expect(harness.nodes.find(item => item.id === target.id)?.metadata).toMatchObject({ status: "error", errorDetails: "参考图片读取失败" });
+  });
+
+  it("does not submit text retry after canceling slow reference preparation", async () => {
+    let release!: (url: string) => void;
+    const target = imageNode({ id: "text-target", kind: "text", metadata: { generationMode: "text", status: "error", prompt: "描述图片" } });
+    const reference = imageNode({ id: "ref", imageAssetId: "asset-reference" });
+    const services = createServices({
+      getAssetContentObjectUrl: vi.fn(() => new Promise(resolve => { release = resolve; })),
+      fetchBlob: vi.fn(async () => new Blob(["image"], { type: "image/png" })),
+      readFileDataUrl: vi.fn(async () => "data:image/png;base64,cmVm"),
+    });
+    const harness = createHarness([target, reference], services);
+    harness.setEdges([{ id: "ref-target", from: reference.id, to: target.id }]);
+    const running = harness.controller.retryTextNode(target);
+    await vi.waitFor(() => expect(release).toBeDefined());
+    await harness.controller.retryTextNode(target);
+    expect(services.getAssetContentObjectUrl).toHaveBeenCalledTimes(1);
+    await harness.controller.stopGenerationByNodeId(target.id);
+    release("blob:late-reference");
+    await running;
+    expect(services.requestAiText).not.toHaveBeenCalled();
+    expect(harness.runningIds.size).toBe(0);
+  });
+
+  it.each(["success", "generation-failure", "upload-failure"])("keeps the previous audio asset until a replacement is saved (%s)", async outcome => {
+    let finish!: () => void;
+    const services = createServices({
+      requestAudioGeneration: vi.fn(() => new Promise((resolve, reject) => { finish = () => outcome === "generation-failure" ? reject(new Error("generation failed")) : resolve(new Blob(["new audio"], { type: "audio/mpeg" })); })),
+      uploadAsset: vi.fn(async () => {
+        if (outcome === "upload-failure") throw new Error("upload failed");
+        return { id: "new-asset", name: "new.mp3", type: "audio" as const, content_type: "audio/mpeg", size: 99 };
+      }),
+    });
+    const node = audioNode({ imageAssetId: "old-preview", imageSrc: "blob:old", metadata: { status: "error", prompt: "new audio", assetId: "old-asset", assetScope: "team", mimeType: "audio/wav", bytes: 123 } });
+    const harness = createHarness([node], services);
+    const running = harness.controller.retryAudioNode(node);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    expect(harness.nodes[0]).toMatchObject({ imageAssetId: "old-preview", imageSrc: "blob:old", metadata: { status: "loading", assetId: "old-asset", assetScope: "team", mimeType: "audio/wav", bytes: 123 } });
+    finish();
+    await running;
+    expect(services.requestAudioGeneration).toHaveBeenCalledTimes(1);
+    expect(harness.nodes[0].metadata).toMatchObject(outcome === "success"
+      ? { status: "success", assetId: "new-asset", mimeType: "audio/mpeg", bytes: 99 }
+      : { status: "error", assetId: "old-asset", assetScope: "team", mimeType: "audio/wav", bytes: 123 });
+  });
+
+  it.each(["text", "audio"] as const)("marks orphan %s submission uncertain without reissuing a request", kind => {
+    const node = imageNode({ kind, metadata: { status: "loading", prompt: "original", generationMode: kind } });
+    const services = createServices();
+    const harness = createHarness([node], services);
+    harness.controller.recoverPendingJobs();
+    expect(harness.nodes[0].metadata?.status).toBe("error");
+    expect(harness.nodes[0].metadata?.errorDetails).toContain("勿重复生成");
+    expect(services.requestAiText).not.toHaveBeenCalled();
+    expect(services.requestAudioGeneration).not.toHaveBeenCalled();
+    expect(services.getJobs).not.toHaveBeenCalled();
+  });
+
+  it("does not mark a live text request interrupted during a background recovery scan", async () => {
+    let finish!: () => void;
+    const services = createServices({ requestAiText: vi.fn(() => new Promise(resolve => { finish = () => resolve({ content: "result", model: "text-model" }); })) });
+    const node = imageNode({ kind: "text", metadata: { generationMode: "text", status: "error", prompt: "text" } });
+    const harness = createHarness([node], services);
+    const running = harness.controller.retryTextNode(node);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    harness.controller.recoverPendingJobs();
+    expect(harness.nodes[0].metadata).toMatchObject({ status: "loading", errorDetails: undefined });
+    expect(services.requestAiText).toHaveBeenCalledTimes(1);
+    finish();
+    await running;
+    expect(harness.nodes[0].metadata?.status).toBe("success");
+  });
+
   it.each([false, true])("shows image recovery notices and prevents duplicate generation (restored=%s)", async restored => {
     type Callbacks = NonNullable<Parameters<CanvasGenerationServices["generateImages"]>[1]>;
     let progress!: NonNullable<Callbacks["onProgress"]>;

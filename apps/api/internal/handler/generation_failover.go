@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -20,6 +21,7 @@ var errGenerationUnavailable = errors.New("当前模型暂时不可用，请稍�
 
 func generateTextWithCandidates(ctx context.Context, candidates []modelSelection, req provider.TextGenerationRequest) (provider.TextResponse, model.ModelProviderConfig, error) {
 	var last model.ModelProviderConfig
+	var lastErr error
 	for _, candidate := range candidates {
 		// Agent requests must retain tool support when changing suppliers.
 		if len(req.Tools) > 0 && !supportsAgentToolCalls(candidate.Config) {
@@ -34,6 +36,7 @@ func generateTextWithCandidates(ctx context.Context, candidates []modelSelection
 			}
 			client, err := provider.NewOpenAICompatibleClient(last, candidate.APIKey)
 			if err != nil {
+				lastErr = err
 				continue
 			}
 			result, err := client.GenerateTextRequest(ctx, req)
@@ -46,19 +49,31 @@ func generateTextWithCandidates(ctx context.Context, candidates []modelSelection
 				fallback.ToolChoice = "auto"
 				if recovered, fallbackErr := client.GenerateTextRequest(ctx, fallback); fallbackErr == nil {
 					return recovered, last, nil
+				} else {
+					err = fallbackErr
 				}
 			}
 			if err == nil {
 				return result, last, nil
 			}
+			lastErr = err
+			if errors.Is(err, provider.ErrTextInputNotSubmitted) {
+				return provider.TextResponse{}, last, fmt.Errorf("%w: %w", errGenerationUnavailable, err)
+			}
+			if !safeToRepeatGeneration(err) {
+				return provider.TextResponse{}, last, uncertainGeneration(err)
+			}
 		}
+	}
+	if lastErr != nil {
+		return provider.TextResponse{}, last, fmt.Errorf("%w: %w", errGenerationUnavailable, lastErr)
 	}
 	return provider.TextResponse{}, last, errGenerationUnavailable
 }
 
 func isUnsupportedToolChoiceError(err error) bool {
 	var providerErr *provider.ProviderHTTPError
-	if !errors.As(err, &providerErr) || providerErr.StatusCode < http.StatusBadRequest || providerErr.StatusCode >= http.StatusInternalServerError {
+	if !errors.As(err, &providerErr) || providerErr.SubmissionRedirected || providerErr.StatusCode < http.StatusBadRequest || providerErr.StatusCode >= http.StatusInternalServerError {
 		return false
 	}
 	body := strings.ToLower(providerErr.Body)

@@ -5,8 +5,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/ai-manju/api/internal/model"
 )
 
 func TestSpeechRouteDoesNotDeliverHTMLAsGeneratedAudio(t *testing.T) {
@@ -30,7 +28,7 @@ func TestSpeechRouteDoesNotDeliverHTMLAsGeneratedAudio(t *testing.T) {
 		t.Fatal("empty speech input reached supplier")
 	}
 	rec := performJSON(router, http.MethodPost, "/api/ai/audio/speech", `{"model":"audio-output::voice","input":"hello"}`, cookie)
-	if rec.Code != 502 || strings.Contains(rec.Body.String(), "private gateway") || calls != model.GenerationAttemptsPerProvider {
+	if rec.Code != 502 || strings.Contains(rec.Body.String(), "private gateway") || calls != 1 || !strings.Contains(rec.Body.String(), "请勿重复提交") {
 		t.Fatalf("invalid response: status=%d calls=%d", rec.Code, calls)
 	}
 }

@@ -15,6 +15,7 @@ import { batchChildGridPosition, refreshImageBatchRoot } from "@/features/canvas
 import { ensureUniqueCanvasNodeTitles, preserveCanvasNodeTitle } from "@/features/canvas/domain/nodeTitles";
 import {
   applyPendingCanvasJobIds,
+  markInterruptedCanvasRequests,
   markUnrecoverableCanvasGenerations,
   matchLoadingNodesToJobs,
   type CanvasJobAssignment,
@@ -689,6 +690,28 @@ export class CanvasGenerationJobsController {
     }
     const sourceNodeId = stringValue(node.metadata?.sourceNodeId) || node.id;
     await this.withRetryPreparation(node, projectKey, async preparation => {
+      const nodes = this.bindings.getNodes();
+      const edges = this.bindings.getEdges();
+      const source = nodes.find(item => item.id === sourceNodeId) || node;
+      const referenceSources = source.id === node.id ? [node] : [source, node];
+      const imageInputs = new Map<string, ReturnType<typeof buildCanvasGenerationInputs>[number]>();
+      for (const referenceSource of referenceSources) {
+        const context = await this.resolveMentionContextOrNotify(referenceSource, nodes, edges, undefined, preparation.controller.signal);
+        if (!context || !this.preparationIsCurrent(preparation)) return;
+        for (const input of context.inputs.filter(item => item.type === "image")) {
+          const key = input.assetId ? `${input.assetScope || scope}:${input.assetId}` : input.nodeId;
+          imageInputs.set(key, input);
+        }
+      }
+      preparation.referenceNodeIds = [...imageInputs.values()].map(input => input.nodeId)
+        .filter(id => nodes.some(item => item.id === id));
+      const urls: string[] = [];
+      for (const input of imageInputs.values()) {
+        const file = await this.referenceFile(input, scope, preparation.controller.signal);
+        urls.push(await this.services.readFileDataUrl(file, preparation.controller.signal));
+        if (!this.preparationIsCurrent(preparation)) return;
+      }
+      const messages = buildCanvasTextRequestMessages(prompt, urls);
       const next = this.updateNodes(current => current.map(item => item.id === node.id ? {
         ...item,
         title: "重新生成文本中…",
@@ -715,6 +738,7 @@ export class CanvasGenerationJobsController {
         scope,
         prompt,
         model,
+        messages,
       });
       this.finishPreparation(preparation.id);
       await running;
@@ -737,11 +761,8 @@ export class CanvasGenerationJobsController {
       const next = this.updateNodes(current => current.map(item => item.id === node.id ? {
         ...item,
         title: "重新生成音频中…",
-        imageAssetId: undefined,
-        imageSrc: undefined,
         metadata: {
           ...item.metadata,
-          assetId: undefined,
           generationMode: "audio" as const,
           model: config.model,
           audioVoice: config.voice,
@@ -752,8 +773,6 @@ export class CanvasGenerationJobsController {
           errorDetails: undefined,
           jobId: undefined,
           jobProgress: undefined,
-          mimeType: undefined,
-          bytes: undefined,
         },
       } : item));
       await this.persist(next);
@@ -2160,6 +2179,13 @@ export class CanvasGenerationJobsController {
       || !projectKey
     ) return;
 
+    const orphanRequestIds = new Set(this.bindings.getNodes()
+      .filter(node => !this.isLiveCanvasTarget(node.id)).map(node => node.id));
+    const interruptedRequests = markInterruptedCanvasRequests(this.bindings.getNodes(), orphanRequestIds);
+    if (interruptedRequests !== this.bindings.getNodes()) {
+      this.bindings.setNodes(interruptedRequests);
+      void this.persist(interruptedRequests);
+    }
     this.applyJobAssignments(pendingCanvasJobsForProject(projectKey));
     this.resumeLoadingCanvasJobs(projectKey, scope);
 

@@ -154,6 +154,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	}
 	assetExportHandler := handler.NewAssetExportHandler(assetExportService)
 	modelProviderHandler := handler.NewModelProviderHandler(repos.modelProviderRepo, secretBox, cfg.AppSecret)
+	modelProviderHandler.SetBackgroundUserRepository(repos.userRepo)
 	memberHandler.SetModelProviderHandler(modelProviderHandler)
 	modelProviderHandler.SetVideoModelFamilyResolver(service.NewCreditPricer(repos.billingRepo).ResolveModelFamily)
 	comicAssetService := service.NewComicAssetService(repos.comicAssetRepo, jobService)
@@ -161,10 +162,10 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	comicAssetService.SetReferenceServices(assetService, jobInputService)
 	comicAssetService.SetAssetFolderService(assetFolderService)
 	comicAssetService.SetAssetReferenceRepository(repos.assetReferenceRepo)
-	comicAssetService.SetTextGenerator(modelProviderHandler.GenerateBackgroundText)
+	comicAssetService.SetTextGenerator(modelProviderHandler.GenerateBackgroundTextForUser)
 	comicAssetService.StartAnalysisMaintenance(context.Background(), service.ComicAnalysisMaintenanceInterval)
-	comicAssetService.SetImageJobResolver(func(requestedModel string, jobType string) (service.ComicImageJobResolution, error) {
-		resolved, err := modelProviderHandler.ResolveBackgroundImageJob(requestedModel, jobType)
+	comicAssetService.SetImageJobResolver(func(userID, requestedModel string, jobType string) (service.ComicImageJobResolution, error) {
+		resolved, err := modelProviderHandler.ResolveBackgroundImageJobForUser(userID, requestedModel, jobType)
 		if err != nil {
 			return service.ComicImageJobResolution{}, err
 		}

@@ -386,6 +386,14 @@ class JobStore:
                 )
                 return cur.fetchone()
 
+    def owns_reference_asset(self, asset_id: str, workspace_id: str, kind: str) -> bool:
+        # Refreshing an expired URL grants fresh read access. Trust only the
+        # persisted asset and locked Job workspace, never URL/token claims.
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM assets WHERE id=%s AND workspace_id=%s AND type=%s", (asset_id, workspace_id, kind))
+                return cur.fetchone() is not None
+
     def create_asset(self, asset: dict[str, Any]) -> dict[str, Any] | None:
         with self.connect() as conn:
             with conn.cursor() as cur:

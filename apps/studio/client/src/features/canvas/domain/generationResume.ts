@@ -1,8 +1,28 @@
 import type { CanvasNodeData } from "./types";
 import { isRecord, stringValue } from "./value";
+import { preserveCanvasNodeTitle } from "./nodeTitles";
 
 /** 超过此时长的本地/服务端任务不再自动接回，避免误绑旧任务。 */
 export const CANVAS_PENDING_JOB_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Direct text/audio requests have no durable task ID for a safe resubmission. */
+export const CANVAS_INTERRUPTED_REQUEST_NOTICE = "页面刷新后生成提交已中断，结果尚不明确，请先核查结果，勿重复生成。";
+
+export function markInterruptedCanvasRequests(nodes: CanvasNodeData[], targetIds?: ReadonlySet<string>) {
+  let changed = false;
+  const next = nodes.map(node => {
+    if (targetIds && !targetIds.has(node.id)) return node;
+    if ((node.kind !== "text" && node.kind !== "audio")
+      || node.metadata?.status !== "loading" || stringValue(node.metadata?.jobId)) return node;
+    changed = true;
+    return {
+      ...node,
+      title: preserveCanvasNodeTitle(node, "生成提交已中断"),
+      metadata: { ...node.metadata, status: "error" as const, errorDetails: CANVAS_INTERRUPTED_REQUEST_NOTICE },
+    };
+  });
+  return changed ? next : nodes;
+}
 
 export type RecoverableCanvasJob = {
   id: string;

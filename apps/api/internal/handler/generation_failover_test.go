@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -101,7 +102,7 @@ func TestTextGenerationRetriesEachSupplierAndStopsOnSuccess(t *testing.T) {
 					_, _ = w.Write([]byte(`{"output_text":"done","model":"shared-model"}`))
 					return
 				}
-				w.WriteHeader(http.StatusServiceUnavailable)
+				w.WriteHeader(http.StatusTooManyRequests)
 				_, _ = w.Write([]byte(`{"error":"private supplier failure"}`))
 			}))
 			defer server.Close()
@@ -124,7 +125,7 @@ func TestTextGenerationRetriesEachSupplierAndStopsOnSuccess(t *testing.T) {
 			if succeed && (err != nil || result.Text != "done") {
 				t.Fatalf("result=%+v err=%v", result, err)
 			}
-			if !succeed && err != errGenerationUnavailable {
+			if !succeed && !errors.Is(err, errGenerationUnavailable) {
 				t.Fatalf("err=%v", err)
 			}
 			ctx, cancel := context.WithCancel(context.Background())
@@ -157,7 +158,7 @@ func TestAgentTextFailoverPreservesToolsAndSkipsIncompatibleSuppliers(t *testing
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if id == "a" {
-			w.WriteHeader(http.StatusServiceUnavailable)
+			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
 		_, _ = w.Write([]byte(`{"model":"shared-agent","output":[{"type":"function_call","call_id":"call-1","name":"canvas_get_state","arguments":"{}"}]}`))

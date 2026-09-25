@@ -37,7 +37,10 @@ func TestComicAnalysisSessionRevisionRollbackBranchAndConfirm(t *testing.T) {
 		{Text: `{"assets":[{"class":"character","code":"C001","name":"阿青","visual_description":"青衣执伞","source_prompt":"青衣少年执伞"},{"class":"environment","name":"雨巷","visual_description":"青石板夜雨"}]}`, Model: "mock-text-v2"},
 	}
 	requests := make([]provider.TextGenerationRequest, 0, len(responses))
-	fx.service.SetTextGenerator(func(_ context.Context, requested string, request provider.TextGenerationRequest) (provider.TextResponse, error) {
+	fx.service.SetTextGenerator(func(_ context.Context, userID string, requested string, request provider.TextGenerationRequest) (provider.TextResponse, error) {
+		if userID != fx.userID {
+			t.Fatalf("analysis/revision actor lost: %q", userID)
+		}
 		if requested == "" || len(responses) == 0 {
 			return provider.TextResponse{}, errors.New("unexpected text request")
 		}
@@ -122,7 +125,10 @@ func TestComicPromptDirectedOptimizeAndBulkApproveOptimisticLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fx.service.SetTextGenerator(func(_ context.Context, requested string, _ provider.TextGenerationRequest) (provider.TextResponse, error) {
+	fx.service.SetTextGenerator(func(_ context.Context, userID string, requested string, _ provider.TextGenerationRequest) (provider.TextResponse, error) {
+		if userID != fx.userID {
+			t.Fatalf("prompt optimization actor lost: %q", userID)
+		}
 		return provider.TextResponse{Text: "优化后的冷色全身设定", Model: "mock-response-model"}, nil
 	})
 	optimized, err := fx.service.OptimizePrompt(context.Background(), project.ID, first.ID, fx.userID, WorkspaceScopePersonal, OptimizeComicPromptInput{
@@ -141,7 +147,10 @@ func TestComicPromptDirectedOptimizeAndBulkApproveOptimisticLock(t *testing.T) {
 	}
 	approvedBeforeMerge := optimized.Asset.ApprovedPrompt
 	sourceBeforeMerge := optimized.Asset.SourcePrompt
-	fx.service.SetTextGenerator(func(_ context.Context, requested string, request provider.TextGenerationRequest) (provider.TextResponse, error) {
+	fx.service.SetTextGenerator(func(_ context.Context, userID string, requested string, request provider.TextGenerationRequest) (provider.TextResponse, error) {
+		if userID != fx.userID {
+			t.Fatalf("prompt merge actor lost: %q", userID)
+		}
 		if requested != "provider::mock-text" || !strings.Contains(fmt.Sprint(request.Messages[0]["content"]), "retained_from_source") {
 			return provider.TextResponse{}, errors.New("unexpected merge request")
 		}
@@ -166,7 +175,7 @@ func TestComicPromptDirectedOptimizeAndBulkApproveOptimisticLock(t *testing.T) {
 		t.Fatalf("merge revision=%+v", mergedLatest)
 	}
 	providerCalledForStaleMerge := false
-	fx.service.SetTextGenerator(func(_ context.Context, _ string, _ provider.TextGenerationRequest) (provider.TextResponse, error) {
+	fx.service.SetTextGenerator(func(_ context.Context, _ string, _ string, _ provider.TextGenerationRequest) (provider.TextResponse, error) {
 		providerCalledForStaleMerge = true
 		return provider.TextResponse{}, nil
 	})
@@ -239,7 +248,7 @@ func newComicServiceFixture() comicServiceFixture {
 	producer := &queue.MemoryProducer{}
 	jobs := NewJobService(jobRepo, producer, "celery", 3)
 	svc := NewComicAssetService(comicRepo, jobs)
-	svc.SetImageJobResolver(func(requested string, _ string) (ComicImageJobResolution, error) {
+	svc.SetImageJobResolver(func(_ string, requested string, _ string) (ComicImageJobResolution, error) {
 		selector := strings.TrimSpace(requested)
 		if selector == "" {
 			selector = "provider_a::image-v1"
@@ -691,7 +700,7 @@ func TestComicGenerationConfigFallsBackForLegacyItems(t *testing.T) {
 
 func TestComicBatchReferenceAssetUsesImageEditAndWorkspaceValidation(t *testing.T) {
 	fx := newComicServiceFixture()
-	fx.service.SetImageJobResolver(func(requested string, jobType string) (ComicImageJobResolution, error) {
+	fx.service.SetImageJobResolver(func(_ string, requested string, jobType string) (ComicImageJobResolution, error) {
 		if jobType != model.JobTypeImageEdit {
 			t.Fatalf("reference job type = %q", jobType)
 		}

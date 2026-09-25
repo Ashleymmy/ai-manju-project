@@ -26,7 +26,7 @@ func TestAnalysisUploadReturnsBeforeSlowModelAndSurvivesClosedRequest(t *testing
 	svc.SetSourceStorage(storage.NewLocalFSStorage(t.TempDir()))
 	release := make(chan struct{})
 	defer close(release)
-	svc.SetTextGenerator(func(ctx context.Context, _ string, _ provider.TextGenerationRequest) (provider.TextResponse, error) {
+	svc.SetTextGenerator(func(ctx context.Context, _ string, _ string, _ provider.TextGenerationRequest) (provider.TextResponse, error) {
 		select {
 		case <-release:
 			return provider.TextResponse{Text: `{"assets":[{"class":"character","name":"actor"}]}`}, nil

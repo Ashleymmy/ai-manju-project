@@ -57,6 +57,9 @@ type ProviderHTTPError struct {
 	URL        string
 	StatusCode int
 	Body       string
+	// A rejected result GET after a submission redirect does not prove that
+	// the original paid POST was rejected.
+	SubmissionRedirected bool
 }
 
 func (e *ProviderHTTPError) Error() string {
@@ -328,7 +331,7 @@ func (c *OpenAICompatibleClient) GenerateTextRequest(ctx context.Context, reques
 		return TextResponse{}, ErrTextModelNotConfigured
 	}
 	if c.usesGeminiNativeAPI() {
-		return c.generateGeminiText(ctx, textRequestFallbackPrompt(request), modelID)
+		return c.generateGeminiText(ctx, request, modelID)
 	}
 
 	overridePath := providerEndpointOverride(c.config, EndpointOverrideTextGenerationKey)
@@ -591,7 +594,7 @@ func isChatCompletionsPath(value string) bool {
 
 func textEndpointSupportsSafeChatFallback(err error) bool {
 	var providerErr *ProviderHTTPError
-	return errors.As(err, &providerErr) && (providerErr.StatusCode == http.StatusNotFound || providerErr.StatusCode == http.StatusMethodNotAllowed)
+	return errors.As(err, &providerErr) && !providerErr.SubmissionRedirected && (providerErr.StatusCode == http.StatusNotFound || providerErr.StatusCode == http.StatusMethodNotAllowed)
 }
 
 func providerEndpointOverride(config model.ModelProviderConfig, key string) string {
@@ -651,8 +654,11 @@ func (c *OpenAICompatibleClient) GenerateImages(ctx context.Context, imageReques
 	return normalizeImageGenerationResponse(raw, modelID)
 }
 
-func (c *OpenAICompatibleClient) generateGeminiText(ctx context.Context, prompt string, modelID string) (TextResponse, error) {
-	body := geminiGenerateContentBody(prompt)
+func (c *OpenAICompatibleClient) generateGeminiText(ctx context.Context, request TextGenerationRequest, modelID string) (TextResponse, error) {
+	body, err := c.geminiTextBody(ctx, request)
+	if err != nil {
+		return TextResponse{}, err
+	}
 
 	var raw json.RawMessage
 	if err := c.doGeminiJSON(ctx, http.MethodPost, geminiGenerateContentPath(modelID), body, &raw); err != nil {
@@ -1362,7 +1368,7 @@ func (c *OpenAICompatibleClient) ProxyBlob(ctx context.Context, method string, p
 		c.applyAuthHeaders(req)
 	}
 
-	res, err := client.Do(req)
+	res, err := doProviderRequest(client, req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1394,7 +1400,7 @@ func (c *OpenAICompatibleClient) ProxyBlob(ctx context.Context, method string, p
 		return nil, "", err
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, "", &ProviderHTTPError{Method: method, URL: u, StatusCode: res.StatusCode, Body: string(responseBody)}
+		return nil, "", &ProviderHTTPError{Method: method, URL: u, StatusCode: res.StatusCode, Body: string(responseBody), SubmissionRedirected: req.Method == http.MethodPost && res.Request != nil && (res.Request.Method != req.Method || res.Request.URL.String() != req.URL.String())}
 	}
 	// Some speech suppliers report errors in a successful JSON envelope.
 	if json.Valid(responseBody) {
@@ -1686,7 +1692,7 @@ func (c *OpenAICompatibleClient) doJSONURLWithClient(ctx context.Context, client
 		c.applyAuthHeaders(req)
 	}
 
-	res, err := client.Do(req)
+	res, err := doProviderRequest(client, req)
 	if err != nil {
 		return err
 	}
@@ -1697,7 +1703,7 @@ func (c *OpenAICompatibleClient) doJSONURLWithClient(ctx context.Context, client
 		return err
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return &ProviderHTTPError{Method: method, URL: u, StatusCode: res.StatusCode, Body: string(responseBody)}
+		return &ProviderHTTPError{Method: method, URL: u, StatusCode: res.StatusCode, Body: string(responseBody), SubmissionRedirected: req.Method == http.MethodPost && res.Request != nil && (res.Request.Method != req.Method || res.Request.URL.String() != req.URL.String())}
 	}
 
 	if target == nil || len(responseBody) == 0 {
@@ -2076,7 +2082,7 @@ func (c *OpenAICompatibleClient) doMultipartWithClient(ctx context.Context, clie
 	c.applyExtraHeaders(req)
 	c.applyAuthHeaders(req)
 
-	res, err := client.Do(req)
+	res, err := doProviderRequest(client, req)
 	if err != nil {
 		return err
 	}
@@ -2087,7 +2093,7 @@ func (c *OpenAICompatibleClient) doMultipartWithClient(ctx context.Context, clie
 		return err
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return &ProviderHTTPError{Method: http.MethodPost, URL: u, StatusCode: res.StatusCode, Body: string(responseBody)}
+		return &ProviderHTTPError{Method: http.MethodPost, URL: u, StatusCode: res.StatusCode, Body: string(responseBody), SubmissionRedirected: req.Method == http.MethodPost && res.Request != nil && (res.Request.Method != req.Method || res.Request.URL.String() != req.URL.String())}
 	}
 
 	if target == nil || len(responseBody) == 0 {

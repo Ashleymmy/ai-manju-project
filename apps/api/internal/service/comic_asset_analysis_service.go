@@ -49,9 +49,12 @@ var (
 	ErrComicPromptMergeBaseInvalid  = errors.New("comic asset prompt merge base is not a saved revision")
 	ErrComicTextModelRequired       = errors.New("text model is required")
 	ErrComicTextProvider            = errors.New("text model provider is unavailable; please contact an administrator")
+	ErrComicTextSubmissionUncertain = errors.New("生成响应中断，结果暂时无法确认；请勿重复提交，请联系管理员核查")
 )
 
-type ComicTextGenerator func(ctx context.Context, requestedModel string, request provider.TextGenerationRequest) (provider.TextResponse, error)
+// The actor ID comes from the authenticated request, never the model payload.
+// Background execution resolves the current account and provider policy afresh.
+type ComicTextGenerator func(ctx context.Context, userID string, requestedModel string, request provider.TextGenerationRequest) (provider.TextResponse, error)
 
 func (s *ComicAssetService) SetTextGenerator(generator ComicTextGenerator) {
 	s.textGenerator = generator
@@ -251,7 +254,7 @@ func (s *ComicAssetService) CreateAnalysisSession(ctx context.Context, userID st
 		session.Scope = WorkspaceScopeFromID(session.WorkspaceID)
 		return ComicAnalysisDetail{Session: session, Revisions: []model.ComicAssetAnalysisRevision{}}, nil
 	}
-	generated, err := s.textGenerator(ctx, requestedModel, comicInitialAnalysisRequest(projectInput, sourceText, initialInstruction))
+	generated, err := s.textGenerator(ctx, userID, requestedModel, comicInitialAnalysisRequest(projectInput, sourceText, initialInstruction))
 	if err != nil {
 		return ComicAnalysisDetail{}, err
 	}
@@ -341,7 +344,7 @@ func (s *ComicAssetService) CreateAnalysisRevision(ctx context.Context, sessionI
 		if s.textGenerator == nil {
 			return ComicAnalysisDetail{}, ErrComicTextProvider
 		}
-		generated, generateErr := s.textGenerator(ctx, requestedModel, comicRevisionAnalysisRequest(session, parent, instruction))
+		generated, generateErr := s.textGenerator(ctx, userID, requestedModel, comicRevisionAnalysisRequest(session, parent, instruction))
 		if generateErr != nil {
 			return ComicAnalysisDetail{}, generateErr
 		}
@@ -476,7 +479,7 @@ func (s *ComicAssetService) OptimizePrompt(ctx context.Context, projectID string
 		mergeBaseContent = baseContent
 		request = comicPromptMergeRequest(project, asset, baseContent, direction)
 	}
-	generated, err := s.textGenerator(ctx, requestedModel, request)
+	generated, err := s.textGenerator(ctx, userID, requestedModel, request)
 	if err != nil {
 		return OptimizeComicPromptResult{}, err
 	}

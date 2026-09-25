@@ -15,6 +15,8 @@ from urllib.parse import urlsplit
 from . import object_storage
 from .config import Settings
 from .errors import SafeTaskError, VideoTaskAcceptedError, VideoSubmissionUncertainError
+from .db import JobStore
+from .owned_reference_urls import refresh_owned_reference
 from .staged_inputs import JOB_WORKSPACE_FIELD, workspace_prefix_parts
 from .video_reference_transfer import prepare_reference_transfer
 
@@ -29,7 +31,8 @@ def native_video_references(job_id: str, body: dict[str, Any], payload: dict[str
     """Keep private reference objects alive through submission, polling and download.
 
     Keys are stable across redelivery, scoped to the job's workspace. Registered
-    asset references and existing HTTP URLs pass through without being downloaded.
+    asset references and external HTTP URLs pass through. Owned Studio assets
+    receive a fresh signature after an independent workspace/asset check.
     Local-only deployments retain their existing inline-media behavior.
     """
     content = body.get("content")
@@ -49,7 +52,10 @@ def native_video_references(job_id: str, body: dict[str, Any], payload: dict[str
                 continue
             reference = item.get(kind)
             raw = reference.get("url") if isinstance(reference, dict) else None
-            if not isinstance(raw, str) or not raw.lower().startswith("data:"):
+            if not isinstance(raw, str):
+                continue
+            if not raw.lower().startswith("data:"):
+                reference["url"] = refresh_owned_reference(raw, kind, str(payload.get(JOB_WORKSPACE_FIELD) or ""), checkpoint.store if checkpoint is not None else JobStore(settings.database_url))
                 continue
             header, separator, encoded = raw.partition(",")
             media_type = header[5:].removesuffix(";base64").lower()

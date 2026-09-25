@@ -121,7 +121,7 @@ type ComicImageJobResolution struct {
 	TaskKwargs map[string]any
 }
 
-type ComicImageJobResolver func(requestedModel string, jobType string) (ComicImageJobResolution, error)
+type ComicImageJobResolver func(userID string, requestedModel string, jobType string) (ComicImageJobResolution, error)
 
 type ComicAssetService struct {
 	repo          repository.ComicAssetRepository
@@ -800,7 +800,7 @@ func (s *ComicAssetService) CreateBatch(projectID string, userID string, scope s
 		cacheKey := config.ModelSelector + "\x00" + jobType
 		resolution, ok := resolutionCache[cacheKey]
 		if !ok {
-			resolution, err = s.resolver(config.ModelSelector, jobType)
+			resolution, err = s.resolver(userID, config.ModelSelector, jobType)
 			if err != nil {
 				return ComicBatchDetail{}, ErrComicImageProvider
 			}
@@ -1096,7 +1096,7 @@ func (s *ComicAssetService) DispatchOnce(ctx context.Context) error {
 			if len(config.ReferenceAssetIDs) > 0 {
 				jobType = model.JobTypeImageEdit
 			}
-			resolution, resolveErr := s.resolver(config.ModelSelector, jobType)
+			resolution, resolveErr := s.resolver(batch.UserID, config.ModelSelector, jobType)
 			if resolveErr != nil {
 				_ = s.repo.SyncItemFromJob(item.ID, "", model.JobStatusFailed, "", comicErrorJSON("provider_unavailable", "model provider is unavailable"))
 				continue

@@ -68,7 +68,7 @@ func TestAudioUsesRequestedModelAndRetriesAllSameModelSuppliers(t *testing.T) {
 					_, _ = w.Write([]byte("audio"))
 					return
 				}
-				http.Error(w, "private supplier detail", http.StatusServiceUnavailable)
+				http.Error(w, "private supplier detail", http.StatusTooManyRequests)
 			}))
 			defer server.Close()
 			router, repo := newProviderTestRouter(t, "secret")
@@ -107,7 +107,7 @@ func TestComicGenerationSharesCandidatesAndImageProtocols(t *testing.T) {
 		id := r.Header.Get("X-Supplier")
 		calls = append(calls, id)
 		if id == "a" {
-			http.Error(w, "private", http.StatusBadGateway)
+			http.Error(w, "private", http.StatusTooManyRequests)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
