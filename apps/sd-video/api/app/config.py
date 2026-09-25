@@ -200,12 +200,11 @@ class Settings:
         "ark_official": bool(ARK_OFFICIAL_BASE_URL and ARK_OFFICIAL_API_KEY),
     }
 
-    @classmethod
-    def seedance_provider_for_model(cls, logical_model: str) -> str:
+    def seedance_provider_for_model(self, logical_model: str) -> str:
         return _seedance_provider_from_values(
             logical_model,
-            cls.SEEDANCE_MODEL_PROVIDER_OVERRIDES,
-            cls.SEEDANCE20_PROVIDER,
+            self.SEEDANCE_MODEL_PROVIDER_OVERRIDES,
+            self.SEEDANCE20_PROVIDER,
         )
 
     # 模型标识
