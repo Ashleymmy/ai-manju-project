@@ -112,6 +112,8 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   audioFormat?: string;
   audioSpeed?: string;
   audioInstructions?: string;
+  /** Original server-owned text/audio attempt, safe to retrieve after refresh. */
+  generationReceipt?: import("./generationReceipt").CanvasGenerationReceipt;
   /** Binary audio result retained in IndexedDB until asset upload succeeds. */
   pendingAudioUpload?: {
     key: string;

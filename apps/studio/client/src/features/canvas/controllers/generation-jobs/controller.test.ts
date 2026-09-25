@@ -213,6 +213,122 @@ function createHarness(
 }
 
 describe("CanvasGenerationJobsController", () => {
+  it("persists a text receipt before the supplier and retrieves it after refresh and failed result save", async () => {
+    const node = imageNode({ kind: "text", metadata: { generationMode: "text", prompt: "原提示" } });
+    let submitted = 0;
+    let savedNodes: CanvasNodeData[] = [node];
+    const services = createServices({ requestAiText: vi.fn(async (_body, _signal, _waiting, receipt) => {
+      if (!receipt?.recoverOnly) {
+        expect(savedNodes[0].metadata?.generationReceipt?.key).toBe(receipt?.key);
+        submitted += 1;
+      }
+      return { content: "原始结果", model: "original-model", toolCalls: [{ id: "tool" }], finishReason: "stop" };
+    }) });
+    const first = createHarness([node], services);
+    first.bindings.getUserId = () => "alice";
+    first.persistSnapshot.mockImplementation(async nodes => {
+      if (nodes[0].metadata?.status === "success") return false;
+      savedNodes = structuredClone(nodes);
+      return true;
+    });
+    await first.controller.runTextTarget({ targetNodeId: node.id, originNodeId: node.id, runningNodeId: node.id,
+      projectKey: "personal:project-1", scope: "personal", prompt: "原提示", model: "original-model" });
+    const key = savedNodes[0].metadata?.generationReceipt?.key;
+    expect(key).toBeTruthy();
+    expect(first.nodes[0].metadata?.status).toBe("error");
+    first.controller.dispose();
+    const refreshed = createHarness(savedNodes, services);
+    refreshed.bindings.getUserId = () => "alice";
+    await refreshed.controller.retryTextNode(refreshed.nodes[0]);
+    expect(submitted).toBe(1);
+    expect(vi.mocked(services.requestAiText).mock.calls[1][3]).toMatchObject({ key, recoverOnly: true });
+    expect(refreshed.nodes[0]).toMatchObject({ content: "原始结果", metadata: { status: "success", textToolCalls: [{ id: "tool" }], textFinishReason: "stop" } });
+    expect(refreshed.nodes[0].metadata?.generationReceipt).toBeUndefined();
+  });
+
+  it("restores server audio after refresh when the local Blob was lost and reuses the upload identity", async () => {
+    const receipt = { key: "original-audio", kind: "audio" as const, userId: "alice", scope: "personal" as const,
+      projectId: "project-1", projectKey: "personal:project-1", nodeId: "audio-1", originNodeId: "audio-1",
+      prompt: "original", model: "tts", audioConfig: { model: "tts", format: "mp3" } };
+    const uploadKey = "canvas-audio:alice:personal:personal%3Aproject-1:audio-1:original-upload";
+    const node = audioNode({ metadata: { generationReceipt: receipt,
+      pendingAudioUpload: { key: uploadKey, fileName: "voice.mp3", contentType: "audio/mpeg", bytes: 5, createdAt: "2026-09-25" } } });
+    const services = createServices({
+      loadPendingAudioUpload: vi.fn(async () => null),
+      requestAudioGeneration: vi.fn(async (_config, _prompt, options) => {
+        expect(options?.receipt).toEqual({ key: "original-audio", scope: "personal", recoverOnly: true });
+        return new Blob(["audio"], { type: "audio/mpeg" });
+      }),
+      uploadAsset: vi.fn(async () => ({ id: "original-asset", name: "voice.mp3", type: "audio" as const })),
+    });
+    const refreshed = createHarness([node], services);
+    refreshed.bindings.getUserId = () => "alice";
+    await refreshed.controller.retryAudioNode(node);
+    expect(services.uploadAsset).toHaveBeenCalledOnce();
+    expect(vi.mocked(services.uploadAsset).mock.calls[0][1]?.idempotency_key).toBe(uploadKey);
+    expect(refreshed.nodes[0].metadata).toMatchObject({ assetId: "original-asset", status: "success" });
+    expect(refreshed.nodes[0].metadata?.generationReceipt).toBeUndefined();
+  });
+
+  it("only clears a receipt after a confirmed failed result and leaves uncertain receipts recoverable", async () => {
+    for (const status of ["failed", "uncertain"]) {
+      const receipt = { key: "original", kind: "text" as const, userId: "", scope: "personal" as const,
+        projectId: "project-1", projectKey: "personal:project-1", nodeId: "image-1", originNodeId: "image-1", prompt: "original", model: "model" };
+      const node = imageNode({ kind: "text", metadata: { generationReceipt: receipt } });
+      const services = createServices({ requestAiText: vi.fn(async () => {
+        throw new ApiError("failure", 502, undefined, { data: { receipt: { status } } });
+      }) });
+      const harness = createHarness([node], services);
+      await harness.controller.retryTextNode(node);
+      expect(vi.mocked(services.requestAiText).mock.calls[0][3]?.recoverOnly).toBe(true);
+      expect(Boolean(harness.nodes[0].metadata?.generationReceipt)).toBe(status === "uncertain");
+      expect(services.requestAiText).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("does not submit a synchronous generation when its receipt cannot be saved", async () => {
+    const services = createServices();
+    const node = imageNode({ kind: "text" });
+    const harness = createHarness([node], services);
+    harness.persistSnapshot.mockResolvedValue(false);
+    await harness.controller.runTextTarget({ targetNodeId: node.id, originNodeId: node.id, runningNodeId: node.id,
+      projectKey: "personal:project-1", scope: "personal", prompt: "提示", model: "model" });
+    expect(services.requestAiText).not.toHaveBeenCalled();
+    expect(harness.nodes[0].metadata?.generationReceipt).toBeUndefined();
+  });
+
+  it("does not retrieve another user's private receipt from a shared canvas", async () => {
+    const services = createServices();
+    const node = imageNode({ kind: "text", metadata: { generationReceipt: {
+      key: "private", kind: "text", userId: "alice", scope: "personal", projectId: "project-1",
+      projectKey: "personal:project-1", nodeId: "image-1", originNodeId: "image-1", prompt: "original", model: "model",
+    } } });
+    const harness = createHarness([node], services);
+    harness.bindings.getUserId = () => "bob";
+    await harness.controller.retryTextNode(node);
+    expect(services.requestAiText).not.toHaveBeenCalled();
+    expect(harness.onError).toHaveBeenCalledWith(expect.stringContaining("其他账号"));
+  });
+
+  it("does not deliver private synchronous output after the authenticated user changes", async () => {
+    let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    const services = createServices({ requestAiText: vi.fn(async () => {
+      await barrier; return { content: "private output", model: "model" };
+    }) });
+    const node = imageNode({ kind: "text" });
+    const harness = createHarness([node], services);
+    let user = "alice";
+    harness.bindings.getUserId = () => user;
+    const pending = harness.controller.runTextTarget({ targetNodeId: node.id, originNodeId: node.id, runningNodeId: node.id,
+      projectKey: "personal:project-1", scope: "personal", prompt: "提示", model: "model" });
+    await vi.waitFor(() => expect(services.requestAiText).toHaveBeenCalledOnce());
+    user = "bob";
+    release();
+    expect(await pending).toBe(false);
+    expect(harness.nodes[0].content).not.toBe("private output");
+  });
+
   it.each([false, true])("rebuilds text retry image references from source and current edges (source removed=%s)", async sourceRemoved => {
     const source = imageNode({ id: "source", kind: "config", content: "源提示词", metadata: { generationMode: "text", prompt: "源提示词" } });
     const target = imageNode({ id: "text-target", kind: "text", content: "上次内容", metadata: { generationMode: "text", status: "error", prompt: "重试使用的原提示词", sourceNodeId: source.id } });
@@ -234,7 +350,7 @@ describe("CanvasGenerationJobsController", () => {
     expect(services.getAssetContentObjectUrl).toHaveBeenCalledWith("asset-reference", "team", undefined, expect.any(AbortSignal));
     expect(services.requestAiText).toHaveBeenCalledWith({ model: "text-model", messages: [{ role: "user", content: [
       { type: "input_text", text: "重试使用的原提示词" }, { type: "input_image", image_url: { url: "data:image/png;base64,cmVm" } },
-    ] }] }, expect.any(AbortSignal), expect.any(Function));
+    ] }] }, expect.any(AbortSignal), expect.any(Function), expect.objectContaining({ key: expect.any(String), scope: "personal", recoverOnly: false }));
     expect(harness.nodes.find(item => item.id === target.id)?.content).toBe("含图片的新文本");
   });
 
@@ -391,7 +507,8 @@ describe("CanvasGenerationJobsController", () => {
     });
     const node = audioNode();
     const first = createHarness([node], services);
-    first.persistSnapshot.mockResolvedValue(false);
+    // Allow the durable submission receipt, then fail saves after output exists.
+    first.persistSnapshot.mockImplementation(async () => vi.mocked(services.requestAudioGeneration).mock.calls.length === 0);
     await first.controller.retryAudioNode(node);
     const uploadKey = vi.mocked(services.uploadAsset).mock.calls[0][1]?.idempotency_key;
     expect(uploadKey).toBeTruthy();

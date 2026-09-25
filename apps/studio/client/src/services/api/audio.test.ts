@@ -31,6 +31,21 @@ class MemoryStorage implements Storage {
 describe("audio API", () => {
   const dispatchEvent = vi.fn();
 
+  it("recovers exact speech bytes after a lost response using a GET, never a second POST", async () => {
+    const bytes = new Uint8Array([0, 1, 255, 44]);
+    vi.mocked(fetch).mockRejectedValueOnce(new TypeError("lost response"));
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(bytes, { headers: { "Content-Type": "audio/wav" } }));
+    const blob = await requestAudioGeneration({ model: "tts", format: "wav" }, "文本", {
+      receipt: { key: "original-audio", scope: "team" },
+    });
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(bytes);
+    expect(blob.type).toBe("audio/wav");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetch).mock.calls[0][1]?.method).toBe("POST");
+    expect(vi.mocked(fetch).mock.calls[1][1]?.method).not.toBe("POST");
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toContain("/receipts/audio/original-audio/result?scope=team");
+  });
+
   it.each([
     ["", "audio/mpeg"],
     ["<html>login</html>", "text/html"],

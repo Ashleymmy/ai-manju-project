@@ -21,6 +21,7 @@ import type { CanvasServiceExecutor } from "@/features/canvas/services/contracts
 import type { WorkspaceScope } from "@/shared/config";
 
 export type CanvasGenerationRequest = {
+  userId?: string;
   requestId: string;
   targetNodeId: string;
   originNodeId: string;

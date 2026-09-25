@@ -146,6 +146,26 @@ func TestPendingJobHidesSupplierRetry(t *testing.T) {
 	}
 }
 
+func TestAgentToolChoiceTimeoutDoesNotResubmit(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusRequestTimeout)
+		_, _ = w.Write([]byte(`{"error":"timeout while processing tool_choice required"}`))
+	}))
+	defer server.Close()
+	config := generationTestConfig("original", "")
+	config.BaseURL, config.TextModel = server.URL+"/v1", "shared-agent"
+	_, _, err := generateTextWithCandidates(context.Background(), []modelSelection{{Config: config, Model: "shared-agent"}}, provider.TextGenerationRequest{
+		Prompt: "inspect", ToolChoice: "required",
+		Tools: []map[string]any{{"type": "function", "function": map[string]any{"name": "canvas_get_state", "parameters": map[string]any{"type": "object"}}}},
+	})
+	if calls != 1 || !errors.Is(err, errGenerationSubmissionUncertain) {
+		t.Fatalf("ambiguous tool request repeated: calls=%d uncertain=%v", calls, errors.Is(err, errGenerationSubmissionUncertain))
+	}
+}
+
 func TestAgentTextFailoverPreservesToolsAndSkipsIncompatibleSuppliers(t *testing.T) {
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

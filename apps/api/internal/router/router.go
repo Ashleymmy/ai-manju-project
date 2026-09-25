@@ -13,6 +13,7 @@ import (
 	"github.com/ai-manju/api/internal/database"
 	"github.com/ai-manju/api/internal/handler"
 	"github.com/ai-manju/api/internal/middleware"
+	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/provider"
 	"github.com/ai-manju/api/internal/queue"
 	"github.com/ai-manju/api/internal/repository"
@@ -50,7 +51,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.RequestID(), middleware.SafeAccessLog(gin.DefaultWriter), middleware.RuntimeMonitoring(runtimeRepo), middleware.SafeRecovery(gin.DefaultErrorWriter))
 	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Expose-Headers", middleware.RequestIDHeader)
+		c.Writer.Header().Set("Access-Control-Expose-Headers", middleware.RequestIDHeader+", "+handler.GenerationReceiptStateHeader)
 		c.Next()
 	})
 
@@ -58,7 +59,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 		AllowOrigins:     cfg.FrontendURLs,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     corsAllowedHeaders,
-		ExposeHeaders:    []string{middleware.RequestIDHeader},
+		ExposeHeaders:    []string{middleware.RequestIDHeader, handler.GenerationReceiptStateHeader},
 		AllowCredentials: true,
 	}))
 
@@ -178,6 +179,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	materialService := service.NewSeedanceMaterialService(repos.modelProviderRepo, secretBox)
 	seedanceAssetService := service.NewSeedanceAssetService(repos.modelProviderRepo, repos.seedanceAssetRepo, secretBox, assetStore, cfg.PublicAssetBaseURL)
 	aiHandler := handler.NewAIHandler(modelProviderHandler, jobService, repos.monitoringRepo)
+	aiHandler.SetGenerationReceiptService(service.NewGenerationReceiptService(repos.generationReceiptRepo, assetStore, secretBox))
 	aiHandler.SetProjectService(projectService)
 	sdVideoClient := sdvideo.NewClient(cfg)
 	modelProviderHandler.SetSDVideoClient(sdVideoClient)
@@ -381,7 +383,9 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 		ai := api.Group("/ai", middleware.RequireAuth(authService), handler.SDVideoAssetCompatibility(sdVideoClient))
 		{
 			ai.GET("/models", func(c *gin.Context) { modelProviderHandler.AggregatedModelsWithSDVideo(c, sdVideoClient) })
-			ai.POST("/text", aiHandler.Text)
+			ai.POST("/text", aiHandler.WithGenerationReceipt(model.GenerationReceiptKindText, aiHandler.Text))
+			ai.GET("/receipts/:kind/:key", aiHandler.GenerationReceiptStatus)
+			ai.GET("/receipts/:kind/:key/result", aiHandler.GenerationReceiptResult)
 			ai.POST("/images/generations", aiHandler.ImageGenerations)
 			ai.POST("/image/generations", aiHandler.ImageGenerations)
 			ai.POST("/images/edits", aiHandler.ImageEdits)
@@ -392,7 +396,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			ai.POST("/contents/generations/tasks", aiHandler.SeedanceTaskCreate)
 			ai.GET("/contents/generations/tasks/:id", aiHandler.SeedanceTaskGet)
 			ai.GET("/contents/generations/tasks/:id/content", aiHandler.SeedanceTaskContent)
-			ai.POST("/audio/speech", aiHandler.AudioSpeech)
+			ai.POST("/audio/speech", aiHandler.WithGenerationReceipt(model.GenerationReceiptKindAudio, aiHandler.AudioSpeech))
 			ai.POST("/materials/visual-validate-sessions", materialHandler.CreateVisualValidateSession)
 			ai.POST("/materials/real-validate-h5", materialHandler.CreateRealValidateH5)
 			ai.GET("/materials/visual-validate-result", materialHandler.GetVisualValidateResult)
@@ -562,22 +566,23 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 }
 
 type repositories struct {
-	projectRepo        repository.ProjectRepository
-	userRepo           repository.UserRepository
-	modelProviderRepo  repository.ModelProviderRepository
-	assetRepo          repository.AssetRepository
-	assetReferenceRepo repository.AssetReferenceRepository
-	assetFolderRepo    repository.AssetFolderRepository
-	tagRepo            repository.TagRepository
-	assetLineageRepo   repository.AssetLineageRepository
-	assetUsageRepo     repository.AssetUsageRepository
-	assetExportRepo    repository.AssetExportRepository
-	monitoringRepo     repository.MonitoringRepository
-	announcementRepo   repository.AnnouncementRepository
-	userPreferenceRepo repository.UserPreferenceRepository
-	jobRepo            repository.JobRepository
-	seedanceAssetRepo  repository.SeedanceAssetRepository
-	comicAssetRepo     repository.ComicAssetRepository
+	generationReceiptRepo repository.GenerationReceiptRepository
+	projectRepo           repository.ProjectRepository
+	userRepo              repository.UserRepository
+	modelProviderRepo     repository.ModelProviderRepository
+	assetRepo             repository.AssetRepository
+	assetReferenceRepo    repository.AssetReferenceRepository
+	assetFolderRepo       repository.AssetFolderRepository
+	tagRepo               repository.TagRepository
+	assetLineageRepo      repository.AssetLineageRepository
+	assetUsageRepo        repository.AssetUsageRepository
+	assetExportRepo       repository.AssetExportRepository
+	monitoringRepo        repository.MonitoringRepository
+	announcementRepo      repository.AnnouncementRepository
+	userPreferenceRepo    repository.UserPreferenceRepository
+	jobRepo               repository.JobRepository
+	seedanceAssetRepo     repository.SeedanceAssetRepository
+	comicAssetRepo        repository.ComicAssetRepository
 	// WP-M1 会员/积分仓储
 	creditRepo     repository.CreditRepository
 	membershipRepo repository.MembershipRepository
@@ -611,55 +616,57 @@ func newRepositories(cfg config.Config) (repositories, string, string) {
 	}
 
 	return repositories{
-		projectRepo:        repository.NewGormProjectRepository(db),
-		userRepo:           repository.NewGormUserRepository(db),
-		modelProviderRepo:  repository.NewGormModelProviderRepository(db),
-		assetRepo:          repository.NewGormAssetRepository(db),
-		assetReferenceRepo: repository.NewGormAssetReferenceRepository(db),
-		assetFolderRepo:    repository.NewGormAssetFolderRepository(db),
-		tagRepo:            repository.NewGormTagRepository(db),
-		assetLineageRepo:   repository.NewGormAssetLineageRepository(db),
-		assetUsageRepo:     repository.NewGormAssetUsageRepository(db),
-		assetExportRepo:    repository.NewGormAssetExportRepository(db),
-		monitoringRepo:     repository.NewGormMonitoringRepository(db),
-		announcementRepo:   repository.NewGormAnnouncementRepository(db),
-		userPreferenceRepo: repository.NewGormUserPreferenceRepository(db),
-		jobRepo:            repository.NewGormJobRepository(db),
-		seedanceAssetRepo:  repository.NewGormSeedanceAssetRepository(db),
-		comicAssetRepo:     repository.NewGormComicAssetRepository(db),
-		creditRepo:         repository.NewGormCreditRepository(db),
-		membershipRepo:     repository.NewGormMembershipRepository(db),
-		billingRepo:        repository.NewGormBillingRepository(db),
-		inviteRepo:         repository.NewGormInviteRepository(db),
-		auditRepo:          repository.NewGormAuditRepository(db),
-		redemptionRepo:     repository.NewGormRedemptionRepository(db),
+		generationReceiptRepo: repository.NewGormGenerationReceiptRepository(db),
+		projectRepo:           repository.NewGormProjectRepository(db),
+		userRepo:              repository.NewGormUserRepository(db),
+		modelProviderRepo:     repository.NewGormModelProviderRepository(db),
+		assetRepo:             repository.NewGormAssetRepository(db),
+		assetReferenceRepo:    repository.NewGormAssetReferenceRepository(db),
+		assetFolderRepo:       repository.NewGormAssetFolderRepository(db),
+		tagRepo:               repository.NewGormTagRepository(db),
+		assetLineageRepo:      repository.NewGormAssetLineageRepository(db),
+		assetUsageRepo:        repository.NewGormAssetUsageRepository(db),
+		assetExportRepo:       repository.NewGormAssetExportRepository(db),
+		monitoringRepo:        repository.NewGormMonitoringRepository(db),
+		announcementRepo:      repository.NewGormAnnouncementRepository(db),
+		userPreferenceRepo:    repository.NewGormUserPreferenceRepository(db),
+		jobRepo:               repository.NewGormJobRepository(db),
+		seedanceAssetRepo:     repository.NewGormSeedanceAssetRepository(db),
+		comicAssetRepo:        repository.NewGormComicAssetRepository(db),
+		creditRepo:            repository.NewGormCreditRepository(db),
+		membershipRepo:        repository.NewGormMembershipRepository(db),
+		billingRepo:           repository.NewGormBillingRepository(db),
+		inviteRepo:            repository.NewGormInviteRepository(db),
+		auditRepo:             repository.NewGormAuditRepository(db),
+		redemptionRepo:        repository.NewGormRedemptionRepository(db),
 	}, "postgres", "ok"
 }
 
 func newMemoryRepositories() repositories {
 	assetRepo := repository.NewMemoryAssetRepository()
 	return repositories{
-		projectRepo:        repository.NewMemoryProjectRepository(),
-		userRepo:           repository.NewMemoryUserRepository(),
-		modelProviderRepo:  repository.NewMemoryModelProviderRepository(),
-		assetRepo:          assetRepo,
-		assetReferenceRepo: repository.NewMemoryAssetReferenceRepository(),
-		assetFolderRepo:    repository.NewMemoryAssetFolderRepository(),
-		tagRepo:            repository.NewMemoryTagRepository(assetRepo),
-		assetLineageRepo:   repository.NewMemoryAssetLineageRepository(),
-		assetUsageRepo:     repository.NewMemoryAssetUsageRepository(),
-		assetExportRepo:    repository.NewMemoryAssetExportRepository(),
-		monitoringRepo:     repository.NewMemoryMonitoringRepository(),
-		announcementRepo:   repository.NewMemoryAnnouncementRepository(),
-		userPreferenceRepo: repository.NewMemoryUserPreferenceRepository(),
-		jobRepo:            repository.NewMemoryJobRepository(),
-		seedanceAssetRepo:  repository.NewMemorySeedanceAssetRepository(),
-		comicAssetRepo:     repository.NewMemoryComicAssetRepository(),
-		creditRepo:         repository.NewMemoryCreditRepository(),
-		membershipRepo:     repository.NewMemoryMembershipRepository(),
-		billingRepo:        repository.NewMemoryBillingRepository(),
-		inviteRepo:         repository.NewMemoryInviteRepository(),
-		auditRepo:          repository.NewMemoryAuditRepository(),
-		redemptionRepo:     repository.NewMemoryRedemptionRepository(),
+		generationReceiptRepo: repository.NewMemoryGenerationReceiptRepository(),
+		projectRepo:           repository.NewMemoryProjectRepository(),
+		userRepo:              repository.NewMemoryUserRepository(),
+		modelProviderRepo:     repository.NewMemoryModelProviderRepository(),
+		assetRepo:             assetRepo,
+		assetReferenceRepo:    repository.NewMemoryAssetReferenceRepository(),
+		assetFolderRepo:       repository.NewMemoryAssetFolderRepository(),
+		tagRepo:               repository.NewMemoryTagRepository(assetRepo),
+		assetLineageRepo:      repository.NewMemoryAssetLineageRepository(),
+		assetUsageRepo:        repository.NewMemoryAssetUsageRepository(),
+		assetExportRepo:       repository.NewMemoryAssetExportRepository(),
+		monitoringRepo:        repository.NewMemoryMonitoringRepository(),
+		announcementRepo:      repository.NewMemoryAnnouncementRepository(),
+		userPreferenceRepo:    repository.NewMemoryUserPreferenceRepository(),
+		jobRepo:               repository.NewMemoryJobRepository(),
+		seedanceAssetRepo:     repository.NewMemorySeedanceAssetRepository(),
+		comicAssetRepo:        repository.NewMemoryComicAssetRepository(),
+		creditRepo:            repository.NewMemoryCreditRepository(),
+		membershipRepo:        repository.NewMemoryMembershipRepository(),
+		billingRepo:           repository.NewMemoryBillingRepository(),
+		inviteRepo:            repository.NewMemoryInviteRepository(),
+		auditRepo:             repository.NewMemoryAuditRepository(),
+		redemptionRepo:        repository.NewMemoryRedemptionRepository(),
 	}
 }

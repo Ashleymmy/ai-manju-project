@@ -1,9 +1,10 @@
 import {
-  API_BASE_URL,
+  apiUrl,
   ApiError,
   clearAuthToken,
   getAuthToken,
 } from "./request";
+import { canRecoverGenerationReceipt, readGenerationReceiptResult, type GenerationReceiptOptions } from "./generationReceipt";
 import { submitWithGenerationAdmission, type GenerationAdmissionOptions } from "@/shared/api/generationAdmission";
 
 export const audioVoiceOptions = [
@@ -53,6 +54,7 @@ export type NormalizedAudioGenerationConfig = {
 type RequestAudioGenerationOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
+  receipt?: GenerationReceiptOptions;
   onWaiting?: GenerationAdmissionOptions["onWaiting"];
 };
 
@@ -115,7 +117,14 @@ export async function requestAudioGeneration(
   prompt: string,
   options: RequestAudioGenerationOptions = {}
 ): Promise<Blob> {
-  return submitWithGenerationAdmission("audio", () => requestAudioGenerationOnce(config, prompt, options), options);
+  if (options.receipt?.recoverOnly) return recoverAudioGeneration(config, options);
+  return submitWithGenerationAdmission("audio", async () => {
+    try { return await requestAudioGenerationOnce(config, prompt, options); }
+    catch (error) {
+      if (options.receipt && canRecoverGenerationReceipt(error, options.signal)) return recoverAudioGeneration(config, options);
+      throw error;
+    }
+  }, options);
 }
 
 async function requestAudioGenerationOnce(
@@ -141,7 +150,7 @@ async function requestAudioGenerationOnce(
   const token = getAuthToken();
 
   try {
-    const response = await fetch(`${API_BASE_URL}/api/ai/audio/speech`, {
+    const response = await fetch(apiUrl("/api/ai/audio/speech", { scope: options.receipt?.scope }), {
       method: "POST",
       credentials: "include",
       signal: controller.signal,
@@ -150,6 +159,7 @@ async function requestAudioGenerationOnce(
           "audio/*,application/octet-stream;q=0.9,application/json;q=0.8,*/*;q=0.1",
         "Content-Type": "application/json",
         "X-Request-Id": requestId,
+        ...(options.receipt ? { "Idempotency-Key": options.receipt.key } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({
@@ -171,6 +181,7 @@ async function requestAudioGenerationOnce(
       clearAuthToken();
       window.dispatchEvent(new CustomEvent("ai-manju:auth-unauthorized"));
     }
+    if (response.status === 202 && options.receipt) return recoverAudioGeneration(config, options);
     if (!response.ok) {
       throw new ApiError(
         await readAudioErrorResponse(
@@ -274,4 +285,11 @@ function statusMessage(status: number, fallback: string) {
     return "模型服务暂不可用，请联系管理员检查权限或模型服务";
   if (status === 429) return "请求被限流或额度不足，请稍后重试";
   return status ? `${fallback}（${status}）` : fallback;
+}
+
+async function recoverAudioGeneration(config: AudioGenerationConfig, options: RequestAudioGenerationOptions): Promise<Blob> {
+  const response = await readGenerationReceiptResult("audio", options.receipt!, options.signal);
+  const blob = await response.blob();
+  await assertAudioBlob(blob, response.status, response.headers.get("X-Request-Id") || "");
+  return blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: audioMimeType(config.format || "mp3") });
 }

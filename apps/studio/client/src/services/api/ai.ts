@@ -1,6 +1,7 @@
 import { fetchModelCatalog, fetchTextModelCatalog, normalizeModelList } from "@/entities/model";
 import type { CapabilityModelCatalog } from "@/entities/model";
 import { ApiError, request } from "./request";
+import { canRecoverGenerationReceipt, generationReceiptState, readGenerationReceiptResult, type GenerationReceiptOptions } from "./generationReceipt";
 import { submitWithGenerationAdmission, type GenerationAdmissionOptions } from "@/shared/api/generationAdmission";
 
 export type { AiModelsResponse } from "@/entities/model";
@@ -49,13 +50,15 @@ export class AiRequestError extends Error {
   readonly status: number;
   readonly requestId?: string;
   readonly cancelled: boolean;
+  readonly receiptState?: string;
 
-  constructor(message: string, options: { status: number; requestId?: string; cancelled?: boolean }) {
+  constructor(message: string, options: { status: number; requestId?: string; cancelled?: boolean; receiptState?: string }) {
     super(message);
     this.name = "AiRequestError";
     this.status = options.status;
     this.requestId = options.requestId;
     this.cancelled = Boolean(options.cancelled);
+    this.receiptState = options.receiptState;
   }
 }
 
@@ -71,20 +74,37 @@ export async function fetchTextModels(): Promise<TextModelCatalog> {
   return fetchTextModelCatalog({ includeGenericModels: true, normalizeMetadata: true });
 }
 
-export async function requestAiText(body: AiTextRequest, signal?: AbortSignal, onWaiting?: GenerationAdmissionOptions["onWaiting"]) {
+export async function requestAiText(body: AiTextRequest, signal?: AbortSignal, onWaiting?: GenerationAdmissionOptions["onWaiting"], receipt?: GenerationReceiptOptions) {
   try {
-    const data = await submitWithGenerationAdmission("text", () => request<AiTextResponse>("/api/ai/text", {
-      method: "POST",
-      // The server bounds each supplier attempt; keep the complete sequence alive.
-      timeoutMs: 0,
-      signal,
-      body: {
-        ...body,
-        prompt: body.prompt || messagesToPrompt(body.messages || []),
-        parallel_tool_calls: false,
-        stream: false,
-      },
-    }), { signal, onWaiting });
+    const recover = async (): Promise<AiTextResponse> => {
+      const response = await readGenerationReceiptResult("text", receipt!, signal);
+      const envelope = await response.json();
+      return envelope.data;
+    };
+    const submit = async () => {
+      if (receipt?.recoverOnly) return recover();
+      try {
+        const data = await request<AiTextResponse & { receipt?: unknown }>("/api/ai/text", {
+          method: "POST",
+          headers: receipt ? { "Idempotency-Key": receipt.key } : undefined,
+          query: receipt ? { scope: receipt.scope } : undefined,
+          // The server bounds each supplier attempt; keep the complete sequence alive.
+          timeoutMs: 0,
+          signal,
+          body: {
+            ...body,
+            prompt: body.prompt || messagesToPrompt(body.messages || []),
+            parallel_tool_calls: false,
+            stream: false,
+          },
+        });
+        return data.receipt && receipt ? recover() : data;
+      } catch (error) {
+        if (receipt && canRecoverGenerationReceipt(error, signal)) return recover();
+        throw error;
+      }
+    };
+    const data = receipt?.recoverOnly ? await submit() : await submitWithGenerationAdmission("text", submit, { signal, onWaiting });
     return {
       content: data.content || data.text || "",
       model: data.model || body.model || "",
@@ -99,6 +119,7 @@ export async function requestAiText(body: AiTextRequest, signal?: AbortSignal, o
       throw new AiRequestError(formatPublicAiError(error), {
         status: error.status,
         requestId: error.requestId,
+        receiptState: generationReceiptState(error),
         cancelled: error.status === 0 && error.message.includes("已取消"),
       });
     }

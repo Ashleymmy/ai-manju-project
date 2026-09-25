@@ -1,3 +1,5 @@
+import { generationReceiptState } from "@/services/api/generationReceipt";
+import type { CanvasGenerationReceipt } from "@/features/canvas/domain/generationReceipt";
 import type { Asset } from "@/entities/asset";
 import { jobErrorMessage, jobProgressNotice, type Job } from "@/entities/job";
 import { publicApiError } from "@/shared/api/errors";
@@ -327,11 +329,17 @@ export class CanvasGenerationJobsController {
       scope: input.scope,
     });
     const isCurrent = () => this.currentRequest(request.targetNodeId, request.requestId, request.projectKey);
+    let receipt: CanvasGenerationReceipt | undefined;
     try {
+      const prepared = await this.prepareGenerationReceipt("text", input);
+      receipt = prepared.receipt;
+      if (!isCurrent()) return false;
       const response = await this.generation(() => this.services.requestAiText({
         model: input.model,
         messages: input.messages || buildCanvasTextRequestMessages(input.prompt, []),
-      }, request.controller.signal, waiting => this.updateWaiting(request, waiting)));
+      }, request.controller.signal, waiting => this.updateWaiting(request, waiting), {
+        key: prepared.receipt.key, scope: prepared.receipt.scope, recoverOnly: prepared.recoverOnly,
+      }));
       if (!isCurrent()) return false;
       const content = response.content.trim();
       if (!content) throw new Error("文本模型没有返回内容");
@@ -345,8 +353,11 @@ export class CanvasGenerationJobsController {
           content,
           generationMode: "text" as const,
           generatedInCanvas: true,
-          model: response.model || input.model,
-          prompt: input.prompt,
+          model: response.model || prepared.receipt.model,
+          prompt: prepared.receipt.prompt,
+          generationReceipt: undefined,
+          textToolCalls: response.toolCalls,
+          textFinishReason: response.finishReason,
           sourceNodeId: input.originNodeId,
           status: "success" as const,
           errorDetails: undefined,
@@ -354,12 +365,14 @@ export class CanvasGenerationJobsController {
           jobProgress: undefined,
         },
       } : node));
-      await this.persist(next);
+      if (!await this.persist(next)) throw new Error("文本已生成，但画布保存未完成；请重试恢复原结果，不会重复生成");
       return true;
     } catch (error) {
       if (!isCurrent() || isAbortError(error)) return false;
       const message = publicApiError(error, "文本生成失败");
-      const next = this.updateNodes(current => failGeneratedTextTarget(current, input.targetNodeId, message));
+      const failedReceipt = generationReceiptState(error) === "failed";
+      const next = this.updateNodes(current => failGeneratedTextTarget(current, input.targetNodeId, message).map(node =>
+        node.id === input.targetNodeId && receipt ? { ...node, metadata: { ...node.metadata, generationReceipt: failedReceipt ? undefined : receipt } } : node));
       await this.persist(next);
       this.bindings.onError(message);
       return false;
@@ -387,7 +400,10 @@ export class CanvasGenerationJobsController {
       if (!target) return false;
       const retained = await this.findPendingAudioUpload(target, input.projectKey);
       if (!isCurrent()) return false;
-      if (retained.unavailable) {
+      const descriptorKey = target.metadata?.pendingAudioUpload?.key;
+      const canRestoreAudioBlob = Boolean(target.metadata?.generationReceipt && descriptorKey
+        && descriptorKey.startsWith(canvasPendingAudioUploadKey(this.bindings.getUserId?.() || "", input.scope, input.projectKey, target.id, "")));
+      if (retained.unavailable && !canRestoreAudioBlob) {
         this.bindings.onWarning("待保存音频暂时无法读取，请稍后重试；不会重复调用生成服务");
         const next = this.updateNodes(nodes => failGeneratedAudioTarget(nodes, input.targetNodeId, "待保存音频暂时无法读取，请稍后重试"));
         await this.persist(next);
@@ -399,24 +415,31 @@ export class CanvasGenerationJobsController {
           ...input, prompt: pending.prompt, config: pending.config, originNodeId: pending.originNodeId,
         }, pending);
       }
+      const prepared = await this.prepareGenerationReceipt("audio", { ...input, model: config.model, audioConfig: config });
+      if (!isCurrent()) return false;
+      const originalConfig = normalizeAudioGenerationConfig(prepared.receipt.audioConfig || config);
       const blob = await this.generation(() => this.services.requestAudioGeneration(
-        config,
-        input.prompt,
-        { signal: request.controller.signal, onWaiting: waiting => this.updateWaiting(request, waiting) },
+        originalConfig,
+        prepared.receipt.prompt,
+        { signal: request.controller.signal, onWaiting: waiting => this.updateWaiting(request, waiting),
+          receipt: { key: prepared.receipt.key, scope: prepared.receipt.scope, recoverOnly: prepared.recoverOnly } },
       ));
       if (!isCurrent()) return false;
-      const contentType = blob.type.startsWith("audio/") ? blob.type : audioMimeType(config.format);
+      const contentType = blob.type.startsWith("audio/") ? blob.type : audioMimeType(originalConfig.format);
       pending = this.createPendingAudioUpload({
         nodeId: input.targetNodeId,
         originNodeId: input.originNodeId,
         projectKey: input.projectKey,
         scope: input.scope,
-        prompt: input.prompt,
-        config,
+        prompt: prepared.receipt.prompt,
+        config: originalConfig,
         blob,
-        fileName: audioFileName(input.prompt.slice(0, 32) || "generated-audio", config.format),
+        fileName: audioFileName(prepared.receipt.prompt.slice(0, 32) || "generated-audio", originalConfig.format),
         contentType,
+        attemptId: prepared.receipt.key,
       });
+      // Reuse the original upload identity even if this browser lost its Blob.
+      if (canRestoreAudioBlob && descriptorKey) pending.key = descriptorKey;
       await this.savePendingAudioUpload(pending);
       if (!isCurrent()) return false;
       const pendingNodes = this.updateNodes(current => current.map(node => node.id === input.targetNodeId ? {
@@ -433,8 +456,8 @@ export class CanvasGenerationJobsController {
         originNodeId: input.originNodeId,
         projectKey: input.projectKey,
         scope: input.scope,
-        prompt: input.prompt,
-        config,
+        prompt: prepared.receipt.prompt,
+        config: originalConfig,
       }, pending);
     } catch (error) {
       if (!isCurrent() || isAbortError(error)) return false;
@@ -443,7 +466,9 @@ export class CanvasGenerationJobsController {
         : publicApiError(error, "音频生成失败");
       const next = this.updateNodes(current => {
         const failed = failGeneratedAudioTarget(current, input.targetNodeId, message);
-        if (!pending) return failed;
+        if (!pending) return generationReceiptState(error) === "failed"
+          ? failed.map(node => node.id === input.targetNodeId ? { ...node, metadata: { ...node.metadata, generationReceipt: undefined } } : node)
+          : failed;
         return failed.map(node => node.id === input.targetNodeId ? {
           ...node,
           metadata: { ...node.metadata, pendingAudioUpload: canvasPendingAudioUploadDescriptor(pending!) },
@@ -724,6 +749,12 @@ export class CanvasGenerationJobsController {
     const projectKey = this.bindings.getProjectKey();
     if (!scope || !projectKey || this.bindings.isSwitching()) return;
     node = this.bindings.getNodes().find(item => item.id === node.id) || node;
+    if (node.metadata?.generationReceipt?.kind === "text") {
+      const receipt = node.metadata.generationReceipt;
+      await this.runTextTarget({ targetNodeId: node.id, originNodeId: receipt.originNodeId,
+        runningNodeId: node.id, projectKey, scope, prompt: receipt.prompt, model: receipt.model });
+      return;
+    }
     const prompt = stringValue(node.metadata?.prompt) || node.content;
     const model = modelFromNode(node, this.bindings.getTextModel());
     if (!prompt.trim() || !model) {
@@ -796,6 +827,13 @@ export class CanvasGenerationJobsController {
     // only await IndexedDB when the node (or this controller) advertises a
     // retained result. This preserves cancellation semantics for ordinary
     // retries and avoids delaying the running indicator by one microtask.
+    if (node.metadata?.generationReceipt?.kind === "audio") {
+      const receipt = node.metadata.generationReceipt;
+      await this.runAudioTarget({ targetNodeId: node.id, originNodeId: receipt.originNodeId,
+        runningNodeId: node.id, projectKey, scope, prompt: receipt.prompt,
+        config: receipt.audioConfig || { model: receipt.model } });
+      return;
+    }
     const pendingDescriptor = node.metadata?.pendingAudioUpload;
     const hasPendingHint = Boolean(
       pendingDescriptor
@@ -1732,6 +1770,7 @@ export class CanvasGenerationJobsController {
     const request: CanvasGenerationRequest = {
       ...input,
       requestId: this.services.createId(),
+      userId: this.bindings.getUserId?.() || "",
       controller: input.controller || this.services.createAbortController(),
     };
     this.requests.set(input.targetNodeId, request);
@@ -1743,6 +1782,9 @@ export class CanvasGenerationJobsController {
     const request = this.requests.get(targetNodeId);
     return request?.requestId === requestId
       && request.projectKey === projectKey
+      && request.userId === (this.bindings.getUserId?.() || "")
+      && request.scope === this.bindings.getScope()
+      && !this.bindings.isSwitching()
       && this.bindings.getProjectKey() === projectKey
       ? request
       : null;
@@ -2080,6 +2122,41 @@ export class CanvasGenerationJobsController {
     }
   }
 
+  private async prepareGenerationReceipt(kind: "text" | "audio", input: {
+    targetNodeId: string; originNodeId: string; projectKey: string; scope: WorkspaceScope;
+    prompt: string; model: string; audioConfig?: CanvasGenerationReceipt["audioConfig"];
+  }) {
+    const node = this.bindings.getNodes().find(item => item.id === input.targetNodeId);
+    if (!node) throw new Error("生成节点已不存在");
+    const userId = this.bindings.getUserId?.() || "";
+    const projectId = this.bindings.getProjectId();
+    const existing = node.metadata?.generationReceipt;
+    if (existing) {
+      if (!existing.key || existing.kind !== kind || existing.userId !== userId
+        || existing.scope !== input.scope || existing.projectKey !== input.projectKey
+        || existing.projectId !== projectId || existing.nodeId !== node.id) {
+        throw new Error("原生成记录属于其他账号或画布，请由原账号恢复；未重新提交生成");
+      }
+      return { receipt: existing, recoverOnly: true };
+    }
+    const receipt: CanvasGenerationReceipt = {
+      key: this.services.createId(), kind, userId, projectId,
+      scope: input.scope, projectKey: input.projectKey, nodeId: input.targetNodeId,
+      originNodeId: input.originNodeId, prompt: input.prompt, model: input.model,
+      ...(input.audioConfig ? { audioConfig: input.audioConfig } : {}),
+    };
+    const pending = this.updateNodes(nodes => nodes.map(item => item.id === node.id
+      ? { ...item, metadata: { ...item.metadata, generationReceipt: receipt } } : item));
+    // Never pay for work whose recovery key has not been durably stored.
+    if (!await this.persist(pending)) {
+      if (this.sessionCurrent(input.projectKey)) this.updateNodes(nodes => nodes.map(item =>
+        item.id === node.id && item.metadata?.generationReceipt?.key === receipt.key
+          ? { ...item, metadata: { ...item.metadata, generationReceipt: undefined } } : item));
+      throw new Error("生成记录保存失败，请稍后重试；尚未调用生成服务");
+    }
+    return { receipt, recoverOnly: false };
+  }
+
   private createPendingAudioUpload(input: {
     nodeId: string;
     originNodeId: string;
@@ -2090,8 +2167,9 @@ export class CanvasGenerationJobsController {
     blob: Blob;
     fileName: string;
     contentType: string;
+    attemptId?: string;
   }): CanvasPendingAudioUpload {
-    const attemptId = this.services.createId();
+    const attemptId = input.attemptId || this.services.createId();
     const userId = this.bindings.getUserId?.() || "";
     const projectId = this.bindings.getProjectId();
     return {
@@ -2211,6 +2289,7 @@ export class CanvasGenerationJobsController {
     },
     pending: CanvasPendingAudioUpload,
   ) {
+    const receipt = this.bindings.getNodes().find(node => node.id === input.targetNodeId)?.metadata?.generationReceipt;
     try {
       if (!this.currentRequest(request.targetNodeId, request.requestId, request.projectKey)) return false;
       const asset = pending.assetId
@@ -2235,7 +2314,8 @@ export class CanvasGenerationJobsController {
         input.config,
         input.originNodeId,
         input.scope,
-      ));
+      ).map(node => node.id === input.targetNodeId
+        ? { ...node, metadata: { ...node.metadata, generationReceipt: undefined } } : node));
       if (!await this.persist(next)) throw new Error("audio canvas save incomplete");
       if (!this.currentRequest(request.targetNodeId, request.requestId, request.projectKey)) return false;
       await this.removePendingAudioUpload(pending.key);
@@ -2249,7 +2329,7 @@ export class CanvasGenerationJobsController {
         const failed = failGeneratedAudioTarget(current, input.targetNodeId, message);
         return failed.map(node => node.id === input.targetNodeId ? {
           ...node,
-          metadata: { ...node.metadata, pendingAudioUpload: canvasPendingAudioUploadDescriptor(pending) },
+          metadata: { ...node.metadata, pendingAudioUpload: canvasPendingAudioUploadDescriptor(pending), ...(receipt ? { generationReceipt: receipt } : {}) },
         } : node);
       });
       await this.persist(next);
@@ -2456,6 +2536,19 @@ export class CanvasGenerationJobsController {
       || !scope
       || !projectKey
     ) return;
+
+    this.bindings.getNodes().forEach(node => {
+      const receipt = node.metadata?.generationReceipt;
+      if (!receipt || receipt.userId !== (this.bindings.getUserId?.() || "")
+        || this.requests.has(node.id) || this.recoveredJobIds.has(`receipt:${receipt.key}`)) return;
+      this.recoveredJobIds.add(`receipt:${receipt.key}`);
+      if (receipt.kind === "text") void this.runTextTarget({ targetNodeId: node.id,
+        originNodeId: receipt.originNodeId, runningNodeId: node.id, projectKey, scope,
+        prompt: receipt.prompt, model: receipt.model });
+      else if (receipt.kind === "audio") void this.runAudioTarget({ targetNodeId: node.id,
+        originNodeId: receipt.originNodeId, runningNodeId: node.id, projectKey, scope,
+        prompt: receipt.prompt, config: receipt.audioConfig || { model: receipt.model } });
+    });
 
     const orphanRequestIds = new Set(this.bindings.getNodes()
       .filter(node => !this.isLiveCanvasTarget(node.id)).map(node => node.id));

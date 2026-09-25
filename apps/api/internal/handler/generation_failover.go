@@ -72,6 +72,11 @@ func generateTextWithCandidates(ctx context.Context, candidates []modelSelection
 }
 
 func isUnsupportedToolChoiceError(err error) bool {
+	// Compatibility fallback is another paid POST. A timeout may mean the
+	// original request was accepted, even when its body mentions tool_choice.
+	if !safeToRepeatGeneration(err) {
+		return false
+	}
 	var providerErr *provider.ProviderHTTPError
 	if !errors.As(err, &providerErr) || providerErr.SubmissionRedirected || providerErr.StatusCode < http.StatusBadRequest || providerErr.StatusCode >= http.StatusInternalServerError {
 		return false
