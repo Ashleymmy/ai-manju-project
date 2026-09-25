@@ -181,7 +181,7 @@ export function ImageWorkbenchView() {
   const catalogQuery = useImageModelCatalogQuery();
   const preferencesQuery = usePreferencesQuery();
   const historyQuery = useImageHistoryQuery(scope);
-  const { result, setResult, jobId, jobProgress, generating, generate: runGeneration, stop: stopGeneration } = useImageTaskSession(user?.id || "", scope, {
+  const { result, setResult, jobId, jobProgress, jobNotice, generating, generate: runGeneration, stop: stopGeneration } = useImageTaskSession(user?.id || "", scope, {
     onCompleted: images => { toast.success(`生成完成，共 ${images.length} 张`); void historyQuery.refetch(); },
     onError: error => toastGenerationError(error, "图像任务暂不可用，请稍后重试查看", () => navigate("/member/plans")),
     onStopped: () => toast.info("已停止本次生成"),
@@ -796,7 +796,7 @@ export function ImageWorkbenchView() {
           <div className="result-stage generating">
             <div className="generation-waiting">
               <span className="waiting-ring"><Loader2 className="spin" size={24} /></span>
-              <p>图片生成中</p>
+              <p role="status" aria-live="polite">{jobNotice || "图片生成中"}</p>
               <small>{jobProgress}% · 已等待 {elapsedSeconds}s</small>
               <div className="waiting-progress"><i style={{ width: `${Math.max(jobProgress, 6)}%` }} /></div>
             </div>

@@ -209,10 +209,27 @@ func (caps videoModelCapabilities) validate(body map[string]any) error {
 
 // Read the live SD-video model contract before staging media or freezing credits.
 func validateSDVideoCapabilities(c *gin.Context, client *sdvideo.Client, modelID string, body map[string]any) error {
+	caps, err := loadSDVideoCapabilities(c, client, modelID)
+	if err != nil {
+		return err
+	}
+	return caps.validate(body)
+}
+
+func loadSDVideoCapabilities(c *gin.Context, client *sdvideo.Client, modelID string) (videoModelCapabilities, error) {
+	cacheKey := "video-capabilities:" + modelID
+	if cached, exists := c.Get(cacheKey); exists {
+		if caps, ok := cached.(videoModelCapabilities); ok {
+			return caps, nil
+		}
+	}
+	if client == nil || !client.Enabled() {
+		return videoModelCapabilities{}, fmt.Errorf("视频服务暂不可用")
+	}
 	user := auth.MustCurrentUser(c)
 	remote, err := client.ListModels(c.Request.Context(), user, service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID))
 	if err != nil {
-		return fmt.Errorf("暂时无法读取模型能力，请稍后重试")
+		return videoModelCapabilities{}, fmt.Errorf("暂时无法读取模型能力，请稍后重试")
 	}
 	var data struct {
 		Items []struct {
@@ -221,7 +238,7 @@ func validateSDVideoCapabilities(c *gin.Context, client *sdvideo.Client, modelID
 		} `json:"items"`
 	}
 	if json.Unmarshal(remote.Data, &data) != nil {
-		return fmt.Errorf("模型能力数据无效，请刷新后重试")
+		return videoModelCapabilities{}, fmt.Errorf("模型能力数据无效，请刷新后重试")
 	}
 	for _, item := range data.Items {
 		if item.Key == modelID {
@@ -233,8 +250,9 @@ func validateSDVideoCapabilities(c *gin.Context, client *sdvideo.Client, modelID
 			if len(item.Durations) > 0 {
 				caps.Durations = item.Durations
 			}
-			return caps.validate(body)
+			c.Set(cacheKey, caps)
+			return caps, nil
 		}
 	}
-	return fmt.Errorf("当前模型不在可用目录中，请刷新后重新选择")
+	return videoModelCapabilities{}, fmt.Errorf("当前模型不在可用目录中，请刷新后重新选择")
 }

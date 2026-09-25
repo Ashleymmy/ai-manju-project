@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import requests
 
 from test_provider import FakeProviderResponse, test_settings
+from image_checkpoint_fakes import isolated_image_checkpoint
 from test_tasks import FakeStore, FakeTask
 from worker import provider, tasks
 from worker.generation_failover import PROVIDER_CANDIDATES_FIELD
@@ -25,6 +26,11 @@ def png_bytes(width, height):
 
 
 class ImageOutputValidationTest(unittest.TestCase):
+    def setUp(self):
+        checkpoint = patch.object(provider, "checkpoint_for_image", side_effect=isolated_image_checkpoint)
+        checkpoint.start()
+        self.addCleanup(checkpoint.stop)
+
     def test_remote_original_is_downloaded_and_checked_before_registration(self):
         for dimensions in ((1024, 1024), (1254, 1254), (1536, 1024)):
             with self.subTest(dimensions=dimensions), tempfile.TemporaryDirectory() as tmp:

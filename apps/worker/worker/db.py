@@ -13,6 +13,7 @@ from psycopg.types.json import Jsonb
 import psycopg
 
 from .video_checkpoint import VIDEO_CHECKPOINT_KEY
+from .image_checkpoint import IMAGE_CHECKPOINT_KEY
 
 
 JOB_STATUS_QUEUED = "queued"
@@ -112,6 +113,39 @@ class JobStore:
                            updated_at = timezone('utc', now()), finished_at = NULL
                        WHERE id = %s AND type = 'video.generate' AND COALESCE(external_provider, '') = ''
                          AND status IN ('queued', 'running') RETURNING id, status, progress, attempts""",
+                            (phase, Jsonb({"code": phase, "message": message, "retryable": not uncertain}), job_id))
+                return cur.fetchone()
+
+    def get_image_checkpoint(self, job_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""SELECT status, bridge_metadata -> %s AS checkpoint FROM jobs
+                    WHERE id = %s AND type IN ('image.generate', 'image.edit') AND COALESCE(external_provider, '') = ''""",
+                            (IMAGE_CHECKPOINT_KEY, job_id))
+                return cur.fetchone()
+
+    def save_image_checkpoint(self, job_id: str, checkpoint: dict[str, Any], expected_revision: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""UPDATE jobs SET bridge_metadata = jsonb_set(
+                        CASE WHEN jsonb_typeof(bridge_metadata) = 'object' THEN bridge_metadata ELSE '{}'::jsonb END,
+                        ARRAY[%s], %s::jsonb), updated_at = timezone('utc', now())
+                    WHERE id = %s AND type IN ('image.generate', 'image.edit') AND COALESCE(external_provider, '') = ''
+                      AND status IN ('queued', 'running')
+                      AND COALESCE((bridge_metadata -> %s ->> 'revision')::bigint, 0) = %s
+                    RETURNING id, status""",
+                            (IMAGE_CHECKPOINT_KEY, Jsonb(json_compatible(checkpoint)), job_id, IMAGE_CHECKPOINT_KEY, expected_revision))
+                return cur.fetchone()
+
+    def mark_image_recovery(self, job_id: str, *, uncertain: bool = False) -> dict[str, Any] | None:
+        phase = 'image_submission_uncertain' if uncertain else 'image_recovery_pending'
+        message = '图片提交结果待确认，请勿重复提交，请联系管理员核查' if uncertain else '图片结果正在恢复处理，请勿重复提交'
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""UPDATE jobs SET status = 'queued', queue_phase = %s, error = %s,
+                        updated_at = timezone('utc', now()), finished_at = NULL
+                    WHERE id = %s AND type IN ('image.generate', 'image.edit') AND COALESCE(external_provider, '') = ''
+                      AND status IN ('queued', 'running') RETURNING id, status, progress, attempts""",
                             (phase, Jsonb({"code": phase, "message": message, "retryable": not uncertain}), job_id))
                 return cur.fetchone()
 

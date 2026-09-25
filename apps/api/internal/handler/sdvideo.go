@@ -166,7 +166,12 @@ func (h *AIHandler) createSDVideoTask(c *gin.Context, body map[string]any) {
 		response.Error(c, http.StatusBadRequest, "invalid video request")
 		return
 	}
-	bridge, err := h.jobs.CreateExternal(service.ExternalJobInput{UserID: user.ID, Scope: requestWorkspaceScope(c), Type: model.JobTypeVideoGenerate, ExternalProvider: "sd-video", Payload: bridgePayload, IdempotencyKey: "sdvideo:" + stringFromAny(payload["idempotency_key"])})
+	billingPolicy, policyErr := h.automaticVideoBillingPolicy(c, model.JobTypeVideoGenerate, bridgePayload)
+	if policyErr != nil {
+		response.Error(c, http.StatusBadRequest, policyErr.Error())
+		return
+	}
+	bridge, err := h.jobs.CreateExternal(service.ExternalJobInput{UserID: user.ID, Scope: requestWorkspaceScope(c), Type: model.JobTypeVideoGenerate, ExternalProvider: "sd-video", Payload: bridgePayload, IdempotencyKey: "sdvideo:" + stringFromAny(payload["idempotency_key"]), VideoBillingPolicy: billingPolicy})
 	if err != nil {
 		respondSDVideoCreateError(c, err)
 		return
@@ -180,6 +185,10 @@ func (h *AIHandler) createSDVideoTask(c *gin.Context, body map[string]any) {
 }
 
 func respondSDVideoCreateError(c *gin.Context, err error) {
+	if errors.Is(err, service.ErrAutomaticVideoPolicyUnavailable) {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	if errors.Is(err, repository.ErrInsufficientCredits) {
 		response.Error(c, http.StatusPaymentRequired, "积分余额不足，请充值后重试")
 		return

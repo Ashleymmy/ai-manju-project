@@ -88,6 +88,8 @@ def main() -> int:
         signal.signal(sig, lambda _sig, _frame: stop.set())
     from .video_poster import run_poster_worker
     threading.Thread(target=run_poster_worker, args=(stop, load_settings()), name="video-posters", daemon=True).start()
+    from .video_metrics import run_video_metrics_worker
+    threading.Thread(target=run_video_metrics_worker, args=(stop, load_settings()), name="video-metrics", daemon=True).start()
     return supervise(commands(), stop)
 
 

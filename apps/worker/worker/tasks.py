@@ -21,6 +21,8 @@ from .provider_gate import ProviderGate, provider_gate_from_payload
 from .staged_inputs import JOB_WORKSPACE_FIELD, cleanup_staged_inputs
 from .video import generate_video, transcode_video
 from .video_checkpoint import VIDEO_CHECKPOINT_PAYLOAD_KEY, VIDEO_RECOVERY_DELAY_SECONDS, VideoCheckpoint, recovery_error
+from .image_checkpoint import IMAGE_CHECKPOINT_PAYLOAD_KEY, IMAGE_RECOVERY_DELAY_SECONDS, ImageCheckpoint, recovery_error as image_recovery_error
+from .errors import ImageRecoveryPendingError, ImageSubmissionUncertainError, ImageResultRejectedError
 
 
 settings = load_settings()
@@ -124,7 +126,7 @@ def extract_request(args: tuple[Any, ...], kwargs: dict[str, Any]) -> tuple[str,
         raw_payload = {}
     if not isinstance(raw_payload, dict):
         raise SafeTaskError("payload must be a JSON object", code="invalid_payload", retryable=False)
-    raw_payload = {key: value for key, value in raw_payload.items() if key not in ("provider_candidates", PROVIDER_CANDIDATES_FIELD, VIDEO_CHECKPOINT_PAYLOAD_KEY)}
+    raw_payload = {key: value for key, value in raw_payload.items() if key not in ("provider_candidates", PROVIDER_CANDIDATES_FIELD, VIDEO_CHECKPOINT_PAYLOAD_KEY, IMAGE_CHECKPOINT_PAYLOAD_KEY)}
     if isinstance(kwargs.get("provider"), dict):
         raw_payload = {**raw_payload, "provider": kwargs["provider"]}
     if isinstance(kwargs.get("provider_candidates"), list):
@@ -214,11 +216,15 @@ def execute_job(
                     return {"job_id": job_id, "status": current["status"], "skipped": True}
             generation_completed = False
             video_checkpoint = None
+            image_checkpoint = None
             try:
                 execution_payload = {**payload, JOB_WORKSPACE_FIELD: str(job.get("workspace_id") or "")}
                 if job.get("type") == "video.generate" and not job.get("external_provider"):
                     video_checkpoint = VideoCheckpoint(store, job_id, payload.get("provider") or {})
                     execution_payload[VIDEO_CHECKPOINT_PAYLOAD_KEY] = video_checkpoint
+                if job.get("type") in {"image.generate", "image.edit"} and not job.get("external_provider") and provider_has_remote(payload.get("provider")):
+                    image_checkpoint = ImageCheckpoint(store, job_id, payload.get("provider") or {}, settings)
+                    execution_payload[IMAGE_CHECKPOINT_PAYLOAD_KEY] = image_checkpoint
 
                 def update_progress(progress: int) -> None:
                     updated = store.update_progress(job_id, progress)
@@ -240,7 +246,13 @@ def execute_job(
                     log_job("job_skipped", job_id, status=current["status"])
                     return {"job_id": job_id, "status": current["status"]}
                 if asset_type == "image":
-                    validate_canvas_image_outputs(payload, result, settings)
+                    try:
+                        validate_canvas_image_outputs(payload, result, settings)
+                    except ImageParameterError as exc:
+                        # Definite output rejection must fail, not recover forever.
+                        if image_checkpoint is not None:
+                            image_checkpoint.terminal_failure(exc)
+                        raise
                 result = register_result_assets(store, job, result, settings, asset_type)
                 result = json_compatible(result)
                 stored = store.set_result(job_id, result)
@@ -250,10 +262,31 @@ def execute_job(
                         cleanup_job_inputs(payload, job, job_id)
                         log_job("job_skipped", job_id, status=current["status"])
                         return {"job_id": job_id, "status": current["status"]}
+                    if image_checkpoint is not None and image_checkpoint.active:
+                        raise image_recovery_error()
                 cleanup_job_inputs(payload, job, job_id)
                 log_job("job_succeeded", job_id, asset_type=asset_type)
                 return {"job_id": job_id, "status": JOB_STATUS_SUCCEEDED, "result": result}
             except Exception as exc:
+                if (isinstance(exc, (ImageRecoveryPendingError, ImageSubmissionUncertainError))
+                        or (image_checkpoint is not None and image_checkpoint.active)):
+                    try:
+                        current = store.get_job(job_id)
+                    except Exception:
+                        current = None
+                    if isinstance(current, dict) and current.get("status") in TERMINAL_STATUSES:
+                        cleanup_job_inputs(payload, job, job_id)
+                        return {"job_id": job_id, "status": current["status"], "skipped": True}
+                    uncertain = isinstance(exc, ImageSubmissionUncertainError)
+                    try:
+                        waiting = store.mark_image_recovery(job_id, uncertain=uncertain)
+                    except Exception:
+                        waiting = None
+                    if uncertain and waiting is not None:
+                        log_job("image_submission_needs_reconciliation", job_id)
+                        return {"job_id": job_id, "status": "queued", "queue_phase": "image_submission_uncertain"}
+                    log_job("image_recovery_pending", job_id)
+                    raise task.retry(exc=image_recovery_error(), countdown=IMAGE_RECOVERY_DELAY_SECONDS, max_retries=100000) from None
                 if (isinstance(exc, VideoRecoveryPendingError)
                         or (isinstance(exc, VideoSubmissionUncertainError) and job.get("type") == "video.generate")
                         or (video_checkpoint is not None and (video_checkpoint.active or isinstance(exc, VideoSubmissionUncertainError)))):
@@ -322,7 +355,7 @@ def execute_job(
                         countdown=retry_after_seconds(exc, int(job.get("attempts") or 0)),
                         max_retries=100000,
                     )
-                if generation_max_attempts and not isinstance(exc, (ImageParameterError, VideoTaskAcceptedError, VideoSubmissionUncertainError, VideoReferenceError)):
+                if generation_max_attempts and not isinstance(exc, (ImageParameterError, ImageResultRejectedError, VideoTaskAcceptedError, VideoSubmissionUncertainError, VideoReferenceError)):
                     exc = unavailable_error() if generation_retry else SafeTaskError("任务处理失败，请稍后重试", code="generation_processing_failed", retryable=False)
                     payload_error = error_payload(exc)
                 stored = store.set_error(job_id, payload_error)

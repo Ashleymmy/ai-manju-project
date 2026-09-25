@@ -4,11 +4,17 @@ import unittest
 from unittest.mock import patch
 
 from test_provider import FakeProviderResponse, test_settings
+from image_checkpoint_fakes import isolated_image_checkpoint
 from worker import provider
 from worker.image_requirements import CANVAS_OUTPUT_REQUIREMENTS, ImageParameterError, with_canvas_image_requirements
 
 
 class ImageRequirementsTest(unittest.TestCase):
+    def setUp(self):
+        checkpoint = patch.object(provider, "checkpoint_for_image", side_effect=isolated_image_checkpoint)
+        checkpoint.start()
+        self.addCleanup(checkpoint.stop)
+
     def test_gemini_ignores_stale_canvas_detail_for_generate_and_reference_edit(self):
         for protocol in ("gemini_generate_content", "openai_chat_completions"):
             for model in ("gemini-3-pro-image", "gemini-3.1-flash-image"):

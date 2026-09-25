@@ -44,6 +44,18 @@ class VideoReferenceError(SafeTaskError):
     """The supplier rejected reference media, not the model's availability."""
 
 
+class ImageSubmissionUncertainError(SafeTaskError):
+    """The paid POST may have completed; never retry generation automatically."""
+
+
+class ImageRecoveryPendingError(SafeTaskError):
+    """Recover an existing response/output without a new paid POST."""
+
+
+class ImageResultRejectedError(SafeTaskError):
+    """A completed image response is invalid; it is not a supplier retry."""
+
+
 def job_canceled_error() -> SafeTaskError:
     return SafeTaskError("job was canceled", code="job_canceled", retryable=False)
 

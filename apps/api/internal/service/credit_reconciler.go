@@ -114,7 +114,7 @@ func (r *CreditReconciler) ReconcileOnce(ctx context.Context) (settled int, rele
 		}
 		switch job.Status {
 		case model.JobStatusSucceeded:
-			if _, settleErr := r.engine.Settle(consumption.JobID); settleErr != nil {
+			if _, settleErr := r.engine.SettleCompletedJob(job); settleErr != nil {
 				log.Printf("job_id=%s event=credit_settle_failed reason=%q", consumption.JobID, settleErr.Error())
 				continue
 			}

@@ -154,6 +154,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	}
 	assetExportHandler := handler.NewAssetExportHandler(assetExportService)
 	modelProviderHandler := handler.NewModelProviderHandler(repos.modelProviderRepo, secretBox, cfg.AppSecret)
+	memberHandler.SetModelProviderHandler(modelProviderHandler)
 	modelProviderHandler.SetVideoModelFamilyResolver(service.NewCreditPricer(repos.billingRepo).ResolveModelFamily)
 	comicAssetService := service.NewComicAssetService(repos.comicAssetRepo, jobService)
 	comicAssetService.SetSourceStorage(assetStore)
@@ -222,6 +223,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	materialHandler := handler.NewSeedanceMaterialHandler(materialService)
 	seedanceAssetHandler := handler.NewSeedanceAssetHandler(seedanceAssetService, cfg)
 	jobHandler := handler.NewJobHandler(jobService)
+	jobHandler.SetBillingEnabled(cfg.BillingEnabled)
 	jobHandler.SetSDVideoClient(sdVideoClient)
 	adminMonitoringHandler := handler.NewAdminMonitoringHandler(repos.monitoringRepo, storageStatus, dbStatus)
 	runtimeMonitoringHandler := handler.NewRuntimeMonitoringHandler(runtimeRepo, repos.userRepo)

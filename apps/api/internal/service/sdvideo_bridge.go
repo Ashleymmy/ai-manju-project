@@ -304,7 +304,7 @@ func (b *SDVideoBridge) reconcile(ctx context.Context, job model.Job) error {
 	}
 	metadata["asset_id"] = asset.ID
 	metadata["result"] = map[string]any{"asset_id": asset.ID, "content_type": contentType, "size_bytes": len(body)}
-	resultJSON, _ := json.Marshal(map[string]any{"asset_id": asset.ID, "external_task_id": taskID, "content_type": contentType, "size_bytes": len(body), "sha256": stringValue(payloadResult(payload, "sha256"))})
+	resultJSON, _ := json.Marshal(map[string]any{"asset_id": asset.ID, "external_task_id": taskID, "content_type": contentType, "size_bytes": len(body), "sha256": stringValue(payloadResult(payload, "sha256")), "video_content_sha256": asset.ContentSHA256})
 	if _, err := b.jobs.SetResult(job.ID, model.JSONB(resultJSON)); err != nil {
 		return err
 	}

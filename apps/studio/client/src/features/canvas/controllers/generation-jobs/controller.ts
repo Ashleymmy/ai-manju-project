@@ -226,7 +226,7 @@ export class CanvasGenerationJobsController {
         this.rememberCanvasJob(input.targetNodeId, input.existingJobId, "image", input.projectKey);
         const job = await this.generation(() => this.services.waitForImageJob(input.existingJobId!, {
           signal: request.controller.signal,
-          onProgress: state => this.updateProgress(request, state.progress ?? 0),
+          onProgress: job => this.updateJobProgress(request, job),
         }));
         if (job.status !== "succeeded") {
           throw new Error(jobErrorMessage(

@@ -477,6 +477,11 @@ func (h *AIHandler) enqueueAIJob(c *gin.Context, jobType string, payload model.J
 		return service.EnqueueJobResult{}, errors.New("job service is not configured")
 	}
 	user := auth.MustCurrentUser(c)
+	billingPolicy, policyErr := h.automaticVideoBillingPolicy(c, jobType, payload)
+	if policyErr != nil {
+		response.Error(c, http.StatusBadRequest, policyErr.Error())
+		return service.EnqueueJobResult{}, policyErr
+	}
 	var stablePayload model.JSONB
 	if len(idempotencyPayload) > 0 {
 		stablePayload = idempotencyPayload[0]
@@ -500,8 +505,13 @@ func (h *AIHandler) enqueueAIJob(c *gin.Context, jobType string, payload model.J
 		IdempotencyPayload: stablePayload,
 		TaskKwargs:         kwargs,
 		IdempotencyKey:     c.GetHeader("Idempotency-Key"),
+		VideoBillingPolicy: billingPolicy,
 	})
 	if err != nil {
+		if errors.Is(err, service.ErrAutomaticVideoPolicyUnavailable) {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return result, err
+		}
 		if errors.Is(err, repository.ErrInsufficientCredits) {
 			response.Error(c, http.StatusPaymentRequired, "积分余额不足，请充值后重试")
 			return result, err

@@ -28,8 +28,9 @@ const (
 )
 
 type JobHandler struct {
-	jobs    *service.JobService
-	sdVideo *sdvideo.Client
+	jobs           *service.JobService
+	sdVideo        *sdvideo.Client
+	billingEnabled bool
 }
 
 func NewJobHandler(jobs *service.JobService) *JobHandler {
@@ -37,6 +38,7 @@ func NewJobHandler(jobs *service.JobService) *JobHandler {
 }
 
 func (h *JobHandler) SetSDVideoClient(client *sdvideo.Client) { h.sdVideo = client }
+func (h *JobHandler) SetBillingEnabled(enabled bool)          { h.billingEnabled = enabled }
 
 func (h *JobHandler) Retry(c *gin.Context) {
 	user := auth.MustCurrentUser(c)
@@ -77,8 +79,23 @@ func (h *JobHandler) Retry(c *gin.Context) {
 		payload["retry_task_id"] = previous.ExternalTaskID
 	}
 	raw, _ := json.Marshal(payload)
-	created, err := h.jobs.CreateExternal(service.ExternalJobInput{UserID: user.ID, Scope: requestWorkspaceScope(c), Type: previous.Type, ExternalProvider: "sd-video", Payload: model.JSONB(raw), IdempotencyKey: "retry:" + previous.ID})
+	var billingPolicy *service.VideoBillingPolicy
+	if h.billingEnabled && service.IsAutomaticVideoDuration(model.JSONB(raw)) {
+		caps, capsErr := loadSDVideoCapabilities(c, h.sdVideo, stringFromAny(payload["model"]))
+		if capsErr == nil {
+			billingPolicy, capsErr = videoBillingPolicyFromCapabilities(caps)
+		}
+		if capsErr != nil {
+			response.Error(c, http.StatusBadRequest, service.ErrAutomaticVideoPolicyUnavailable.Error())
+			return
+		}
+	}
+	created, err := h.jobs.CreateExternal(service.ExternalJobInput{UserID: user.ID, Scope: requestWorkspaceScope(c), Type: previous.Type, ExternalProvider: "sd-video", Payload: model.JSONB(raw), IdempotencyKey: "retry:" + previous.ID, VideoBillingPolicy: billingPolicy})
 	if err != nil {
+		if errors.Is(err, service.ErrAutomaticVideoPolicyUnavailable) {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		response.Error(c, 500, "could not persist retry")
 		return
 	}
@@ -121,6 +138,10 @@ func (h *JobHandler) Create(c *gin.Context) {
 		IdempotencyKey: c.GetHeader("Idempotency-Key"),
 	})
 	if err != nil {
+		if errors.Is(err, service.ErrAutomaticVideoPolicyUnavailable) {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		if errors.Is(err, repository.ErrInsufficientCredits) {
 			response.Error(c, http.StatusPaymentRequired, "积分余额不足，请充值后重试")
 			return

@@ -440,6 +440,14 @@ func (r *GormCreditRepository) Reserve(input ReserveInput) (ReserveOutcome, erro
 }
 
 func (r *GormCreditRepository) Settle(jobID string, now time.Time) (SettleOutcome, error) {
+	return r.settle(jobID, nil, now)
+}
+
+func (r *GormCreditRepository) SettleAmount(jobID string, credits int64, params model.JSONB, now time.Time) (SettleOutcome, error) {
+	return r.settle(jobID, &creditSettlement{Credits: credits, Params: params}, now)
+}
+
+func (r *GormCreditRepository) settle(jobID string, settlement *creditSettlement, now time.Time) (SettleOutcome, error) {
 	var outcome SettleOutcome
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		var consumption model.TaskConsumption
@@ -453,9 +461,16 @@ func (r *GormCreditRepository) Settle(jobID string, now time.Time) (SettleOutcom
 			outcome = SettleOutcome{Consumption: consumption, Changed: false}
 			return nil
 		}
+		charged, err := settlementCredits(consumption, settlement)
+		if err != nil {
+			return err
+		}
 
 		allocation, err := unmarshalAllocation(consumption.Allocation)
 		if err != nil {
+			return err
+		}
+		if err := validateSettlementAllocation(allocation, consumption.CreditsQuoted); err != nil {
 			return err
 		}
 
@@ -463,6 +478,7 @@ func (r *GormCreditRepository) Settle(jobID string, now time.Time) (SettleOutcom
 		if err != nil {
 			return err
 		}
+		remainingCharge := charged
 
 		// Grant buckets first, permanent last — same ordering as the Memory
 		// implementation so ledger snapshots match.
@@ -478,28 +494,43 @@ func (r *GormCreditRepository) Settle(jobID string, now time.Time) (SettleOutcom
 				return err
 			}
 			grant.AmountFrozen -= item.Amount
-			grant.AmountRemaining -= item.Amount
+			take := min(item.Amount, remainingCharge)
+			remainingCharge -= take
+			grant.AmountRemaining -= take
+			expired := grant.Status == model.GrantStatusExpired || !grant.ExpiresAt.After(now)
 			if grant.AmountRemaining == 0 && grant.AmountFrozen == 0 {
 				grant.Status = model.GrantStatusExhausted
 			}
+			if take > 0 {
+				entry := model.CreditLedgerEntry{
+					ID:                  "led_" + randomRepositoryHex(12),
+					UserID:              consumption.UserID,
+					EntryType:           model.LedgerTypeConsume,
+					Amount:              -take,
+					Bucket:              model.CreditBucketGrant,
+					GrantID:             grant.ID,
+					PermanentAfter:      account.PermanentBalance,
+					GrantRemainingAfter: grant.AmountRemaining,
+					JobID:               jobID,
+					OperatorID:          "system",
+					IdempotencyKey:      "consume:" + jobID + ":grant:" + grant.ID,
+					CreatedAt:           now,
+				}
+				if err := tx.Create(&entry).Error; err != nil {
+					return err
+				}
+			}
+			if released := item.Amount - take; expired && released > 0 {
+				grant.AmountRemaining -= released
+				entry := model.CreditLedgerEntry{ID: "led_" + randomRepositoryHex(12), UserID: consumption.UserID, EntryType: model.LedgerTypeExpire, Amount: -released, Bucket: model.CreditBucketGrant, GrantID: grant.ID, PermanentAfter: account.PermanentBalance, GrantRemainingAfter: grant.AmountRemaining, JobID: jobID, OperatorID: "system", IdempotencyKey: "expire-settle:" + jobID + ":" + grant.ID, CreatedAt: now}
+				if err := tx.Create(&entry).Error; err != nil {
+					return err
+				}
+			}
+			if expired && take < item.Amount && grant.AmountRemaining == 0 && grant.AmountFrozen == 0 {
+				grant.Status = model.GrantStatusExpired
+			}
 			if err := tx.Save(&grant).Error; err != nil {
-				return err
-			}
-			entry := model.CreditLedgerEntry{
-				ID:                  "led_" + randomRepositoryHex(12),
-				UserID:              consumption.UserID,
-				EntryType:           model.LedgerTypeConsume,
-				Amount:              -item.Amount,
-				Bucket:              model.CreditBucketGrant,
-				GrantID:             grant.ID,
-				PermanentAfter:      account.PermanentBalance,
-				GrantRemainingAfter: grant.AmountRemaining,
-				JobID:               jobID,
-				OperatorID:          "system",
-				IdempotencyKey:      "consume:" + jobID + ":grant:" + grant.ID,
-				CreatedAt:           now,
-			}
-			if err := tx.Create(&entry).Error; err != nil {
 				return err
 			}
 		}
@@ -508,21 +539,25 @@ func (r *GormCreditRepository) Settle(jobID string, now time.Time) (SettleOutcom
 				continue
 			}
 			account.PermanentFrozen -= item.Amount
-			account.PermanentBalance -= item.Amount
-			entry := model.CreditLedgerEntry{
-				ID:             "led_" + randomRepositoryHex(12),
-				UserID:         consumption.UserID,
-				EntryType:      model.LedgerTypeConsume,
-				Amount:         -item.Amount,
-				Bucket:         model.CreditBucketPermanent,
-				PermanentAfter: account.PermanentBalance,
-				JobID:          jobID,
-				OperatorID:     "system",
-				IdempotencyKey: "consume:" + jobID + ":permanent",
-				CreatedAt:      now,
-			}
-			if err := tx.Create(&entry).Error; err != nil {
-				return err
+			take := min(item.Amount, remainingCharge)
+			remainingCharge -= take
+			account.PermanentBalance -= take
+			if take > 0 {
+				entry := model.CreditLedgerEntry{
+					ID:             "led_" + randomRepositoryHex(12),
+					UserID:         consumption.UserID,
+					EntryType:      model.LedgerTypeConsume,
+					Amount:         -take,
+					Bucket:         model.CreditBucketPermanent,
+					PermanentAfter: account.PermanentBalance,
+					JobID:          jobID,
+					OperatorID:     "system",
+					IdempotencyKey: "consume:" + jobID + ":permanent",
+					CreatedAt:      now,
+				}
+				if err := tx.Create(&entry).Error; err != nil {
+					return err
+				}
 			}
 		}
 		account.UpdatedAt = now
@@ -531,7 +566,10 @@ func (r *GormCreditRepository) Settle(jobID string, now time.Time) (SettleOutcom
 		}
 
 		consumption.Status = model.TaskConsumptionStatusSettled
-		consumption.CreditsSettled = consumption.CreditsQuoted
+		consumption.CreditsSettled = charged
+		if settlement != nil {
+			consumption.Params = settlement.Params
+		}
 		consumption.SettledAt = &now
 		if err := tx.Save(&consumption).Error; err != nil {
 			return err

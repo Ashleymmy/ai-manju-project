@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cancelJob, jobErrorMessage, type Job } from "@/entities/job";
+import { cancelJob, jobErrorMessage, jobProgressNotice, type Job } from "@/entities/job";
 import type { WorkspaceScope } from "@/shared/config";
 import { ApiError } from "@/shared/api/http";
 import { generateImages, generatedImagesFromJob, waitForImageJob, type GeneratedImage, type ImageGenerationInput } from "../api";
@@ -54,6 +54,7 @@ export function useImageTaskSession(ownerId: string, scope: WorkspaceScope, call
   const [result, setResult] = useState<GeneratedImage[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState(0);
+  const [jobNotice, setJobNotice] = useState<string>();
   const [generating, setGenerating] = useState(false);
   const isCurrent = useCallback((task: ActiveTask) => activeRef.current === task && keyRef.current === task.key && !task.controller.signal.aborted, []);
 
@@ -62,10 +63,15 @@ export function useImageTaskSession(ownerId: string, scope: WorkspaceScope, call
     setGenerating(true);
     setJobId(task.jobId || null);
     setJobProgress(0);
+    setJobNotice(undefined);
     const progress = (job: Job) => {
       // Only server-confirmed failed/canceled tasks are terminal on an error path.
       if (job.status === "failed" || job.status === "canceled") forget(task);
-      if (isCurrent(task)) { setJobId(job.id); setJobProgress(job.progress ?? 0); }
+      if (isCurrent(task)) {
+        setJobId(job.id);
+        setJobProgress(job.progress ?? 0);
+        setJobNotice(jobProgressNotice(job));
+      }
     };
     try {
       const images = await operation(progress);
@@ -73,6 +79,7 @@ export function useImageTaskSession(ownerId: string, scope: WorkspaceScope, call
       forget(task);
       setResult(images);
       setJobProgress(100);
+      setJobNotice(undefined);
       callbacksRef.current.onCompleted(images);
     } catch (error) {
       // Unmounting/switching only detaches the client; the durable job remains.
@@ -92,6 +99,7 @@ export function useImageTaskSession(ownerId: string, scope: WorkspaceScope, call
     setResult([]);
     setJobId(null);
     setJobProgress(0);
+    setJobNotice(undefined);
     setGenerating(false);
     const id = pendingJob(key);
     if (id) {
@@ -151,7 +159,8 @@ export function useImageTaskSession(ownerId: string, scope: WorkspaceScope, call
     task.controller.abort();
     setGenerating(false);
     callbacksRef.current.onStopped();
+    setJobNotice(undefined);
   }, [isCurrent]);
 
-  return { result, setResult, jobId, jobProgress, generating, generate, stop };
+  return { result, setResult, jobId, jobProgress, jobNotice, generating, generate, stop };
 }

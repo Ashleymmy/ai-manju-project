@@ -8,7 +8,7 @@ import { ApiError } from "@/shared/api/http";
 
 const mocks = vi.hoisted(() => ({ generate: vi.fn(), wait: vi.fn(), images: vi.fn(), cancel: vi.fn() }));
 vi.mock("../api", () => ({ generateImages: mocks.generate, waitForImageJob: mocks.wait, generatedImagesFromJob: mocks.images }));
-vi.mock("@/entities/job", () => ({ cancelJob: mocks.cancel, jobErrorMessage: () => "Task failed" }));
+vi.mock("@/entities/job", async importOriginal => ({ ...await importOriginal<typeof import("@/entities/job")>(), cancelJob: mocks.cancel, jobErrorMessage: () => "Task failed" }));
 import { useImageTaskSession } from "./useImageTaskSession";
 
 let root: Root;
@@ -35,6 +35,43 @@ afterEach(async () => {
 });
 
 describe("image workbench accepted tasks", () => {
+  it.each(["image_submission_uncertain", "image_recovery_pending"])("keeps the original task active while showing %s", async phase => {
+    let progress!: NonNullable<GenerationCallbacks["onProgress"]>;
+    let finish!: () => void;
+    mocks.generate.mockImplementation((_input, options: GenerationCallbacks) => new Promise(resolve => {
+      options.onAccepted?.({ id: "job-original" });
+      progress = options.onProgress!;
+      finish = () => resolve({ images: [{ id: "result", assetId: "result", src: "" }] });
+    }));
+    await act(async () => root.render(<Harness />));
+    let running!: Promise<void>;
+    await act(async () => { running = current.generate({ model: "image", prompt: "original" }); });
+    await act(async () => progress({ id: "job-original", type: "image.generate", status: "queued", state: "queued", queue_phase: phase }));
+    expect(current.jobNotice).toContain(phase === "image_submission_uncertain" ? "勿重复生成" : "正在恢复原图片任务");
+    expect(current.generating).toBe(true);
+    expect(localStorage.getItem(key())).toBe("job-original");
+    await act(async () => current.generate({ model: "image", prompt: "duplicate" }));
+    expect(mocks.generate).toHaveBeenCalledOnce();
+    await act(async () => { finish(); await running; });
+    expect(current.jobNotice).toBeUndefined();
+    expect(current.result[0].assetId).toBe("result");
+    expect(callbacks.onError).not.toHaveBeenCalled();
+  });
+
+  it("restores image recovery notices after refresh without generating another image", async () => {
+    localStorage.setItem(key(), "job-recovery");
+    mocks.wait.mockImplementation((_id, options: GenerationCallbacks) => {
+      options.onProgress?.({ id: "job-recovery", type: "image.generate", status: "queued", state: "queued", queue_phase: "image_recovery_pending" });
+      return new Promise(() => {});
+    });
+    await act(async () => root.render(<Harness />));
+    expect(current.jobNotice).toContain("正在恢复原图片任务");
+    expect(current.generating).toBe(true);
+    await act(async () => current.generate({ model: "image", prompt: "duplicate" }));
+    expect(mocks.generate).not.toHaveBeenCalled();
+    expect(localStorage.getItem(key())).toBe("job-recovery");
+  });
+
   it.each(["succeeded", "failed"] as const)("retains image polling when cancel returns %s", async status => {
     localStorage.setItem(key(), "job-running");
     let release!: (job: unknown) => void;

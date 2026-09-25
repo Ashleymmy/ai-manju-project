@@ -13,12 +13,14 @@ import (
 
 // Credit ledger repository sentinel errors.
 var (
-	ErrCreditAccountNotFound  = errors.New("credit account not found")
-	ErrCreditGrantNotFound    = errors.New("credit grant not found")
-	ErrCreditLedgerNotFound   = errors.New("credit ledger entry not found")
-	ErrConsumptionNotFound    = errors.New("task consumption not found")
-	ErrInsufficientCredits    = errors.New("insufficient credits")
-	ErrConsumptionNotReserved = errors.New("task consumption is not in reserved state")
+	ErrCreditAccountNotFound    = errors.New("credit account not found")
+	ErrCreditGrantNotFound      = errors.New("credit grant not found")
+	ErrCreditLedgerNotFound     = errors.New("credit ledger entry not found")
+	ErrConsumptionNotFound      = errors.New("task consumption not found")
+	ErrInsufficientCredits      = errors.New("insufficient credits")
+	ErrConsumptionNotReserved   = errors.New("task consumption is not in reserved state")
+	ErrActualSettlementRequired = errors.New("automatic video requires measured settlement")
+	ErrInvalidSettlementAmount  = errors.New("settlement must be between zero and reserved credits")
 )
 
 // ReserveInput carries a fully priced charge request. Pricing is computed
@@ -145,6 +147,9 @@ type CreditRepository interface {
 	// Settle replays the allocation snapshot (frozen → charged) and writes one
 	// ledger line per touched bucket. Never re-reads balances.
 	Settle(jobID string, now time.Time) (SettleOutcome, error)
+	// SettleAmount atomically charges part of the frozen allocation and releases
+	// its remainder; params retains the submitted rate snapshot and actual metrics.
+	SettleAmount(jobID string, credits int64, params model.JSONB, now time.Time) (SettleOutcome, error)
 	// Release returns frozen amounts without any ledger movement (失败/取消不扣费).
 	Release(jobID string, now time.Time) (ReleaseOutcome, error)
 	// ExpireGrant writes off the spendable part (remaining − frozen) of one
@@ -695,6 +700,14 @@ func (r *MemoryCreditRepository) Reserve(input ReserveInput) (ReserveOutcome, er
 }
 
 func (r *MemoryCreditRepository) Settle(jobID string, now time.Time) (SettleOutcome, error) {
+	return r.settle(jobID, nil, now)
+}
+
+func (r *MemoryCreditRepository) SettleAmount(jobID string, credits int64, params model.JSONB, now time.Time) (SettleOutcome, error) {
+	return r.settle(jobID, &creditSettlement{Credits: credits, Params: params}, now)
+}
+
+func (r *MemoryCreditRepository) settle(jobID string, settlement *creditSettlement, now time.Time) (SettleOutcome, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -705,13 +718,30 @@ func (r *MemoryCreditRepository) Settle(jobID string, now time.Time) (SettleOutc
 	if consumption.Status != model.TaskConsumptionStatusReserved {
 		return SettleOutcome{Consumption: consumption, Changed: false}, nil
 	}
+	charged, err := settlementCredits(consumption, settlement)
+	if err != nil {
+		return SettleOutcome{}, err
+	}
 
 	allocation, err := unmarshalAllocation(consumption.Allocation)
 	if err != nil {
 		return SettleOutcome{}, err
 	}
+	// Validate before mutating the in-memory repository, matching transaction
+	// rollback semantics if one frozen grant is missing or malformed.
+	if err := validateSettlementAllocation(allocation, consumption.CreditsQuoted); err != nil {
+		return SettleOutcome{}, err
+	}
+	for _, item := range allocation {
+		if item.Bucket == model.CreditBucketGrant {
+			if _, ok := r.grants[item.GrantID]; !ok {
+				return SettleOutcome{}, ErrCreditGrantNotFound
+			}
+		}
+	}
 
 	account := r.ensureAccountLocked(consumption.UserID, now)
+	remainingCharge := charged
 	// Grant buckets first, permanent last — keeps ledger snapshots ordered.
 	for _, item := range allocation {
 		if item.Bucket != model.CreditBucketGrant {
@@ -722,48 +752,67 @@ func (r *MemoryCreditRepository) Settle(jobID string, now time.Time) (SettleOutc
 			return SettleOutcome{}, ErrCreditGrantNotFound
 		}
 		grant.AmountFrozen -= item.Amount
-		grant.AmountRemaining -= item.Amount
+		take := min(item.Amount, remainingCharge)
+		remainingCharge -= take
+		grant.AmountRemaining -= take
+		expired := grant.Status == model.GrantStatusExpired || !grant.ExpiresAt.After(now)
 		if grant.AmountRemaining == 0 && grant.AmountFrozen == 0 {
 			grant.Status = model.GrantStatusExhausted
 		}
+		if take > 0 {
+			r.appendLedgerLocked(model.CreditLedgerEntry{
+				UserID:              consumption.UserID,
+				EntryType:           model.LedgerTypeConsume,
+				Amount:              -take,
+				Bucket:              model.CreditBucketGrant,
+				GrantID:             grant.ID,
+				PermanentAfter:      account.PermanentBalance,
+				GrantRemainingAfter: grant.AmountRemaining,
+				JobID:               jobID,
+				OperatorID:          "system",
+				IdempotencyKey:      "consume:" + jobID + ":grant:" + grant.ID,
+				CreatedAt:           now,
+			})
+		}
+		if released := item.Amount - take; expired && released > 0 {
+			grant.AmountRemaining -= released
+			r.appendLedgerLocked(model.CreditLedgerEntry{UserID: consumption.UserID, EntryType: model.LedgerTypeExpire, Amount: -released, Bucket: model.CreditBucketGrant, GrantID: grant.ID, PermanentAfter: account.PermanentBalance, GrantRemainingAfter: grant.AmountRemaining, JobID: jobID, OperatorID: "system", IdempotencyKey: "expire-settle:" + jobID + ":" + grant.ID, CreatedAt: now})
+		}
+		if expired && take < item.Amount && grant.AmountRemaining == 0 && grant.AmountFrozen == 0 {
+			grant.Status = model.GrantStatusExpired
+		}
 		r.grants[grant.ID] = grant
-		r.appendLedgerLocked(model.CreditLedgerEntry{
-			UserID:              consumption.UserID,
-			EntryType:           model.LedgerTypeConsume,
-			Amount:              -item.Amount,
-			Bucket:              model.CreditBucketGrant,
-			GrantID:             grant.ID,
-			PermanentAfter:      account.PermanentBalance,
-			GrantRemainingAfter: grant.AmountRemaining,
-			JobID:               jobID,
-			OperatorID:          "system",
-			IdempotencyKey:      "consume:" + jobID + ":grant:" + grant.ID,
-			CreatedAt:           now,
-		})
 	}
 	for _, item := range allocation {
 		if item.Bucket != model.CreditBucketPermanent {
 			continue
 		}
 		account.PermanentFrozen -= item.Amount
-		account.PermanentBalance -= item.Amount
-		r.appendLedgerLocked(model.CreditLedgerEntry{
-			UserID:         consumption.UserID,
-			EntryType:      model.LedgerTypeConsume,
-			Amount:         -item.Amount,
-			Bucket:         model.CreditBucketPermanent,
-			PermanentAfter: account.PermanentBalance,
-			JobID:          jobID,
-			OperatorID:     "system",
-			IdempotencyKey: "consume:" + jobID + ":permanent",
-			CreatedAt:      now,
-		})
+		take := min(item.Amount, remainingCharge)
+		remainingCharge -= take
+		account.PermanentBalance -= take
+		if take > 0 {
+			r.appendLedgerLocked(model.CreditLedgerEntry{
+				UserID:         consumption.UserID,
+				EntryType:      model.LedgerTypeConsume,
+				Amount:         -take,
+				Bucket:         model.CreditBucketPermanent,
+				PermanentAfter: account.PermanentBalance,
+				JobID:          jobID,
+				OperatorID:     "system",
+				IdempotencyKey: "consume:" + jobID + ":permanent",
+				CreatedAt:      now,
+			})
+		}
 	}
 	account.UpdatedAt = now
 	r.accounts[consumption.UserID] = account
 
 	consumption.Status = model.TaskConsumptionStatusSettled
-	consumption.CreditsSettled = consumption.CreditsQuoted
+	consumption.CreditsSettled = charged
+	if settlement != nil {
+		consumption.Params = settlement.Params
+	}
 	consumption.SettledAt = &now
 	r.consumptions[consumption.ID] = consumption
 	return SettleOutcome{Consumption: consumption, Changed: true}, nil

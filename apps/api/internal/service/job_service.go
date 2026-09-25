@@ -71,6 +71,7 @@ type EnqueueJobInput struct {
 	IdempotencyPayload model.JSONB
 	TaskKwargs         map[string]any
 	IdempotencyKey     string
+	VideoBillingPolicy *VideoBillingPolicy
 	// RepublishExisting is reserved for durable server-side schedulers that
 	// recover a crash between creating the Job row and publishing to Celery.
 	// The Job ID remains stable and workers serialize duplicate deliveries.
@@ -83,13 +84,14 @@ type EnqueueJobResult struct {
 }
 
 type ExternalJobInput struct {
-	UserID           string
-	Scope            string
-	Type             string
-	ExternalProvider string
-	ExternalTaskID   string
-	Payload          model.JSONB
-	IdempotencyKey   string
+	UserID             string
+	Scope              string
+	Type               string
+	ExternalProvider   string
+	ExternalTaskID     string
+	Payload            model.JSONB
+	IdempotencyKey     string
+	VideoBillingPolicy *VideoBillingPolicy
 }
 
 // CreateExternal records a bridge job without publishing it to the Studio
@@ -114,7 +116,7 @@ func (s *JobService) CreateExternal(input ExternalJobInput) (EnqueueJobResult, e
 			return EnqueueJobResult{}, err
 		}
 		payload = normalized
-		if err := s.billing.ReserveForJob(input.UserID, input.Type, jobID, payload); err != nil {
+		if err := s.reserveJobCredits(input.UserID, input.Type, jobID, payload, input.VideoBillingPolicy); err != nil {
 			return EnqueueJobResult{}, err
 		}
 	}
@@ -260,7 +262,7 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 			return EnqueueJobResult{}, err
 		}
 		payload = normalized
-		if err := s.billing.ReserveForJob(input.UserID, input.Type, jobID, payload); err != nil {
+		if err := s.reserveJobCredits(input.UserID, input.Type, jobID, payload, input.VideoBillingPolicy); err != nil {
 			return EnqueueJobResult{}, err
 		}
 	}
@@ -345,6 +347,15 @@ func (s *JobService) publishDurableJob(ctx context.Context, message queue.TaskMe
 	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), jobPublishTimeout)
 	defer cancel()
 	return s.producer.Publish(publishCtx, message)
+}
+
+func (s *JobService) reserveJobCredits(userID, jobType, jobID string, payload model.JSONB, policy *VideoBillingPolicy) error {
+	if hooks, ok := s.billing.(interface {
+		ReserveForJobWithVideoPolicy(string, string, string, model.JSONB, *VideoBillingPolicy) error
+	}); ok {
+		return hooks.ReserveForJobWithVideoPolicy(userID, jobType, jobID, payload, policy)
+	}
+	return s.billing.ReserveForJob(userID, jobType, jobID, payload)
 }
 
 func jobMatchesScope(job model.Job, userID, workspaceID, jobType string) bool {

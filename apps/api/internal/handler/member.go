@@ -24,10 +24,15 @@ type MemberHandler struct {
 	billing     repository.BillingRepository
 	invites     *service.InviteService
 	cfg         config.Config
+	providers   *ModelProviderHandler
 }
 
 func NewMemberHandler(engine *service.CreditLedgerService, credits repository.CreditRepository, memberships repository.MembershipRepository, billing repository.BillingRepository, invites *service.InviteService, cfg config.Config) *MemberHandler {
 	return &MemberHandler{engine: engine, credits: credits, memberships: memberships, billing: billing, invites: invites, cfg: cfg}
+}
+
+func (h *MemberHandler) SetModelProviderHandler(providers *ModelProviderHandler) {
+	h.providers = providers
 }
 
 // Quote uses the same server-side price calculation as job reservation. The
@@ -62,7 +67,27 @@ func (h *MemberHandler) Quote(c *gin.Context) {
 		}
 		input.Payload, _ = json.Marshal(body)
 	}
-	credits, _, params, _ := service.NewCreditPricer(h.billing).QuoteForJob(input.JobType, input.Payload)
+	var policy *service.VideoBillingPolicy
+	if h.cfg.BillingEnabled && input.JobType == model.JobTypeVideoGenerate && service.IsAutomaticVideoDuration(input.Payload) {
+		var body map[string]any
+		_ = json.Unmarshal(input.Payload, &body)
+		var err error
+		policy, err = h.providers.videoBillingPolicy(c, stringFromAny(body["model"]))
+		if err != nil {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	pricer := service.NewCreditPricer(h.billing)
+	credits, _, params, _ := pricer.QuoteForJob(input.JobType, input.Payload)
+	if policy != nil {
+		var err error
+		credits, _, params, _, err = pricer.QuoteForJobWithVideoPolicy(input.JobType, input.Payload, policy)
+		if err != nil {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	response.OK(c, gin.H{"credits": credits, "params": params})
 }
 

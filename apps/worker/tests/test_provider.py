@@ -4,6 +4,7 @@ import struct
 import tempfile
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ from worker.config import Settings
 from worker.errors import SafeTaskError
 from worker import provider as provider_module
 from worker.provider import edit_image, generate_image, provider_request_url
+from image_checkpoint_fakes import isolated_image_checkpoint
 
 
 class FakeProviderResponse:
@@ -26,6 +28,19 @@ class FakeProviderResponse:
 
     def json(self) -> dict[str, Any]:
         return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise provider_module.requests.HTTPError("download rejected")
+
+    def iter_content(self, **_):
+        yield self.content
 
 
 def test_settings(tmp: str) -> Settings:
@@ -45,6 +60,11 @@ def test_settings(tmp: str) -> Settings:
 
 
 class ProviderTest(unittest.TestCase):
+    def setUp(self):
+        checkpoint = patch.object(provider_module, "checkpoint_for_image", side_effect=isolated_image_checkpoint)
+        checkpoint.start()
+        self.addCleanup(checkpoint.stop)
+
     def test_explicit_api_paths_are_not_prefixed_twice(self) -> None:
         for endpoint in ("/api/v3/contents/generations/tasks", "api/v3/contents/generations/tasks", "/v1/videos", "/v1beta/models", "/api/v1/videos", "/api/plan/v3/tasks"):
             with self.subTest(endpoint=endpoint):
@@ -466,7 +486,7 @@ class ProviderTest(unittest.TestCase):
 
         provider_module.requests.post = fake_post
         try:
-            with tempfile.TemporaryDirectory() as tmp:
+            with tempfile.TemporaryDirectory() as tmp, patch.object(provider_module.requests, "get", return_value=FakeProviderResponse(headers={"Content-Type": "image/png"}, content=b"downloaded-image")):
                 result = generate_image(
                     "job_dashscope",
                     {"prompt": "paint", "provider": {"base_url": "https://dashscope.aliyuncs.com", "endpoint": "api/v1/services/aigc/multimodal-generation/generation", "protocol": "dashscope_multimodal", "auth_type": "bearer", "api_key": "key", "model": "qwen-image-plus"}},
@@ -477,7 +497,8 @@ class ProviderTest(unittest.TestCase):
             provider_module.requests.post = original_post
 
         self.assertEqual(captured["json"]["input"]["messages"][0]["content"][0]["text"], "paint")
-        self.assertEqual(result["outputs"][0]["remote_url"], "https://cdn.example/result.png")
+        self.assertNotIn("remote_url", result["outputs"][0])
+        self.assertEqual(result["outputs"][0]["size"], len(b"downloaded-image"))
 
     def test_stability_protocol_accepts_binary_image_response(self) -> None:
         captured: dict[str, Any] = {}

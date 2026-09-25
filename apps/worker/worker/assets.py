@@ -27,6 +27,7 @@ def register_result_assets(
     registration = asset_registration(job)
     registered_outputs: list[dict[str, Any]] = []
     assets: list[dict[str, Any]] = []
+    video_metrics = None
     for output_index, output in enumerate(outputs):
         if not isinstance(output, dict) or not output.get("path"):
             registered_outputs.append(output)
@@ -44,6 +45,9 @@ def register_result_assets(
         target = settings.asset_storage_dir / key
         target.parent.mkdir(parents=True, exist_ok=True)
         content_sha256 = copy_output_atomically(source, target)
+        if asset_type == "video" and len(outputs) == 1:
+            from .video_metrics import probe_video_metrics
+            video_metrics = probe_video_metrics(target, settings)
         if object_storage.enabled():
             object_storage.upload(key.as_posix(), target, content_type)
 
@@ -99,6 +103,14 @@ def register_result_assets(
     enriched_result["outputs"] = registered_outputs
     if assets:
         enriched_result["assets"] = assets
+    if asset_type == "video":
+        # Only measurements of the imported file are trusted, never provider claims.
+        enriched_result.pop("video_metrics", None)
+        enriched_result.pop("video_content_sha256", None)
+        if len(assets) == 1 and len(outputs) == 1:
+            enriched_result["video_content_sha256"] = assets[0]["content_sha256"]
+        if video_metrics is not None:
+            enriched_result["video_metrics"] = video_metrics
     return enriched_result
 
 

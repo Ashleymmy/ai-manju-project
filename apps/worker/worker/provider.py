@@ -7,16 +7,21 @@ from email.utils import parsedate_to_datetime
 import json
 import re
 import struct
+import time
 import zlib
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 import requests
+from billiard.exceptions import SoftTimeLimitExceeded
 
 from .config import Settings
 from .image_specs import gemini_image_config, is_gemini_image_model
-from .errors import SafeTaskError, safe_message
+from .errors import SafeTaskError, ImageRecoveryPendingError, ImageSubmissionUncertainError, ImageResultRejectedError, safe_message
+from .db import JobStore
+from .image_checkpoint import IMAGE_CHECKPOINT_PAYLOAD_KEY, ImageCheckpoint, atomic_write, recovery_error, uncertain_error
+from .image_output_validation import IMAGE_DOWNLOAD_TIMEOUT_SECONDS, IMAGE_PROBE_TIMEOUT_SECONDS, IMAGE_DOWNLOAD_CHUNK_BYTES, IMAGE_DOWNLOAD_MAX_BYTES
 from .image_requirements import require_canvas_image_parameter_support, with_canvas_image_requirements
 from .staged_inputs import JOB_WORKSPACE_FIELD, INPUT_STORAGE_KEY_FIELD, STAGED_INPUT_KEYS_FIELD, open_staged_input
 
@@ -33,6 +38,7 @@ UPLOAD_PAYLOAD_KEYS = {
     "references",
     "provider",
     "asset_registration",
+    IMAGE_CHECKPOINT_PAYLOAD_KEY,
     STAGED_INPUT_KEYS_FIELD,
     INPUT_STORAGE_KEY_FIELD,
     JOB_WORKSPACE_FIELD,
@@ -135,121 +141,169 @@ def write_mock_image(
     }
 
 
+def checkpoint_for_image(job_id, payload, provider, settings):
+    checkpoint = payload.get(IMAGE_CHECKPOINT_PAYLOAD_KEY)
+    if isinstance(checkpoint, ImageCheckpoint):
+        return checkpoint
+    return ImageCheckpoint(JobStore(settings.database_url), job_id, provider, settings)
+
+
 def call_openai_compatible_image(
-    job_id: str,
-    payload: dict[str, Any],
-    provider: dict[str, Any],
-    settings: Settings,
-    progress: ProgressFn,
-    operation: str,
+    job_id: str, payload: dict[str, Any], provider: dict[str, Any], settings: Settings,
+    progress: ProgressFn, operation: str,
 ) -> dict[str, Any]:
-    base_url = str(provider.get("base_url", "")).rstrip("/") + "/"
     protocol = resolve_image_protocol(provider)
     require_canvas_image_parameter_support(payload, protocol)
+    checkpoint = checkpoint_for_image(job_id, payload, provider, settings)
+    cached = checkpoint.cached_result()
+    if cached is not None:
+        return cached
+    receipt = checkpoint.pending_receipt()
+    if receipt is not None:
+        return recover_image_receipt(job_id, receipt, checkpoint, settings, progress)
+
+    base_url = str(provider.get("base_url", "")).rstrip("/") + "/"
     endpoint = str(provider.get("endpoint") or default_image_endpoint(protocol, operation, provider, payload))
     url = provider_request_url(base_url, endpoint, provider)
     headers = provider_auth_headers(provider)
-    progress(35)
-    upload_files: list[tuple[str, tuple[str, Any, str]]] | None = None
+    upload_files = None
     try:
         timeout_ms = int(provider.get("timeout_ms") or 300000)
-        timeout_seconds = float(provider.get("timeout_seconds") or timeout_ms / 1000)
-        if protocol == "gemini_generate_content":
-            response = requests.post(
-                url,
-                headers={**headers, "Content-Type": "application/json"},
-                json=gemini_image_generation_body(payload, provider, settings),
-                timeout=timeout_seconds,
-            )
-        elif protocol == "openai_responses":
-            response = requests.post(
-                url,
-                headers={**headers, "Content-Type": "application/json"},
-                json=openai_responses_image_body(payload, provider, settings),
-                timeout=timeout_seconds,
-            )
-        elif protocol == "openai_chat_completions":
-            response = requests.post(
-                url,
-                headers={**headers, "Content-Type": "application/json"},
-                json=openai_chat_image_body(payload, provider, settings),
-                timeout=timeout_seconds,
-            )
-        elif protocol == "dashscope_multimodal":
-            response = requests.post(
-                url,
-                headers={**headers, "Content-Type": "application/json"},
-                json=dashscope_multimodal_image_body(payload, provider, settings),
-                timeout=timeout_seconds,
-            )
+        request = {"headers": headers, "timeout": float(provider.get("timeout_seconds") or timeout_ms / 1000)}
+        builders = {"gemini_generate_content": gemini_image_generation_body,
+                    "openai_responses": openai_responses_image_body,
+                    "openai_chat_completions": openai_chat_image_body,
+                    "dashscope_multimodal": dashscope_multimodal_image_body}
+        # Prepare/validate all local parameters and input files before intent.
+        if protocol in builders:
+            request.update(headers={**headers, "Content-Type": "application/json"}, json=builders[protocol](payload, provider, settings))
         elif protocol == "stability_image":
             upload_files = stability_image_files(payload, settings, operation)
-            response = requests.post(
-                url,
-                headers={**headers, "Accept": "image/*"},
-                data=stability_image_fields(payload, provider, operation),
-                files=upload_files or {"none": ""},
-                timeout=timeout_seconds,
-            )
+            request.update(headers={**headers, "Accept": "image/*"},
+                           data=stability_image_fields(payload, provider, operation), files=upload_files or {"none": ""})
         elif operation == "edit":
             upload_files = multipart_files_for_image_edit(payload, settings)
-            response = requests.post(
-                url,
-                headers=headers,
-                data=multipart_fields_for_image_edit(payload, provider),
-                files=upload_files,
-                timeout=timeout_seconds,
-            )
+            request.update(data=multipart_fields_for_image_edit(payload, provider), files=upload_files)
         else:
-            response = requests.post(
-                url,
-                headers={**headers, "Content-Type": "application/json"},
-                json=image_generation_body(payload, provider),
-                timeout=timeout_seconds,
-            )
-    except requests.RequestException as exc:
-        raise SafeTaskError("image provider request failed", code="provider_request_failed", retryable=True) from exc
+            request.update(headers={**headers, "Content-Type": "application/json"}, json=image_generation_body(payload, provider))
+        if "json" in request:
+            json.dumps(request["json"], allow_nan=False)
+        progress(35)
+        checkpoint.begin()
+        try:
+            response = requests.post(url, **request)
+        except requests.ConnectTimeout as exc:
+            checkpoint.rejected()
+            raise SafeTaskError("image provider request failed", code="provider_request_failed", retryable=True) from exc
+        except (requests.RequestException, SoftTimeLimitExceeded) as exc:
+            # Transport exception text can contain credentials or signed URLs.
+            raise uncertain_error() from None
     finally:
         close_multipart_files(upload_files)
 
-    if response.status_code == 429:
-        raise SafeTaskError(
-            provider_error_message("image provider concurrency or rate limit exceeded", response),
-            code="provider_rate_limited",
-            retryable=True,
-            retry_after_seconds=provider_retry_after_seconds(response),
-        )
-    if response.status_code >= 500:
-        raise SafeTaskError(
-            provider_error_message("image provider temporary failure", response),
-            code="provider_temporary_failure",
-            retryable=True,
-        )
-    if response.status_code >= 400:
-        raise SafeTaskError(
-            provider_error_message("image provider rejected request", response),
-            code="provider_bad_request",
-            retryable=False,
-        )
+    try:
+        if response.status_code == 408 or response.status_code >= 500:
+            raise uncertain_error()
+        if response.status_code >= 400:
+            checkpoint.rejected()
+            if response.status_code == 429:
+                raise SafeTaskError(provider_error_message("image provider concurrency or rate limit exceeded", response),
+                                    code="provider_rate_limited", retryable=True,
+                                    retry_after_seconds=provider_retry_after_seconds(response))
+            raise SafeTaskError(provider_error_message("image provider rejected request", response), code="provider_bad_request", retryable=False)
+        content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        if content_type.startswith("image/"):
+            sources = [{"b64_json": base64.b64encode(bytes(getattr(response, "content", b""))).decode(), "mime_type": content_type}]
+        else:
+            try:
+                data = response.json()
+            except ValueError as exc:
+                raise uncertain_error() from exc
+            sources = image_response_sources(data)
+        if not sources:
+            failure = ImageResultRejectedError("生成服务未返回完整图片", code="image_output_unreadable", retryable=False)
+            checkpoint.terminal_failure(failure)
+            raise failure
+        metadata = {"mode": "openai_compatible" if protocol == "openai_images" else protocol,
+                    "protocol": protocol, "operation": operation, "provider_status": response.status_code}
+        receipt = checkpoint.received(sources, metadata)
+    finally:
+        close = getattr(response, "close", None)
+        if callable(close):
+            close()
+    return recover_image_receipt(job_id, receipt, checkpoint, settings, progress)
 
-    progress(75)
-    content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
-    if content_type.startswith("image/"):
-        outputs = persist_binary_image_output(job_id, bytes(getattr(response, "content", b"")), content_type, settings)
-    else:
-        try:
-            data = response.json()
-        except ValueError as exc:
-            raise SafeTaskError("image provider returned invalid JSON", code="provider_invalid_json", retryable=True) from exc
-        outputs = persist_provider_outputs(job_id, data, settings)
-    progress(90)
-    return {
-        "mode": "openai_compatible" if protocol == "openai_images" else protocol,
-        "protocol": protocol,
-        "operation": operation,
-        "provider_status": response.status_code,
-        "outputs": outputs,
-    }
+
+def image_response_sources(data):
+    sources = []
+    for item in extract_image_items(data):
+        encoded = first_string(item, "b64_json", "base64", "image_base64", "data")
+        url = first_string(item, "url", "image_url", "output_url", "result_url", "download_url", "fileUri", "file_uri")
+        mime = first_string(item, "mime_type", "mimeType", "content_type") or data_url_mime_type(encoded or url) or "image/png"
+        if encoded:
+            sources.append({"b64_json": encoded, "mime_type": mime})
+        elif url:
+            sources.append({"url": url, "mime_type": mime})
+    return sources
+
+
+def recover_image_receipt(job_id, receipt, checkpoint, settings, progress):
+    try:
+        progress(75)
+        output_dir = ensure_job_dir(settings.asset_storage_dir, job_id)
+        outputs = []
+        for index, source in enumerate(receipt["sources"]):
+            encoded, url = source.get("b64_json"), source.get("url")
+            mime = source.get("mime_type") or "image/png"
+            if encoded or str(url or "").lower().startswith("data:image/"):
+                try:
+                    content = base64.b64decode(strip_data_url_prefix(encoded or url), validate=True)
+                except (binascii.Error, ValueError) as exc:
+                    raise ImageResultRejectedError("生成图片数据无效", code="image_output_unreadable", retryable=False) from exc
+            elif url:
+                content, mime = download_receipt_image(url, mime)
+            else:
+                raise ImageResultRejectedError("生成服务未返回完整图片", code="image_output_unreadable", retryable=False)
+            if not content:
+                raise ImageResultRejectedError("生成服务未返回完整图片", code="image_output_unreadable", retryable=False)
+            path = output_dir / f"provider_{index}.{image_extension(mime)}"
+            atomic_write(path, content)
+            outputs.append({"path": str(path), "content_type": mime, "size": len(content)})
+        result = {**receipt["metadata"], "outputs": outputs}
+        checkpoint.downloaded(result)
+        progress(90)
+        return result
+    except ImageResultRejectedError as exc:
+        checkpoint.terminal_failure(exc)
+        raise
+    except SafeTaskError as exc:
+        if exc.code in {"job_canceled", "job_finished"} or isinstance(exc, ImageRecoveryPendingError):
+            raise
+        raise recovery_error() from None
+    except Exception as exc:
+        # Do not expose signed download URLs through chained Celery tracebacks.
+        raise recovery_error() from None
+
+
+def download_receipt_image(url, mime):
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username is not None:
+        raise ImageResultRejectedError("生成图片下载地址无效", code="image_output_unreadable", retryable=False)
+    deadline = time.monotonic() + IMAGE_DOWNLOAD_TIMEOUT_SECONDS
+    # Signed result URLs are independent from API credentials. Never forward headers.
+    with requests.get(url, stream=True, timeout=IMAGE_PROBE_TIMEOUT_SECONDS) as response:
+        response.raise_for_status()
+        mime = str(response.headers.get("Content-Type") or mime).split(";", 1)[0].strip().lower()
+        if not mime.startswith("image/") and mime != "application/octet-stream":
+            raise ImageResultRejectedError("生成服务未返回图片内容", code="image_output_unreadable", retryable=False)
+        content = bytearray()
+        for chunk in response.iter_content(chunk_size=IMAGE_DOWNLOAD_CHUNK_BYTES):
+            if time.monotonic() > deadline:
+                raise recovery_error()
+            if len(content) + len(chunk) > IMAGE_DOWNLOAD_MAX_BYTES:
+                raise ImageResultRejectedError("生成图片超过下载大小限制", code="image_output_unreadable", retryable=False)
+            content.extend(chunk)
+        return bytes(content), mime
 
 
 def resolve_image_protocol(provider: dict[str, Any]) -> str:

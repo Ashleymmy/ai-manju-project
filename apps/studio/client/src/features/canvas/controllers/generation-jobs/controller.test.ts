@@ -213,6 +213,43 @@ function createHarness(
 }
 
 describe("CanvasGenerationJobsController", () => {
+  it.each([false, true])("shows image recovery notices and prevents duplicate generation (restored=%s)", async restored => {
+    type Callbacks = NonNullable<Parameters<CanvasGenerationServices["generateImages"]>[1]>;
+    let progress!: NonNullable<Callbacks["onProgress"]>;
+    let finish!: () => void;
+    const images = [{ id: "result", assetId: "result", src: "" }];
+    const services = createServices({
+      generateImages: vi.fn((_input, callbacks) => new Promise(resolve => {
+        callbacks?.onAccepted?.({ id: "job-original" });
+        progress = callbacks!.onProgress!;
+        finish = () => resolve({ images });
+      })),
+      waitForImageJob: vi.fn((_id, callbacks) => new Promise(resolve => {
+        progress = callbacks!.onProgress!;
+        finish = () => resolve({ id: "job-original", type: "image.generate", status: "succeeded", state: "succeeded" });
+      })),
+      generatedImagesFromJob: vi.fn(async () => images),
+    });
+    const source = imageNode();
+    if (restored) source.metadata = { ...source.metadata, status: "loading", jobId: "job-original" };
+    const harness = createHarness([source], services);
+    if (restored) harness.controller.recoverPendingJobs();
+    else void harness.controller.generateImageFromNode(source.id);
+    await vi.waitFor(() => expect(progress).toBeDefined());
+    for (const phase of ["image_submission_uncertain", "image_recovery_pending"]) {
+      progress({ id: "job-original", type: "image.generate", status: "queued", state: "queued", queue_phase: phase });
+      expect(harness.nodes[0].metadata?.generationNotice).toContain(phase === "image_submission_uncertain" ? "勿重复生成" : "正在恢复原图片任务");
+      expect(harness.nodes[0].metadata?.status).toBe("loading");
+      expect(harness.runningIds.has(source.id)).toBe(true);
+      await harness.controller.generateImageFromNode(source.id);
+      expect(services.generateImages).toHaveBeenCalledTimes(restored ? 0 : 1);
+    }
+    finish();
+    await vi.waitFor(() => expect(harness.nodes[0].metadata?.status).toBe("success"));
+    expect(harness.nodes[0].imageAssetId).toBe("result");
+    expect(harness.onError).not.toHaveBeenCalled();
+  });
+
   it.each(["image", "video"] as const)("retains an accepted %s result when completion wins against cancellation", async kind => {
     const services = videoHistoryServices();
     services.cancelJob = vi.fn(async id => ({ id, type: `${kind}.generate`, status: "succeeded" as const, state: "succeeded" as const }));
