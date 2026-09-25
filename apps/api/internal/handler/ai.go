@@ -567,7 +567,8 @@ func (h *AIHandler) SeedanceTaskCreate(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if h.shouldUseSDVideo(stringFromAny(body["model"])) {
+	if requestedModel := firstNonEmpty(stringFromAny(body["model"]), c.Query("model")); h.shouldUseSDVideo(requestedModel) {
+		body["model"] = requestedModel
 		h.createSDVideoTask(c, body)
 		return
 	}

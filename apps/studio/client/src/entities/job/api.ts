@@ -36,20 +36,20 @@ export async function getJobs(
   const normalizedQuery = normalizeJobListQuery(query);
   const raw = await request<ApiJob[] | { items: ApiJob[]; total?: number }>(
     "/api/jobs",
-    { query: normalizedQuery }
+    { query: { view: "status", ...normalizedQuery } }
   );
   return normalizeJobList(raw);
 }
 
 export async function getJob(id: string, signal?: AbortSignal) {
   return normalizeJob(
-    await request<ApiJob>(`/api/jobs/${encodeURIComponent(id)}`, { signal })
+    await request<ApiJob>(`/api/jobs/${encodeURIComponent(id)}`, { signal, query: { view: "status" } })
   );
 }
 
 export async function createJob(payload: CreateJobInput) {
   return normalizeJob(
-    await request<ApiJob>("/api/jobs", { method: "POST", body: payload })
+    await request<ApiJob>("/api/jobs", { method: "POST", body: payload, query: { view: "status" } })
   );
 }
 
@@ -57,7 +57,7 @@ export async function cancelJob(id: string, scope?: "personal" | "team") {
   return normalizeJob(
     await request<ApiJob>(`/api/jobs/${encodeURIComponent(id)}/cancel`, {
       method: "POST",
-      query: { scope },
+      query: { scope, view: "status" },
     })
   );
 }

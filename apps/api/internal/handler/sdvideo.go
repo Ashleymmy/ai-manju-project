@@ -22,19 +22,26 @@ import (
 )
 
 func (h *AIHandler) shouldUseSDVideo(requestedModel string) bool {
-	return h.sdVideo != nil && h.sdVideo.Enabled() && strings.HasPrefix(strings.ToLower(strings.TrimSpace(requestedModel)), "sdvideo/")
+	// The model namespace owns routing even when the gateway is unavailable.
+	// Otherwise stale canvas selections can enqueue against an unrelated provider.
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(requestedModel)), "sdvideo/")
+}
+
+func (h *AIHandler) requireSDVideo(c *gin.Context) bool {
+	if h.sdVideo == nil || !h.sdVideo.Enabled() {
+		response.Error(c, http.StatusServiceUnavailable, "sd-video service is unavailable")
+		return false
+	}
+	return true
 }
 
 func (h *AIHandler) shouldUseSDVideoTask(c *gin.Context) bool {
 	if h.shouldUseSDVideo(c.Query("model")) {
 		return true
 	}
-	if h.sdVideo == nil || !h.sdVideo.Enabled() {
-		return false
-	}
 	if h.jobs != nil && strings.HasPrefix(c.Param("id"), "job_") {
 		user := auth.MustCurrentUser(c)
-		job, err := h.jobs.GetForUser(c.Param("id"), user.ID)
+		job, err := h.jobs.GetStatusForUser(c.Request.Context(), c.Param("id"), user.ID)
 		return err == nil && job.ExternalProvider == "sd-video"
 	}
 	// Standalone task IDs are deliberately namespaced.  This makes refreshed
@@ -44,6 +51,9 @@ func (h *AIHandler) shouldUseSDVideoTask(c *gin.Context) bool {
 }
 
 func (h *AIHandler) createSDVideoTask(c *gin.Context, body map[string]any) {
+	if !h.requireSDVideo(c) {
+		return
+	}
 	if h.sdVideo.Mode() != "active" {
 		response.Error(c, http.StatusServiceUnavailable, "new video submissions are disabled")
 		return
@@ -86,7 +96,7 @@ func (h *AIHandler) createSDVideoTask(c *gin.Context, body map[string]any) {
 		return
 	}
 	modelName := strings.TrimSpace(stringFromAny(body["model"]))
-	modelID := strings.TrimPrefix(modelName, "sdvideo/")
+	_, modelID, _ := strings.Cut(modelName, "/")
 	if err := h.sdVideo.CreationError(service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID), modelID); err != nil {
 		response.Error(c, 403, err.Error())
 		return
@@ -257,12 +267,15 @@ func (h *AIHandler) prepareSDVideoReferences(c *gin.Context, user model.User, sc
 func (h *AIHandler) getSDVideoTask(c *gin.Context) {
 	user := auth.MustCurrentUser(c)
 	if h.jobs != nil && strings.HasPrefix(c.Param("id"), "job_") {
-		job, err := h.jobs.GetForUser(c.Param("id"), user.ID)
+		job, err := h.jobs.GetStatusForUser(c.Request.Context(), c.Param("id"), user.ID)
 		if err != nil || job.WorkspaceID != service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID) {
 			response.Error(c, http.StatusNotFound, "job not found")
 			return
 		}
 		response.OK(c, gin.H{"id": job.ID, "task_id": job.ID, "job_id": job.ID, "status": job.Status, "progress": job.Progress, "result": job.Result, "error": job.Error, "external_task_id": job.ExternalTaskID})
+		return
+	}
+	if !h.requireSDVideo(c) {
 		return
 	}
 	workspaceID := service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID)
@@ -340,6 +353,9 @@ func sdVideoReferencesFromContent(raw any) []map[string]any {
 
 // Multipart 参考素材进入同一转换路径，不遗留只供旧图片 Worker 使用的 staged key。
 func (h *AIHandler) createSDVideoMultipart(c *gin.Context, fields map[string]string, files []provider.ProxyMultipartFile) {
+	if !h.requireSDVideo(c) {
+		return
+	}
 	body := proxyMultipartJobPayload(fields, nil)
 	if seconds, err := strconv.Atoi(fields["seconds"]); err == nil {
 		body["duration"] = seconds
@@ -388,7 +404,7 @@ func (h *AIHandler) getSDVideoTaskContent(c *gin.Context) {
 	workspaceID := service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID)
 	taskID := c.Param("id")
 	if strings.HasPrefix(taskID, "job_") {
-		job, err := h.jobs.GetForUser(taskID, user.ID)
+		job, err := h.jobs.GetStatusForUser(c.Request.Context(), taskID, user.ID)
 		if err != nil || job.WorkspaceID != workspaceID {
 			response.Error(c, http.StatusNotFound, "job not found")
 			return
@@ -405,6 +421,9 @@ func (h *AIHandler) getSDVideoTaskContent(c *gin.Context) {
 				return
 			}
 		}
+	}
+	if !h.requireSDVideo(c) {
+		return
 	}
 	body, contentType, err := h.sdVideo.Result(c.Request.Context(), user, workspaceID, taskID)
 	if err != nil {

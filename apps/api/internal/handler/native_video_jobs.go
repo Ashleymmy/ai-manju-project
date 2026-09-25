@@ -93,7 +93,7 @@ func (h *AIHandler) serveGenerationVideoJob(c *gin.Context, content bool) bool {
 		return true
 	}
 	user := auth.MustCurrentUser(c)
-	job, err := h.jobs.GetForUser(c.Param("id"), user.ID)
+	job, err := h.jobs.GetStatusForUser(c.Request.Context(), c.Param("id"), user.ID)
 	if err != nil || job.Type != model.JobTypeVideoGenerate {
 		response.Error(c, http.StatusNotFound, "视频任务不存在")
 		return true
