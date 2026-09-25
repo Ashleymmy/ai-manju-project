@@ -264,6 +264,13 @@ type busyRunningRecoveryRepository struct {
 	busy map[string]bool
 }
 
+func (r busyRunningRecoveryRepository) DeferBusyNativeRecovery(job model.Job, next time.Time) (bool, error) {
+	return r.JobRepository.(repository.NativeOrphanRepository).DeferBusyNativeRecovery(job, next)
+}
+func (r busyRunningRecoveryRepository) RouteNativeOrphan(job model.Job, now time.Time) (bool, error) {
+	return r.JobRepository.(repository.NativeOrphanRepository).RouteNativeOrphan(job, now)
+}
+
 func (r busyRunningRecoveryRepository) WithNativeJobLock(ctx context.Context, id string, fn func() error) error {
 	if r.busy[id] {
 		return repository.ErrJobRecoveryBusy

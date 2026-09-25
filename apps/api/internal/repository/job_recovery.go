@@ -38,7 +38,7 @@ func nativeRecoveryCandidate(job model.Job) bool {
 	}
 	var metadata map[string]json.RawMessage
 	_ = json.Unmarshal(job.BridgeMetadata, &metadata)
-	return (job.Type == model.JobTypeVideoGenerate && len(metadata["_worker_video_checkpoint"]) > 0) || ((job.Type == model.JobTypeImageGenerate || job.Type == model.JobTypeImageEdit) && len(metadata["_worker_image_checkpoint"]) > 0)
+	return (job.Type == model.JobTypeVideoGenerate && (len(metadata["_worker_video_checkpoint"]) > 0 || job.QueuePhase == "video_submission_uncertain" || job.QueuePhase == "video_recovery_attention")) || ((job.Type == model.JobTypeImageGenerate || job.Type == model.JobTypeImageEdit) && (len(metadata["_worker_image_checkpoint"]) > 0 || job.QueuePhase == "image_submission_uncertain" || job.QueuePhase == "image_recovery_attention"))
 }
 
 func (r *MemoryJobRepository) ListNativeRecovery(limit, offset int) ([]model.Job, int64, error) {
@@ -66,7 +66,7 @@ func (r *MemoryJobRepository) ListNativeRecovery(limit, offset int) ([]model.Job
 func (r *GormJobRepository) ListNativeRecovery(limit, offset int) ([]model.Job, int64, error) {
 	var total int64
 	// jsonb_exists avoids SQL placeholder ambiguity in GORM.
-	query := r.db.Model(&model.Job{}).Where("COALESCE(external_provider,'')='' AND status IN ? AND ((type='video.generate' AND jsonb_exists(bridge_metadata,'_worker_video_checkpoint')) OR (type IN ('image.generate','image.edit') AND jsonb_exists(bridge_metadata,'_worker_image_checkpoint')))", []string{model.JobStatusQueued, model.JobStatusRunning})
+	query := r.db.Model(&model.Job{}).Where("COALESCE(external_provider,'')='' AND status IN ? AND ((type='video.generate' AND (jsonb_exists(bridge_metadata,'_worker_video_checkpoint') OR queue_phase IN ('video_submission_uncertain','video_recovery_attention'))) OR (type IN ('image.generate','image.edit') AND (jsonb_exists(bridge_metadata,'_worker_image_checkpoint') OR queue_phase IN ('image_submission_uncertain','image_recovery_attention'))))", []string{model.JobStatusQueued, model.JobStatusRunning})
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}

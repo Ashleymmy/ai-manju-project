@@ -42,7 +42,7 @@ describe("AgentPanel interjections", () => {
 
   async function render(projectSnapshot = snapshot) {
     await act(async () => root.render(
-      <AgentPanel projectId={projectSnapshot.projectId} open onClose={vi.fn()} snapshot={projectSnapshot}
+      <AgentPanel userId="agent-test-user" projectId={projectSnapshot.projectId} open onClose={vi.fn()} snapshot={projectSnapshot}
         canUndoOps={false} onApplyOps={onApplyOps} onExecuteWorkspaceTool={vi.fn()} onUndoOps={vi.fn()} />
     ));
   }

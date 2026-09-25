@@ -18,6 +18,9 @@ import {
   type TextModelCatalog,
 } from "@/services/api/ai";
 import { publicApiError } from "@/shared/api/errors";
+import { generationReceiptState } from "@/services/api/generationReceipt";
+import { loadScopedAgentConversations, persistAgentReceiptMessage } from "@/features/canvas/agent/conversationRepository";
+import { agentConversationScopeKey, ownsAgentTextReceipt, type AgentTextReceipt } from "@/features/canvas/agent/textReceipt";
 import {
   AGENT_INTERRUPTED_MESSAGE,
   agentModelName,
@@ -28,7 +31,6 @@ import {
   featuredAgentModels,
   isAgentTurnCancelled,
   loadAgentConnectionSettings,
-  loadAgentConversations,
   persistAgentConnectionSettings,
   persistAgentConversations,
   pickAgentDefaultModel,
@@ -85,6 +87,7 @@ const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = CANVAS_AGENT_TOOLS.map((item)
 }));
 
 type AgentPanelProps = {
+  userId: string;
   projectId: string;
   open: boolean;
   onClose: () => void;
@@ -114,11 +117,15 @@ type AgentPanelProps = {
 });
 
 export default function AgentPanel({
-  projectId, open, onClose, snapshot: canvasSnapshot, canUndoOps,
+  userId, projectId, open, onClose, snapshot: canvasSnapshot, canUndoOps,
   onApplyOps, onExecuteWorkspaceTool, onUndoOps, initialPrompt, initialModel,
   assetScope = "personal", referenceSelection, mode = "canvas", displayName, pagePath,
 }: AgentPanelProps) {
   const isStudio = mode === "studio";
+  const owner = { userId, projectId, scope: assetScope };
+  const storageProjectId = agentConversationScopeKey(owner);
+  const liveOwnerRef = useRef(storageProjectId);
+  liveOwnerRef.current = storageProjectId;
   const snapshot = useMemo<CanvasAgentSnapshot>(() => canvasSnapshot ?? {
     projectId, title: "工作台", nodes: [], connections: [], selectedNodeIds: [], viewport: { x: 0, y: 0, k: 1 },
   }, [canvasSnapshot, projectId]);
@@ -147,8 +154,9 @@ export default function AgentPanel({
   const [pendingTool, setPendingTool] = useState<PendingAgentTool | null>(null);
   const [panelWidth, setPanelWidth] = useState(560); // 悬浮卡片初始宽度（可拖拽 250–600）
   const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
-  const documentAttachments = useAgentDocuments(`${projectId}:${conversationId}`);
-  const [conversations, setConversations] = useState<AgentConversation[]>(() => loadAgentConversations(projectId));
+  const documentAttachments = useAgentDocuments(`${storageProjectId}:${conversationId}`);
+  const [conversations, setConversationState] = useState<AgentConversation[]>(() => loadScopedAgentConversations(owner));
+  const conversationsRef = useRef(conversations);
   const [openMenu, setOpenMenu] = useState<AgentMenuKind | null>(null);
   const [plusView, setPlusView] = useState<PlusMenuView>("root");
   const [autoModel, setAutoModel] = useState(false);
@@ -156,7 +164,7 @@ export default function AgentPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const clientId = useRef(crypto.randomUUID()).current;
+  const clientId = useMemo(() => crypto.randomUUID(), [storageProjectId]);
   const snapshotRef = useRef(snapshot);
   const pendingToolRef = useRef<PendingAgentTool | null>(null);
   const confirmToolsRef = useRef(confirmTools);
@@ -173,10 +181,38 @@ export default function AgentPanel({
   const conversationEpochRef = useRef(0);
   const onlineToolExecutionRef = useRef<Promise<AgentToolExecution[]> | null>(null);
 
+  const setConversations = (update: AgentConversation[] | ((previous: AgentConversation[]) => AgentConversation[])) => {
+    const next = typeof update === "function" ? update(conversationsRef.current) : update;
+    conversationsRef.current = next;
+    setConversationState(next);
+  };
+
   const setMessages = (update: AgentMessage[] | ((previous: AgentMessage[]) => AgentMessage[])) => {
     const next = typeof update === "function" ? update(messagesRef.current) : update;
     messagesRef.current = next;
     setMessageState(next);
+  };
+
+  const persistMessagesNow = (next: AgentMessage[]) => {
+    if (!userId || liveOwnerRef.current !== storageProjectId) return false;
+    const saved = upsertAgentConversation(conversationsRef.current, conversationId, next);
+    if (!persistAgentConversations(storageProjectId, saved)) return false;
+    setConversations(saved);
+    setMessages(next);
+    return true;
+  };
+
+  const saveReceiptMessage = (id: string, receipt: AgentTextReceipt, text: string, retainReply = false) => {
+    const previous = messagesRef.current.find(message => message.id === id);
+    const message: AgentMessage = { ...previous, id, role: "assistant", text, receipt };
+    const next = previous ? messagesRef.current.map(item => item.id === id ? message : item) : [...messagesRef.current, message];
+    const title = messagesRef.current.find(item => item.role === "user")?.text.slice(0, 24) || "待恢复回复";
+    if (!persistMessagesNow(next) || !persistAgentReceiptMessage(message, title)) {
+      // A delivered reply is still useful even if browser storage fills up. Keep
+      // its original pending key and text in memory, but do not execute tools.
+      if (retainReply) setMessages(next.map(item => item.id === id ? { ...item, receipt: { ...receipt, state: "pending" } } : item));
+      throw new Error("对话保存未完成，已停止后续生成和画布操作；请释放浏览器存储空间后恢复回复");
+    }
   };
 
   const setPendingAgentTool = (value: PendingAgentTool | null) => {
@@ -195,17 +231,19 @@ export default function AgentPanel({
     turnIdRef.current += 1;
     turnAbortRef.current?.abort();
     turnAbortRef.current = null;
-    setConversations(loadAgentConversations(projectId));
+    setConversations(loadScopedAgentConversations(owner));
     setMessages([]);
     setConversationId(crypto.randomUUID());
     setThreadId(undefined);
     setOpenMenu(null);
     setPendingAgentTool(null);
     setWaiting(false);
+    setEnabled(false);
+    setConnected(false);
     initialPromptSentRef.current = false;
     setReferenceNodeIds([]);
     localTurnReferencesRef.current = [];
-  }, [projectId]);
+  }, [storageProjectId]);
 
   useEffect(() => {
     const previous = referenceSessionRef.current;
@@ -239,12 +277,12 @@ export default function AgentPanel({
     if (!messages.length || messages !== messagesRef.current) return;
     setConversations((prev) => {
       const next = upsertAgentConversation(prev, conversationId, messages);
-      if (!persistAgentConversations(projectId, next)) {
+      if (!persistAgentConversations(storageProjectId, next)) {
         toast.warning("本地存储空间不足，本次对话和附件仅保留在当前页面，刷新后可能丢失", { id: "agent-storage-full" });
       }
       return next;
     });
-  }, [messages, conversationId, projectId]);
+  }, [messages, conversationId, storageProjectId]);
 
   useOutsidePress(open && Boolean(openMenu), event => event.composedPath().some(target =>
     target instanceof Element && target.hasAttribute("data-agent-menu")
@@ -257,8 +295,10 @@ export default function AgentPanel({
   useEffect(() => { onUndoOpsRef.current = onUndoOps; }, [onUndoOps]);
 
   useEffect(() => {
+    let current = true;
     fetchAiModels()
       .then((result) => {
+        if (!current) return;
         const models = isStudio ? result.textModels : result.agentTextModels;
         const defaultModel = pickAgentDefaultModel(models, result.modelLabels, result.defaultTextModel);
         const catalog: TextModelCatalog = {
@@ -273,6 +313,7 @@ export default function AgentPanel({
         setActivity(models.length ? "在线 Agent 可用" : "Agent 模型未配置");
       })
       .catch((error) => {
+        if (!current) return;
         const message = publicApiError(error, "读取 Agent 模型失败");
         setModelCatalog(null);
         setTextModel("");
@@ -280,7 +321,8 @@ export default function AgentPanel({
         setActivity("Agent 模型不可用");
         toast.error(message);
       });
-  }, [isStudio]);
+    return () => { current = false; };
+  }, [isStudio, storageProjectId]);
 
   useEffect(() => {
     if (initialModel && modelCatalog && resolveAgentModel(modelCatalog.models, initialModel) && !initialPromptSentRef.current) {
@@ -291,20 +333,23 @@ export default function AgentPanel({
 
   useEffect(() => {
     if (!enabled || !url.trim() || !token.trim()) return;
+    let active = true;
+    const ownsConnection = () => active && liveOwnerRef.current === storageProjectId;
     const client = createLocalAgentSseClient({
       endpoint: url,
       token,
       clientId,
       callbacks: {
-        getSnapshot: () => snapshotRef.current,
+        getSnapshot: () => ownsConnection() ? snapshotRef.current : snapshot,
         onHello: () => {
+          if (!ownsConnection()) return;
           setConnected(true);
           setActivity("已连接");
           toast.success("本地Agent 已连接");
         },
-        onToolCall: request => localToolHandlerRef.current(request),
+        onToolCall: request => { if (ownsConnection()) localToolHandlerRef.current(request); },
         onAgentEvent: event => {
-          if (interruptedRef.current) return;
+          if (!ownsConnection() || interruptedRef.current) return;
           if (event.thread_id) setThreadId(event.thread_id);
           if (event.type === "turn.started") {
             setActivity("思考中");
@@ -325,12 +370,12 @@ export default function AgentPanel({
           }
         },
         onDone: () => {
-          if (interruptedRef.current) return;
+          if (!ownsConnection() || interruptedRef.current) return;
           setActivity("完成");
           setWaiting(false);
         },
         onAgentError: message => {
-          if (interruptedRef.current) return;
+          if (!ownsConnection() || interruptedRef.current) return;
           setMessages(prev => [
             ...prev,
             { id: `err-${Date.now()}`, role: "error", text: message },
@@ -339,14 +384,15 @@ export default function AgentPanel({
           setWaiting(false);
         },
         onConnectionError: wasConnected => {
+          if (!ownsConnection()) return;
           setConnected(false);
           setActivity(wasConnected ? "连接断开" : "连接失败");
           if (!wasConnected) setEnabled(false);
         },
-        onDispose: () => setConnected(false),
+        onDispose: () => { if (ownsConnection()) setConnected(false); },
       },
     });
-    return () => client.close();
+    return () => { active = false; client.close(); };
   }, [enabled, url, token, clientId]);
 
   useEffect(() => {
@@ -367,7 +413,8 @@ export default function AgentPanel({
     return { signal: controller.signal, turnId: turnIdRef.current };
   };
 
-  const isActiveAgentTurn = (turnId: number) => turnId === turnIdRef.current && !interruptedRef.current;
+  const isActiveAgentTurn = (turnId: number) => turnId === turnIdRef.current && !interruptedRef.current
+    && liveOwnerRef.current === storageProjectId;
 
   const sendPrompt = async () => {
     if (documentAttachments.blocked) return;
@@ -411,6 +458,7 @@ export default function AgentPanel({
 
   const sendOnlinePrompt = async (text: string) => {
     if (!text.trim() || documentAttachments.blocked) return;
+    if (!userId) { toast.error("请先登录后再发送"); return; }
     if (!effectiveModel) {
       const message = modelLoadError || "没有支持 Agent 工具调用的文本模型";
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "error", text: message }]);
@@ -481,16 +529,28 @@ export default function AgentPanel({
     references: AgentReference[] = [],
   ): Promise<void> => {
     if (!isActiveAgentTurn(turnId) || signal.aborted) return;
-    const response = await requestAiText({
-      model: effectiveModel,
-      messages: requestMessages,
-      ...(isStudio ? {} : { tools: ONLINE_AGENT_TOOLS, tool_choice: toolChoice }),
-    }, signal, waiting => {
-      if (!isActiveAgentTurn(turnId) || signal.aborted) return;
-      setActivity(waiting ? "模型并发繁忙，已进入队列" : "在线模型思考中");
-    });
+    const receipt: AgentTextReceipt = { ...owner, version: 1, key: crypto.randomUUID(), conversationId, model: effectiveModel, state: "pending" };
+    saveReceiptMessage(assistantId, receipt, "正在获取模型回复；中断后可恢复原回复。");
+    let response: Awaited<ReturnType<typeof requestAiText>>;
+    try {
+      response = await requestAiText({
+        model: effectiveModel,
+        messages: requestMessages,
+        ...(isStudio ? {} : { tools: ONLINE_AGENT_TOOLS, tool_choice: toolChoice }),
+      }, signal, waiting => {
+        if (!isActiveAgentTurn(turnId) || signal.aborted) return;
+        setActivity(waiting ? "模型并发繁忙，已进入队列" : "在线模型思考中");
+      }, { key: receipt.key, scope: receipt.scope });
+    } catch (error) {
+      if (isActiveAgentTurn(turnId) && !signal.aborted && generationReceiptState(error) === "failed") {
+        saveReceiptMessage(assistantId, { ...receipt, state: "failed" }, "本次模型请求已明确失败，可以调整需求后重新发送。");
+      }
+      throw error;
+    }
     if (!isActiveAgentTurn(turnId) || signal.aborted) return;
     const calls = normalizeToolCalls(response.toolCalls);
+    saveReceiptMessage(assistantId, { ...receipt, state: "received", ...(calls.length ? { tools: "suggested" as const } : {}) },
+      response.content || (calls.length ? `模型建议：${calls.map(call => toolLabel(call.name)).join("、")}` : "模型没有返回内容。"), true);
     if (isStudio && calls.length) throw new Error("当前对话未连接画布，未执行模型返回的操作。请进入对应画布继续。");
     if (!calls.length) {
       upsertAssistantMessage(assistantId, response.content || "模型没有返回内容。");
@@ -509,13 +569,50 @@ export default function AgentPanel({
     await continueOnlineToolLoop({ source: "online", calls, messages: requestMessages, step, assistantId, references }, signal, turnId);
   };
 
+  const recoverOnlineReply = async (messageId: string) => {
+    if (waiting || pendingTool || onlineToolExecutionRef.current) return;
+    const message = messagesRef.current.find(item => item.id === messageId);
+    const receipt = message?.receipt;
+    if (!ownsAgentTextReceipt(receipt, owner, conversationId) || receipt?.state !== "pending") return;
+    const { signal, turnId } = beginAgentTurn();
+    setWaiting(true);
+    setActivity("正在恢复原回复");
+    try {
+      const response = await requestAiText({ model: receipt.model }, signal, undefined,
+        { key: receipt.key, scope: receipt.scope, recoverOnly: true });
+      if (!isActiveAgentTurn(turnId) || signal.aborted) return;
+      const calls = normalizeToolCalls(response.toolCalls);
+      const text = response.content || (calls.length ? `模型建议：${calls.map(call => toolLabel(call.name)).join("、")}` : "模型没有返回内容。");
+      // Result retrieval cannot replay a possibly executed tool or create another
+      // model step. The user can inspect the canvas and give a new instruction.
+      saveReceiptMessage(messageId, { ...receipt, state: "received", ...(calls.length ? { tools: "suggested" as const } : {}) }, text, true);
+      setActivity("原回复已恢复");
+    } catch (error) {
+      if (!isActiveAgentTurn(turnId) || isAgentTurnCancelled(error)) return;
+      if (generationReceiptState(error) === "failed") {
+        try { saveReceiptMessage(messageId, { ...receipt, state: "failed" }, "原请求已明确失败，可以调整需求后重新发送。"); }
+        catch { /* retain the pending recovery identity if storage is still full */ }
+      }
+      setMessages(previous => [...previous, { id: `err-${crypto.randomUUID()}`, role: "error", text: publicApiError(error, "原回复暂时无法恢复，未重新提交生成") }]);
+      setActivity("原回复恢复未完成");
+    } finally {
+      if (isActiveAgentTurn(turnId)) setWaiting(false);
+    }
+  };
+
   const continueOnlineToolLoop = async (context: OnlineToolContext, signal: AbortSignal, turnId: number) => {
     if (!isActiveAgentTurn(turnId) || signal.aborted) return;
+    const message = messagesRef.current.find(item => item.id === context.assistantId);
+    if (!ownsAgentTextReceipt(message?.receipt, owner, conversationId) || message?.receipt?.tools !== "suggested") {
+      throw new Error("原操作记录无法确认，请核对画布后重新发送需求");
+    }
+    // Mark before any side effect. Reload only recovers text, never this tool loop.
+    saveReceiptMessage(context.assistantId, { ...message!.receipt!, tools: "started" }, message!.text);
     setWaiting(true);
     setActivity("执行画布工具");
     const epoch = conversationEpochRef.current;
     const execution = executeToolCalls(context.calls, signal, context.references || []).then((results) => {
-      if (epoch === conversationEpochRef.current) {
+      if (epoch === conversationEpochRef.current && liveOwnerRef.current === storageProjectId) {
         setMessages((prev) => [...prev, {
           id: `tool-${crypto.randomUUID()}`,
           role: "tool",
@@ -532,6 +629,8 @@ export default function AgentPanel({
       if (onlineToolExecutionRef.current === execution) onlineToolExecutionRef.current = null;
     }
     if (!isActiveAgentTurn(turnId) || signal.aborted) return;
+    const latest = messagesRef.current.find(item => item.id === context.assistantId);
+    if (latest?.receipt) saveReceiptMessage(context.assistantId, { ...latest.receipt, tools: "finished" }, latest.text);
     const failed = results.some((item) => !item.result.ok);
     if (failed || context.step >= ONLINE_AGENT_MAX_STEPS) {
       upsertAssistantMessage(
@@ -563,7 +662,7 @@ export default function AgentPanel({
     const results: Array<{ toolCallId: string; name: string; result: AgentToolResult }> = [];
     let stopped = false;
     for (const call of calls) {
-      if (signal.aborted || interruptedRef.current) {
+      if (signal.aborted || interruptedRef.current || liveOwnerRef.current !== storageProjectId) {
         results.push({ toolCallId: call.id, name: call.name, result: { ok: false, message: "指令已中断，后续工具未执行。" } });
         continue;
       }
@@ -585,6 +684,7 @@ export default function AgentPanel({
 
   const executeAgentTool = async (name: string, input: Record<string, unknown>, references: AgentReference[]): Promise<AgentToolResult> => {
     const epoch = conversationEpochRef.current;
+    if (liveOwnerRef.current !== storageProjectId) return { ok: false, message: "账号或工作区已切换，原操作未继续。" };
     if (isStudio || !onApplyOpsRef.current || !onExecuteWorkspaceToolRef.current) return { ok: false, message: "当前对话未连接画布。" };
     if (!isCanvasAgentToolName(name)) return { ok: false, message: `不支持的工具：${name}` };
     if (isCanvasAgentWorkspaceTool(name)) return onExecuteWorkspaceToolRef.current(name, input);
@@ -601,7 +701,7 @@ export default function AgentPanel({
     if (!ops.length) return { ok: false, message: `${toolLabel(name)}没有生成可执行操作。` };
     const before = JSON.stringify(compactCanvasAgentSnapshot(current));
     const execution = await onApplyOpsRef.current(ops);
-    if (epoch === conversationEpochRef.current) snapshotRef.current = execution.snapshot;
+    if (epoch === conversationEpochRef.current && liveOwnerRef.current === storageProjectId) snapshotRef.current = execution.snapshot;
     const after = JSON.stringify(compactCanvasAgentSnapshot(execution.snapshot));
     const failedGeneration = execution.generationResults.find((item) => item.status !== "succeeded");
     const changed = before !== after || execution.generationResults.length > 0;
@@ -619,8 +719,11 @@ export default function AgentPanel({
   };
 
   const runLocalToolCall = async (request: CanvasAgentToolRequest) => {
+    const epoch = conversationEpochRef.current;
+    const isCurrent = () => epoch === conversationEpochRef.current && !interruptedRef.current
+      && liveOwnerRef.current === storageProjectId;
     const base = url.trim().replace(/\/$/, "");
-    if (interruptedRef.current) {
+    if (!isCurrent()) {
       await postLocalAgentResult(base, token, clientId, { requestId: request.requestId, error: "用户中断了指令" }).catch(() => undefined);
       return;
     }
@@ -628,27 +731,29 @@ export default function AgentPanel({
     setActivity(`执行${toolLabel(request.name)}`);
     try {
       const result = await executeAgentTool(request.name, request.input || {}, localTurnReferencesRef.current);
-      if (interruptedRef.current) {
+      if (!isCurrent()) {
         await postLocalAgentResult(base, token, clientId, { requestId: request.requestId, error: "用户中断了指令" }).catch(() => undefined);
         return;
       }
       await postLocalAgentResult(base, token, clientId, { requestId: request.requestId, result });
+      if (!isCurrent()) return;
       setMessages((prev) => [...prev, { id: `tool-${Date.now()}`, role: "tool", text: `${toolLabel(request.name)}：${result.message}` }]);
       if (!isCanvasAgentReadTool(request.name)) void postLocalAgentState(base, token, clientId, snapshotRef.current);
       setActivity(result.ok ? "工具完成" : "工具失败");
     } catch (error) {
-      if (interruptedRef.current) return;
+      if (!isCurrent()) return;
       const message = error instanceof Error ? error.message : "画布工具执行失败";
       await postLocalAgentResult(base, token, clientId, { requestId: request.requestId, error: message }).catch(() => undefined);
+      if (!isCurrent()) return;
       setMessages((prev) => [...prev, { id: `err-${Date.now()}`, role: "error", text: message }]);
       setActivity("工具失败");
     } finally {
-      if (!interruptedRef.current) setWaiting(false);
+      if (isCurrent()) setWaiting(false);
     }
   };
 
   const handleLocalToolCall = async (request: CanvasAgentToolRequest) => {
-    if (interruptedRef.current) {
+    if (interruptedRef.current || liveOwnerRef.current !== storageProjectId) {
       const base = url.trim().replace(/\/$/, "");
       await postLocalAgentResult(base, token, clientId, { requestId: request.requestId, error: "用户中断了指令" }).catch(() => undefined);
       return;
@@ -689,6 +794,7 @@ export default function AgentPanel({
   };
 
   const rejectPendingTool = async (reason = "用户取消了画布工具调用") => {
+    const epoch = conversationEpochRef.current;
     const pending = pendingToolRef.current;
     if (!pending) return;
     setPendingAgentTool(null);
@@ -696,12 +802,14 @@ export default function AgentPanel({
       const base = url.trim().replace(/\/$/, "");
       await postLocalAgentResult(base, token, clientId, { requestId: pending.request.requestId, error: reason }).catch(() => undefined);
     }
+    if (epoch !== conversationEpochRef.current || liveOwnerRef.current !== storageProjectId) return;
     setMessages((prev) => [...prev, { id: `tool-${Date.now()}`, role: "tool", text: `已拒绝执行${pendingToolSummary(pending)}` }]);
     setActivity("已取消");
     setWaiting(false);
   };
 
   const interruptAgentTurn = async () => {
+    const epoch = conversationEpochRef.current;
     const pending = pendingToolRef.current;
     const hadWork = Boolean(waiting || pending || turnAbortRef.current);
     if (!hadWork) return;
@@ -716,6 +824,7 @@ export default function AgentPanel({
         error: "用户中断了指令",
       }).catch(() => undefined);
     }
+    if (epoch !== conversationEpochRef.current || liveOwnerRef.current !== storageProjectId) return;
     setPendingAgentTool(null);
     setWaiting(false);
     setActivity("已中断");
@@ -735,8 +844,9 @@ export default function AgentPanel({
   };
 
   const undoLastTool = async () => {
+    const epoch = conversationEpochRef.current;
     const restored = await onUndoOpsRef.current?.();
-    if (!restored) return;
+    if (!restored || epoch !== conversationEpochRef.current || liveOwnerRef.current !== storageProjectId) return;
     snapshotRef.current = restored;
     setMessages((prev) => [...prev, { id: `tool-${Date.now()}`, role: "tool", text: "已撤销上一次画布工具操作。" }]);
     setActivity("已撤销");
@@ -859,11 +969,21 @@ export default function AgentPanel({
   };
 
   const deleteConversation = (id: string) => {
-    setConversations((prev) => {
-      const next = prev.filter((c) => c.id !== id);
-      persistAgentConversations(projectId, next);
-      return next;
-    });
+    if (loadScopedAgentConversations(owner).find(item => item.id === id)?.messages.some(message => message.receipt?.state === "pending")) {
+      toast.warning("该对话还有待恢复的回复，请先恢复或核对处理结果");
+      return;
+    }
+    const existing = conversationsRef.current.find(item => item.id === id);
+    if (existing?.messages.some(message => message.receipt && !persistAgentReceiptMessage(message, existing.title))) {
+      toast.warning("对话记录保存失败，尚未删除，请稍后重试");
+      return;
+    }
+    const next = conversationsRef.current.filter(item => item.id !== id);
+    if (!persistAgentConversations(storageProjectId, next)) {
+      toast.warning("对话记录保存失败，尚未删除，请稍后重试");
+      return;
+    }
+    setConversations(next);
     if (id === conversationId) newConversation();
   };
 
@@ -1124,6 +1244,13 @@ export default function AgentPanel({
                   <AgentReferenceStrip references={m.references || []} />
                   <AgentDocumentStrip documents={m.documents || []} />
                   <p>{m.text}</p>
+                  {ownsAgentTextReceipt(m.receipt, owner, conversationId) && m.receipt?.state === "pending" && !waiting && !pendingTool && (
+                    <button type="button" className="quiet-button agent-recover-reply" onClick={() => void recoverOnlineReply(m.id)}>恢复原回复</button>
+                  )}
+                  {m.receipt?.tools && m.receipt.tools !== "finished" && !waiting
+                    && !(pendingTool?.source === "online" && pendingTool.assistantId === m.id) && (
+                    <p role="status">上次画布操作未自动继续，请核对画布结果后发送下一条指令。</p>
+                  )}
                   {m.role === "user" && m.text.trim() ? (
                     <button
                       type="button"

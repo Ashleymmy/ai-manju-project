@@ -71,7 +71,7 @@ describe("studio Agent dialog", () => {
     expect(request.messages.at(-1).content).toBe("Help with my story");
     expect(request.messages[0].content).toContain("/skills");
     expect(dialog().textContent).toContain("A real response");
-    expect(localStorage.getItem("canvas-agent-conversations:studio:qa")).toContain("A real response");
+    expect(localStorage.getItem("canvas-agent-conversations:v2:qa:personal:studio%3Aqa")).toContain("A real response");
   });
 
   it("retains messages and drafts on close and reopen, then restores a saved conversation", async () => {

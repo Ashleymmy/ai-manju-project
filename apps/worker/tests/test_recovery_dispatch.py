@@ -191,6 +191,24 @@ class RecoveryDispatchTest(unittest.TestCase):
             get.assert_not_called()
         self.assertEqual(store.ack_count, 0)
 
+    def test_orphan_attention_blocks_old_delivery_without_any_checkpoint(self):
+        for kind in ("video", "image"):
+            with self.subTest(kind=kind):
+                store = RecoverableVideoStore()
+                store.job.update(type=f"{kind}.generate", status="queued", queue_phase=f"{kind}_recovery_attention")
+                store.metadata.clear()
+                store.checkpoints.checkpoint = {}
+                # The normal fixture injects an empty checkpoint on every read;
+                # exercise the genuinely absent-checkpoint legacy row here.
+                store.get_job = lambda _job_id: copy.deepcopy({**store.job, "bridge_metadata": {}})
+                self.bind(store)
+                executor = Mock()
+                result = tasks.execute_job(FakeTask(0), "job", {"provider": self.provider}, executor, kind)
+                self.assertEqual(result["queue_phase"], f"{kind}_recovery_attention")
+                self.assertTrue(result["skipped"])
+                executor.assert_not_called()
+                self.gate.assert_not_called()
+
     def test_automatic_mode_is_trusted_only_and_never_reaches_executor(self):
         _, untrusted = tasks.extract_request(("job",), {"payload": self.automatic_payload()})
         self.assertNotIn(RECOVERY_AUTOMATIC_FIELD, untrusted)

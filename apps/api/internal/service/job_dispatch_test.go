@@ -83,7 +83,7 @@ func TestJobDispatchRecoversAfterAPIProcessRestartWithoutReleasingCredits(t *tes
 			t.Fatal(err)
 		}
 		stored, _ = repo.GetByID(first.Job.ID)
-		if stored.DispatchCiphertext == "" || len(producer.Messages) != 1 || stored.Status != model.JobStatusRunning || stored.DispatchState != model.JobDispatchObserved {
+		if stored.DispatchCiphertext == "" || len(producer.Messages) != 1 || stored.Status != model.JobStatusRunning || stored.DispatchState != model.JobDispatchPending {
 			t.Fatal("observed work was resent or recoverable execution snapshot was lost")
 		}
 	})

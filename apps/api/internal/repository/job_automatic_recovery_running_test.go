@@ -141,13 +141,14 @@ func TestAutomaticRecoveryRunningScanMemoryPostgresParity(t *testing.T) {
 			}
 			job.BridgeMetadata, _ = json.Marshal(metadata)
 			seed(job)
-			if tc.want {
+			wantScan := tc.want || (CanRouteNativeOrphan(job) && !ProviderRetryScheduled(job, now) && (job.DispatchNextAttemptAt == nil || !job.DispatchNextAttemptAt.After(now)))
+			if wantScan {
 				expected = append(expected, id)
 			}
 			t.Run(tc.name, func(t *testing.T) {
 				ids, err := repo.ListDispatchPendingIDs(now, 0)
-				if err != nil || slices.Contains(ids, id) != tc.want {
-					t.Fatalf("scan eligibility differs: expected=%v error=%v", tc.want, err)
+				if err != nil || slices.Contains(ids, id) != wantScan {
+					t.Fatalf("scan eligibility differs: expected=%v error=%v", wantScan, err)
 				}
 				memoryDecision := CanAutomaticallyRecoverNative(job) && !ProviderRetryScheduled(job, now) && (job.DispatchNextAttemptAt == nil || !job.DispatchNextAttemptAt.After(now))
 				if memoryDecision != tc.want {

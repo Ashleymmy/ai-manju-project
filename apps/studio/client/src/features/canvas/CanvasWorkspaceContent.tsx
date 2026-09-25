@@ -4782,6 +4782,7 @@ export default function CanvasWorkspaceViewContent() {
         />
         <CanvasWorkspaceDialogHost
           agent={{
+            userId: user?.id || "",
             projectId,
             referenceSelection: agentReferenceSelection,
             assetScope: projectSessionController.canonicalScope || scope,

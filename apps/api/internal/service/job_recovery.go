@@ -59,9 +59,20 @@ func nativeCheckpointFor(job model.Job) (string, nativeCheckpoint) {
 		key = "_worker_image_checkpoint"
 	}
 	var metadata map[string]json.RawMessage
-	_ = json.Unmarshal(job.BridgeMetadata, &metadata)
+	if json.Unmarshal(job.BridgeMetadata, &metadata) != nil {
+		return key, nativeCheckpoint{}
+	}
+	other := "_worker_image_checkpoint"
+	if key == other {
+		other = "_worker_video_checkpoint"
+	}
+	if _, exists := metadata[other]; exists {
+		return key, nativeCheckpoint{}
+	}
 	var checkpoint nativeCheckpoint
-	_ = json.Unmarshal(metadata[key], &checkpoint)
+	if json.Unmarshal(metadata[key], &checkpoint) != nil {
+		return key, nativeCheckpoint{}
+	}
 	return key, checkpoint
 }
 func nativeRecoveryRow(job model.Job) NativeRecoveryRow {
@@ -84,7 +95,7 @@ func nativeRecoveryRow(job model.Job) NativeRecoveryRow {
 	case model.JobTypeVideoGenerate:
 		row.CanResume = (cp.Phase == "accepted" || cp.Phase == "downloaded") && cp.ProviderTaskID != ""
 	case model.JobTypeImageGenerate, model.JobTypeImageEdit:
-		row.CanResume = cp.Phase == "received" || cp.Phase == "downloaded" || (cp.Phase == "submission_intent" && cp.ReceiptID != "")
+		row.CanResume = (cp.Phase == "received" || cp.Phase == "downloaded" || cp.Phase == "submission_intent") && cp.ReceiptID != ""
 	}
 	if !row.CanResume {
 		row.Reason = "提交结果不明，需先在供应商核对原任务，禁止自动补发"

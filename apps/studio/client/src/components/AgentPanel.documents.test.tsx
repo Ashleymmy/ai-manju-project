@@ -14,8 +14,8 @@ let container: HTMLDivElement;
 const draft = () => container.querySelector('[aria-label="待发送文件"]');
 async function render(projectId = "documents", mode: "canvas" | "studio" = "canvas") {
   await act(async () => root.render(mode === "studio"
-    ? <AgentPanel projectId={projectId} mode="studio" open onClose={vi.fn()} />
-    : <AgentPanel projectId={projectId} mode="canvas" open onClose={vi.fn()} snapshot={{ projectId, title: "Files", nodes: [], connections: [], selectedNodeIds: [], viewport: { x: 0, y: 0, k: 1 } }} canUndoOps={false} onApplyOps={vi.fn()} onExecuteWorkspaceTool={vi.fn()} onUndoOps={vi.fn()} />));
+    ? <AgentPanel userId="agent-test-user" projectId={projectId} mode="studio" open onClose={vi.fn()} />
+    : <AgentPanel userId="agent-test-user" projectId={projectId} mode="canvas" open onClose={vi.fn()} snapshot={{ projectId, title: "Files", nodes: [], connections: [], selectedNodeIds: [], viewport: { x: 0, y: 0, k: 1 } }} canUndoOps={false} onApplyOps={vi.fn()} onExecuteWorkspaceTool={vi.fn()} onUndoOps={vi.fn()} />));
 }
 async function click(selector: string) { await act(async () => container.querySelector<HTMLButtonElement>(selector)!.click()); }
 async function attach(names: string[]) {
@@ -56,7 +56,7 @@ it.each(["canvas", "studio"] as const)("sends actual document text in %s, rememb
   for (const name of ["剧本.docx", "角色.xls", "需求.txt"]) expect(request).toContain(`正文：${name}`);
   expect(draft()).toBeNull();
   expect(container.querySelector('[aria-label="消息文件"]')).not.toBeNull();
-  expect(localStorage.getItem("canvas-agent-conversations:documents")).toContain("正文：剧本.docx");
+  expect(localStorage.getItem("canvas-agent-conversations:v2:agent-test-user:personal:documents")).toContain("正文：剧本.docx");
   await type("接着细化第二幕");
   await click('[aria-label="发送"]');
   expect(JSON.stringify(mocks.requestAiText.mock.calls[1][0].messages)).toContain("正文：角色.xls");
@@ -120,6 +120,6 @@ it("does not copy a previous project's saved documents into a new project", asyn
   await attach(["private.txt"]);
   await click('[aria-label="发送"]');
   await render("second");
-  expect(localStorage.getItem("canvas-agent-conversations:second")).toBeNull();
-  expect(localStorage.getItem("canvas-agent-conversations:first")).toContain("正文：private.txt");
+  expect(localStorage.getItem("canvas-agent-conversations:v2:agent-test-user:personal:second")).toBeNull();
+  expect(localStorage.getItem("canvas-agent-conversations:v2:agent-test-user:personal:first")).toContain("正文：private.txt");
 });

@@ -84,6 +84,9 @@ func (s *JobService) dispatchJob(ctx context.Context, id string) error {
 		if err != nil {
 			return err
 		}
+		if repository.CanRouteNativeOrphan(job) {
+			return s.routeNativeOrphan(ctx, job)
+		}
 		if job.DispatchCiphertext == "" {
 			return nil
 		}

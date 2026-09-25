@@ -61,8 +61,7 @@ func (s *JobService) dispatchAutomaticNativeRecovery(ctx context.Context, id str
 		if job.Status == model.JobStatusRunning && repository.CanAutomaticallyRecoverNative(job) &&
 			job.DispatchState != repository.JobDispatchRecoveryPending && job.DispatchState != repository.JobDispatchRecoveryPublished &&
 			(job.DispatchNextAttemptAt == nil || !job.DispatchNextAttemptAt.After(now)) {
-			next := now.Add(jobDispatchReceiptGrace)
-			return s.repo.UpdateDispatch(id, job.DispatchState, &next, false)
+			return s.deferBusyNativeRecovery(job)
 		}
 		return nil
 	}

@@ -30,7 +30,7 @@ export function CanvasWorkspaceDialogHost({
   return (
     <>
       <Suspense fallback={null}>
-        <AgentPanel {...agent} />
+        <AgentPanel key={`${agent.userId}:${agent.assetScope}:${agent.projectId}`} {...agent} />
       </Suspense>
       <SkillLibraryDialog {...skillLibrary} />
       <PromptPresetManagerDialog {...presetManager} />

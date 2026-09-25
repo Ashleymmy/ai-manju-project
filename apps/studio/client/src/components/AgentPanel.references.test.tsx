@@ -23,7 +23,7 @@ describe("AgentPanel selected references", () => {
   const draft = () => container.querySelector('[aria-label="本次引用"]');
   async function render(current = snapshot, selectedIds?: string[], open = true) {
     if (selectedIds) referenceSelection = { projectId: current.projectId, nodeIds: selectedIds };
-    await act(async () => root.render(<AgentPanel projectId={current.projectId} snapshot={current} referenceSelection={referenceSelection} open={open} onClose={vi.fn()} canUndoOps={false} onApplyOps={onApplyOps} onExecuteWorkspaceTool={vi.fn()} onUndoOps={vi.fn()} />));
+    await act(async () => root.render(<AgentPanel userId="agent-test-user" projectId={current.projectId} snapshot={current} referenceSelection={referenceSelection} open={open} onClose={vi.fn()} canUndoOps={false} onApplyOps={onApplyOps} onExecuteWorkspaceTool={vi.fn()} onUndoOps={vi.fn()} />));
   }
   async function click(selector: string) {
     await act(async () => container.querySelector<HTMLButtonElement>(selector)!.click());
@@ -111,7 +111,7 @@ describe("AgentPanel selected references", () => {
     expect(run.prompt).toContain("@[node:a]");
     expect(run.prompt).not.toContain("@[node:b]");
     expect(draft()?.querySelectorAll("img")).toHaveLength(2);
-    expect(localStorage.getItem("canvas-agent-conversations:references-project")).not.toContain("data:image");
+    expect(localStorage.getItem("canvas-agent-conversations:v2:agent-test-user:personal:references-project")).not.toContain("data:image");
   });
 
   it("does not send a removed reference", async () => {

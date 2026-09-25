@@ -25,7 +25,7 @@ describe("AgentPanel chat model handoff", () => {
 
   async function render(initialPrompt = "雨夜追逐", initialModel = "provider::chosen-model") {
     await act(async () => root.render(
-      <AgentPanel projectId={snapshot.projectId} open onClose={vi.fn()} snapshot={snapshot}
+      <AgentPanel userId="agent-test-user" projectId={snapshot.projectId} open onClose={vi.fn()} snapshot={snapshot}
         canUndoOps={false} onApplyOps={vi.fn()} onExecuteWorkspaceTool={vi.fn()} onUndoOps={vi.fn()}
         initialPrompt={initialPrompt} initialModel={initialModel} />
     ));

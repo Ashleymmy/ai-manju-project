@@ -105,7 +105,8 @@ func (r *MemoryJobRepository) ListDispatchPendingIDs(now time.Time, limit int) (
 		// Restore only proven rejections or accepted-result recovery. Paid work
 		// follows a separate recovery-only dispatch path and never becomes a POST.
 		terminal := job.Status == model.JobStatusSucceeded || job.Status == model.JobStatusFailed || job.Status == model.JobStatusCanceled
-		if (job.DispatchState == model.JobDispatchPending || job.DispatchState == model.JobDispatchPublished || (job.DispatchState == model.JobDispatchObserved && (terminal || CanRedispatchProviderWait(job) || CanAutomaticallyRecoverNative(job))) || job.DispatchState == JobDispatchRecoveryPending || job.DispatchState == JobDispatchRecoveryPublished) && job.DispatchCiphertext != "" && (job.DispatchNextAttemptAt == nil || !job.DispatchNextAttemptAt.After(now)) {
+		dispatchable := (job.DispatchState == model.JobDispatchPending || job.DispatchState == model.JobDispatchPublished || (job.DispatchState == model.JobDispatchObserved && (terminal || CanRedispatchProviderWait(job) || CanAutomaticallyRecoverNative(job))) || job.DispatchState == JobDispatchRecoveryPending || job.DispatchState == JobDispatchRecoveryPublished) && job.DispatchCiphertext != ""
+		if (dispatchable || CanRouteNativeOrphan(job)) && (job.DispatchNextAttemptAt == nil || !job.DispatchNextAttemptAt.After(now)) {
 			jobs = append(jobs, job)
 		}
 	}
@@ -160,10 +161,10 @@ func (r *MemoryJobRepository) UpdateDispatch(id string, state string, next *time
 
 func (r *GormJobRepository) ListDispatchPendingIDs(now time.Time, limit int) ([]string, error) {
 	ids := []string{}
-	query := r.db.Model(&model.Job{}).Where("(dispatch_state IN ? OR (dispatch_state = ? AND (status IN ? OR ("+providerWaitRedispatchSQL+") OR ("+automaticNativeRecoverySQL+")))) AND COALESCE(dispatch_ciphertext,'') <> '' AND (dispatch_next_attempt_at IS NULL OR dispatch_next_attempt_at <= ?)", []string{model.JobDispatchPending, model.JobDispatchPublished, JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobDispatchObserved, []string{model.JobStatusSucceeded, model.JobStatusFailed, model.JobStatusCanceled}, now).
+	query := r.db.Model(&model.Job{}).Where("(((dispatch_state IN ? OR (dispatch_state = ? AND (status IN ? OR ("+providerWaitRedispatchSQL+") OR ("+automaticNativeRecoverySQL+")))) AND COALESCE(dispatch_ciphertext,'') <> '') OR ("+orphanNativeRunningSQL+")) AND (dispatch_next_attempt_at IS NULL OR dispatch_next_attempt_at <= ?)", []string{model.JobDispatchPending, model.JobDispatchPublished, JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobDispatchObserved, []string{model.JobStatusSucceeded, model.JobStatusFailed, model.JobStatusCanceled}, now).
 		Where("(dispatch_state IN ? OR status <> ? OR COALESCE(queue_phase,'') NOT IN ? OR worker_retry_at IS NULL OR worker_retry_at <= ?)", []string{JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobStatusQueued, []string{"waiting_provider_slot", "provider_retry_backoff", "video_recovery_pending", "image_recovery_pending"}, now.Add(-JobDispatchReceiptGrace)).
 		Where("(dispatch_state IN ? OR status <> ? OR worker_retry_at IS NOT NULL OR (COALESCE(queue_phase,'') NOT IN ? AND NOT COALESCE(("+automaticNativeRecoverySQL+"), false)) OR updated_at <= ?)", []string{JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobStatusQueued, []string{"video_recovery_pending", "image_recovery_pending"}, now.Add(-JobDispatchReceiptGrace)).
-		Where("(dispatch_state IN ? OR status <> ? OR NOT COALESCE(("+automaticNativeRecoverySQL+"), false) OR (updated_at IS NOT NULL AND updated_at <> ? AND updated_at <= ? AND (worker_retry_at IS NULL OR worker_retry_at <= ?)))", []string{JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobStatusRunning, time.Time{}, now.Add(-NativeRunningRecoveryGrace), now.Add(-JobDispatchReceiptGrace)).
+		Where("(dispatch_state IN ? OR status <> ? OR NOT COALESCE((("+automaticNativeRecoverySQL+") OR ("+orphanNativeRunningSQL+")), false) OR (updated_at IS NOT NULL AND updated_at <> ? AND updated_at <= ? AND (worker_retry_at IS NULL OR worker_retry_at <= ?)))", []string{JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobStatusRunning, time.Time{}, now.Add(-NativeRunningRecoveryGrace), now.Add(-JobDispatchReceiptGrace)).
 		Order("COALESCE(dispatch_next_attempt_at, created_at) ASC").Order("id ASC")
 	if limit > 0 {
 		query = query.Limit(limit)
@@ -178,7 +179,7 @@ func ProviderRetryScheduled(job model.Job, now time.Time) bool {
 	if job.DispatchState == JobDispatchRecoveryPending || job.DispatchState == JobDispatchRecoveryPublished {
 		return false
 	}
-	if job.Status == model.JobStatusRunning && CanAutomaticallyRecoverNative(job) {
+	if job.Status == model.JobStatusRunning && (CanAutomaticallyRecoverNative(job) || CanRouteNativeOrphan(job)) {
 		return RunningNativeRecoveryScheduled(job, now)
 	}
 	if job.Status != model.JobStatusQueued {
