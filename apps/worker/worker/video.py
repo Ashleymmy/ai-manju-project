@@ -27,6 +27,7 @@ from .staged_inputs import INPUT_STORAGE_KEY_FIELD, open_staged_input, resolve_l
 from .video_h3 import h3_provider, h3_request_body, is_h3_reference_model
 from .video_references import native_video_references, release_checkpoint_references
 from .video_checkpoint import VIDEO_CHECKPOINT_PAYLOAD_KEY, VideoCheckpoint, recovery_error
+from .http_security import HTTPPolicyError, provider_request, public_media_get, submission_redirected, trusted_media_origins
 
 
 ProgressFn = Callable[[int], None]
@@ -147,22 +148,22 @@ def create_video_task(job_id, payload, provider, settings, progress, checkpoint,
         progress(VIDEO_CREATE_PROGRESS)
         checkpoint.begin()
         if h3:
-            response = requests.post(create_url, headers=create_headers, json=body, timeout=timeout)
+            response = provider_request("POST", create_url, headers=create_headers, json=body, timeout=timeout)
         elif native:
             body = provider.get("video_request_body") or {key: payload[key] for key in NATIVE_VIDEO_REQUEST_FIELDS if key in payload}
             body = {**body, "model": provider.get("model")}
-            response = requests.post(create_url, headers=create_headers, json=body, timeout=timeout)
+            response = provider_request("POST", create_url, headers=create_headers, json=body, timeout=timeout)
         else:
-            response = requests.post(create_url, headers=create_headers, files=parts, timeout=timeout)
+            response = provider_request("POST", create_url, headers=create_headers, files=parts, timeout=timeout)
     except requests.ConnectTimeout as exc:
         # ConnectTimeout is safe to retry: no connection to the supplier formed.
         checkpoint.rejected()
-        raise SafeTaskError("video provider request failed", code="provider_request_failed", retryable=True) from exc
-    except (requests.RequestException, SoftTimeLimitExceeded) as exc:
-        raise VideoSubmissionUncertainError("视频提交结果待确认，请勿重复提交，请联系管理员核查", code="video_submission_uncertain", retryable=False) from exc
+        raise SafeTaskError("video provider request failed", code="provider_request_failed", retryable=True) from None
+    except (requests.RequestException, HTTPPolicyError, SoftTimeLimitExceeded) as exc:
+        raise VideoSubmissionUncertainError("视频提交结果待确认，请勿重复提交，请联系管理员核查", code="video_submission_uncertain", retryable=False) from None
     finally:
         close_multipart_files(parts)
-    if response.status_code >= 500:
+    if response.status_code >= 500 or (submission_redirected(response) and response.status_code >= 400):
         response.close()
         raise VideoSubmissionUncertainError("视频提交结果待确认，请勿重复提交，请联系管理员核查", code="video_submission_uncertain", retryable=False)
     if 400 <= response.status_code < 500 and response.status_code != 408:
@@ -219,7 +220,9 @@ def wait_for_video_task(
         endpoint = video_endpoint(provider, "video_get", fallback, task_id)
         url = provider_request_url(base_url, endpoint, provider)
         try:
-            response = requests.get(url, headers=headers, timeout=min(timeout, max(1.0, remaining)))
+            response = provider_request("GET", url, headers=headers, timeout=min(timeout, max(1.0, remaining)))
+        except HTTPPolicyError:
+            raise recovery_error() from None
         except requests.RequestException:
             # Keep polling the accepted task within its budget instead of creating
             # duplicate videos after a temporary transport error.
@@ -254,9 +257,16 @@ def download_video_result(
         download_headers = {}
     progress(VIDEO_DOWNLOAD_PROGRESS)
     try:
-        response = requests.get(url, headers=download_headers, stream=True, timeout=max(timeout, 1.0))
+        if provider.get("video_protocol") == "seedance":
+            response = public_media_get(url, stream=True, timeout=max(timeout, 1.0), trusted_origins=trusted_media_origins(provider))
+        else:
+            response = provider_request("GET", url, headers=download_headers, stream=True, timeout=max(timeout, 1.0),
+                                        allow_public_redirect=True, trusted_origins=trusted_media_origins(provider),
+                                        credential_values=(str(provider.get("api_key") or ""),))
+    except HTTPPolicyError:
+        raise recovery_error() from None
     except requests.RequestException as exc:
-        raise SafeTaskError("video provider content request failed", code="provider_request_failed", retryable=False) from exc
+        raise SafeTaskError("video provider content request failed", code="provider_request_failed", retryable=False) from None
     try:
         ensure_video_response(response, "video provider content", retryable=False)
     except Exception:
@@ -283,7 +293,7 @@ def download_video_result(
                 stream.write(bytes(getattr(response, "content", b"")))
     except requests.RequestException as exc:
         output_path.unlink(missing_ok=True)
-        raise SafeTaskError("video content download failed", code="provider_request_failed", retryable=True) from exc
+        raise SafeTaskError("video content download failed", code="provider_request_failed", retryable=True) from None
     except Exception:
         output_path.unlink(missing_ok=True)
         raise
@@ -499,10 +509,11 @@ def cancel_provider_video_task(task_id: str, provider: dict[str, Any], base_url:
     try:
         if provider.get("video_protocol") == "seedance" and not (provider.get("endpoint_overrides") or {}).get("video_cancel"):
             endpoint = video_endpoint(provider, "video_get", "contents/generations/tasks/{id}", task_id)
-            requests.delete(provider_request_url(base_url, endpoint, provider), headers=headers, timeout=timeout)
+            response = provider_request("DELETE", provider_request_url(base_url, endpoint, provider), headers=headers, timeout=timeout)
         else:
-            requests.post(url, headers=headers, timeout=timeout)
-    except requests.RequestException:
+            response = provider_request("POST", url, headers=headers, timeout=timeout)
+        response.close()
+    except (requests.RequestException, HTTPPolicyError):
         return
 
 

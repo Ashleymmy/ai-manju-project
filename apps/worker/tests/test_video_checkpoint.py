@@ -13,6 +13,7 @@ from test_generation_failover import DurableStore
 from test_tasks import FakeTask, RetryCalled
 from test_video import FakeVideoResponse, test_settings
 from video_checkpoint_fakes import CheckpointStore
+from http_security_fakes import fake_public_send
 from worker import tasks, video
 from worker.db import JobStore
 from worker.errors import SafeTaskError, VideoRecoveryPendingError, VideoSubmissionUncertainError, VideoReferenceError
@@ -47,6 +48,7 @@ class RecoveryStore(DurableStore):
 
 class VideoCheckpointTest(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch("worker.http_security._send_public_once", side_effect=fake_public_send))
         self.provider = {"id": "video-provider", "base_url": "https://api.test/v1/", "auth_type": "none",
                          "model": "seedance", "video_protocol": "seedance", "endpoint": "contents/generations/tasks"}
         self.payload = {"model": "seedance", "content": [], "provider": self.provider}

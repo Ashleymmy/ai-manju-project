@@ -13,6 +13,7 @@ from worker.config import Settings
 from worker.errors import SafeTaskError, job_canceled_error
 from worker import video as video_module
 from worker.video import generate_video, video_input_path
+from http_security_fakes import fake_public_send
 
 
 def test_settings(root: str) -> Settings:
@@ -106,6 +107,7 @@ class FakeVideoResponse:
 
 class VideoGenerationTest(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch("worker.http_security._send_public_once", side_effect=fake_public_send))
         from video_checkpoint_fakes import isolated_checkpoint
         self.enterContext(patch("worker.video.checkpoint_for_video", side_effect=isolated_checkpoint))
 

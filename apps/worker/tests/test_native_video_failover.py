@@ -14,6 +14,8 @@ from worker.generation_failover import PROVIDER_CANDIDATES_FIELD
 
 class NativeVideoFailoverTest(unittest.TestCase):
     def setUp(self):
+        from http_security_fakes import fake_public_send
+        self.enterContext(patch("worker.http_security._send_public_once", side_effect=fake_public_send))
         from video_checkpoint_fakes import isolated_checkpoint
         self.enterContext(patch("worker.video.checkpoint_for_video", side_effect=isolated_checkpoint))
 
@@ -51,9 +53,9 @@ class NativeVideoFailoverTest(unittest.TestCase):
                     return FakeVideoResponse({"output": {"task_id": "accepted-task", "task_status": "PENDING"}})
 
                 def get(url, **kwargs):
-                    self.assertNotIn("X-DashScope-Async", kwargs["headers"])
+                    self.assertNotIn("X-DashScope-Async", kwargs.get("headers", {}))
                     if "storage.test" in url:
-                        self.assertEqual(kwargs["headers"], {})
+                        self.assertEqual(kwargs.get("headers", {}), {})
                         return FakeVideoResponse(content=b"generated-video", content_type="video/mp4")
                     polls.append(url)
                     status = "SUCCEEDED" if success and "b.test" in url else "FAILED"

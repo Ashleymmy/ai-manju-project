@@ -21,6 +21,7 @@ from .image_specs import gemini_image_config, is_gemini_image_model
 from .errors import SafeTaskError, ImageRecoveryPendingError, ImageSubmissionUncertainError, ImageResultRejectedError, safe_message
 from .db import JobStore
 from .image_checkpoint import IMAGE_CHECKPOINT_PAYLOAD_KEY, ImageCheckpoint, atomic_write, recovery_error, uncertain_error
+from .http_security import HTTPPolicyError, provider_request, public_media_get, submission_redirected, trusted_media_origins
 from .image_output_validation import IMAGE_DOWNLOAD_TIMEOUT_SECONDS, IMAGE_PROBE_TIMEOUT_SECONDS, IMAGE_DOWNLOAD_CHUNK_BYTES, IMAGE_DOWNLOAD_MAX_BYTES
 from .image_requirements import require_canvas_image_parameter_support, with_canvas_image_requirements
 from .staged_inputs import JOB_WORKSPACE_FIELD, INPUT_STORAGE_KEY_FIELD, STAGED_INPUT_KEYS_FIELD, open_staged_input
@@ -191,18 +192,18 @@ def call_openai_compatible_image(
         progress(35)
         checkpoint.begin()
         try:
-            response = requests.post(url, **request)
+            response = provider_request("POST", url, **request)
         except requests.ConnectTimeout as exc:
             checkpoint.rejected()
-            raise SafeTaskError("image provider request failed", code="provider_request_failed", retryable=True) from exc
-        except (requests.RequestException, SoftTimeLimitExceeded) as exc:
+            raise SafeTaskError("image provider request failed", code="provider_request_failed", retryable=True) from None
+        except (requests.RequestException, HTTPPolicyError, SoftTimeLimitExceeded) as exc:
             # Transport exception text can contain credentials or signed URLs.
             raise uncertain_error() from None
     finally:
         close_multipart_files(upload_files)
 
     try:
-        if response.status_code == 408 or response.status_code >= 500:
+        if response.status_code == 408 or response.status_code >= 500 or (submission_redirected(response) and response.status_code >= 400):
             raise uncertain_error()
         if response.status_code >= 400:
             checkpoint.rejected()
@@ -261,7 +262,7 @@ def recover_image_receipt(job_id, receipt, checkpoint, settings, progress):
                 except (binascii.Error, ValueError) as exc:
                     raise ImageResultRejectedError("生成图片数据无效", code="image_output_unreadable", retryable=False) from exc
             elif url:
-                content, mime = download_receipt_image(url, mime)
+                content, mime = download_receipt_image(url, mime, checkpoint.provider)
             else:
                 raise ImageResultRejectedError("生成服务未返回完整图片", code="image_output_unreadable", retryable=False)
             if not content:
@@ -276,6 +277,10 @@ def recover_image_receipt(job_id, receipt, checkpoint, settings, progress):
     except ImageResultRejectedError as exc:
         checkpoint.terminal_failure(exc)
         raise
+    except HTTPPolicyError:
+        failure = ImageResultRejectedError("生成图片下载地址未获允许", code="image_output_unreadable", retryable=False)
+        checkpoint.terminal_failure(failure)
+        raise failure from None
     except SafeTaskError as exc:
         if exc.code in {"job_canceled", "job_finished"} or isinstance(exc, ImageRecoveryPendingError):
             raise
@@ -285,13 +290,13 @@ def recover_image_receipt(job_id, receipt, checkpoint, settings, progress):
         raise recovery_error() from None
 
 
-def download_receipt_image(url, mime):
+def download_receipt_image(url, mime, provider=None):
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username is not None:
         raise ImageResultRejectedError("生成图片下载地址无效", code="image_output_unreadable", retryable=False)
     deadline = time.monotonic() + IMAGE_DOWNLOAD_TIMEOUT_SECONDS
     # Signed result URLs are independent from API credentials. Never forward headers.
-    with requests.get(url, stream=True, timeout=IMAGE_PROBE_TIMEOUT_SECONDS) as response:
+    with public_media_get(url, stream=True, timeout=IMAGE_PROBE_TIMEOUT_SECONDS, trusted_origins=trusted_media_origins(provider)) as response:
         response.raise_for_status()
         mime = str(response.headers.get("Content-Type") or mime).split(";", 1)[0].strip().lower()
         if not mime.startswith("image/") and mime != "application/octet-stream":

@@ -8,12 +8,14 @@ import requests
 from billiard.exceptions import SoftTimeLimitExceeded
 
 from test_video import FakeVideoResponse, test_settings
+from http_security_fakes import fake_public_send
 from worker import video
 from worker.errors import SafeTaskError, VideoSubmissionUncertainError, VideoTaskAcceptedError, job_canceled_error
 
 
 class VideoRecoveryTest(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch("worker.http_security._send_public_once", side_effect=fake_public_send))
         from video_checkpoint_fakes import isolated_checkpoint
         self.enterContext(patch("worker.video.checkpoint_for_video", side_effect=isolated_checkpoint))
 

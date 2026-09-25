@@ -16,6 +16,7 @@ from worker.errors import SafeTaskError
 from worker import provider as provider_module
 from worker.provider import edit_image, generate_image, provider_request_url
 from image_checkpoint_fakes import isolated_image_checkpoint
+from http_security_fakes import fake_public_send
 
 
 class FakeProviderResponse:
@@ -61,6 +62,7 @@ def test_settings(tmp: str) -> Settings:
 
 class ProviderTest(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch("worker.http_security._send_public_once", side_effect=fake_public_send))
         checkpoint = patch.object(provider_module, "checkpoint_for_image", side_effect=isolated_image_checkpoint)
         checkpoint.start()
         self.addCleanup(checkpoint.stop)

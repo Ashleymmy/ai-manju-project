@@ -12,6 +12,7 @@ import requests
 from billiard.exceptions import SoftTimeLimitExceeded
 
 from image_checkpoint_fakes import ImageCheckpointStore
+from http_security_fakes import fake_public_send
 from test_generation_failover import DurableStore
 from test_image_output_validation import png_bytes
 from test_provider import FakeProviderResponse, test_settings
@@ -50,6 +51,7 @@ class RecoveryStore(DurableStore):
 
 class ImageCheckpointTest(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch("worker.http_security._send_public_once", side_effect=fake_public_send))
         self.provider = {"id": "image-provider", "base_url": "https://api.test/v1", "auth_type": "none", "model": "image"}
         self.payload = {"prompt": "image", "provider": self.provider}
 
