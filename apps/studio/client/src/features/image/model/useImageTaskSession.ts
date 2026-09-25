@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cancelJob, jobErrorMessage, type Job } from "@/entities/job";
 import type { WorkspaceScope } from "@/shared/config";
+import { ApiError } from "@/shared/api/http";
 import { generateImages, generatedImagesFromJob, waitForImageJob, type GeneratedImage, type ImageGenerationInput } from "../api";
 
 type ActiveTask = { key: string; scope: WorkspaceScope; controller: AbortController; jobId?: string };
@@ -29,7 +30,15 @@ function forget(task: ActiveTask) {
 }
 
 async function readAcceptedTask(task: ActiveTask, onProgress: (job: Job) => void) {
-  const job = await waitForImageJob(task.jobId!, { signal: task.controller.signal, onProgress });
+  let job: Job;
+  try {
+    job = await waitForImageJob(task.jobId!, { signal: task.controller.signal, onProgress });
+  } catch (error) {
+    // Only an authoritative task lookup can prove the ID no longer exists.
+    // A missing result asset, network interruption or throttling cannot do so.
+    if (!task.controller.signal.aborted && error instanceof ApiError && error.status === 404) forget(task);
+    throw error;
+  }
   if (job.status !== "succeeded") throw new Error(jobErrorMessage(job, "图片生成失败"));
   return generatedImagesFromJob(job, task.scope, task.controller.signal);
 }
@@ -67,7 +76,10 @@ export function useImageTaskSession(ownerId: string, scope: WorkspaceScope, call
       callbacksRef.current.onCompleted(images);
     } catch (error) {
       // Unmounting/switching only detaches the client; the durable job remains.
-      if (isCurrent(task)) callbacksRef.current.onError(error);
+      if (isCurrent(task)) {
+        if (task.jobId && !pendingJob(task.key)) setJobId(null);
+        callbacksRef.current.onError(error);
+      }
     } finally {
       if (activeRef.current === task) {
         activeRef.current = null;

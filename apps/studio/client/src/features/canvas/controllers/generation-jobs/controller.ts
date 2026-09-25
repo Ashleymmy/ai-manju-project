@@ -108,6 +108,8 @@ import type {
 const directExecutor: CanvasGenerationBindings["executeGeneration"] = operation => operation();
 /** Match the server list cap; a full page must not prove an orphan job absent. */
 const CANVAS_RECOVERY_LIST_LIMIT = 100;
+// Bound each node query below the API's 30-ID cap, independent of history size.
+const CANVAS_RECOVERY_NODE_BATCH = 20;
 
 const emptyBindings: CanvasGenerationBindings = {
   getProjectId: () => "",
@@ -2119,22 +2121,32 @@ export class CanvasGenerationJobsController {
     const missing = this.orphanLoadingMediaNodes();
     if (!missing.length) return;
 
-    let jobs: RecoverableCanvasJob[] = [];
-    for (;;) {
-      if (signal.aborted || generation !== this.recoverGeneration || !this.sessionCurrent(projectKey)) return;
-      try {
-        const listed = await this.generation(() => this.services.getJobs({
-          scope,
-          status: "queued,running,succeeded,failed,canceled",
-          type: "image.generate,image.edit,video.generate",
-          limit: CANVAS_RECOVERY_LIST_LIMIT,
-        }));
-        jobs = this.listedCanvasJobs(listed);
-        break;
-      } catch (error) {
-        if (!(error instanceof ApiError) || !(error.status === 0 || error.status === 408 || error.status === 429 || error.status >= 500)) return;
-        // A failed status query cannot prove the server-owned task is missing.
-        try { await this.services.waitForPoll(signal); } catch { return; }
+    const jobs: RecoverableCanvasJob[] = [];
+    const sourceNodeIds = [...new Set(missing.flatMap(node => [node.id, stringValue(node.metadata?.sourceNodeId)]).filter(Boolean))];
+    let cappedRecoveryPage = false;
+    for (let offset = 0; offset < sourceNodeIds.length; offset += CANVAS_RECOVERY_NODE_BATCH) {
+      const batch = sourceNodeIds.slice(offset, offset + CANVAS_RECOVERY_NODE_BATCH);
+      for (;;) {
+        if (signal.aborted || generation !== this.recoverGeneration || !this.sessionCurrent(projectKey)) return;
+        try {
+          const listed = await this.generation(() => this.services.getJobs({
+            scope,
+            status: "queued,running,succeeded,failed,canceled",
+            type: "image.generate,image.edit,video.generate",
+            limit: CANVAS_RECOVERY_LIST_LIMIT,
+            project_id: projectId || undefined,
+            source_node_ids: batch.join(","),
+            latest_per_node: true,
+          }));
+          const page = this.listedCanvasJobs(listed);
+          cappedRecoveryPage ||= page.length >= CANVAS_RECOVERY_LIST_LIMIT;
+          jobs.push(...page);
+          break;
+        } catch (error) {
+          if (!(error instanceof ApiError) || !(error.status === 0 || error.status === 408 || error.status === 429 || error.status >= 500)) return;
+          // A failed status query cannot prove the server-owned task is missing.
+          try { await this.services.waitForPoll(signal); } catch { return; }
+        }
       }
     }
     if (
@@ -2155,7 +2167,7 @@ export class CanvasGenerationJobsController {
     const leftover = this.orphanLoadingMediaNodes();
     if (!leftover.length) return;
     // A capped page cannot prove that a still-running job is missing.
-    if (jobs.length >= CANVAS_RECOVERY_LIST_LIMIT) return;
+    if (cappedRecoveryPage) return;
     const interrupted = markUnrecoverableCanvasGenerations(
       this.bindings.getNodes(),
       new Set(leftover.map(node => node.id)),

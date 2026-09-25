@@ -23,6 +23,8 @@ const (
 	jobEventSucceeded = "job.succeeded"
 	jobEventFailed    = "job.failed"
 	jobEventHeartbeat = "heartbeat"
+	// Three generation types across at most 30 source IDs fit the 100-row page.
+	jobRecoveryMaxNodeIDs = 30
 )
 
 type JobHandler struct {
@@ -177,8 +179,15 @@ func (h *JobHandler) List(c *gin.Context) {
 			}
 			return values
 		}
+		nodeIDs := keys(commaSeparatedSet(c.Query("source_node_ids")))
+		latestPerNode := c.Query("latest_per_node") == "true"
+		if len(nodeIDs) > jobRecoveryMaxNodeIDs || (latestPerNode && len(nodeIDs) == 0) {
+			response.Error(c, http.StatusBadRequest, "recovery requires between 1 and 30 source node IDs")
+			return
+		}
 		jobs, err = h.jobs.ListStatusesForUser(c.Request.Context(), user.ID, repository.JobStatusFilter{
 			WorkspaceID: workspaceID, Statuses: keys(statuses), Types: keys(types), Limit: limit,
+			ProjectID: c.Query("project_id"), SourceNodeIDs: nodeIDs, LatestPerNode: latestPerNode,
 		})
 	} else {
 		jobs, err = h.jobs.ListForUser(user.ID)

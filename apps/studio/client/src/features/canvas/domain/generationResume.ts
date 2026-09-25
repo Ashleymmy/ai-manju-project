@@ -23,7 +23,7 @@ export function canvasJobSourceNodeId(job: RecoverableCanvasJob) {
   const registration = isRecord(payload.asset_registration)
     ? payload.asset_registration
     : {};
-  return stringValue(registration.source_node_id);
+  return stringValue(registration.source_node_id) || stringValue(payload.node_id);
 }
 
 export function canvasJobSourceProjectId(job: RecoverableCanvasJob) {
@@ -31,7 +31,7 @@ export function canvasJobSourceProjectId(job: RecoverableCanvasJob) {
   const registration = isRecord(payload.asset_registration)
     ? payload.asset_registration
     : {};
-  return stringValue(registration.source_project_id);
+  return stringValue(registration.source_project_id) || stringValue(payload.project_id);
 }
 
 export function isFreshCanvasJob(

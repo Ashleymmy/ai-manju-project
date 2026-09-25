@@ -28,6 +28,12 @@ function imageNode(
 }
 
 describe("generation resume", () => {
+  it("matches legacy top-level node identity while keeping project isolation", () => {
+    const node = { ...imageNode("video", { status: "loading" }), kind: "video" as const };
+    const jobs = [{ id: "wrong", type: "video.generate", payload: { project_id: "other", node_id: "video" } },
+      { id: "legacy", type: "video.generate", payload: { project_id: "canvas", node_id: "video" } }];
+    expect(matchLoadingNodesToJobs([node], jobs, "canvas")).toEqual([{ nodeId: "video", jobId: "legacy" }]);
+  });
   it("restores the newest matching video task and does not reuse an image task from the same source", () => {
     const video = { ...imageNode("video", { status: "loading" }), kind: "video" as const };
     const registration = { source_project_id: "project", source_node_id: "video" };

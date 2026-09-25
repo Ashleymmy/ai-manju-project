@@ -4,16 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strings"
 
 	"github.com/ai-manju/api/internal/model"
 )
 
 // JobStatusFilter bounds browser status/recovery reads before loading payloads.
 type JobStatusFilter struct {
-	WorkspaceID string
-	Statuses    []string
-	Types       []string
-	Limit       int
+	WorkspaceID   string
+	Statuses      []string
+	Types         []string
+	Limit         int
+	ProjectID     string
+	SourceNodeIDs []string
+	LatestPerNode bool
 }
 
 // JobStatusReader deliberately leaves full generation inputs in the repository.
@@ -72,9 +76,31 @@ func (r *MemoryJobRepository) ListStatusesForUser(ctx context.Context, userID st
 		return nil, err
 	}
 	result := make([]model.Job, 0)
+	if filter.LatestPerNode {
+		slices.SortFunc(jobs, func(a, b model.Job) int {
+			if compared := b.CreatedAt.Compare(a.CreatedAt); compared != 0 {
+				return compared
+			}
+			return strings.Compare(b.ID, a.ID)
+		})
+	}
+	seen := make(map[string]bool)
 	for _, job := range jobs {
 		if job.WorkspaceID != filter.WorkspaceID || (len(filter.Statuses) > 0 && !slices.Contains(filter.Statuses, job.Status)) || (len(filter.Types) > 0 && !slices.Contains(filter.Types, job.Type)) {
 			continue
+		}
+		if filter.ProjectID != "" || len(filter.SourceNodeIDs) > 0 || filter.LatestPerNode {
+			projectID, nodeID := jobSourceIdentity(job.Payload)
+			if (filter.ProjectID != "" && projectID != filter.ProjectID) || (len(filter.SourceNodeIDs) > 0 && !slices.Contains(filter.SourceNodeIDs, nodeID)) {
+				continue
+			}
+			if filter.LatestPerNode {
+				key := nodeID + "\x00" + strings.SplitN(job.Type, ".", 2)[0]
+				if nodeID == "" || seen[key] {
+					continue
+				}
+				seen[key] = true
+			}
 		}
 		result = append(result, CompactJobStatus(job))
 		if filter.Limit > 0 && len(result) >= filter.Limit {
@@ -83,6 +109,31 @@ func (r *MemoryJobRepository) ListStatusesForUser(ctx context.Context, userID st
 	}
 	return result, nil
 }
+
+func jobSourceIdentity(payload model.JSONB) (string, string) {
+	var data struct {
+		ProjectID    string `json:"project_id"`
+		NodeID       string `json:"node_id"`
+		Registration struct {
+			ProjectID string `json:"source_project_id"`
+			NodeID    string `json:"source_node_id"`
+		} `json:"asset_registration"`
+	}
+	_ = json.Unmarshal(payload, &data)
+	if data.Registration.ProjectID != "" {
+		data.ProjectID = data.Registration.ProjectID
+	}
+	if data.Registration.NodeID != "" {
+		data.NodeID = data.Registration.NodeID
+	}
+	return data.ProjectID, data.NodeID
+}
+
+// Recovery identity supports both historical top-level metadata and the current
+// asset-registration shape. These SQL expressions never interpolate user data.
+const jobSourceProjectSQL = "COALESCE(NULLIF(payload->'asset_registration'->>'source_project_id', ''), payload->>'project_id', '')"
+const jobSourceNodeSQL = "COALESCE(NULLIF(payload->'asset_registration'->>'source_node_id', ''), payload->>'node_id', '')"
+const jobSourceKindSQL = "split_part(type, '.', 1)"
 
 // Select JSON identity inside PostgreSQL so large base64 references never cross
 // the DB connection. Explicit columns prevent accidentally selecting payload too.
@@ -111,9 +162,26 @@ func (r *GormJobRepository) ListStatusesForUser(ctx context.Context, userID stri
 	if len(filter.Types) > 0 {
 		query = query.Where("type IN ?", filter.Types)
 	}
+	if filter.ProjectID != "" {
+		query = query.Where(jobSourceProjectSQL+" = ?", filter.ProjectID)
+	}
+	if len(filter.SourceNodeIDs) > 0 {
+		query = query.Where(jobSourceNodeSQL+" IN ?", filter.SourceNodeIDs)
+	}
+	if filter.LatestPerNode {
+		// Select IDs first: duplicate attempts must not exhaust the page before
+		// another node's accepted task is reached. Large payloads stay in the DB.
+		latest := query.Select("DISTINCT ON (" + jobSourceNodeSQL + ", " + jobSourceKindSQL + ") id").
+			Where(jobSourceNodeSQL + " <> ''").Order(jobSourceNodeSQL + ", " + jobSourceKindSQL + ", created_at DESC, id DESC")
+		query = r.db.WithContext(ctx).Select(jobStatusSelect).Where("id IN (?)", latest.Model(&model.Job{}))
+	}
 	if filter.Limit > 0 {
 		query = query.Limit(filter.Limit)
 	}
-	err := query.Order("updated_at DESC").Find(&jobs).Error
+	order := "updated_at DESC"
+	if filter.LatestPerNode {
+		order = "created_at DESC, id DESC"
+	}
+	err := query.Order(order).Find(&jobs).Error
 	return jobs, err
 }

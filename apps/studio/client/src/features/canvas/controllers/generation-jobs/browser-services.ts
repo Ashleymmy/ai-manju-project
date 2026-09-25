@@ -13,6 +13,10 @@ import {
 import { requestAiText } from "@/services/api/ai";
 import { requestAudioGeneration } from "@/services/api/audio";
 import type { CanvasGenerationServices } from "./types";
+import { fetchMediaBlob } from "@/shared/lib/mediaDownload";
+
+// Local metadata decoders can fail to emit load/error; bound each decode only.
+export const MEDIA_METADATA_TIMEOUT_MS = 30_000;
 
 export const browserCanvasGenerationServices: CanvasGenerationServices = {
   getAsset,
@@ -31,11 +35,7 @@ export const browserCanvasGenerationServices: CanvasGenerationServices = {
   createId: () => crypto.randomUUID(),
   createAbortController: () => new AbortController(),
   createFile: (parts, name, options) => new File(parts, name, options),
-  fetchBlob: async (url, signal, label = "读取资源") => {
-    const response = await fetch(url, { signal });
-    if (!response.ok) throw new Error(`${label}失败（${response.status}）`);
-    return response.blob();
-  },
+  fetchBlob: (url, signal, label = "读取资源") => fetchMediaBlob(url, { signal }, label),
   readFileDataUrl: (file, signal) => new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     const cleanup = () => signal?.removeEventListener("abort", abort);
@@ -82,7 +82,8 @@ function readImageMetadata(file: File, signal?: AbortSignal) {
   return new Promise<{ width: number; height: number }>((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const image = new Image();
-    const cleanup = () => { image.onload = null; image.onerror = null; signal?.removeEventListener("abort", abort); URL.revokeObjectURL(url); };
+    const timer = setTimeout(() => { cleanup(); image.src = ""; reject(new Error(`参考图片“${file.name}”解析超时，请重新上传可读取的图片`)); }, MEDIA_METADATA_TIMEOUT_MS);
+    const cleanup = () => { clearTimeout(timer); image.onload = null; image.onerror = null; signal?.removeEventListener("abort", abort); URL.revokeObjectURL(url); };
     const abort = () => { cleanup(); image.src = ""; reject(new DOMException("Aborted", "AbortError")); };
     if (signal?.aborted) { abort(); return; }
     signal?.addEventListener("abort", abort, { once: true });
@@ -105,7 +106,9 @@ function readTimedMediaMetadata(file: File, kind: "video" | "audio", signal?: Ab
   return new Promise<{ width: number; height: number; durationMs: number }>((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const media = document.createElement(kind);
+    const timer = setTimeout(() => { cleanup(); reject(new Error(`参考${kind === "video" ? "视频" : "音频"}“${file.name}”解析超时，请确认素材可播放后重新上传`)); }, MEDIA_METADATA_TIMEOUT_MS);
     const cleanup = () => {
+      clearTimeout(timer);
       media.onloadedmetadata = null;
       media.onerror = null;
       signal?.removeEventListener("abort", abort);

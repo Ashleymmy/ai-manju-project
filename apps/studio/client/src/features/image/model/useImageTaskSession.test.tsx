@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GenerationCallbacks } from "../api";
 import type { WorkspaceScope } from "@/shared/config";
+import { ApiError } from "@/shared/api/http";
 
 const mocks = vi.hoisted(() => ({ generate: vi.fn(), wait: vi.fn(), images: vi.fn(), cancel: vi.fn() }));
 vi.mock("../api", () => ({ generateImages: mocks.generate, waitForImageJob: mocks.wait, generatedImagesFromJob: mocks.images }));
@@ -34,6 +35,42 @@ afterEach(async () => {
 });
 
 describe("image workbench accepted tasks", () => {
+  it("clears an authoritative missing task ID without automatically submitting a replacement", async () => {
+    localStorage.setItem(key(), "job-missing");
+    mocks.wait.mockRejectedValueOnce(new ApiError("job not found", 404));
+    await act(async () => root.render(<Harness />));
+    expect(localStorage.getItem(key())).toBeNull();
+    expect(current.jobId).toBeNull();
+    expect(current.generating).toBe(false);
+    expect(mocks.generate).not.toHaveBeenCalled();
+    expect(callbacks.onError).toHaveBeenCalledOnce();
+    mocks.generate.mockImplementation(async (_input, options: GenerationCallbacks) => {
+      options.onAccepted?.({ id: "job-new" });
+      return { images: [{ id: "result", assetId: "result", src: "" }] };
+    });
+    await act(async () => current.generate({ model: "image", prompt: "new explicit request" }));
+    expect(mocks.generate).toHaveBeenCalledOnce();
+    expect(mocks.wait).toHaveBeenCalledOnce();
+  });
+
+  it.each([0, 408, 429, 500, 503, 403])("retains the accepted ID on a task query HTTP %s error", async status => {
+    localStorage.setItem(key(), "job-accepted");
+    mocks.wait.mockRejectedValueOnce(new ApiError("query failed", status));
+    await act(async () => root.render(<Harness />));
+    expect(localStorage.getItem(key())).toBe("job-accepted");
+    expect(current.jobId).toBe("job-accepted");
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a missing result asset as a missing accepted task", async () => {
+    localStorage.setItem(key(), "job-complete");
+    mocks.wait.mockResolvedValueOnce({ id: "job-complete", status: "succeeded" });
+    mocks.images.mockRejectedValueOnce(new ApiError("asset not found", 404));
+    await act(async () => root.render(<Harness />));
+    expect(localStorage.getItem(key())).toBe("job-complete");
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
+
   it("persists acceptance, detaches on unmount, and resumes the same job without resubmitting", async () => {
     mocks.generate.mockImplementation((_input, options: GenerationCallbacks) => new Promise((_resolve, reject) => {
       options.onAccepted?.({ id: "job-one" });

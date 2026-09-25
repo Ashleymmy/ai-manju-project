@@ -41,9 +41,19 @@ describe("asset API client", () => {
     const [url, options] = vi.mocked(fetch).mock.calls[0];
     expect(new URL(String(url)).searchParams.has("thumbnail")).toBe(false);
     expect(new URL(String(url)).searchParams.get("scope")).toBe("team");
-    expect(options?.signal).toBe(abort.signal);
+    expect(options?.signal?.aborted).toBe(false);
     expect(options?.credentials).toBe("include");
     expect(blob.size).toBe(3);
+  });
+  it("forwards cancellation to an in-flight original media download", async () => {
+    vi.mocked(fetch).mockImplementation(() => new Promise(() => undefined));
+    const abort = new AbortController();
+    const pending = getAssetContentBlob("original-image", "team", undefined, abort.signal);
+    const assertion = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    const [, options] = vi.mocked(fetch).mock.calls[0];
+    abort.abort();
+    await assertion;
+    expect(options?.signal?.aborted).toBe(true);
   });
   beforeEach(() => {
     vi.stubGlobal("window", globalThis);

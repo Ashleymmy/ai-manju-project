@@ -16,6 +16,7 @@ import type {
 } from "./model";
 import { API_BASE_URL, getAuthToken, request } from "@/shared/api/http";
 import type { WorkspaceScope } from "@/shared/config";
+import { fetchMediaBlob } from "@/shared/lib/mediaDownload";
 
 function scopedQuery(
   scope: WorkspaceScope,
@@ -432,13 +433,11 @@ export async function getAssetContentBlob(
   url.searchParams.set("scope", scope);
   if (thumbnail) url.searchParams.set("thumbnail", String(thumbnail));
   const token = getAuthToken();
-  const response = await fetch(url, {
+  return fetchMediaBlob(url, {
     credentials: "include",
     signal,
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  });
-  if (!response.ok) throw new Error(`读取资产内容失败（${response.status}）`);
-  return response.blob();
+  }, "读取资产内容");
 }
 
 export async function getAssetContentObjectUrl(

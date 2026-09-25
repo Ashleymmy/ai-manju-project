@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,37 @@ import (
 
 	"github.com/ai-manju/api/internal/queue"
 )
+
+func TestJobRecoveryParametersRequireBoundedNodeSetAndFilterCanvas(t *testing.T) {
+	router := newJobTestRouter(&queue.MemoryProducer{})
+	created := performJobRequest(router, `{"type":"video.generate","payload":{"project_id":"canvas","node_id":"video"}}`, "recovery-one")
+	id := extractJobID(t, created.Body.Bytes())
+	for _, tc := range []struct {
+		path   string
+		status int
+		match  bool
+	}{
+		{"/jobs?view=status&latest_per_node=true", 400, false},
+		{"/jobs?view=status&latest_per_node=true&source_node_ids=" + strings.TrimSuffix(strings.Repeat("node,", 31), ","), 200, false},
+		{"/jobs?view=status&latest_per_node=true&source_node_ids=video&project_id=canvas", 200, true},
+		{"/jobs?view=status&latest_per_node=true&source_node_ids=video&project_id=other", 200, false},
+	} {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
+		if rec.Code != tc.status || strings.Contains(rec.Body.String(), id) != tc.match {
+			t.Fatalf("%s: code=%d body=%s", tc.path, rec.Code, rec.Body.String())
+		}
+	}
+	ids := make([]string, 31)
+	for i := range ids {
+		ids[i] = fmt.Sprint("node-", i)
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/jobs?view=status&latest_per_node=true&source_node_ids="+strings.Join(ids, ","), nil))
+	if rec.Code != 400 {
+		t.Fatalf("unbounded recovery accepted: %d", rec.Code)
+	}
+}
 
 func TestJobStatusViewKeepsFullReadCompatible(t *testing.T) {
 	router := newJobTestRouter(&queue.MemoryProducer{})

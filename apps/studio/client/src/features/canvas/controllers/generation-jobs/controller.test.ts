@@ -283,7 +283,7 @@ describe("CanvasGenerationJobsController", () => {
     const harness = createHarness([source], services);
     harness.controller.recoverPendingJobs();
     await vi.waitFor(() => expect(harness.nodes[0].metadata?.status).toBe("success"));
-    expect(services.getJobs).toHaveBeenCalledWith(expect.objectContaining({ type: "image.generate,image.edit,video.generate" }));
+    expect(services.getJobs).toHaveBeenCalledWith(expect.objectContaining({ type: "image.generate,image.edit,video.generate", project_id: "project-1", source_node_ids: "video-1", latest_per_node: true }));
     expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
     expect(services.pollVideoGenerationTask).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "job-video-recovered" }), expect.anything());
   });
@@ -295,6 +295,21 @@ describe("CanvasGenerationJobsController", () => {
     await vi.waitFor(() => expect(services.getJobs).toHaveBeenCalledOnce());
     expect(harness.nodes[0].metadata?.status).toBe("loading");
     expect(harness.onError).not.toHaveBeenCalled();
+  });
+
+  it("bounds recovery by current node IDs in batches even for large canvases", async () => {
+    const services = createServices({ getJobs: vi.fn(async () => ({ items: [], total: 0 })) });
+    const nodes = Array.from({ length: 47 }, (_, index) => videoNode({ id: `pending-${index}`, metadata: { generationMode: "video", status: "loading" } }));
+    const harness = createHarness(nodes, services);
+    harness.controller.recoverPendingJobs();
+    await vi.waitFor(() => expect(services.getJobs).toHaveBeenCalledTimes(3));
+    const ids = vi.mocked(services.getJobs).mock.calls.flatMap(([query]) => String(query?.source_node_ids).split(","));
+    expect(new Set(ids)).toEqual(new Set(nodes.map(node => node.id)));
+    for (const [query] of vi.mocked(services.getJobs).mock.calls) {
+      expect(String(query?.source_node_ids).split(",").length).toBeLessThanOrEqual(20);
+      expect(query).toMatchObject({ project_id: "project-1", latest_per_node: true });
+    }
+    expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
   });
 
   it("blocks unavailable settings in direct calls but still resumes already accepted jobs", async () => {
