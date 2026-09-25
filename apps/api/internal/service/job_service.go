@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ai-manju/api/internal/model"
+	"github.com/ai-manju/api/internal/provider"
 	"github.com/ai-manju/api/internal/queue"
 	"github.com/ai-manju/api/internal/repository"
 )
@@ -30,7 +31,8 @@ type JobService struct {
 	}
 	// billing is nil when BILLING_ENABLED is off: every billing call site must
 	// nil-check so disabled deployments keep the exact pre-billing behavior.
-	billing JobBillingHooks
+	billing     JobBillingHooks
+	dispatchBox *provider.SecretBox
 }
 
 func (s *JobService) SetJobInputService(jobInputs *JobInputService) {
@@ -224,6 +226,12 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 		}
 	}
 	if existingErr == nil {
+		if s.dispatchBox != nil && existing.DispatchState != "" {
+			if err := s.dispatchJob(context.WithoutCancel(ctx), existing.ID); err != nil {
+				log.Printf("job_id=%s event=job_dispatch_pending", existing.ID)
+			}
+			return EnqueueJobResult{Job: existing, Created: false}, nil
+		}
 		if input.RepublishExisting && existing.Status == model.JobStatusQueued {
 			if s.producer == nil {
 				return EnqueueJobResult{Job: existing, Created: false}, queue.ErrBrokerNotConfigured
@@ -269,6 +277,12 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 		MaxAttempts:    maxAttempts,
 		Progress:       0,
 	}
+	if err := s.prepareDispatch(&job, normalizedVideoTaskKwargs(job.Type, job.Payload, input.TaskKwargs)); err != nil {
+		if s.billing != nil {
+			s.billing.ReleaseForJob(job.ID)
+		}
+		return EnqueueJobResult{}, err
+	}
 	created, err := s.createWithBillingAdmission(job)
 	if err != nil {
 		if s.billing != nil {
@@ -287,7 +301,14 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 		return EnqueueJobResult{Job: created, Created: false}, nil
 	}
 
-	if s.producer == nil {
+	if s.dispatchBox != nil {
+		if err := s.dispatchJob(context.WithoutCancel(ctx), created.ID); err != nil {
+			log.Printf("job_id=%s event=job_dispatch_pending", created.ID)
+		}
+		if current, err := s.repo.GetByID(created.ID); err == nil {
+			created = current
+		}
+	} else if s.producer == nil {
 		if failed, setErr := s.repo.SetError(created.ID, errorJSON("queue producer is not configured")); setErr == nil {
 			created = failed
 		}
@@ -296,8 +317,7 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 		}
 		s.cleanupJobInputs(context.WithoutCancel(ctx), created)
 		return EnqueueJobResult{Job: created, Created: true}, queue.ErrBrokerNotConfigured
-	}
-	if err := s.publishDurableJob(ctx, queue.TaskMessage{
+	} else if err := s.publishDurableJob(ctx, queue.TaskMessage{
 		TaskName: taskNameForJobType(created.Type),
 		Queue:    s.queueName,
 		JobID:    created.ID,
@@ -466,7 +486,7 @@ func (s *JobService) CancelForUser(id string, userID string) (model.Job, error) 
 	if err != nil {
 		return model.Job{}, err
 	}
-	if s.billing != nil {
+	if s.billing != nil && canceled.Status == model.JobStatusCanceled {
 		s.billing.ReleaseForJob(id)
 	}
 	s.cleanupJobInputs(context.Background(), canceled)

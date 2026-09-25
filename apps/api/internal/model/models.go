@@ -416,6 +416,14 @@ const (
 	JobStatusCanceled  = "canceled"
 )
 
+// Durable native-job dispatch states are private; only the queue phase is public.
+const (
+	JobDispatchPending      = "pending"
+	JobDispatchPublished    = "published"
+	JobDispatchObserved     = "observed"
+	JobQueueWaitingDispatch = "waiting_dispatch"
+)
+
 // Job records long-running work submitted by the Go API and executed by the
 // worker layer. IdempotencyKey is unique so client retries can return the same
 // job without duplicating expensive upstream work.
@@ -449,4 +457,10 @@ type Job struct {
 	BridgeState         string     `json:"bridge_state,omitempty" gorm:"index"`
 	BridgeNextAttemptAt *time.Time `json:"-" gorm:"index"`
 	BridgeAttempts      int        `json:"-"`
+	// Dispatch state is server-private. Execution kwargs may contain credentials
+	// and are encrypted using APP_SECRET before the durable job is inserted.
+	DispatchCiphertext    string     `json:"-" gorm:"type:text"`
+	DispatchState         string     `json:"-" gorm:"index"`
+	DispatchNextAttemptAt *time.Time `json:"-" gorm:"index"`
+	DispatchAttempts      int        `json:"-"`
 }

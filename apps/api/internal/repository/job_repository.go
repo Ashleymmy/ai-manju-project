@@ -15,6 +15,8 @@ import (
 var ErrJobNotFound = errors.New("job not found")
 
 type JobRepository interface {
+	ListDispatchPendingIDs(now time.Time, limit int) ([]string, error)
+	UpdateDispatch(id string, state string, next *time.Time, completed bool) error
 	BridgeStatistics(ctx context.Context) (BridgeStatistics, error)
 	WithExternalLock(ctx context.Context, id string, fn func() error) error
 	SetBridgeState(id string, state string) error
@@ -138,6 +140,9 @@ func (r *MemoryJobRepository) UpdateStatus(id string, status string) (model.Job,
 	job, ok := r.jobs[id]
 	if !ok {
 		return model.Job{}, ErrJobNotFound
+	}
+	if status == model.JobStatusCanceled && isTerminalJobStatus(job.Status) && !IsUncertainSubmission(job) {
+		return job, nil
 	}
 	now := r.clockFn()
 	job.Status = status
@@ -378,7 +383,11 @@ func (r *GormJobRepository) UpdateStatus(id string, status string) (model.Job, e
 	if isTerminalJobStatus(status) {
 		updates["finished_at"] = now
 	}
-	if err := r.db.Model(&model.Job{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+	query := r.db.Model(&model.Job{}).Where("id = ?", id)
+	if status == model.JobStatusCanceled {
+		query = query.Where("(status IN ? OR (external_provider = 'sd-video' AND status = 'failed' AND error->>'code' = 'submission_uncertain'))", []string{model.JobStatusQueued, model.JobStatusRunning})
+	}
+	if err := query.Updates(updates).Error; err != nil {
 		return model.Job{}, err
 	}
 	return r.GetByID(id)

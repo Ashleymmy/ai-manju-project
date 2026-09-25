@@ -114,6 +114,10 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	redemptionService := service.NewRedemptionService(repos.redemptionRepo, repos.membershipRepo, creditEngine)
 	redemptionHandler := handler.NewRedemptionHandler(repos.redemptionRepo, redemptionService)
 	secretBox := provider.NewSecretBox(cfg.AppSecret)
+	if cfg.AppSecret != "" {
+		jobService.EnableDurableDispatch(secretBox)
+		jobService.StartDispatch(context.Background())
+	}
 	assetService := service.NewAssetService(repos.assetRepo, assetStore)
 	assetService.SetReferenceRepository(repos.assetReferenceRepo)
 	assetFolderService := service.NewAssetFolderService(repos.assetFolderRepo, repos.assetRepo)

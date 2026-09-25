@@ -278,7 +278,7 @@ export class CanvasGenerationJobsController {
             this.updateProgress(active, 0);
             void this.persist(next);
           },
-          onProgress: job => this.updateProgress(request, job.progress ?? 0),
+          onProgress: job => this.updateJobProgress(request, job),
         }));
         generated = result.images[0];
       }
@@ -467,7 +467,7 @@ export class CanvasGenerationJobsController {
           task!,
           {
             signal: request.controller.signal,
-            onProgress: job => this.updateVideoJobProgress(request, job),
+            onProgress: job => this.updateJobProgress(request, job),
           },
         ));
         if (state.status === "failed") throw new Error(state.error);
@@ -1635,7 +1635,7 @@ export class CanvasGenerationJobsController {
     }));
   }
 
-  private updateVideoJobProgress(request: CanvasGenerationRequest, job: Job) {
+  private updateJobProgress(request: CanvasGenerationRequest, job: Job) {
     if (!this.currentRequest(request.targetNodeId, request.requestId, request.projectKey)) return;
     this.updateProgress(request, job.progress ?? 0);
     const notice = jobProgressNotice(job);
