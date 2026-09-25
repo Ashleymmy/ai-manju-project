@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -24,11 +25,12 @@ from test_video_checkpoint import RecoveryStore as VideoStore
 from worker import tasks, provider, video
 from worker.config import load_settings
 from worker.db import JobStore
+from worker.errors import SafeTaskError
 from worker.generation_failover import PROVIDER_CANDIDATES_FIELD
 from worker.image_checkpoint import IMAGE_CHECKPOINT_KEY, ImageCheckpoint
 from worker.recovery_dispatch import (
-    RECOVERY_CONTROL_KEY, RECOVERY_ONLY_FIELD, RECOVERY_TOKEN_FIELD,
-    acknowledge_recovery,
+    RECOVERY_CONTROL_KEY, RECOVERY_ONLY_FIELD, RECOVERY_TOKEN_FIELD, RECOVERY_AUTOMATIC_FIELD,
+    acknowledge_recovery, automatic_recovery_allowed,
 )
 from worker.video_checkpoint import VIDEO_CHECKPOINT_KEY, VideoCheckpoint
 
@@ -120,6 +122,140 @@ class RecoveryDispatchTest(unittest.TestCase):
         store.mark_video_recovery("job", attention=True)
         self.bind(store)
         return store
+
+    def automatic_payload(self):
+        return {"provider": self.provider, PROVIDER_CANDIDATES_FIELD: [self.provider],
+                RECOVERY_ONLY_FIELD: True, RECOVERY_AUTOMATIC_FIELD: True}
+
+    def automatic_store(self):
+        store = self.accepted()
+        store.metadata.pop(RECOVERY_CONTROL_KEY)
+        store.job.update(queue_phase="video_recovery_pending", dispatch_state="observed")
+        store.checkpoints.checkpoint["recovery"] = {
+            "failures": 1, "first_failure_at": datetime.now(timezone.utc).isoformat(),
+        }
+        return store
+
+    def test_automatic_video_recovery_only_downloads_original_and_preserves_budget(self):
+        store = self.automatic_store()
+        original = copy.deepcopy(store.checkpoints.checkpoint["recovery"])
+        completed = {"id": "original-paid-task", "status": "succeeded", "content": {"video_url": "https://cdn.test/video"}}
+        replies = [FakeVideoResponse(completed), FakeVideoResponse(content=b"video", content_type="video/mp4")]
+        with patch.object(video.requests, "post") as post, patch.object(video.requests, "get", side_effect=replies) as get:
+            result = tasks.execute_job(FakeTask(0), "job", self.automatic_payload(), video.generate_video, "video")
+            self.assertEqual(result["status"], "succeeded")
+            self.assertEqual(get.call_count, 2)
+            post.assert_not_called()
+        self.assertEqual(store.checkpoints.checkpoint["recovery"], original)
+        self.assertEqual(store.ack_count, 0)
+
+    def test_automatic_image_recovery_uses_existing_private_receipt_without_post(self):
+        self.provider = {"id": "native", "model": "image", "base_url": "https://api.test", "auth_type": "none"}
+        store = RecoverableImageStore()
+        store.metadata.pop(RECOVERY_CONTROL_KEY)
+        checkpoint = ImageCheckpoint(store, "job", self.provider, test_settings(self.directory))
+        checkpoint.begin()
+        checkpoint.received([{"b64_json": base64.b64encode(b"png").decode()}], {"mode": "provider"})
+        store.mark_image_recovery("job")
+        original = copy.deepcopy(store.checkpoints.checkpoint["recovery"])
+        self.bind(store)
+        with patch.object(provider.requests, "post") as post:
+            result = tasks.execute_job(FakeTask(0), "job", self.automatic_payload(), provider.generate_image, "image")
+            self.assertEqual(result["status"], "succeeded")
+            post.assert_not_called()
+        self.assertEqual(store.checkpoints.checkpoint["recovery"], original)
+        self.assertEqual(store.ack_count, 0)
+
+    def test_automatic_mode_is_trusted_only_and_never_reaches_executor(self):
+        _, untrusted = tasks.extract_request(("job",), {"payload": self.automatic_payload()})
+        self.assertNotIn(RECOVERY_AUTOMATIC_FIELD, untrusted)
+        self.assertNotIn(RECOVERY_ONLY_FIELD, untrusted)
+        for flag in (False, "true", 1):
+            _, payload = tasks.extract_request(("job",), {RECOVERY_ONLY_FIELD: True, RECOVERY_AUTOMATIC_FIELD: flag})
+            self.assertNotIn(RECOVERY_AUTOMATIC_FIELD, payload)
+        store = self.automatic_store()
+        executor = Mock(return_value={"outputs": []})
+        self.assertEqual(tasks.execute_job(FakeTask(0), "job", self.automatic_payload(), executor, "video")["status"], "succeeded")
+        self.assertNotIn(RECOVERY_AUTOMATIC_FIELD, executor.call_args.args[1])
+
+    def test_automatic_stale_delivery_cannot_reset_manual_request_or_new_timer(self):
+        store = self.automatic_store()
+        store.metadata[RECOVERY_CONTROL_KEY] = {"token": TOKEN}
+        executor = Mock()
+        result = tasks.execute_job(FakeTask(0), "job", self.automatic_payload(), executor, "video")
+        self.assertTrue(result["recovery_ignored"])
+        store.metadata[RECOVERY_CONTROL_KEY]["acknowledged"] = True
+        store.job["worker_retry_at"] = datetime.now(timezone.utc) + timedelta(minutes=10)
+        before = copy.deepcopy(store.checkpoints.checkpoint)
+        result = tasks.execute_job(FakeTask(0), "job", self.automatic_payload(), executor, "video")
+        self.assertTrue(result["recovery_ignored"])
+        self.assertEqual(store.checkpoints.checkpoint, before)
+        executor.assert_not_called()
+        self.assertEqual(store.ack_count, 0)
+
+    def test_automatic_recovery_after_gate_wait_still_has_bounded_failures(self):
+        store = self.automatic_store()
+        store.job["queue_phase"] = "waiting_provider_slot"
+        store.metadata[RECOVERY_CONTROL_KEY] = {"token": TOKEN, "acknowledged": True}
+        original_start = store.checkpoints.checkpoint["recovery"]["first_failure_at"]
+        with patch.object(video.requests, "get", return_value=FakeVideoResponse({}, status_code=403)) as get, patch.object(video.requests, "post") as post:
+            for _ in range(2):
+                with self.assertRaises(RetryCalled):
+                    tasks.execute_job(FakeTask(0), "job", self.automatic_payload(), video.generate_video, "video")
+            result = tasks.execute_job(FakeTask(0), "job", self.automatic_payload(), video.generate_video, "video")
+            self.assertEqual(result["queue_phase"], "video_recovery_attention")
+            tasks.execute_job(FakeTask(0), "job", self.automatic_payload(), video.generate_video, "video")
+            self.assertEqual(get.call_count, 3)
+            post.assert_not_called()
+        self.assertEqual(store.checkpoints.checkpoint["recovery"]["first_failure_at"], original_start)
+        self.assertEqual(store.ack_count, 0)
+
+    def test_expired_recovery_budget_stops_before_any_provider_or_gate_call(self):
+        store = self.automatic_store()
+        store.checkpoints.checkpoint["recovery"]["first_failure_at"] = (datetime.now(timezone.utc) - timedelta(minutes=31)).isoformat()
+        before = copy.deepcopy(store.checkpoints.checkpoint["recovery"])
+        executor = Mock()
+        result = tasks.execute_job(FakeTask(0), "job", self.automatic_payload(), executor, "video")
+        self.assertEqual(result["queue_phase"], "video_recovery_attention")
+        self.assertEqual(store.checkpoints.checkpoint["recovery"]["failures"], before["failures"])
+        self.assertEqual(store.checkpoints.checkpoint["recovery"]["first_failure_at"], before["first_failure_at"])
+        executor.assert_not_called()
+        self.gate.assert_not_called()
+
+    def test_automatic_guard_rejects_ambiguous_conflicting_or_malformed_checkpoints(self):
+        store = self.automatic_store()
+        baseline = store.get_job("job")
+        for mutate in (
+            lambda j: j.update(status="succeeded"),
+            lambda j: j.update(queue_phase="video_submission_uncertain"),
+            lambda j: j.update(dispatch_state="recovery_pending"),
+            lambda j: j["bridge_metadata"].update({IMAGE_CHECKPOINT_KEY: {}}),
+            lambda j: j["bridge_metadata"][VIDEO_CHECKPOINT_KEY].update(phase="submission_intent"),
+            lambda j: j["bridge_metadata"][VIDEO_CHECKPOINT_KEY].update(provider_task_id=""),
+            lambda j: j["bridge_metadata"][VIDEO_CHECKPOINT_KEY].update(revision=True),
+            lambda j: j["bridge_metadata"][VIDEO_CHECKPOINT_KEY].update(recovery="bad"),
+        ):
+            candidate = copy.deepcopy(baseline)
+            mutate(candidate)
+            self.assertFalse(automatic_recovery_allowed(candidate))
+
+    def test_original_upstream_failure_ends_recovery_without_generation_retry(self):
+        for automatic in (False, True):
+            with self.subTest(automatic=automatic):
+                store = self.automatic_store() if automatic else self.accepted()
+                payload = self.automatic_payload() if automatic else self.payload()
+                original_attempts = store.job["attempts"]
+                with patch.object(video.requests, "get", return_value=FakeVideoResponse({"id": "original-paid-task", "status": "failed", "error": {"message": "failed"}})) as get, patch.object(video.requests, "post") as post:
+                    with self.assertRaises(SafeTaskError):
+                        tasks.execute_job(FakeTask(0), "job", payload, video.generate_video, "video")
+                    self.assertEqual(store.job["status"], "failed")
+                    # Existing set_error records the original attempt's final
+                    # failure once; there is no new attempt or retry chain.
+                    self.assertEqual(store.job["attempts"], original_attempts + 1)
+                    self.assertEqual(store.retry_errors, [])
+                    self.assertEqual(store.checkpoints.checkpoint["phase"], "terminal_failure")
+                    get.assert_called_once()
+                    post.assert_not_called()
 
     def test_untrusted_flags_are_stripped_and_only_literal_server_true_is_accepted(self):
         untrusted = {RECOVERY_ONLY_FIELD: True, RECOVERY_TOKEN_FIELD: "forged", "prompt": "keep"}
@@ -336,6 +472,22 @@ class RecoveryDispatchPostgresTest(unittest.TestCase):
             duplicate = acknowledge_recovery(self.store, self.job_id, TOKEN)
             self.assertEqual(duplicate, counted)
             self.assertEqual(duplicate["dispatch_next_attempt_at"], first["dispatch_next_attempt_at"])
+
+    def test_recovery_deadline_is_saved_atomically_and_cleared_on_attention(self):
+        with self.store.job_lock(self.job_id):
+            acknowledge_recovery(self.store, self.job_id, TOKEN)
+            for delay in (30, 60):
+                saved = self.store.mark_video_recovery(self.job_id, reason="video_recovery_http_404")
+                self.assertEqual(saved["recovery_retry_seconds"], delay)
+                row = self.store.get_job(self.job_id)
+                remaining = (row["worker_retry_at"] - datetime.now(timezone.utc)).total_seconds()
+                self.assertGreater(remaining, delay - 5)
+                self.assertLessEqual(remaining, delay)
+                self.assertEqual(row["attempts"], 2)
+            self.store.mark_video_recovery(self.job_id, reason="video_recovery_http_404")
+            row = self.store.get_job(self.job_id)
+            self.assertEqual(row["queue_phase"], "video_recovery_attention")
+            self.assertIsNone(row["worker_retry_at"])
 
     def test_real_sql_escalates_three_access_failures_without_resetting_window(self):
         with self.store.job_lock(self.job_id):

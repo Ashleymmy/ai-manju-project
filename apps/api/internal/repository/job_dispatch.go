@@ -102,10 +102,10 @@ func (r *MemoryJobRepository) ListDispatchPendingIDs(now time.Time, limit int) (
 		if ProviderRetryScheduled(job, now) {
 			continue
 		}
-		// Most observed active jobs need manual recovery. Only unstarted provider
-		// waits can safely restore a lost retry, including legacy observed rows.
+		// Restore only proven rejections or accepted-result recovery. Paid work
+		// follows a separate recovery-only dispatch path and never becomes a POST.
 		terminal := job.Status == model.JobStatusSucceeded || job.Status == model.JobStatusFailed || job.Status == model.JobStatusCanceled
-		if (job.DispatchState == model.JobDispatchPending || job.DispatchState == model.JobDispatchPublished || (job.DispatchState == model.JobDispatchObserved && (terminal || CanRedispatchProviderWait(job))) || job.DispatchState == JobDispatchRecoveryPending || job.DispatchState == JobDispatchRecoveryPublished) && job.DispatchCiphertext != "" && (job.DispatchNextAttemptAt == nil || !job.DispatchNextAttemptAt.After(now)) {
+		if (job.DispatchState == model.JobDispatchPending || job.DispatchState == model.JobDispatchPublished || (job.DispatchState == model.JobDispatchObserved && (terminal || CanRedispatchProviderWait(job) || CanAutomaticallyRecoverNative(job))) || job.DispatchState == JobDispatchRecoveryPending || job.DispatchState == JobDispatchRecoveryPublished) && job.DispatchCiphertext != "" && (job.DispatchNextAttemptAt == nil || !job.DispatchNextAttemptAt.After(now)) {
 			jobs = append(jobs, job)
 		}
 	}
@@ -160,8 +160,9 @@ func (r *MemoryJobRepository) UpdateDispatch(id string, state string, next *time
 
 func (r *GormJobRepository) ListDispatchPendingIDs(now time.Time, limit int) ([]string, error) {
 	ids := []string{}
-	query := r.db.Model(&model.Job{}).Where("(dispatch_state IN ? OR (dispatch_state = ? AND (status IN ? OR ("+providerWaitRedispatchSQL+")))) AND COALESCE(dispatch_ciphertext,'') <> '' AND (dispatch_next_attempt_at IS NULL OR dispatch_next_attempt_at <= ?)", []string{model.JobDispatchPending, model.JobDispatchPublished, JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobDispatchObserved, []string{model.JobStatusSucceeded, model.JobStatusFailed, model.JobStatusCanceled}, now).
-		Where("(dispatch_state IN ? OR status <> ? OR COALESCE(queue_phase,'') NOT IN ? OR worker_retry_at IS NULL OR worker_retry_at <= ?)", []string{JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobStatusQueued, []string{"waiting_provider_slot", "provider_retry_backoff"}, now.Add(-JobDispatchReceiptGrace)).
+	query := r.db.Model(&model.Job{}).Where("(dispatch_state IN ? OR (dispatch_state = ? AND (status IN ? OR ("+providerWaitRedispatchSQL+") OR ("+automaticNativeRecoverySQL+")))) AND COALESCE(dispatch_ciphertext,'') <> '' AND (dispatch_next_attempt_at IS NULL OR dispatch_next_attempt_at <= ?)", []string{model.JobDispatchPending, model.JobDispatchPublished, JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobDispatchObserved, []string{model.JobStatusSucceeded, model.JobStatusFailed, model.JobStatusCanceled}, now).
+		Where("(dispatch_state IN ? OR status <> ? OR COALESCE(queue_phase,'') NOT IN ? OR worker_retry_at IS NULL OR worker_retry_at <= ?)", []string{JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobStatusQueued, []string{"waiting_provider_slot", "provider_retry_backoff", "video_recovery_pending", "image_recovery_pending"}, now.Add(-JobDispatchReceiptGrace)).
+		Where("(dispatch_state IN ? OR status <> ? OR worker_retry_at IS NOT NULL OR (COALESCE(queue_phase,'') NOT IN ? AND NOT COALESCE(("+automaticNativeRecoverySQL+"), false)) OR updated_at <= ?)", []string{JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobStatusQueued, []string{"video_recovery_pending", "image_recovery_pending"}, now.Add(-JobDispatchReceiptGrace)).
 		Order("COALESCE(dispatch_next_attempt_at, created_at) ASC").Order("id ASC")
 	if limit > 0 {
 		query = query.Limit(limit)
@@ -173,9 +174,19 @@ func (r *GormJobRepository) ListDispatchPendingIDs(now time.Time, limit int) ([]
 // ProviderRetryScheduled must be checked again under the dispatch lock: a
 // Worker may have renewed its retry deadline after the ID-only scan.
 func ProviderRetryScheduled(job model.Job, now time.Time) bool {
-	return job.DispatchState != JobDispatchRecoveryPending && job.DispatchState != JobDispatchRecoveryPublished &&
-		job.Status == model.JobStatusQueued && (job.QueuePhase == "waiting_provider_slot" || job.QueuePhase == "provider_retry_backoff") &&
-		job.WorkerRetryAt != nil && job.WorkerRetryAt.Add(JobDispatchReceiptGrace).After(now)
+	if job.DispatchState == JobDispatchRecoveryPending || job.DispatchState == JobDispatchRecoveryPublished || job.Status != model.JobStatusQueued {
+		return false
+	}
+	recoveryPhase := job.QueuePhase == "video_recovery_pending" || job.QueuePhase == "image_recovery_pending"
+	if !recoveryPhase && job.QueuePhase != "waiting_provider_slot" && job.QueuePhase != "provider_retry_backoff" {
+		return false
+	}
+	if job.WorkerRetryAt != nil {
+		return job.WorkerRetryAt.Add(JobDispatchReceiptGrace).After(now)
+	}
+	// Old recovery messages did not persist a retry time. Their most recent
+	// state change still needs an observation window before the relay intervenes.
+	return (recoveryPhase || CanAutomaticallyRecoverNative(job)) && job.UpdatedAt.Add(JobDispatchReceiptGrace).After(now)
 }
 
 func (r *GormJobRepository) UpdateDispatch(id string, state string, next *time.Time, completed bool) error {

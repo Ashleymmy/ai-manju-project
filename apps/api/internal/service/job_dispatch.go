@@ -89,6 +89,9 @@ func (s *JobService) dispatchJob(ctx context.Context, id string) error {
 		if repository.ProviderRetryScheduled(job, time.Now().UTC()) {
 			return nil
 		}
+		if repository.CanAutomaticallyRecoverNative(job) {
+			return s.dispatchAutomaticNativeRecovery(ctx, job.ID)
+		}
 		// Redis retry delivery is not durable evidence of paid execution. Recover
 		// only never-started work or a durable explicit rejection. Accepted and
 		// uncertain submissions retain their original recovery-only behavior.

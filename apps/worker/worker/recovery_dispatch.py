@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from psycopg.types.json import Jsonb
 
 from .errors import ImageSubmissionUncertainError, VideoSubmissionUncertainError
 
 RECOVERY_ONLY_FIELD = "_recovery_only"
 RECOVERY_TOKEN_FIELD = "_recovery_dispatch_token"
+# Automatic delivery repair preserves the existing recovery window and budget.
+RECOVERY_AUTOMATIC_FIELD = "_recovery_automatic"
 RECOVERY_CONTROL_KEY = "_worker_recovery_control"
 # Same observation interval as the API's retained encrypted-dispatch scan.
 RECOVERY_OBSERVATION_SECONDS = 120
@@ -15,11 +18,69 @@ RECOVERY_JOB_TYPES = {"video.generate", "image.generate", "image.edit"}
 
 
 def execution_recovery_fields(payload, kwargs):
-    payload = {key: value for key, value in payload.items() if key not in {RECOVERY_ONLY_FIELD, RECOVERY_TOKEN_FIELD}}
+    payload = {key: value for key, value in payload.items() if key not in {RECOVERY_ONLY_FIELD, RECOVERY_TOKEN_FIELD, RECOVERY_AUTOMATIC_FIELD}}
     if kwargs.get(RECOVERY_ONLY_FIELD) is True:
         payload[RECOVERY_ONLY_FIELD] = True
         payload[RECOVERY_TOKEN_FIELD] = str(kwargs.get(RECOVERY_TOKEN_FIELD) or "")
+        if kwargs.get(RECOVERY_AUTOMATIC_FIELD) is True:
+            payload[RECOVERY_AUTOMATIC_FIELD] = True
     return payload
+
+
+def automatic_recovery_allowed(job, now=None):
+    """Read-only guard under the Worker job lock; no administrator ACK/reset.
+
+    Running is permitted on broker redelivery after a Worker crash, once its
+    advisory lock is free. The API only schedules explicitly queued recovery.
+    """
+    if job.get("status") not in {"queued", "running"} or job.get("external_provider") or job.get("type") not in RECOVERY_JOB_TYPES:
+        return False
+    if job.get("dispatch_state") in {"recovery_pending", "recovery_published"}:
+        return False
+    kind = "video" if job["type"] == "video.generate" else "image"
+    phases = {f"{kind}_recovery_pending", "waiting_provider_slot"}
+    if job.get("status") == "running":
+        phases.add("")
+    if (job.get("queue_phase") or "") not in phases:
+        return False
+    metadata = job.get("bridge_metadata")
+    if not isinstance(metadata, dict):
+        return False
+    if RECOVERY_CONTROL_KEY in metadata:
+        control = metadata[RECOVERY_CONTROL_KEY]
+        if not isinstance(control, dict) or control.get("acknowledged") is not True:
+            return False
+    key = f"_worker_{kind}_checkpoint"
+    other = "_worker_image_checkpoint" if kind == "video" else "_worker_video_checkpoint"
+    cp = metadata.get(key)
+    if other in metadata or not isinstance(cp, dict):
+        return False
+    if type(cp.get("version")) is not int or cp["version"] != 1 or type(cp.get("revision")) is not int or not 0 < cp["revision"] <= 9223372036854775807:
+        return False
+    if not isinstance(cp.get("provider_identity"), str) or not cp["provider_identity"]:
+        return False
+    phases = {"accepted", "downloaded"} if kind == "video" else {"received", "downloaded"}
+    receipt = cp.get("provider_task_id" if kind == "video" else "receipt_id")
+    if cp.get("phase") not in phases or not isinstance(receipt, str) or not receipt:
+        return False
+    if cp.get("recovery") is not None and not isinstance(cp["recovery"], dict):
+        return False
+    attention = (cp.get("recovery") or {}).get("requires_attention")
+    if attention is not None and attention is not False:
+        return False
+    # Stale duplicate deliveries must not accelerate a newer retry chain.
+    deadline = job.get("worker_retry_at")
+    if deadline:
+        try:
+            if isinstance(deadline, str):
+                deadline = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=timezone.utc)
+            if deadline > (now or datetime.now(timezone.utc)):
+                return False
+        except (TypeError, ValueError, AttributeError):
+            return False
+    return True
 
 
 def acknowledge_recovery(store, job_id, token):

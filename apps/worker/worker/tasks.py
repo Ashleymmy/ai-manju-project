@@ -10,7 +10,7 @@ from celery import Celery, Task
 
 from .assets import register_result_assets
 from .config import load_settings
-from .db import JOB_STATUS_CANCELED, JOB_STATUS_FAILED, JOB_STATUS_SUCCEEDED, TERMINAL_STATUSES, JobStore, json_compatible, RECOVERY_MAX_DELAY_SECONDS
+from .db import JOB_STATUS_CANCELED, JOB_STATUS_FAILED, JOB_STATUS_SUCCEEDED, TERMINAL_STATUSES, JobStore, json_compatible, RECOVERY_MAX_DELAY_SECONDS, recovery_budget_exhausted
 from .errors import SafeTaskError, VideoTaskAcceptedError, VideoSubmissionUncertainError, VideoRecoveryPendingError, VideoReferenceError, error_payload, job_canceled_error
 from .monitoring import attempt_event
 from .generation_failover import PROVIDER_CANDIDATES_FIELD, generation_attempt, is_provider_failure, unavailable_error
@@ -23,7 +23,7 @@ from .video import generate_video, transcode_video
 from .video_checkpoint import VIDEO_CHECKPOINT_KEY, VIDEO_CHECKPOINT_PAYLOAD_KEY, VIDEO_RECOVERY_DELAY_SECONDS, VideoCheckpoint, recovery_error
 from .image_checkpoint import IMAGE_CHECKPOINT_KEY, IMAGE_CHECKPOINT_PAYLOAD_KEY, IMAGE_RECOVERY_DELAY_SECONDS, ImageCheckpoint, recovery_error as image_recovery_error
 from .errors import ImageRecoveryPendingError, ImageSubmissionUncertainError, ImageResultRejectedError, RECOVERY_ATTENTION_PHASES, ResultPersistencePendingError
-from .recovery_dispatch import RECOVERY_ONLY_FIELD, RECOVERY_TOKEN_FIELD, execution_recovery_fields, acknowledge_recovery, assert_recovery_only
+from .recovery_dispatch import RECOVERY_ONLY_FIELD, RECOVERY_TOKEN_FIELD, RECOVERY_AUTOMATIC_FIELD, execution_recovery_fields, acknowledge_recovery, assert_recovery_only, automatic_recovery_allowed
 
 
 settings = load_settings()
@@ -155,7 +155,10 @@ def execute_job(
             # API uses this same advisory lock. A token acknowledgement must
             # precede the attention guard, and may reset its window only once.
             try:
-                refreshed = acknowledge_recovery(store, job_id, str(payload.get(RECOVERY_TOKEN_FIELD) or ""))
+                if payload.get(RECOVERY_AUTOMATIC_FIELD) is True:
+                    refreshed = job if automatic_recovery_allowed(job) else None
+                else:
+                    refreshed = acknowledge_recovery(store, job_id, str(payload.get(RECOVERY_TOKEN_FIELD) or ""))
             except Exception:
                 raise task.retry(exc=SafeTaskError("recovery acknowledgement unavailable", code="recovery_state_unavailable"),
                                  countdown=RECOVERY_MAX_DELAY_SECONDS, max_retries=100000) from None
@@ -264,6 +267,7 @@ def execute_job(
                 # them to a Provider or persist them in generated asset fields.
                 execution_payload.pop(RECOVERY_ONLY_FIELD, None)
                 execution_payload.pop(RECOVERY_TOKEN_FIELD, None)
+                execution_payload.pop(RECOVERY_AUTOMATIC_FIELD, None)
 
                 def update_progress(progress: int) -> None:
                     updated = store.update_progress(job_id, progress)
@@ -400,6 +404,11 @@ def execute_job(
                 attempts = int(job.get("attempts") or 0)
                 generation_retry = bool(generation_max_attempts and not generation_completed and is_provider_failure(exc))
                 retry = (generation_retry and attempts < generation_max_attempts - 1) if generation_max_attempts else (not generation_completed and should_retry(job, exc))
+                # A definitive failure of the original accepted task ends its
+                # recovery. Recovery-only deliveries must never fall through to
+                # paid-generation failover (nor queue an impossible retry).
+                if payload.get(RECOVERY_ONLY_FIELD) is True:
+                    retry = False
                 if retry:
                     # Intermediate upstream errors and supplier identities are private.
                     payload_error = {} if generation_max_attempts else {**payload_error, "next_retry": attempts + 1}
@@ -445,7 +454,7 @@ def recovery_attention_phase(job):
     if isinstance(metadata, dict):
         for kind, key in (("video", VIDEO_CHECKPOINT_KEY), ("image", IMAGE_CHECKPOINT_KEY)):
             checkpoint = metadata.get(key)
-            if isinstance(checkpoint, dict) and (checkpoint.get("recovery") or {}).get("requires_attention"):
+            if recovery_budget_exhausted(checkpoint):
                 return f"{kind}_recovery_attention"
     return ""
 

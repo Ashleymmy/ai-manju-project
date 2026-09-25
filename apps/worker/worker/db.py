@@ -34,6 +34,26 @@ RECOVERY_MAX_DELAY_SECONDS = 5 * 60
 RECOVERY_ACCESS_CODES = {"video_recovery_http_401", "video_recovery_http_403", "video_recovery_http_404"}
 
 
+def recovery_budget_exhausted(checkpoint, now=None):
+    """Check the existing budget before resuming; never open a fresh window."""
+    recovery = checkpoint.get("recovery") if isinstance(checkpoint, dict) else None
+    if not isinstance(recovery, dict):
+        return False
+    if recovery.get("requires_attention") is True:
+        return True
+    try:
+        if int(recovery.get("failures") or 0) >= RECOVERY_MAX_FAILURES or int(recovery.get("consecutive_access_failures") or 0) >= RECOVERY_ACCESS_FAILURE_LIMIT:
+            return True
+        if recovery.get("first_failure_at"):
+            started = datetime.fromisoformat(str(recovery["first_failure_at"]).replace("Z", "+00:00"))
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            return ((now or datetime.now(timezone.utc)) - started).total_seconds() >= RECOVERY_MAX_AGE_SECONDS
+    except (TypeError, ValueError, OverflowError):
+        return True
+    return False
+
+
 def recovery_transition(checkpoint, kind, *, uncertain=False, reason="", attention=False, now=None):
     """Private counters plus public state, preserving every existing output."""
     now = now or datetime.now(timezone.utc)
@@ -197,10 +217,11 @@ class JobStore:
                     metadata[key] = checkpoint
                 cur.execute("""UPDATE jobs SET status = 'queued', queue_phase = %s, error = %s,
                         bridge_metadata = %s::jsonb,
+                        worker_retry_at = CASE WHEN %s THEN now() + (%s * interval '1 second') ELSE NULL END,
                         updated_at = timezone('utc', now()), finished_at = NULL
                     WHERE id = %s AND status IN ('queued', 'running')
                     RETURNING id, status, progress, attempts, queue_phase, error""",
-                            (error["code"], Jsonb(error), Jsonb(metadata), job_id))
+                            (error["code"], Jsonb(error), Jsonb(metadata), error["retryable"], delay, job_id))
                 saved = cur.fetchone()
                 if saved is not None:
                     saved["recovery_retry_seconds"] = delay
