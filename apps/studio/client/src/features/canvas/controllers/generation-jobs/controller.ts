@@ -151,6 +151,7 @@ export class CanvasGenerationJobsController {
   private readonly preparations = new Map<string, CanvasGenerationPreparation>();
   private readonly recoveredJobIds = new Set<string>();
   private recoverGeneration = 0;
+  private readonly cancellingRequestIds = new Set<string>();
   private recoveryController?: AbortController;
 
   constructor(
@@ -511,7 +512,7 @@ export class CanvasGenerationJobsController {
     }
   };
 
-  readonly stopGenerationByNodeId = (nodeId: string) => {
+  readonly stopGenerationByNodeId = async (nodeId: string) => {
     const preparations = Array.from(this.preparations.values()).filter(preparation => (
       preparation.targetNodeId === nodeId
       || preparation.targetNodeIds?.includes(nodeId)
@@ -524,22 +525,57 @@ export class CanvasGenerationJobsController {
       || request.originNodeId === nodeId
     ));
     if (!requests.length && !preparations.length) return;
-    const affected = new Set(requests.map(request => request.targetNodeId));
+    const affected = new Set<string>();
+    const includeUnsubmitted = (id: string) => { if (!this.requests.has(id)) affected.add(id); };
     preparations.forEach(preparation => {
       this.preparations.delete(preparation.id);
       preparation.controller.abort();
-      if (preparation.targetNodeId) affected.add(preparation.targetNodeId);
-      preparation.targetNodeIds?.forEach(nodeId => affected.add(nodeId));
+      if (preparation.targetNodeId) includeUnsubmitted(preparation.targetNodeId);
+      preparation.targetNodeIds?.forEach(includeUnsubmitted);
     });
+    const cancellationRequests: Promise<void>[] = [];
     requests.forEach(request => {
+      if (request.jobId) {
+        if (request.provider !== "seedance" || request.jobId.startsWith("job_") || request.jobId.startsWith("sdv_")) {
+          cancellationRequests.push(this.cancelAcceptedRequest(request, nodeId));
+        } else {
+          this.bindings.onWarning("任务已提交，当前通道暂不支持取消，将继续同步结果");
+        }
+        return;
+      }
+      this.requests.delete(request.targetNodeId);
+      request.controller.abort();
+      affected.add(request.targetNodeId);
+    });
+    this.syncRequestState();
+    if (affected.size) this.markStoppedCanvasTargets(affected, nodeId);
+    await Promise.all(cancellationRequests);
+  };
+
+  private async cancelAcceptedRequest(request: CanvasGenerationRequest, nodeId: string) {
+    if (this.cancellingRequestIds.has(request.requestId)) return;
+    this.cancellingRequestIds.add(request.requestId);
+    try {
+      const canceled = await this.generation(() => this.services.cancelJob(request.jobId!, request.scope));
+      if (!this.currentRequest(request.targetNodeId, request.requestId, request.projectKey)) return;
+      // The server may have completed the job before cancel arrived. Keep its
+      // original poll and durable ID until that authoritative result is applied.
+      if (canceled.status !== "canceled") return;
       this.requests.delete(request.targetNodeId);
       this.forgetCanvasJob(request.targetNodeId, request.jobId);
       request.controller.abort();
-      if (request.jobId && (request.provider !== "seedance" || request.jobId.startsWith("job_"))) {
-        void this.generation(() => this.services.cancelJob(request.jobId!, request.scope)).catch(() => undefined);
+      this.syncRequestState();
+      this.markStoppedCanvasTargets(new Set([request.targetNodeId]), nodeId);
+    } catch (error) {
+      if (this.currentRequest(request.targetNodeId, request.requestId, request.projectKey)) {
+        this.bindings.onWarning(publicApiError(error, "取消任务失败，将继续同步原任务结果"));
       }
-    });
-    this.syncRequestState();
+    } finally {
+      this.cancellingRequestIds.delete(request.requestId);
+    }
+  }
+
+  private markStoppedCanvasTargets(affected: ReadonlySet<string>, nodeId: string) {
     const next = this.updateNodes(current => {
       let changed = current.map(node => affected.has(node.id) && node.metadata?.status === "loading" ? {
         ...node,
@@ -564,7 +600,7 @@ export class CanvasGenerationJobsController {
     });
     void this.persist(next);
     this.bindings.onMessage("已停止生成，失败节点可单独重试");
-  };
+  }
 
   readonly retryImageNode = async (node: CanvasNodeData) => {
     const scope = this.bindings.getScope();

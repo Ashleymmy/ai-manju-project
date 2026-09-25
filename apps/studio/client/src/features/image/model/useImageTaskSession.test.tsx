@@ -35,6 +35,44 @@ afterEach(async () => {
 });
 
 describe("image workbench accepted tasks", () => {
+  it.each(["succeeded", "failed"] as const)("retains image polling when cancel returns %s", async status => {
+    localStorage.setItem(key(), "job-running");
+    let release!: (job: unknown) => void;
+    mocks.wait.mockReturnValue(new Promise(resolve => { release = resolve; }));
+    mocks.cancel.mockResolvedValue({ id: "job-running", status });
+    await act(async () => root.render(<Harness />));
+    const options = mocks.wait.mock.calls[0][1];
+    await act(async () => current.stop());
+    expect(options.signal.aborted).toBe(false);
+    expect(localStorage.getItem(key())).toBe("job-running");
+    await act(async () => {
+      const job = { id: "job-running", status };
+      options.onProgress(job);
+      release(job);
+    });
+    if (status === "succeeded") expect(current.result[0].assetId).toBe("result");
+    else expect(callbacks.onError).toHaveBeenCalledOnce();
+    expect(callbacks.onStopped).not.toHaveBeenCalled();
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates cancellation and ignores its delayed reply after completion", async () => {
+    localStorage.setItem(key(), "job-running");
+    let finish!: (job: unknown) => void;
+    let cancel!: (job: unknown) => void;
+    mocks.wait.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    mocks.cancel.mockReturnValue(new Promise(resolve => { cancel = resolve; }));
+    await act(async () => root.render(<Harness />));
+    let stopping!: Promise<void>;
+    await act(async () => { stopping = current.stop(); await current.stop(); });
+    expect(mocks.cancel).toHaveBeenCalledOnce();
+    await act(async () => finish({ id: "job-running", status: "succeeded" }));
+    await act(async () => { cancel({ id: "job-running", status: "canceled" }); await stopping; });
+    expect(current.result[0].assetId).toBe("result");
+    expect(callbacks.onStopped).not.toHaveBeenCalled();
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
+
   it("clears an authoritative missing task ID without automatically submitting a replacement", async () => {
     localStorage.setItem(key(), "job-missing");
     mocks.wait.mockRejectedValueOnce(new ApiError("job not found", 404));

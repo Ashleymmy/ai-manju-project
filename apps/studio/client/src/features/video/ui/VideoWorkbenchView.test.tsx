@@ -67,6 +67,58 @@ async function render() { await act(async () => root.render(<QueryClientProvider
 async function edit() { await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="重新编辑提示词和参考素材"]')!.click()); }
 
 describe("视频历史消息重新编辑", () => {
+  it.each(["succeeded", "failed"] as const)("keeps the original result when cancel returns %s", async status => {
+    vi.useFakeTimers();
+    const history = conversations();
+    Object.assign(history[0].messages[1], { taskId: "job-running", taskProvider: "openai", taskStatus: "running" });
+    mocks.load.mockResolvedValue(history);
+    mocks.poll.mockResolvedValueOnce({ status: "pending" }).mockResolvedValueOnce(status === "succeeded"
+      ? { status: "completed", result: { url: "", assetId: "finished-video", scope: "personal" } }
+      : { status: "failed", error: "Original failure" });
+    mocks.cancel.mockResolvedValue({ id: "job-running", status });
+    await render();
+    const signal = mocks.poll.mock.calls[0][2].signal;
+    await act(async () => container.querySelector<HTMLButtonElement>(".wb-task-cancel")!.click());
+    expect(signal.aborted).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    if (status === "succeeded") expect(container.querySelector('img[src*="finished-video"]')).not.toBeNull();
+    else expect(container.textContent).toContain("Original failure");
+    expect(container.textContent).not.toContain("任务已取消");
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite a received video with a late canceled reply", async () => {
+    vi.useFakeTimers();
+    const history = conversations();
+    Object.assign(history[0].messages[1], { taskId: "job-running", taskProvider: "openai", taskStatus: "running" });
+    mocks.load.mockResolvedValue(history);
+    mocks.poll.mockResolvedValueOnce({ status: "pending" }).mockResolvedValueOnce({ status: "completed", result: { url: "", assetId: "finished-video", scope: "personal" } });
+    let resolveCancel!: (value: unknown) => void;
+    mocks.cancel.mockReturnValue(new Promise(resolve => { resolveCancel = resolve; }));
+    await render();
+    await act(async () => container.querySelector<HTMLButtonElement>(".wb-task-cancel")!.click());
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    await act(async () => resolveCancel({ id: "job-running", status: "canceled" }));
+    expect(container.querySelector('img[src*="finished-video"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("任务已取消");
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
+
+  it("reconnects an interrupted poll when cancel returns the completed status", async () => {
+    const history = conversations();
+    Object.assign(history[0].messages[1], { taskId: "job-running", taskProvider: "openai", taskStatus: "running" });
+    mocks.load.mockResolvedValue(history);
+    mocks.poll.mockRejectedValueOnce(new Error("poll interrupted"))
+      .mockResolvedValueOnce({ status: "completed", result: { url: "", assetId: "finished-video", scope: "personal" } });
+    mocks.cancel.mockResolvedValue({ id: "job-running", status: "succeeded" });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await render();
+    await act(async () => container.querySelector<HTMLButtonElement>(".wb-task-cancel")!.click());
+    expect(mocks.poll).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('img[src*="finished-video"]')).not.toBeNull();
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
+
   it("keeps recovering the accepted task beyond 120 polls", async () => {
     vi.useFakeTimers();
     const history = conversations();

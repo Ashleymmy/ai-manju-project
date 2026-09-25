@@ -1365,7 +1365,7 @@ func (c *OpenAICompatibleClient) ProxyBlob(ctx context.Context, method string, p
 	}
 	defer res.Body.Close()
 
-	responseBody, err := io.ReadAll(io.LimitReader(res.Body, maxProviderBinaryResponseBytes))
+	responseBody, err := readProviderBinaryResponse(res, maxProviderBinaryResponseBytes)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1381,6 +1381,22 @@ func (c *OpenAICompatibleClient) ProxyBlob(ctx context.Context, method string, p
 		}
 	}
 	return responseBody, res.Header.Get("Content-Type"), nil
+}
+
+// Read one extra byte so an oversized upstream response cannot become a
+// successful but truncated media file, including chunked/unknown-length bodies.
+func readProviderBinaryResponse(res *http.Response, limit int64) ([]byte, error) {
+	if res.ContentLength > limit {
+		return nil, errors.New("provider binary response exceeds size limit")
+	}
+	data, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, errors.New("provider binary response exceeds size limit")
+	}
+	return data, nil
 }
 
 func normalizeImageGenerationResponse(payload json.RawMessage, fallbackModel string) (ImageGenerationResponse, error) {

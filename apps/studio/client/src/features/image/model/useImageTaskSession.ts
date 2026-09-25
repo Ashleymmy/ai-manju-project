@@ -4,7 +4,7 @@ import type { WorkspaceScope } from "@/shared/config";
 import { ApiError } from "@/shared/api/http";
 import { generateImages, generatedImagesFromJob, waitForImageJob, type GeneratedImage, type ImageGenerationInput } from "../api";
 
-type ActiveTask = { key: string; scope: WorkspaceScope; controller: AbortController; jobId?: string };
+type ActiveTask = { key: string; scope: WorkspaceScope; controller: AbortController; jobId?: string; cancelling?: boolean };
 type Callbacks = {
   onCompleted(images: GeneratedImage[]): void;
   onError(error: unknown): void;
@@ -133,14 +133,17 @@ export function useImageTaskSession(ownerId: string, scope: WorkspaceScope, call
 
   const stop = useCallback(async () => {
     const task = activeRef.current;
-    if (!task || !isCurrent(task)) return;
+    if (!task || !isCurrent(task) || task.cancelling) return;
     if (task.jobId) {
+      task.cancelling = true;
       try {
         const canceled = await cancelJob(task.jobId, task.scope);
         if (!isCurrent(task) || canceled.status !== "canceled") return;
       } catch (error) {
         if (isCurrent(task)) callbacksRef.current.onError(error);
         return;
+      } finally {
+        task.cancelling = false;
       }
       forget(task);
     }

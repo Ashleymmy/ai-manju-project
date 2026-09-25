@@ -113,6 +113,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   const mountedRef = useRef(false);
   const conversationsRef = useRef<VideoWorkbenchConversation[]>([]);
   const pollingRef = useRef(new Map<string, AbortController>());
+  const cancellingTasksRef = useRef(new Set<string>());
   const objectUrlsRef = useRef(new Set<string>());
   const assetMentionCacheRef = useRef<{ at: number; items: MentionCandidate[] }>({ at: 0, items: [] });
   const resultUrlsRef = useRef<Record<string, string>>({});
@@ -529,7 +530,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
       setRuntime(message.id, { status: "failed", error: errorText });
       toastGenerationError(error, "视频生成失败", () => navigate("/member/plans"));
     } finally {
-      pollingRef.current.delete(message.id);
+      if (pollingRef.current.get(message.id) === controller) pollingRef.current.delete(message.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patchMessage, setRuntime]);
@@ -634,29 +635,49 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   }, [completeVideoTask, patchMessage, setRuntime]);
 
   const handleCancelTask = useCallback(async (message: VideoWorkbenchMessage) => {
-    if (!currentConversation) return;
+    if (!currentConversation || cancellingTasksRef.current.has(message.id)) return;
+    const conversationId = currentConversation.id;
+    const currentMessage = () => {
+      const current = conversationsRef.current.find(item => item.id === conversationId)?.messages.find(item => item.id === message.id);
+      return mountedRef.current && current && current.taskId === message.taskId
+        && current.taskStatus !== "succeeded" && current.taskStatus !== "failed" && current.taskStatus !== "canceled" ? current : null;
+    };
+    const keepReceivingResult = () => {
+      const current = currentMessage();
+      if (current?.taskId && !pollingRef.current.has(message.id)) void resumeTaskPolling(conversationId, current);
+    };
+    cancellingTasksRef.current.add(message.id);
     setRuntime(message.id, { cancelling: true });
-    if (message.taskId && (message.taskProvider === "openai" || message.taskId.startsWith("job_"))) {
-      try {
-        const canceled = await cancelJob(message.taskId, pickerScope);
-        // Completion can win the race with cancel; let the active poll report it.
-        if (canceled.status !== "canceled") {
-          setRuntime(message.id, { cancelling: false });
+    try {
+      if (message.taskId) {
+        if (!(message.taskProvider === "openai" || message.taskId.startsWith("job_") || message.taskId.startsWith("sdv_"))) {
+          toast.warning("任务已提交，当前通道暂不支持取消，将继续同步结果");
+          keepReceivingResult();
           return;
         }
-      } catch (error) {
-        toast.error(publicApiError(error, "取消任务失败，任务仍可恢复"));
-        setRuntime(message.id, { cancelling: false });
-        return;
+        const canceled = await cancelJob(message.taskId, pickerScope);
+        // Only confirmed cancellation may stop receiving this task's result.
+        if (canceled.status !== "canceled") {
+          keepReceivingResult();
+          return;
+        }
       }
+      if (!currentMessage()) return;
+      pollingRef.current.get(message.id)?.abort();
+      pollingRef.current.delete(message.id);
+      patchMessage(conversationId, message.id, { taskStatus: "canceled", taskError: "已手动取消" });
+      setRuntime(message.id, { status: "canceled" });
+      toast.message("已取消生成");
+    } catch (error) {
+      if (currentMessage()) {
+        toast.error(publicApiError(error, "取消任务失败，将继续同步原任务结果"));
+        keepReceivingResult();
+      }
+    } finally {
+      cancellingTasksRef.current.delete(message.id);
+      if (mountedRef.current) setRuntime(message.id, { cancelling: false });
     }
-    // Keep receiving the original result until the server confirms cancellation.
-    pollingRef.current.get(message.id)?.abort();
-    pollingRef.current.delete(message.id);
-    patchMessage(currentConversation.id, message.id, { taskStatus: "canceled", taskError: "已手动取消" });
-    setRuntime(message.id, { status: "canceled", cancelling: false });
-    toast.message("已取消生成");
-  }, [currentConversation, patchMessage, pickerScope, setRuntime]);
+  }, [currentConversation, patchMessage, pickerScope, resumeTaskPolling, setRuntime]);
 
   /** 从消息附件恢复可提交的参考素材（本地仓/资产库读回文件）。 */
   const restorePayloadFromMessages = useCallback(async (userMessage: VideoWorkbenchMessage, systemMessage?: VideoWorkbenchMessage): Promise<SubmitPayload> => {

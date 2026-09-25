@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"compress/zlib"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -21,6 +23,8 @@ const (
 	redisCommandTimeout = 5 * time.Second
 	// Kombu's standard zlib codec keeps inline media from multiplying Redis traffic.
 	celeryCompressionThreshold = 256 * 1024
+	// Kombu Redis tracks each delivery by this tag, independently of task ID.
+	celeryDeliveryTagBytes = 16
 )
 
 type CeleryRedisProducer struct {
@@ -100,6 +104,10 @@ func celeryMessagePayload(message TaskMessage) ([]byte, error) {
 			compression = "application/x-gzip"
 		}
 	}
+	var deliveryTag [celeryDeliveryTagBytes]byte
+	if _, err := rand.Read(deliveryTag[:]); err != nil {
+		return nil, fmt.Errorf("generate celery delivery tag: %w", err)
+	}
 	envelope := map[string]any{
 		"body":             base64.StdEncoding.EncodeToString(bodyJSON),
 		"content-encoding": "utf-8",
@@ -117,7 +125,7 @@ func celeryMessagePayload(message TaskMessage) ([]byte, error) {
 		},
 		"properties": map[string]any{
 			"correlation_id": message.JobID,
-			"delivery_tag":   message.JobID,
+			"delivery_tag":   hex.EncodeToString(deliveryTag[:]),
 			"reply_to":       "",
 			"delivery_mode":  2,
 			"delivery_info": map[string]any{

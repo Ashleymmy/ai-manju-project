@@ -213,6 +213,87 @@ function createHarness(
 }
 
 describe("CanvasGenerationJobsController", () => {
+  it.each(["image", "video"] as const)("retains an accepted %s result when completion wins against cancellation", async kind => {
+    const services = videoHistoryServices();
+    services.cancelJob = vi.fn(async id => ({ id, type: `${kind}.generate`, status: "succeeded" as const, state: "succeeded" as const }));
+    let signal: AbortSignal | undefined;
+    let complete!: () => void;
+    if (kind === "image") {
+      services.generateImages = vi.fn((_input, callbacks) => new Promise((resolve, reject) => {
+        signal = callbacks!.signal;
+        callbacks?.onAccepted?.({ id: "job-image", status: "running" });
+        complete = () => resolve({ images: [{ id: "result", assetId: "result", src: "" }] });
+        signal!.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      }));
+    } else {
+      services.pollVideoGenerationTask = vi.fn((_config, _task, options) => new Promise((resolve, reject) => {
+        signal = options!.signal;
+        complete = () => resolve({ status: "completed", result: { url: "", assetId: "result", fileName: "result.mp4", mimeType: "video/mp4" } });
+        signal!.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      }));
+    }
+    const source = imageNode({ kind, metadata: { generationMode: kind, prompt: "Generate" } });
+    const harness = createHarness([source], services);
+    const running = harness.controller.generateFromNode(source.id);
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    await harness.controller.stopGenerationByNodeId(source.id);
+    expect(signal!.aborted).toBe(false);
+    expect(harness.nodes[0].metadata?.status).toBe("loading");
+    expect(harness.nodes[0].metadata?.jobId).toBeTruthy();
+    expect(harness.runningIds.has(source.id)).toBe(true);
+    complete();
+    await running;
+    expect(harness.nodes[0].metadata?.status).toBe("success");
+    expect(kind === "image" ? harness.nodes[0].imageAssetId : harness.nodes[0].metadata?.assetId).toBe("result");
+    expect(kind === "image" ? services.generateImages : services.createVideoGenerationTask).toHaveBeenCalledOnce();
+  });
+
+  it.each(["failed", "network"] as const)("preserves accepted video polling after a %s cancel response", async outcome => {
+    const services = videoHistoryServices();
+    services.cancelJob = outcome === "network"
+      ? vi.fn(async () => { throw new Error("network unavailable"); })
+      : vi.fn(async id => ({ id, type: "video.generate", status: "failed" as const, state: "failed" as const }));
+    let signal: AbortSignal | undefined;
+    let complete!: () => void;
+    services.pollVideoGenerationTask = vi.fn((_config, _task, options) => new Promise(resolve => {
+      signal = options!.signal;
+      complete = () => resolve({ status: "failed", error: "Original provider failure" });
+    }));
+    const source = videoNode();
+    const harness = createHarness([source], services);
+    const running = harness.controller.generateFromNode(source.id);
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    await harness.controller.stopGenerationByNodeId(source.id);
+    expect(signal!.aborted).toBe(false);
+    expect(harness.nodes[0].metadata?.jobId).toBeTruthy();
+    complete();
+    await running;
+    expect(harness.nodes[0].metadata?.errorDetails).toBe("Original provider failure");
+    expect(services.createVideoGenerationTask).toHaveBeenCalledOnce();
+  });
+
+  it("ignores a delayed cancellation reply after the original result is applied", async () => {
+    const services = videoHistoryServices();
+    let respond!: (job: Awaited<ReturnType<CanvasGenerationServices["cancelJob"]>>) => void;
+    services.cancelJob = vi.fn(() => new Promise(resolve => { respond = resolve; }));
+    let complete!: () => void;
+    services.pollVideoGenerationTask = vi.fn(() => new Promise(resolve => {
+      complete = () => resolve({ status: "completed", result: { url: "", assetId: "result" } });
+    }));
+    const harness = createHarness([videoNode()], services);
+    const running = harness.controller.generateFromNode("video-1");
+    await vi.waitFor(() => expect(services.pollVideoGenerationTask).toHaveBeenCalledOnce());
+    const stopping = harness.controller.stopGenerationByNodeId("video-1");
+    await harness.controller.stopGenerationByNodeId("video-1");
+    expect(services.cancelJob).toHaveBeenCalledOnce();
+    complete();
+    await running;
+    respond({ id: "job-1", type: "video.generate", status: "canceled", state: "canceled" });
+    await stopping;
+    expect(harness.nodes[0].metadata?.status).toBe("success");
+    expect(harness.nodes[0].metadata?.assetId).toBe("result");
+  });
+
   it("retries a transient recovery lookup without failing or resubmitting the accepted video", async () => {
     const services = videoHistoryServices();
     services.getJobs = vi.fn().mockRejectedValueOnce(new ApiError("temporary", 429)).mockResolvedValueOnce({ items: [{
