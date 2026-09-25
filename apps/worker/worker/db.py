@@ -237,6 +237,43 @@ class JobStore:
                     ),
                 )
                 row = cur.fetchone() or {}
+                # Keep queue visibility separate from the lifecycle counters.
+                # A queued job can be waiting for a provider slot or retry
+                # backoff; reporting those phases makes a long "preparing"
+                # state actionable without exposing payloads or provider data.
+                cur.execute(
+                    """
+                    SELECT COALESCE(queue_phase, '') AS phase, COUNT(*) AS count
+                      FROM jobs
+                     WHERE status = %s
+                     GROUP BY COALESCE(queue_phase, '')
+                     ORDER BY phase
+                    """,
+                    (JOB_STATUS_QUEUED,),
+                )
+                queue_phase_counts = {
+                    str(item["phase"] or ""): int(item["count"] or 0)
+                    for item in cur.fetchall()
+                }
+                cur.execute(
+                    """
+                    SELECT
+                        COALESCE(MAX(EXTRACT(EPOCH FROM (timezone('utc', now()) - created_at))
+                            FILTER (WHERE status = %s)), 0) AS oldest_queued_seconds,
+                        COALESCE(MAX(EXTRACT(EPOCH FROM (timezone('utc', now()) - created_at))
+                            FILTER (WHERE status = %s)), 0) AS oldest_running_seconds,
+                        COALESCE(MAX(EXTRACT(EPOCH FROM (timezone('utc', now()) - created_at))
+                            FILTER (WHERE status = %s AND queue_phase = 'waiting_provider_slot')), 0)
+                            AS oldest_waiting_provider_slot_seconds,
+                        COUNT(*) FILTER (WHERE status = %s AND queue_phase IN
+                            ('image_recovery_attention', 'video_recovery_attention',
+                             'image_submission_uncertain', 'video_submission_uncertain'))
+                            AS recovery_attention_count
+                      FROM jobs
+                    """,
+                    (JOB_STATUS_QUEUED, JOB_STATUS_RUNNING, JOB_STATUS_QUEUED, JOB_STATUS_QUEUED),
+                )
+                age_row = cur.fetchone() or {}
         queued = int(row.get("queued") or 0)
         running = int(row.get("running") or 0)
         succeeded = int(row.get("succeeded") or 0)
@@ -253,6 +290,13 @@ class JobStore:
             "backlog": queued + running,
             "avg_latency_seconds": float(row.get("avg_latency_seconds") or 0),
             "avg_run_seconds": float(row.get("avg_run_seconds") or 0),
+            "queue_phase_counts": queue_phase_counts,
+            "oldest_queued_seconds": max(0.0, float(age_row.get("oldest_queued_seconds") or 0)),
+            "oldest_running_seconds": max(0.0, float(age_row.get("oldest_running_seconds") or 0)),
+            "oldest_waiting_provider_slot_seconds": max(
+                0.0, float(age_row.get("oldest_waiting_provider_slot_seconds") or 0)
+            ),
+            "recovery_attention_count": int(age_row.get("recovery_attention_count") or 0),
         }
 
     def mark_running(self, job_id: str, progress: int = 5) -> dict[str, Any] | None:
