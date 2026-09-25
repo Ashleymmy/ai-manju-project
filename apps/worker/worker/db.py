@@ -259,11 +259,11 @@ class JobStore:
                     """
                     SELECT
                         COALESCE(MAX(EXTRACT(EPOCH FROM (now() - created_at))
-                            FILTER (WHERE status = %s)), 0) AS oldest_queued_seconds,
+                            FILTER (WHERE status = %s), 0) AS oldest_queued_seconds,
                         COALESCE(MAX(EXTRACT(EPOCH FROM (now() - created_at))
-                            FILTER (WHERE status = %s)), 0) AS oldest_running_seconds,
+                            FILTER (WHERE status = %s), 0) AS oldest_running_seconds,
                         COALESCE(MAX(EXTRACT(EPOCH FROM (now() - created_at))
-                            FILTER (WHERE status = %s AND queue_phase = 'waiting_provider_slot')), 0)
+                            FILTER (WHERE status = %s AND queue_phase = 'waiting_provider_slot'), 0)
                             AS oldest_waiting_provider_slot_seconds,
                         COUNT(*) FILTER (WHERE status = %s AND queue_phase IN
                             ('image_recovery_attention', 'video_recovery_attention',
