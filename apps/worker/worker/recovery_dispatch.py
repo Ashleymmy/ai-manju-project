@@ -30,8 +30,8 @@ def execution_recovery_fields(payload, kwargs):
 def automatic_recovery_allowed(job, now=None):
     """Read-only guard under the Worker job lock; no administrator ACK/reset.
 
-    Running is permitted on broker redelivery after a Worker crash, once its
-    advisory lock is free. The API only schedules explicitly queued recovery.
+    Running is permitted after a Worker crash, once its advisory lock is free.
+    The API can restore stale running deliveries as well as queued recovery.
     """
     if job.get("status") not in {"queued", "running"} or job.get("external_provider") or job.get("type") not in RECOVERY_JOB_TYPES:
         return False

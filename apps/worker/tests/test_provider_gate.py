@@ -145,5 +145,82 @@ class ProviderGateExpiredWaiterTest(unittest.TestCase):
         self.assertEqual(self.client.llen(self.gate.ring_key), 0)
 
 
+@unittest.skipUnless(os.getenv("REDIS_TEST_URL"), "REDIS_TEST_URL is required for Redis gate integration")
+class ProviderGateProcessRecoveryTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.gate_key = f"test-{uuid4().hex}"
+        self.gate = self.new_worker_gate()
+        self.client = self.gate.client
+
+    def new_worker_gate(self) -> ProviderGate:
+        return ProviderGate(os.environ["REDIS_TEST_URL"], self.gate_key, lease_seconds=30)
+
+    def tearDown(self) -> None:
+        keys = list(self.client.scan_iter(f"{self.gate.prefix}*"))
+        if keys:
+            self.client.delete(*keys)
+
+    def test_replacement_worker_resumes_own_slot_at_capacity_one(self) -> None:
+        self.assertTrue(self.gate.acquire("owner", "original", 1).acquired)
+        self.assertFalse(self.gate.acquire("other", "waiting", 1).acquired)
+        # The process died without release(). Its replacement already holds
+        # the original Job execution lock, but is a fresh ProviderGate instance.
+        old_expiry = int(time.time() * 1000) + 5000
+        self.client.zadd(self.gate.active_key, {"original": old_expiry})
+        replacement = self.new_worker_gate()
+        self.assertTrue(replacement.acquire("owner", "original", 1).acquired)
+        self.assertEqual(self.client.zcard(self.gate.active_key), 1)
+        self.assertGreater(self.client.zscore(self.gate.active_key, "original"), old_expiry)
+        self.assertFalse(self.client.exists(self.gate._ticket_key("original")))
+        self.assertFalse(self.client.exists(self.gate._workspace_key("owner")))
+        self.assertEqual(self.client.lrange(self.gate.ring_key, 0, -1), ["other"])
+        self.assertEqual(self.client.lrange(self.gate._workspace_key("other"), 0, -1), ["waiting"])
+        self.assertFalse(replacement.acquire("other", "waiting", 1).acquired)
+        replacement.release("original")
+        self.assertTrue(replacement.acquire("other", "waiting", 1).acquired)
+
+    def test_resume_removes_only_its_legacy_waiter_and_preserves_other_lease(self) -> None:
+        self.assertTrue(self.gate.acquire("owner", "original", 2).acquired)
+        self.assertTrue(self.gate.acquire("other", "active-other", 2).acquired)
+        self.assertFalse(self.gate.acquire("owner", "waiting", 2).acquired)
+        other_expiry = self.client.zscore(self.gate.active_key, "active-other")
+        self.client.rpush(self.gate._workspace_key("owner"), "original")
+        self.client.set(self.gate._ticket_key("original"), "owner", px=60000)
+        replacement = self.new_worker_gate()
+        self.assertTrue(replacement.acquire("owner", "original", 2).acquired)
+        self.assertEqual(self.client.zcard(self.gate.active_key), 2)
+        self.assertEqual(self.client.zscore(self.gate.active_key, "active-other"), other_expiry)
+        self.assertEqual(self.client.lrange(self.gate._workspace_key("owner"), 0, -1), ["waiting"])
+        self.assertEqual(self.client.lrange(self.gate.ring_key, 0, -1), ["owner"])
+        self.assertTrue(self.client.exists(self.gate._ticket_key("waiting")))
+        self.assertFalse(self.client.exists(self.gate._ticket_key("original")))
+
+    def test_resume_respects_cooldown_without_adding_another_waiter(self) -> None:
+        self.assertTrue(self.gate.acquire("owner", "original", 1).acquired)
+        old_expiry = self.client.zscore(self.gate.active_key, "original")
+        self.gate.set_cooldown(60)
+        replacement = self.new_worker_gate()
+        decision = replacement.acquire("owner", "original", 1)
+        self.assertFalse(decision.acquired)
+        self.assertGreaterEqual(decision.retry_after_seconds, 59)
+        self.assertEqual(self.client.zscore(self.gate.active_key, "original"), old_expiry)
+        self.assertFalse(self.client.exists(self.gate._ticket_key("original")))
+        self.assertFalse(self.client.exists(self.gate._workspace_key("owner")))
+        self.assertEqual(self.client.llen(self.gate.ring_key), 0)
+        self.client.delete(self.gate.cooldown_key)
+        self.assertTrue(replacement.acquire("owner", "original", 1).acquired)
+
+    def test_expired_original_lease_does_not_skip_other_waiters(self) -> None:
+        self.assertTrue(self.gate.acquire("owner", "original", 1).acquired)
+        self.assertFalse(self.gate.acquire("other", "waiting", 1).acquired)
+        self.client.zadd(self.gate.active_key, {"original": int(time.time() * 1000) - 1})
+        replacement = self.new_worker_gate()
+        self.assertFalse(replacement.acquire("owner", "original", 1).acquired)
+        self.assertTrue(replacement.acquire("other", "waiting", 1).acquired)
+        self.assertEqual(self.client.lrange(self.gate._workspace_key("owner"), 0, -1), ["original"])
+        replacement.release("waiting")
+        self.assertTrue(replacement.acquire("owner", "original", 1).acquired)
+
+
 if __name__ == "__main__":
     unittest.main()

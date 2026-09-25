@@ -166,6 +166,31 @@ class RecoveryDispatchTest(unittest.TestCase):
         self.assertEqual(store.checkpoints.checkpoint["recovery"], original)
         self.assertEqual(store.ack_count, 0)
 
+    def test_orphaned_running_video_only_resumes_original_task(self):
+        store = self.automatic_store()
+        store.job.update(status="running", queue_phase="", worker_retry_at=None)
+        original = copy.deepcopy(store.checkpoints.checkpoint["recovery"])
+        completed = {"id": "original-paid-task", "status": "succeeded", "content": {"video_url": "https://cdn.test/video"}}
+        replies = [FakeVideoResponse(completed), FakeVideoResponse(content=b"video", content_type="video/mp4")]
+        with patch.object(video.requests, "post") as post, patch.object(video.requests, "get", side_effect=replies) as get:
+            result = tasks.execute_job(FakeTask(0), "job", self.automatic_payload(), video.generate_video, "video")
+            self.assertEqual(result["status"], "succeeded")
+            self.assertEqual(get.call_count, 2)
+            post.assert_not_called()
+        self.assertEqual(store.checkpoints.checkpoint["recovery"], original)
+        self.assertEqual(store.ack_count, 0)
+
+    def test_orphaned_running_submission_without_receipt_never_posts(self):
+        store = self.automatic_store()
+        store.job.update(status="running", queue_phase="", worker_retry_at=None)
+        store.checkpoints.checkpoint.update(phase="submission_intent", provider_task_id="")
+        with patch.object(video.requests, "post") as post, patch.object(video.requests, "get") as get:
+            result = tasks.execute_job(FakeTask(0), "job", self.automatic_payload(), video.generate_video, "video")
+            self.assertTrue(result["recovery_ignored"])
+            post.assert_not_called()
+            get.assert_not_called()
+        self.assertEqual(store.ack_count, 0)
+
     def test_automatic_mode_is_trusted_only_and_never_reaches_executor(self):
         _, untrusted = tasks.extract_request(("job",), {"payload": self.automatic_payload()})
         self.assertNotIn(RECOVERY_AUTOMATIC_FIELD, untrusted)

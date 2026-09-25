@@ -37,6 +37,13 @@ type jobDispatchEnvelope struct {
 // no additional credential or plaintext execution configuration is introduced.
 func (s *JobService) EnableDurableDispatch(box provider.SecretBox) { s.dispatchBox = &box }
 
+func (s *JobService) dispatchTime() time.Time {
+	if s.dispatchNow != nil {
+		return s.dispatchNow().UTC()
+	}
+	return time.Now().UTC()
+}
+
 func (s *JobService) prepareDispatch(job *model.Job, kwargs map[string]any) error {
 	if s.dispatchBox == nil {
 		return nil
@@ -86,7 +93,7 @@ func (s *JobService) dispatchJob(ctx context.Context, id string) error {
 		if job.DispatchState == repository.JobDispatchRecoveryPending || job.DispatchState == repository.JobDispatchRecoveryPublished {
 			return s.dispatchNativeRecovery(ctx, job)
 		}
-		if repository.ProviderRetryScheduled(job, time.Now().UTC()) {
+		if repository.ProviderRetryScheduled(job, s.dispatchTime()) {
 			return nil
 		}
 		if repository.CanAutomaticallyRecoverNative(job) {
@@ -98,13 +105,13 @@ func (s *JobService) dispatchJob(ctx context.Context, id string) error {
 		restoreProviderWait := repository.CanRedispatchProviderWait(job)
 		ordinaryQueuePhase := job.QueuePhase == "" || job.QueuePhase == model.JobQueueWaitingDispatch
 		if job.Status != model.JobStatusQueued || (job.StartedAt != nil && !restoreProviderWait) || (!ordinaryQueuePhase && !restoreProviderWait) || (job.DispatchState == model.JobDispatchObserved && !restoreProviderWait) {
-			next := time.Now().UTC().Add(jobDispatchReceiptGrace)
+			next := s.dispatchTime().Add(jobDispatchReceiptGrace)
 			return s.repo.UpdateDispatch(id, model.JobDispatchObserved, &next, false)
 		}
-		if job.DispatchNextAttemptAt != nil && job.DispatchNextAttemptAt.After(time.Now().UTC()) {
+		if job.DispatchNextAttemptAt != nil && job.DispatchNextAttemptAt.After(s.dispatchTime()) {
 			return nil
 		}
-		next := time.Now().UTC().Add(jobDispatchRetryDelay)
+		next := s.dispatchTime().Add(jobDispatchRetryDelay)
 		// Bound and space all failures, including decryption/configuration errors.
 		if err := s.repo.UpdateDispatch(id, model.JobDispatchPending, &next, false); err != nil {
 			return err
@@ -120,7 +127,7 @@ func (s *JobService) dispatchJob(ctx context.Context, id string) error {
 			// The broker may have accepted the message. Never fail/refund/clean it.
 			return errors.New("task dispatch awaiting broker acknowledgement")
 		}
-		next = time.Now().UTC().Add(jobDispatchReceiptGrace)
+		next = s.dispatchTime().Add(jobDispatchReceiptGrace)
 		return s.repo.UpdateDispatch(id, model.JobDispatchPublished, &next, false)
 	})
 }
@@ -129,7 +136,7 @@ func (s *JobService) DispatchPending(ctx context.Context) error {
 	if s.dispatchBox == nil {
 		return nil
 	}
-	ids, err := s.repo.ListDispatchPendingIDs(time.Now().UTC(), jobDispatchBatchSize)
+	ids, err := s.repo.ListDispatchPendingIDs(s.dispatchTime(), jobDispatchBatchSize)
 	if err != nil {
 		return err
 	}

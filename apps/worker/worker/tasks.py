@@ -56,6 +56,10 @@ celery_app.conf.update(
     },
     task_acks_late=True,
     task_reject_on_worker_lost=True,
+    # Celery 5.6 requeues a hard timeout only when this is false. Retained Job
+    # dispatch/checkpoints also repair lost deliveries; a broker ACK alone must
+    # never be treated as proof that paid work completed.
+    task_acks_on_failure_or_timeout=False,
     task_time_limit=worker_task_timeout,
     task_soft_time_limit=max(1, worker_task_timeout - 5),
     worker_prefetch_multiplier=1,

@@ -153,6 +153,17 @@ const emptyBindings: CanvasGenerationBindings = {
   onError: () => undefined,
 };
 
+type CanvasPromptOptimization = {
+  controller: AbortController;
+  userId: string;
+  projectId: string;
+  projectKey: string;
+  scope: WorkspaceScope;
+  nodeId: string;
+  kind: CanvasNodeData["kind"];
+  prompt: string;
+};
+
 export class CanvasGenerationJobsController {
   private bindings = emptyBindings;
   private readonly requests = new Map<string, CanvasGenerationRequest>();
@@ -163,6 +174,7 @@ export class CanvasGenerationJobsController {
   /** In-memory fallback for browsers where IndexedDB is temporarily unavailable. */
   private readonly pendingAudioUploads = new Map<string, CanvasPendingAudioUpload>();
   private recoveryController?: AbortController;
+  private promptOptimization?: CanvasPromptOptimization;
 
   constructor(
     private readonly services: CanvasGenerationServices = browserCanvasGenerationServices,
@@ -170,9 +182,14 @@ export class CanvasGenerationJobsController {
 
   updateBindings(bindings: CanvasGenerationBindings) {
     this.bindings = bindings;
+    // This runs during render: abort transport without setting React state here.
+    if (this.promptOptimization && !this.promptOptimizationSessionCurrent(this.promptOptimization)) {
+      this.promptOptimization.controller.abort();
+    }
   }
 
   readonly abortAllGenerationRequests = () => {
+    this.cancelPromptOptimization();
     this.recoveryController?.abort();
     this.preparations.forEach(preparation => preparation.controller.abort());
     this.preparations.clear();
@@ -188,6 +205,7 @@ export class CanvasGenerationJobsController {
   };
 
   readonly cancelForRemovedNodes = (removedIds: ReadonlySet<string>) => {
+    if (this.promptOptimization && removedIds.has(this.promptOptimization.nodeId)) this.cancelPromptOptimization();
     const canceledTargetIds = new Set<string>();
     this.preparations.forEach((preparation, preparationId) => {
       const relatedNodeDeleted = removedIds.has(preparation.originNodeId)
@@ -1660,40 +1678,95 @@ export class CanvasGenerationJobsController {
   };
 
   readonly optimizeNodePrompt = async (node: CanvasNodeData, skillPrompt?: string) => {
-    const current = promptTextFromNode(node).trim();
-    if (!current) {
+    if (this.promptOptimization && (!this.promptOptimizationSessionCurrent(this.promptOptimization)
+      || this.promptOptimization.controller.signal.aborted)) this.cancelPromptOptimization();
+    if (this.promptOptimization || this.bindings.isPromptOptimizing()) return;
+    const source = this.bindings.getNodes().find(item => item.id === node.id);
+    const scope = this.bindings.getScope();
+    const projectKey = this.bindings.getProjectKey();
+    if (!source || !scope || !projectKey || this.bindings.isSwitching() || this.bindings.isLoading()) return;
+    const prompt = promptTextFromNode(source);
+    if (!prompt.trim()) {
       this.bindings.onWarning("先写点提示词再优化");
       return;
     }
-    if (this.bindings.isPromptOptimizing()) return;
     const model = this.bindings.getTextModel();
     if (!model) {
       this.bindings.onError("请先配置文本模型");
       return;
     }
+    const optimization: CanvasPromptOptimization = {
+      controller: this.services.createAbortController(), userId: this.bindings.getUserId?.() || "",
+      projectId: this.bindings.getProjectId(), projectKey, scope,
+      nodeId: source.id, kind: source.kind, prompt,
+    };
+    this.promptOptimization = optimization;
     this.bindings.setPromptOptimizing(true);
+    let appliedPrompt: string | undefined;
+    const currentNode = () => this.bindings.getNodes().find(item => item.id === optimization.nodeId);
+    const isCurrent = () => this.promptOptimization === optimization
+      && !optimization.controller.signal.aborted && this.promptOptimizationSessionCurrent(optimization);
+    const promptUnchanged = (expected: string) => {
+      const current = currentNode();
+      return current?.kind === optimization.kind && promptTextFromNode(current) === expected;
+    };
     try {
       const instruction = skillPrompt?.trim()
         || "你是提示词优化专家。在不改变主体与场景的前提下，补足画面、动作、光影与质感细节，直接返回优化后的提示词本身，不要解释。";
       const result = await this.generation(() => this.services.requestAiText({
         model,
-        prompt: `${instruction}\n\n待优化的提示词：\n${current}`,
-      }));
+        prompt: `${instruction}\n\n待优化的提示词：\n${prompt.trim()}`,
+      }, optimization.controller.signal));
+      if (!isCurrent()) return;
+      if (!promptUnchanged(optimization.prompt)) {
+        if (currentNode()) this.bindings.onWarning("提示词已被修改，本次优化结果未覆盖你的编辑");
+        return;
+      }
       const optimized = result.content.trim();
       if (!optimized) {
         this.bindings.onWarning("优化结果为空");
         return;
       }
-      this.updateNodes(nodes => nodes.map(item => (
-        item.id === node.id ? updateCanvasNodeComposer(item, optimized) : item
+      const next = this.updateNodes(nodes => nodes.map(item => (
+        item.id === optimization.nodeId ? updateCanvasNodeComposer(item, optimized) : item
       )));
-      this.bindings.onSuccess("提示词已优化");
+      appliedPrompt = optimized;
+      const saved = await this.persist(next);
+      if (!isCurrent() || !promptUnchanged(optimized)) return;
+      if (saved) this.bindings.onSuccess("提示词已优化");
+      else this.bindings.onWarning("提示词已优化，但画布保存未完成；请保存画布后再离开");
     } catch (error) {
-      this.bindings.onError(publicApiError(error, "优化提示词失败"));
+      if (!isCurrent() || isAbortError(error)) return;
+      if (appliedPrompt !== undefined) {
+        if (promptUnchanged(appliedPrompt)) this.bindings.onWarning("提示词已优化，但画布保存未完成；请保存画布后再离开");
+      } else if (promptUnchanged(optimization.prompt)) {
+        this.bindings.onError(publicApiError(error, "优化提示词失败"));
+      }
     } finally {
-      this.bindings.setPromptOptimizing(false);
+      // A canceled reply may settle after a newer optimization has started.
+      if (this.promptOptimization === optimization) {
+        this.promptOptimization = undefined;
+        this.bindings.setPromptOptimizing(false);
+      }
     }
   };
+
+  private promptOptimizationSessionCurrent(optimization: CanvasPromptOptimization) {
+    return optimization.userId === (this.bindings.getUserId?.() || "")
+      && optimization.projectId === this.bindings.getProjectId()
+      && optimization.projectKey === this.bindings.getProjectKey()
+      && optimization.scope === this.bindings.getScope()
+      && !this.bindings.isSwitching() && !this.bindings.isLoading()
+      && this.bindings.getNodes().some(node => node.id === optimization.nodeId);
+  }
+
+  private cancelPromptOptimization() {
+    const optimization = this.promptOptimization;
+    if (!optimization) return;
+    this.promptOptimization = undefined;
+    optimization.controller.abort();
+    this.bindings.setPromptOptimizing(false);
+  }
 
   dispose() {
     this.abortAllGenerationRequests();

@@ -42,6 +42,26 @@ local ticket_ttl = tonumber(ARGV[6])
 
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now_ms)
 
+local cooldown_until = tonumber(redis.call('GET', KEYS[5]) or '0')
+if redis.call('ZSCORE', KEYS[1], job_id) then
+  -- acquire is called only while holding this job's PostgreSQL execution lock.
+  -- A replacement worker therefore owns the old lease; it must not queue behind
+  -- its own capacity slot. A crashed pre-submit/rejected attempt may also return
+  -- here, so an upstream cooldown still applies before any execution resumes.
+  if cooldown_until > now_ms then
+    return {0, math.max(250, cooldown_until - now_ms)}
+  end
+  redis.call('ZADD', KEYS[1], lease_until, job_id)
+  -- Remove only this job's stale waiter, left by an older worker implementation.
+  redis.call('LREM', KEYS[3], 0, job_id)
+  redis.call('DEL', KEYS[4])
+  if redis.call('LLEN', KEYS[3]) == 0 then
+    redis.call('DEL', KEYS[3])
+    redis.call('LREM', KEYS[2], 0, workspace)
+  end
+  return {1, lease_until}
+end
+
 if redis.call('EXISTS', KEYS[4]) == 0 then
   local queue_was_empty = redis.call('LLEN', KEYS[3]) == 0
   -- A ticket can expire while its list entry survives. Reuse that entry.
@@ -57,7 +77,6 @@ else
   redis.call('PEXPIRE', KEYS[4], ticket_ttl)
 end
 
-local cooldown_until = tonumber(redis.call('GET', KEYS[5]) or '0')
 if cooldown_until > now_ms then
   return {0, math.max(250, cooldown_until - now_ms)}
 end
@@ -164,6 +183,11 @@ return 1
         return f"{self.prefix}:last-workspace"
 
     def acquire(self, workspace_id: str, job_id: str, max_concurrency: int) -> GateDecision:
+        """Acquire/resume a slot while the caller holds JobStore.job_lock(job_id).
+
+        The execution lock guarantees that an existing lease belongs to this
+        sole worker, including redelivery after its previous process died.
+        """
         self._prune_expired_heads()
         now_ms = int(time.time() * 1000)
         lease_until = now_ms + self.lease_seconds * 1000

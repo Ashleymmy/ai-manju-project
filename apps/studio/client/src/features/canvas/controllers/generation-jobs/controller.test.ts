@@ -2065,10 +2065,138 @@ describe("CanvasGenerationJobsController", () => {
     expect(requestAiText).toHaveBeenCalledWith({
       model: "text-model",
       prompt: "保持主体\n\n待优化的提示词：\n一只橘猫",
-    });
+    }, expect.any(AbortSignal));
     expect(harness.nodes[0]?.metadata?.composerContent).toBe("优化后的提示词");
     expect(harness.promptOptimizing).toBe(false);
     expect(harness.onSuccess).toHaveBeenCalledWith("提示词已优化");
+    expect(harness.nodes[0]?.kind).toBe("image");
+    expect(harness.persistSnapshot).toHaveBeenCalledOnce();
+  });
+
+  it("does not replace a prompt edited while optimization is running", async () => {
+    let finish!: (value: { content: string; model: string }) => void;
+    const services = createServices({ requestAiText: vi.fn(() => new Promise(resolve => { finish = resolve; })) });
+    const source = imageNode();
+    const harness = createHarness([source], services);
+    const pending = harness.controller.optimizeNodePrompt(source);
+    harness.bindings.setNodes([{ ...source, metadata: { ...source.metadata, composerContent: "用户的新提示词" } }]);
+    finish({ content: "较旧的优化结果", model: "text-model" });
+    await pending;
+    expect(promptTextFromNode(harness.nodes[0])).toBe("用户的新提示词");
+    expect(harness.persistSnapshot).not.toHaveBeenCalled();
+    expect(harness.onWarning).toHaveBeenCalledWith(expect.stringContaining("未覆盖你的编辑"));
+    expect(harness.promptOptimizing).toBe(false);
+  });
+
+  it.each(["project", "account", "scope", "switching"] as const)("discards optimization after %s changes even if the node ID still exists", async change => {
+    let finish!: (value: { content: string; model: string }) => void;
+    let signal: AbortSignal | undefined;
+    const services = createServices({ requestAiText: vi.fn((_body, suppliedSignal) => {
+      signal = suppliedSignal;
+      return new Promise(resolve => { finish = resolve; });
+    }) });
+    const source = videoNode();
+    const harness = createHarness([source], services);
+    harness.bindings.getUserId = () => "alice";
+    const pending = harness.controller.optimizeNodePrompt(source);
+    const changedBindings = { ...harness.bindings,
+      ...(change === "project" ? { getProjectKey: () => "personal:other", getProjectId: () => "other" } : {}),
+      ...(change === "account" ? { getUserId: () => "bob" } : {}),
+      ...(change === "scope" ? { getScope: () => "team" as const } : {}),
+      ...(change === "switching" ? { isSwitching: () => true } : {}),
+    };
+    harness.controller.updateBindings(changedBindings);
+    expect(signal?.aborted).toBe(true);
+    finish({ content: "原画布的结果", model: "text-model" });
+    await pending;
+    expect(harness.nodes[0]).toEqual(source);
+    expect(harness.persistSnapshot).not.toHaveBeenCalled();
+    expect(harness.onSuccess).not.toHaveBeenCalled();
+    expect(harness.onError).not.toHaveBeenCalled();
+    expect(harness.promptOptimizing).toBe(false);
+  });
+
+  it.each(["delete", "dispose"] as const)("cancels prompt optimization on %s without resurrecting nodes", async action => {
+    let finish!: (value: { content: string; model: string }) => void;
+    let signal: AbortSignal | undefined;
+    const services = createServices({ requestAiText: vi.fn((_body, suppliedSignal) => {
+      signal = suppliedSignal;
+      return new Promise(resolve => { finish = resolve; });
+    }) });
+    const source = imageNode();
+    const harness = createHarness([source], services);
+    const pending = harness.controller.optimizeNodePrompt(source);
+    if (action === "delete") {
+      harness.controller.cancelForRemovedNodes(new Set([source.id]));
+      harness.bindings.setNodes([]);
+    } else harness.controller.dispose();
+    expect(signal?.aborted).toBe(true);
+    expect(harness.promptOptimizing).toBe(false);
+    finish({ content: "已取消的结果", model: "text-model" });
+    await pending;
+    expect(harness.nodes).toEqual(action === "delete" ? [] : [source]);
+    expect(harness.persistSnapshot).not.toHaveBeenCalled();
+    expect(harness.onSuccess).not.toHaveBeenCalled();
+    expect(harness.onError).not.toHaveBeenCalled();
+  });
+
+  it("a canceled optimization cannot clear busy state or overwrite a newer optimization", async () => {
+    const completions: Array<(value: { content: string; model: string }) => void> = [];
+    const services = createServices({ requestAiText: vi.fn(() => new Promise(resolve => { completions.push(resolve); })) });
+    const source = videoNode();
+    const harness = createHarness([source], services);
+    const old = harness.controller.optimizeNodePrompt(source);
+    harness.controller.abortAllGenerationRequests();
+    const latest = harness.controller.optimizeNodePrompt(source);
+    expect(harness.promptOptimizing).toBe(true);
+    completions[0]({ content: "旧结果", model: "text-model" });
+    await old;
+    expect(harness.promptOptimizing).toBe(true);
+    expect(harness.nodes[0]).toEqual(source);
+    completions[1]({ content: "新结果", model: "text-model" });
+    await latest;
+    expect(harness.promptOptimizing).toBe(false);
+    expect(harness.nodes[0].kind).toBe("video");
+    expect(promptTextFromNode(harness.nodes[0])).toBe("新结果");
+    expect(harness.persistSnapshot).toHaveBeenCalledOnce();
+  });
+
+  it.each(["false", "throw"] as const)("reports a %s persistence failure without discarding the optimized prompt or claiming it was saved", async failure => {
+    const services = createServices({ requestAiText: vi.fn(async () => ({ content: "待保存的优化结果", model: "text-model" })) });
+    const source = videoNode();
+    const harness = createHarness([source], services);
+    if (failure === "false") harness.persistSnapshot.mockResolvedValue(false);
+    else harness.persistSnapshot.mockRejectedValue(new Error("save unavailable"));
+    await harness.controller.optimizeNodePrompt(source);
+    expect(promptTextFromNode(harness.nodes[0])).toBe("待保存的优化结果");
+    expect(harness.nodes[0].kind).toBe("video");
+    expect(harness.onSuccess).not.toHaveBeenCalled();
+    expect(harness.onWarning).toHaveBeenCalledWith(expect.stringContaining("画布保存未完成"));
+    expect(harness.promptOptimizing).toBe(false);
+  });
+
+  it("uses the live node prompt instead of a stale node passed by a click handler", async () => {
+    const services = createServices({ requestAiText: vi.fn(async () => ({ content: "优化结果", model: "text-model" })) });
+    const stale = imageNode();
+    const current = { ...stale, metadata: { ...stale.metadata, composerContent: "当前编辑" } };
+    const harness = createHarness([current], services);
+    await harness.controller.optimizeNodePrompt(stale);
+    expect(vi.mocked(services.requestAiText).mock.calls[0][0].prompt).toContain("当前编辑");
+    expect(harness.nodes[0].kind).toBe("image");
+  });
+
+  it("does not persist a reply over a node converted to another type", async () => {
+    let finish!: (value: { content: string; model: string }) => void;
+    const services = createServices({ requestAiText: vi.fn(() => new Promise(resolve => { finish = resolve; })) });
+    const source = imageNode();
+    const harness = createHarness([source], services);
+    const pending = harness.controller.optimizeNodePrompt(source);
+    harness.bindings.setNodes([{ ...source, kind: "video" }]);
+    finish({ content: "旧图片的提示词", model: "text-model" });
+    await pending;
+    expect(harness.nodes[0].kind).toBe("video");
+    expect(harness.nodes[0].content).toBe(source.content);
+    expect(harness.persistSnapshot).not.toHaveBeenCalled();
   });
 
   it("批量生图时每张图使用不同提示词和种子", async () => {

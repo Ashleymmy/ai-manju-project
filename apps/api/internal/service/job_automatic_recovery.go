@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/queue"
@@ -26,7 +25,7 @@ func (s *JobService) dispatchAutomaticNativeRecovery(ctx context.Context, id str
 		if !repository.CanAutomaticallyRecoverNative(job) || job.DispatchState == repository.JobDispatchRecoveryPending || job.DispatchState == repository.JobDispatchRecoveryPublished {
 			return nil
 		}
-		now := time.Now().UTC()
+		now := s.dispatchTime()
 		if repository.ProviderRetryScheduled(job, now) || (job.DispatchNextAttemptAt != nil && job.DispatchNextAttemptAt.After(now)) {
 			return nil
 		}
@@ -50,6 +49,21 @@ func (s *JobService) dispatchAutomaticNativeRecovery(ctx context.Context, id str
 		return nil
 	})
 	if errors.Is(err, repository.ErrJobRecoveryBusy) {
+		// A batch of long-running live Workers must not occupy every oldest
+		// scan slot indefinitely. Only defer this relay observation; preserve the
+		// execution state, checkpoint and Worker retry timer. The dispatch lock
+		// still serializes administrator requests and other relays here.
+		job, readErr := s.repo.GetByID(id)
+		if readErr != nil {
+			return readErr
+		}
+		now := s.dispatchTime()
+		if job.Status == model.JobStatusRunning && repository.CanAutomaticallyRecoverNative(job) &&
+			job.DispatchState != repository.JobDispatchRecoveryPending && job.DispatchState != repository.JobDispatchRecoveryPublished &&
+			(job.DispatchNextAttemptAt == nil || !job.DispatchNextAttemptAt.After(now)) {
+			next := now.Add(jobDispatchReceiptGrace)
+			return s.repo.UpdateDispatch(id, job.DispatchState, &next, false)
+		}
 		return nil
 	}
 	if err != nil || message == nil {

@@ -33,6 +33,9 @@ type JobService struct {
 	// nil-check so disabled deployments keep the exact pre-billing behavior.
 	billing     JobBillingHooks
 	dispatchBox *provider.SecretBox
+	// A single relay clock keeps scan and locked recovery deadlines consistent.
+	// Nil uses UTC wall time; tests can advance it without waiting on real jobs.
+	dispatchNow func() time.Time
 }
 
 func (s *JobService) SetJobInputService(jobInputs *JobInputService) {
