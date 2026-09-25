@@ -430,6 +430,10 @@ func comicCurrentUser(c *gin.Context) (user struct{ ID string }, ok bool) {
 }
 
 func writeComicAssetError(c *gin.Context, operation string, err error) {
+	if errors.Is(err, service.ErrGenerationReceiptUnavailable) {
+		response.Error(c, http.StatusServiceUnavailable, "分析结果恢复服务暂时不可用，任务仍保留，请稍后查看原任务")
+		return
+	}
 	status := http.StatusInternalServerError
 	switch {
 	case errors.Is(err, repository.ErrComicAssetProjectNotFound),

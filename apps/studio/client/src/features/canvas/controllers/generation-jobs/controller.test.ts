@@ -271,7 +271,7 @@ describe("CanvasGenerationJobsController", () => {
   });
 
   it("only clears a receipt after a confirmed failed result and leaves uncertain receipts recoverable", async () => {
-    for (const status of ["failed", "uncertain"]) {
+    for (const status of ["failed", "not_submitted", "uncertain"]) {
       const receipt = { key: "original", kind: "text" as const, userId: "", scope: "personal" as const,
         projectId: "project-1", projectKey: "personal:project-1", nodeId: "image-1", originNodeId: "image-1", prompt: "original", model: "model" };
       const node = imageNode({ kind: "text", metadata: { generationReceipt: receipt } });
@@ -2234,14 +2234,14 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.nodes[0].metadata?.promptOptimizationReceipt).toMatchObject({ state: "received", applied: false, result: "旧图片的提示词" });
   });
 
-  it("keeps uncertain recovery GET-only and permits a new key only after a definitive failure", async () => {
+  it.each(["failed", "not_submitted"])("keeps uncertain recovery GET-only and permits a new key only after %s", async receiptState => {
     const services = createServices({ requestAiText: vi.fn().mockRejectedValue(new Error("unavailable")) });
     const harness = createHarness([imageNode()], services);
     await harness.controller.optimizeNodePrompt(harness.nodes[0]);
     const key = harness.nodes[0].metadata?.promptOptimizationReceipt?.key;
     await harness.controller.optimizeNodePrompt(harness.nodes[0]);
     expect(vi.mocked(services.requestAiText).mock.calls[1][3]).toMatchObject({ key, recoverOnly: true });
-    vi.mocked(services.requestAiText).mockRejectedValueOnce({ receiptState: "failed" });
+    vi.mocked(services.requestAiText).mockRejectedValueOnce({ receiptState });
     await harness.controller.optimizeNodePrompt(harness.nodes[0]);
     expect(harness.nodes[0].metadata?.promptOptimizationReceipt?.state).toBe("failed");
     vi.mocked(services.requestAiText).mockResolvedValueOnce({ content: "新优化", model: "text-model" });

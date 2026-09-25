@@ -243,6 +243,12 @@ func (s *ComicAssetService) CreateAnalysisSession(ctx context.Context, userID st
 	}
 	if input.Async {
 		session.Status = model.ComicAnalysisStatusProcessing
+		if s.analysisReceipts != nil {
+			session.AnalysisReceiptVersion = model.ComicAnalysisReceiptVersion
+			// Separate, unexposed identity prevents a client reconciliation from
+			// claiming the internal operation before its background execution.
+			session.AnalysisReceiptKey = "comic-analysis:" + randomHex(24)
+		}
 		session, err = s.repo.CreatePendingAnalysisSession(session)
 		if err != nil {
 			return ComicAnalysisDetail{}, err
@@ -282,6 +288,15 @@ func (s *ComicAssetService) GetAnalysisSession(sessionID string, userID string, 
 	if err != nil {
 		return ComicAnalysisDetail{}, err
 	}
+	if comicAnalysisHasReceipt(session) {
+		if err := s.restorePendingAnalysisReceipt(session); err != nil {
+			return ComicAnalysisDetail{}, err
+		}
+		session, revisions, err = s.repo.GetAnalysisSession(sessionID, session.WorkspaceID)
+		if err != nil {
+			return ComicAnalysisDetail{}, err
+		}
+	}
 	// A process restart must not leave a saved task looking busy indefinitely.
 	if session.Status == model.ComicAnalysisStatusProcessing && time.Since(session.CreatedAt) > ComicAnalysisTaskTimeout {
 		if err := s.repo.FinishPendingAnalysisSession(session.ID, session.WorkspaceID, nil, comicAnalysisTimeoutMessage); err != nil && !errors.Is(err, repository.ErrComicAssetInvalidState) {
@@ -295,6 +310,8 @@ func (s *ComicAssetService) GetAnalysisSession(sessionID string, userID string, 
 	if err := validateComicAnalysisSession(session); err != nil {
 		return ComicAnalysisDetail{}, err
 	}
+	session.AnalysisRecoveryPending = session.Status == model.ComicAnalysisStatusFailed &&
+		(session.AnalysisError == comicAnalysisTimeoutMessage || session.AnalysisError == ErrComicTextSubmissionUncertain.Error())
 	session.Scope = WorkspaceScopeFromID(session.WorkspaceID)
 	return ComicAnalysisDetail{Session: session, Revisions: revisions}, nil
 }

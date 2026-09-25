@@ -1,5 +1,6 @@
 import { ApiError, getAuthToken } from "@/shared/api/http";
 import type { ComicAnalysisDetail } from "./model";
+import { sha256Hex } from "@/shared/lib/sha256";
 
 // Short GET requests survive ordinary proxy idle timeouts. Keep one extra
 // minute beyond the server's 20-minute task deadline for the final status.
@@ -20,9 +21,7 @@ function pendingStorage(key: string, value?: string | null) {
 
 async function pendingKey(input: unknown) {
   // Persist only an opaque task ID and digest; never store scripts or tokens.
-  if (!globalThis.crypto?.subtle) return "";
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([getAuthToken(), input])));
-  return STORAGE_PREFIX + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return STORAGE_PREFIX + await sha256Hex(JSON.stringify([getAuthToken(), input]));
 }
 
 function transient(error: unknown) {
@@ -49,7 +48,9 @@ export async function awaitComicAnalysis(
   while (Date.now() < deadline) {
     if (detail) {
       if (detail.session.status === "failed") {
-        if (key) pendingStorage(key, null);
+        // A timeout may precede durable result repair. Preserve that session
+        // so the next explicit click reads it instead of charging a new task.
+        if (key && !detail.session.analysis_recovery_pending) pendingStorage(key, null);
         throw new Error(detail.session.analysis_error || "剧本分析未完成，请稍后重试");
       }
       if (detail.session.status !== "processing") {

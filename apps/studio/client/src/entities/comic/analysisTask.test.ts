@@ -50,6 +50,22 @@ describe("background comic analysis", () => {
     expect(sessionStorage.length).toBe(0);
   });
 
+  it.each([true, false])("retains timed-out analysis and recovers on the next click (WebCrypto=%s)", async secure => {
+    if (!secure) vi.stubGlobal("crypto", {});
+    const submit = vi.fn().mockResolvedValue(detail("processing"));
+    const uncertain = detail("failed");
+    uncertain.session.analysis_recovery_pending = true;
+    uncertain.session.analysis_error = "结果尚未确认，请查看原任务";
+    const read = vi.fn().mockResolvedValueOnce(uncertain).mockResolvedValueOnce(detail("active"));
+    await finish(expect(awaitComicAnalysis(submit, read, { script: "same" })).rejects.toThrow("结果尚未确认"));
+    expect(sessionStorage.length).toBe(1);
+    const recovered = await finish(awaitComicAnalysis(submit, read, { script: "same" }));
+    expect(recovered.session.status).toBe("active");
+    expect(submit).toHaveBeenCalledOnce();
+    expect(read).toHaveBeenNthCalledWith(2, "analysis-1");
+    expect(sessionStorage.length).toBe(0);
+  });
+
   it("preserves synchronous compatibility and never retries a failed submission", async () => {
     const read = vi.fn();
     await finish(awaitComicAnalysis(() => Promise.resolve(detail("active")), read, {}));

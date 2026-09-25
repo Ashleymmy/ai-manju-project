@@ -1,4 +1,4 @@
-import { generationReceiptState } from "@/services/api/generationReceipt";
+import { isDefinitiveGenerationReceiptFailure } from "@/services/api/generationReceipt";
 import type { CanvasGenerationReceipt } from "@/features/canvas/domain/generationReceipt";
 import { validPromptOptimizationReceipt, type CanvasPromptOptimizationReceipt } from "@/features/canvas/domain/promptOptimizationReceipt";
 import type { Asset } from "@/entities/asset";
@@ -389,7 +389,7 @@ export class CanvasGenerationJobsController {
     } catch (error) {
       if (!isCurrent() || isAbortError(error)) return false;
       const message = publicApiError(error, "文本生成失败");
-      const failedReceipt = generationReceiptState(error) === "failed";
+      const failedReceipt = isDefinitiveGenerationReceiptFailure(error);
       const next = this.updateNodes(current => failGeneratedTextTarget(current, input.targetNodeId, message).map(node =>
         node.id === input.targetNodeId && receipt ? { ...node, metadata: { ...node.metadata, generationReceipt: failedReceipt ? undefined : receipt } } : node));
       await this.persist(next);
@@ -485,7 +485,7 @@ export class CanvasGenerationJobsController {
         : publicApiError(error, "音频生成失败");
       const next = this.updateNodes(current => {
         const failed = failGeneratedAudioTarget(current, input.targetNodeId, message);
-        if (!pending) return generationReceiptState(error) === "failed"
+        if (!pending) return isDefinitiveGenerationReceiptFailure(error)
           ? failed.map(node => node.id === input.targetNodeId ? { ...node, metadata: { ...node.metadata, generationReceipt: undefined } } : node)
           : failed;
         return failed.map(node => node.id === input.targetNodeId ? {
@@ -1776,7 +1776,7 @@ export class CanvasGenerationJobsController {
         this.bindings.onWarning("优化结果已保留，但画布保存未完成；请保存画布后再离开");
       } else {
         if (!submitted && !recoverOnly) storeReceipt(existing);
-        else if (generationReceiptState(error) === "failed") {
+        else if (isDefinitiveGenerationReceiptFailure(error)) {
           receipt = { ...receipt, state: "failed" };
           try { await this.persist(storeReceipt(receipt)); } catch { /* original server failure remains definitive */ }
           if (!isCurrent()) return;

@@ -18,7 +18,7 @@ import {
   type TextModelCatalog,
 } from "@/services/api/ai";
 import { publicApiError } from "@/shared/api/errors";
-import { generationReceiptState } from "@/services/api/generationReceipt";
+import { isDefinitiveGenerationReceiptFailure } from "@/services/api/generationReceipt";
 import { loadScopedAgentConversations, persistAgentReceiptMessage } from "@/features/canvas/agent/conversationRepository";
 import { agentConversationScopeKey, ownsAgentTextReceipt, type AgentTextReceipt } from "@/features/canvas/agent/textReceipt";
 import {
@@ -548,8 +548,8 @@ export default function AgentPanel({
         setActivity(waiting ? "模型并发繁忙，已进入队列" : "在线模型思考中");
       }, { key: receipt.key, scope: receipt.scope });
     } catch (error) {
-      if (isActiveAgentTurn(turnId) && !signal.aborted && generationReceiptState(error) === "failed") {
-        saveReceiptMessage(assistantId, { ...receipt, state: "failed" }, "本次模型请求已明确失败，可以调整需求后重新发送。");
+      if (isActiveAgentTurn(turnId) && !signal.aborted && isDefinitiveGenerationReceiptFailure(error)) {
+        saveReceiptMessage(assistantId, { ...receipt, state: "failed" }, publicApiError(error, "本次请求未完成，可以调整需求后重新发送。"));
       }
       throw error;
     }
@@ -595,8 +595,8 @@ export default function AgentPanel({
       setActivity("原回复已恢复");
     } catch (error) {
       if (!isActiveAgentTurn(turnId) || isAgentTurnCancelled(error)) return;
-      if (generationReceiptState(error) === "failed") {
-        try { saveReceiptMessage(messageId, { ...receipt, state: "failed" }, "原请求已明确失败，可以调整需求后重新发送。"); }
+      if (isDefinitiveGenerationReceiptFailure(error)) {
+        try { saveReceiptMessage(messageId, { ...receipt, state: "failed" }, publicApiError(error, "原请求未完成，可以调整需求后重新发送。")); }
         catch { /* retain the pending recovery identity if storage is still full */ }
       }
       setMessages(previous => [...previous, { id: `err-${crypto.randomUUID()}`, role: "error", text: publicApiError(error, "原回复暂时无法恢复，未重新提交生成") }]);

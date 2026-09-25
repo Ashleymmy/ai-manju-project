@@ -11,6 +11,9 @@ const (
 	GenerationReceiptStateFailed    = "failed"
 	GenerationReceiptStateUncertain = "uncertain"
 	GenerationReceiptStateExpired   = "expired"
+	// A reconciliation won the initial claim before submission. This key must
+	// never start an execution, even after the normal receipt retention period.
+	GenerationReceiptStateNotSubmitted = "not_submitted"
 )
 
 // GenerationReceipt records submission ownership, never prompts, credentials,

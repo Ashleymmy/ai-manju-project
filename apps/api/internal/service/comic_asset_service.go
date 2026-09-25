@@ -124,15 +124,16 @@ type ComicImageJobResolution struct {
 type ComicImageJobResolver func(userID string, requestedModel string, jobType string) (ComicImageJobResolution, error)
 
 type ComicAssetService struct {
-	repo          repository.ComicAssetRepository
-	jobs          *JobService
-	resolver      ComicImageJobResolver
-	sourceStorage storage.Storage
-	assetService  *AssetService
-	assetFolders  *AssetFolderService
-	jobInputs     *JobInputService
-	assetRefs     repository.AssetReferenceRepository
-	textGenerator ComicTextGenerator
+	repo             repository.ComicAssetRepository
+	jobs             *JobService
+	resolver         ComicImageJobResolver
+	sourceStorage    storage.Storage
+	assetService     *AssetService
+	assetFolders     *AssetFolderService
+	jobInputs        *JobInputService
+	assetRefs        repository.AssetReferenceRepository
+	textGenerator    ComicTextGenerator
+	analysisReceipts *GenerationReceiptService
 }
 
 func NewComicAssetService(repo repository.ComicAssetRepository, jobs *JobService) *ComicAssetService {

@@ -37,9 +37,10 @@ const (
 	generationReceiptIDBytes       = 16
 	generationReceiptTokenBytes    = 32
 	// AES-GCM nonce (12 bytes) plus authentication tag (16 bytes).
-	generationReceiptCipherOverhead   = 28
-	GenerationReceiptFailureMessage   = "生成失败，请查看原任务状态"
-	GenerationReceiptUncertainMessage = "生成结果尚未确认，请查询原任务，不要重复生成"
+	generationReceiptCipherOverhead      = 28
+	GenerationReceiptFailureMessage      = "生成失败，请查看原任务状态"
+	GenerationReceiptUncertainMessage    = "生成结果尚未确认，请查询原任务，不要重复生成"
+	GenerationReceiptNotSubmittedMessage = "该生成请求尚未提交，可重新发起生成"
 )
 
 var (
@@ -184,6 +185,13 @@ func (s *GenerationReceiptService) Begin(ctx context.Context, scope GenerationRe
 		return model.GenerationReceipt{}, false, ErrGenerationReceiptInvalid
 	}
 	if s == nil || !s.ready {
+		// A durable tombstone is authoritative even if the execution/result
+		// subsystem is unavailable. Never insert a running claim in this path.
+		if s != nil && s.repo != nil {
+			if receipt, err := s.repo.Find(ctx, scope.UserID, scope.WorkspaceID, scope.Kind, scope.Key); err == nil && receipt.State == model.GenerationReceiptStateNotSubmitted {
+				return receipt, false, nil
+			}
+		}
 		return model.GenerationReceipt{}, false, ErrGenerationReceiptUnavailable
 	}
 	id, err := generationReceiptRandom(generationReceiptIDBytes)
@@ -200,17 +208,48 @@ func (s *GenerationReceiptService) Begin(ctx context.Context, scope GenerationRe
 	if err != nil {
 		return model.GenerationReceipt{}, false, ErrGenerationReceiptUnavailable
 	}
+	// Reconciliation reserved this key without a request body. Report that
+	// definitive outcome before hash comparison; it never grants execution.
+	if receipt.State == model.GenerationReceiptStateNotSubmitted {
+		return receipt, false, nil
+	}
 	if receipt.RequestHash != requestHash {
 		return receipt, false, ErrGenerationReceiptConflict
 	}
 	return receipt, claimed, nil
 }
 
+// Reconcile atomically closes the gap between persisting a client descriptor
+// and submitting its POST. Begin is the same unique-key claim used by the POST:
+// whichever inserts first wins. Existing executions are returned untouched,
+// without checking result storage, executing generation or acquiring ownership.
+func (s *GenerationReceiptService) Reconcile(ctx context.Context, scope GenerationReceiptScope) (model.GenerationReceipt, error) {
+	if !validGenerationReceiptScope(scope) {
+		return model.GenerationReceipt{}, ErrGenerationReceiptInvalid
+	}
+	if s == nil || s.repo == nil {
+		return model.GenerationReceipt{}, ErrGenerationReceiptUnavailable
+	}
+	id, err := generationReceiptRandom(generationReceiptIDBytes)
+	if err != nil {
+		return model.GenerationReceipt{}, err
+	}
+	now := s.clock()
+	// Empty hash/token deliberately confer no execution binding. Dates satisfy
+	// the existing schema but are not expiry deadlines for permanent tombstones.
+	candidate := model.GenerationReceipt{ID: "gr_" + id, UserID: scope.UserID, WorkspaceID: scope.WorkspaceID, Kind: scope.Kind, Key: scope.Key, State: model.GenerationReceiptStateNotSubmitted, Error: GenerationReceiptNotSubmittedMessage, Deadline: now, ExpiresAt: now}
+	receipt, _, err := s.repo.Begin(ctx, candidate)
+	if err != nil {
+		return model.GenerationReceipt{}, ErrGenerationReceiptUnavailable
+	}
+	return receipt, nil
+}
+
 func (s *GenerationReceiptService) Lookup(ctx context.Context, scope GenerationReceiptScope) (model.GenerationReceipt, *GenerationReceiptResult, error) {
 	if !validGenerationReceiptScope(scope) {
 		return model.GenerationReceipt{}, nil, ErrGenerationReceiptInvalid
 	}
-	if s == nil || !s.ready {
+	if s == nil || s.repo == nil {
 		return model.GenerationReceipt{}, nil, ErrGenerationReceiptUnavailable
 	}
 	receipt, err := s.repo.Find(ctx, scope.UserID, scope.WorkspaceID, scope.Kind, scope.Key)
@@ -219,6 +258,12 @@ func (s *GenerationReceiptService) Lookup(ctx context.Context, scope GenerationR
 	}
 	if err != nil {
 		return model.GenerationReceipt{}, nil, ErrGenerationReceiptUnavailable
+	}
+	if receipt.State == model.GenerationReceiptStateNotSubmitted {
+		return receipt, nil, nil
+	}
+	if !s.ready {
+		return receipt, nil, ErrGenerationReceiptUnavailable
 	}
 	if receipt.State == model.GenerationReceiptStateExpired {
 		return receipt, nil, nil
@@ -364,7 +409,7 @@ func (s *GenerationReceiptService) Complete(ctx context.Context, binding model.G
 	if err != nil {
 		return ErrGenerationReceiptUnavailable
 	}
-	if !sameReceiptBinding(receipt, binding) || receipt.State == model.GenerationReceiptStateExpired || !receipt.ExpiresAt.After(s.clock()) {
+	if !sameReceiptBinding(receipt, binding) || receipt.State == model.GenerationReceiptStateNotSubmitted || receipt.State == model.GenerationReceiptStateExpired || !receipt.ExpiresAt.After(s.clock()) {
 		return ErrGenerationReceiptConflict
 	}
 	key, err := s.storageKey(receipt)

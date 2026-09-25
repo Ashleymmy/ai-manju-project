@@ -119,11 +119,15 @@ export async function requestAudioGeneration(
 ): Promise<Blob> {
   if (options.receipt?.recoverOnly) return recoverAudioGeneration(config, options);
   return submitWithGenerationAdmission("audio", async () => {
-    try { return await requestAudioGenerationOnce(config, prompt, options); }
+    let result: Blob | null;
+    try { result = await requestAudioGenerationOnce(config, prompt, options); }
     catch (error) {
       if (options.receipt && canRecoverGenerationReceipt(error, options.signal)) return recoverAudioGeneration(config, options);
       throw error;
     }
+    // Recover outside the submission catch so a recovery failure is not read
+    // or reconciled again within the same user action.
+    return result ?? recoverAudioGeneration(config, options);
   }, options);
 }
 
@@ -131,7 +135,7 @@ async function requestAudioGenerationOnce(
   config: AudioGenerationConfig,
   prompt: string,
   options: RequestAudioGenerationOptions,
-): Promise<Blob> {
+): Promise<Blob | null> {
   const normalized = normalizeAudioGenerationConfig(config);
   if (!normalized.model) throw new Error("请先配置音频模型");
   const input = prompt.trim();
@@ -181,7 +185,7 @@ async function requestAudioGenerationOnce(
       clearAuthToken();
       window.dispatchEvent(new CustomEvent("ai-manju:auth-unauthorized"));
     }
-    if (response.status === 202 && options.receipt) return recoverAudioGeneration(config, options);
+    if (response.status === 202 && options.receipt) return null;
     if (!response.ok) {
       throw new ApiError(
         await readAudioErrorResponse(

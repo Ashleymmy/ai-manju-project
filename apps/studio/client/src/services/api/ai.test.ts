@@ -45,12 +45,15 @@ describe("text AI API", () => {
     expect(options?.method).not.toBe("POST");
   });
 
-  it("only reads an existing receipt after refresh and does not regenerate a missing result", async () => {
+  it("only reconciles after refresh and does not regenerate when the recovery endpoint is unavailable", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(apiResponse(undefined, 404));
     vi.mocked(fetch).mockResolvedValueOnce(apiResponse(undefined, 404));
     await expect(requestAiText({ model: "changed-model", prompt: "changed" }, undefined, undefined,
       { key: "original-key", scope: "personal", recoverOnly: true })).rejects.toThrow("未找到原生成回执");
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledTimes(2);
     expect(vi.mocked(fetch).mock.calls[0][1]?.method).not.toBe("POST");
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toContain("/receipts/text/original-key/reconcile");
+    expect(vi.mocked(fetch).mock.calls.every(([url]) => !String(url).endsWith("/api/ai/text"))).toBe(true);
   });
 
   it("polls a running receipt and returns the exact original result", async () => {

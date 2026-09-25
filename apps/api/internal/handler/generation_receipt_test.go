@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -41,6 +43,7 @@ func receiptTestRouter(t *testing.T, next gin.HandlerFunc) (*gin.Engine, *AIHand
 	r.POST("/audio", h.WithGenerationReceipt(model.GenerationReceiptKindAudio, next))
 	r.GET("/receipts/:kind/:key", h.GenerationReceiptStatus)
 	r.GET("/receipts/:kind/:key/result", h.GenerationReceiptResult)
+	r.POST("/receipts/:kind/:key/reconcile", h.GenerationReceiptReconcile)
 	return r, h
 }
 
@@ -225,5 +228,172 @@ func TestGenerationReceiptPanicDoesNotAllowRepeatExecution(t *testing.T) {
 	second := receiptRequest(r, "POST", "/text", "interrupted-key", `{"prompt":"hello"}`, "")
 	if second.Code != 202 || calls != 1 {
 		t.Fatal("interrupted execution was reclaimed")
+	}
+}
+
+func assertReconciledReceipt(t *testing.T, rec *httptest.ResponseRecorder, code int, kind, key, status string) {
+	t.Helper()
+	var body struct {
+		Success   bool   `json:"success"`
+		RequestID string `json:"request_id"`
+		Data      struct {
+			Receipt struct{ Kind, Key, Status string } `json:"receipt"`
+		} `json:"data"`
+	}
+	if rec.Code != code || json.Unmarshal(rec.Body.Bytes(), &body) != nil || body.Data.Receipt.Kind != kind || body.Data.Receipt.Key != key || body.Data.Receipt.Status != status || body.Success != (code == http.StatusOK) || (code != http.StatusOK && body.RequestID != "current-request-id") || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("wrong receipt envelope: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGenerationReceiptReconcileBlocksLatePOSTWithoutHandlerOrBilling(t *testing.T) {
+	var calls atomic.Int32
+	r, _ := receiptTestRouter(t, func(c *gin.Context) { calls.Add(1); response.OK(c, gin.H{"text": "paid handler must not run"}) })
+	for _, kind := range []string{"text", "audio"} {
+		key := "never-submitted-" + kind
+		base := "/receipts/" + kind + "/" + key
+		missing := receiptRequest(r, "GET", base+"/result", "", "", "")
+		if missing.Code != http.StatusNotFound {
+			t.Fatal("missing receipt unexpectedly exists")
+		}
+		for range 3 {
+			got := receiptRequest(r, "POST", base+"/reconcile", "", "", "")
+			assertReconciledReceipt(t, got, http.StatusOK, kind, key, model.GenerationReceiptStateNotSubmitted)
+		}
+		for _, payload := range []string{`{"prompt":"original"}`, `{"prompt":"changed"}`} {
+			got := receiptRequest(r, "POST", "/"+kind, key, payload, "")
+			assertReconciledReceipt(t, got, http.StatusConflict, kind, key, model.GenerationReceiptStateNotSubmitted)
+		}
+		got := receiptRequest(r, "GET", base+"/result", "", "", "")
+		assertReconciledReceipt(t, got, http.StatusConflict, kind, key, model.GenerationReceiptStateNotSubmitted)
+		status := receiptRequest(r, "GET", base, "", "", "")
+		if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), `"status":"not_submitted"`) {
+			t.Fatal("status endpoint changed its existing envelope")
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatal("tombstoned POST reached generation or billing")
+	}
+}
+
+func TestGenerationReceiptReconcileDoesNotStealRunningExecution(t *testing.T) {
+	started, finish, returned := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	r, _ := receiptTestRouter(t, func(c *gin.Context) {
+		calls.Add(1)
+		close(started)
+		<-finish
+		response.OK(c, gin.H{"text": "original result"})
+	})
+	go func() {
+		defer close(returned)
+		receiptRequest(r, "POST", "/text", "already-sent", `{"prompt":"hello"}`, "")
+	}()
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("generation did not start")
+	}
+	for range 3 {
+		got := receiptRequest(r, "POST", "/receipts/text/already-sent/reconcile", "", "", "")
+		assertReconciledReceipt(t, got, http.StatusOK, "text", "already-sent", model.GenerationReceiptStateRunning)
+	}
+	close(finish)
+	select {
+	case <-returned:
+	case <-time.After(3 * time.Second):
+		t.Fatal("generation did not finish")
+	}
+	got := receiptRequest(r, "POST", "/receipts/text/already-sent/reconcile", "", "", "")
+	assertReconciledReceipt(t, got, http.StatusOK, "text", "already-sent", model.GenerationReceiptStateSucceeded)
+	result := receiptRequest(r, "GET", "/receipts/text/already-sent/result", "", "", "")
+	if result.Code != http.StatusOK || !strings.Contains(result.Body.String(), "original result") || calls.Load() != 1 {
+		t.Fatal("reconciliation discarded or repeated existing execution")
+	}
+}
+
+func TestGenerationReceiptReconcileCannotTargetAnotherOwnerOrWorkspace(t *testing.T) {
+	var calls atomic.Int32
+	r, _ := receiptTestRouter(t, func(c *gin.Context) { calls.Add(1); response.OK(c, gin.H{"text": "private original"}) })
+	for _, tc := range []struct{ path, user string }{
+		{"/receipts/text/shared-key/reconcile?scope=team", "other"},
+		{"/receipts/text/shared-key/reconcile", "owner"},
+		{"/receipts/audio/shared-key/reconcile?scope=team", "owner"},
+	} {
+		// Spoofed body ownership must be ignored; auth and URL scope win.
+		got := receiptRequest(r, "POST", tc.path, "", `{"user_id":"owner","workspace_id":"team","kind":"text"}`, tc.user)
+		if got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"status":"not_submitted"`) {
+			t.Fatal("scope-specific reconciliation failed")
+		}
+	}
+	got := receiptRequest(r, "POST", "/text?scope=team", "shared-key", `{"prompt":"private"}`, "owner")
+	if got.Code != http.StatusOK || calls.Load() != 1 || !strings.Contains(got.Body.String(), "private original") {
+		t.Fatal("another scope prevented the owner's execution")
+	}
+	for _, tc := range []struct{ path, user string }{
+		{"/receipts/text/shared-key/result?scope=team", "other"},
+		{"/receipts/text/shared-key/result", "owner"},
+		{"/receipts/audio/shared-key/result?scope=team", "owner"},
+	} {
+		got := receiptRequest(r, "GET", tc.path, "", "", tc.user)
+		if got.Code != http.StatusConflict || strings.Contains(got.Body.String(), "private original") {
+			t.Fatal("reconciliation exposed another scope's result")
+		}
+	}
+}
+
+func TestGenerationReceiptReconcileRacesHTTPSubmission(t *testing.T) {
+	for round := range 16 {
+		var calls atomic.Int32
+		finish := make(chan struct{})
+		r, _ := receiptTestRouter(t, func(c *gin.Context) {
+			calls.Add(1)
+			<-finish
+			response.OK(c, gin.H{"text": "original"})
+		})
+		key := fmt.Sprintf("http-race-%d", round)
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		completed := make(chan struct{}, 20)
+		for worker := range 20 {
+			wg.Add(1)
+			go func() {
+				defer func() { wg.Done(); completed <- struct{}{} }()
+				<-start
+				if worker%2 == 0 {
+					got := receiptRequest(r, "POST", "/receipts/text/"+key+"/reconcile", "", "", "")
+					if got.Code != http.StatusOK {
+						t.Error("concurrent reconciliation failed")
+					}
+				} else {
+					got := receiptRequest(r, "POST", "/text", key, `{"prompt":"hello"}`, "")
+					if got.Code != http.StatusOK && got.Code != http.StatusAccepted && got.Code != http.StatusConflict {
+						t.Errorf("concurrent POST failed: %d", got.Code)
+					}
+				}
+			}()
+		}
+		close(start)
+		// At most one request may own execution. Wait for every other request
+		// before releasing it; this tests the claim race independently of a
+		// LocalFS reader observing an output write that is still in progress.
+		for range 19 {
+			select {
+			case <-completed:
+			case <-time.After(5 * time.Second):
+				close(finish)
+				t.Fatal("more than one request blocked inside execution")
+			}
+		}
+		close(finish)
+		wg.Wait()
+		final := receiptRequest(r, "GET", "/receipts/text/"+key+"/result", "", "", "")
+		if final.Code == http.StatusConflict {
+			assertReconciledReceipt(t, final, http.StatusConflict, "text", key, model.GenerationReceiptStateNotSubmitted)
+			if calls.Load() != 0 {
+				t.Fatal("reconciliation won after paid execution started")
+			}
+		} else if final.Code != http.StatusOK || calls.Load() != 1 {
+			t.Fatalf("execution did not win exactly once: code=%d calls=%d", final.Code, calls.Load())
+		}
 	}
 }

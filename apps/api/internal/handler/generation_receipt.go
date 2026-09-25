@@ -169,6 +169,20 @@ func (h *AIHandler) GenerationReceiptResult(c *gin.Context) {
 	h.replyGenerationReceipt(c, generationReceiptScope(c, c.Param("kind"), c.Param("key")))
 }
 
+func (h *AIHandler) GenerationReceiptReconcile(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if h.receipts == nil {
+		generationReceiptError(c, service.ErrGenerationReceiptUnavailable)
+		return
+	}
+	receipt, err := h.receipts.Reconcile(c.Request.Context(), generationReceiptScope(c, c.Param("kind"), c.Param("key")))
+	if err != nil {
+		generationReceiptError(c, err)
+		return
+	}
+	response.OK(c, gin.H{"receipt": generationReceiptView(receipt)})
+}
+
 func (h *AIHandler) replyGenerationReceipt(c *gin.Context, scope service.GenerationReceiptScope) {
 	if h.receipts == nil {
 		generationReceiptError(c, service.ErrGenerationReceiptUnavailable)

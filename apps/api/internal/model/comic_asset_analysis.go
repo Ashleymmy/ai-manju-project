@@ -3,6 +3,9 @@ package model
 import "time"
 
 const (
+	// Only sessions created with this protocol may prove a missing submission or
+	// restore their initial candidate from a generation receipt.
+	ComicAnalysisReceiptVersion = 1
 	// Processing/failed sessions retain the uploaded source while async analysis runs.
 	ComicAnalysisStatusProcessing = "processing"
 	ComicAnalysisStatusFailed     = "failed"
@@ -20,28 +23,32 @@ const (
 // from the browser. SourceText and SourceStorageKey are server-only because the
 // public response only needs source metadata and immutable candidate revisions.
 type ComicAssetAnalysisSession struct {
-	ID                  string     `json:"id" gorm:"primaryKey"`
-	OwnerID             string     `json:"owner_id" gorm:"not null;index"`
-	WorkspaceID         string     `json:"workspace_id" gorm:"not null;index"`
-	Scope               string     `json:"scope" gorm:"-"`
-	Title               string     `json:"title" gorm:"not null"`
-	StylePreset         string     `json:"style_preset"`
-	DefaultTemplates    JSONB      `json:"default_templates" gorm:"type:jsonb"`
-	SourceType          string     `json:"source_type" gorm:"not null"`
-	SourceFileName      string     `json:"source_file_name"`
-	SourceStorageKey    string     `json:"-"`
-	SourceContentType   string     `json:"source_content_type"`
-	SourceSize          int64      `json:"source_size"`
-	SourceText          string     `json:"-" gorm:"type:text"`
-	Status              string     `json:"status" gorm:"not null;index"`
-	AnalysisError       string     `json:"analysis_error,omitempty"`
-	ActiveRevisionID    string     `json:"active_revision_id" gorm:"index"`
-	ConfirmedRevisionID string     `json:"confirmed_revision_id" gorm:"index"`
-	ProjectID           string     `json:"project_id" gorm:"index"`
-	ExpiresAt           time.Time  `json:"expires_at" gorm:"not null;index"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
-	ConfirmedAt         *time.Time `json:"confirmed_at,omitempty"`
+	ID                string `json:"id" gorm:"primaryKey"`
+	OwnerID           string `json:"owner_id" gorm:"not null;index"`
+	WorkspaceID       string `json:"workspace_id" gorm:"not null;index"`
+	Scope             string `json:"scope" gorm:"-"`
+	Title             string `json:"title" gorm:"not null"`
+	StylePreset       string `json:"style_preset"`
+	DefaultTemplates  JSONB  `json:"default_templates" gorm:"type:jsonb"`
+	SourceType        string `json:"source_type" gorm:"not null"`
+	SourceFileName    string `json:"source_file_name"`
+	SourceStorageKey  string `json:"-"`
+	SourceContentType string `json:"source_content_type"`
+	SourceSize        int64  `json:"source_size"`
+	SourceText        string `json:"-" gorm:"type:text"`
+	Status            string `json:"status" gorm:"not null;index"`
+	AnalysisError     string `json:"analysis_error,omitempty"`
+	// Ambiguous executions retain their browser pointer for original-result recovery.
+	AnalysisRecoveryPending bool       `json:"analysis_recovery_pending,omitempty" gorm:"-"`
+	AnalysisReceiptVersion  int        `json:"-"`
+	AnalysisReceiptKey      string     `json:"-"`
+	ActiveRevisionID        string     `json:"active_revision_id" gorm:"index"`
+	ConfirmedRevisionID     string     `json:"confirmed_revision_id" gorm:"index"`
+	ProjectID               string     `json:"project_id" gorm:"index"`
+	ExpiresAt               time.Time  `json:"expires_at" gorm:"not null;index"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
+	ConfirmedAt             *time.Time `json:"confirmed_at,omitempty"`
 }
 
 // ComicAssetAnalysisRevision is immutable. Candidate stores a complete

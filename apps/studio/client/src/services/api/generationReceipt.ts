@@ -20,16 +20,48 @@ export function generationReceiptState(error: unknown): string {
   return record.receiptState || record.details?.data?.receipt?.status || "";
 }
 
+/** Only server-confirmed terminal outcomes release a pending local identity. */
+export function isDefinitiveGenerationReceiptFailure(error: unknown): boolean {
+  const state = generationReceiptState(error);
+  return state === "failed" || state === "not_submitted";
+}
+
 export async function readGenerationReceiptResult(
   kind: "text" | "audio", receipt: GenerationReceiptOptions, signal?: AbortSignal,
 ): Promise<Response> {
+  // Seal a missing key at most once. This endpoint cannot invoke a model, and
+  // atomically prevents a delayed original submission from starting afterwards.
+  let reconciled = false;
   for (;;) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const token = getAuthToken();
-    const response = await fetch(apiUrl(`/api/ai/receipts/${kind}/${encodeURIComponent(receipt.key)}/result`, { scope: receipt.scope }), {
+    let response = await fetch(apiUrl(`/api/ai/receipts/${kind}/${encodeURIComponent(receipt.key)}/result`, { scope: receipt.scope }), {
       credentials: "include", signal, cache: "no-store",
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     });
+    let reconciliationError = false;
+    if (response.status === 404 && !reconciled) {
+      reconciled = true;
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      const reconciliation = await fetch(apiUrl(`/api/ai/receipts/${kind}/${encodeURIComponent(receipt.key)}/reconcile`, { scope: receipt.scope }), {
+        method: "POST", credentials: "include", signal, cache: "no-store",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      });
+      if (reconciliation.ok) {
+        const payload = await reconciliation.json().catch(() => undefined);
+        const confirmed = payload?.data?.receipt;
+        const status = confirmed?.status;
+        // A proxy's HTML 200 or an old server's fallback must not authorize a
+        // retry. Require the exact scoped receipt returned by the new endpoint.
+        if (payload?.success === true && confirmed?.kind === kind && confirmed?.key === receipt.key
+          && ["not_submitted", "running", "uncertain", "failed", "succeeded", "expired"].includes(status)) {
+          continue;
+        }
+      } else {
+        response = reconciliation;
+        reconciliationError = true;
+      }
+    }
     if (response.status === 202) {
       await waitForReceipt(signal);
       continue;
@@ -39,7 +71,12 @@ export async function readGenerationReceiptResult(
       clearAuthToken();
       if (typeof window.dispatchEvent === "function") window.dispatchEvent(new CustomEvent("ai-manju:auth-unauthorized"));
     }
-    const payload = await response.json().catch(() => undefined);
+    let payload = await response.json().catch(() => undefined);
+    const failedReceipt = payload?.data?.receipt;
+    if (failedReceipt && (reconciliationError || failedReceipt.kind !== kind || failedReceipt.key !== receipt.key)) {
+      // Unbound error metadata cannot release this request's durable identity.
+      payload = { ...payload, data: { ...payload.data, receipt: undefined } };
+    }
     const fallback = response.status === 404
       ? "未找到原生成回执，请联系管理员确认；未重新提交生成"
       : response.status === 410

@@ -42,6 +42,7 @@ type ComicAssetRepository interface {
 	CreateAnalysisSession(session model.ComicAssetAnalysisSession, revision model.ComicAssetAnalysisRevision) (model.ComicAssetAnalysisSession, model.ComicAssetAnalysisRevision, error)
 	CreatePendingAnalysisSession(session model.ComicAssetAnalysisSession) (model.ComicAssetAnalysisSession, error)
 	FinishPendingAnalysisSession(sessionID, workspaceID string, revision *model.ComicAssetAnalysisRevision, failure string) error
+	RecoverAnalysisSessionFromReceipt(sessionID, workspaceID, ownerID, receiptKey string, revision model.ComicAssetAnalysisRevision, now time.Time) error
 	GetAnalysisSession(id string, workspaceID string) (model.ComicAssetAnalysisSession, []model.ComicAssetAnalysisRevision, error)
 	CreateAnalysisRevision(sessionID string, workspaceID string, expectedActiveRevisionID string, revision model.ComicAssetAnalysisRevision) (model.ComicAssetAnalysisSession, []model.ComicAssetAnalysisRevision, error)
 	SetActiveAnalysisRevision(sessionID string, revisionID string, workspaceID string) (model.ComicAssetAnalysisSession, []model.ComicAssetAnalysisRevision, error)

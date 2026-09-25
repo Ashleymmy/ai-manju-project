@@ -195,8 +195,8 @@ describe("Agent durable reply recovery", () => {
     expect(mocks.requestAiText.mock.calls.every(call => call[3].recoverOnly && call[3].key === "original-key")).toBe(true);
   });
 
-  it("marks a definitive failure so a deliberate later request can start separately", async () => {
-    seed(); mocks.requestAiText.mockRejectedValueOnce({ receiptState: "failed" });
+  it.each(["failed", "not_submitted"])("marks %s so a deliberate later request can start separately", async receiptState => {
+    seed(); mocks.requestAiText.mockRejectedValueOnce({ receiptState });
     await render(); await history(); await click(".agent-recover-reply");
     expect(receipts()[0].state).toBe("failed");
     expect(container.querySelector(".agent-recover-reply")).toBeNull();

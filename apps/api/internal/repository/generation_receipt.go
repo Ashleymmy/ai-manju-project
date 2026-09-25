@@ -24,6 +24,7 @@ type GenerationReceiptRepository interface {
 	Begin(context.Context, model.GenerationReceipt) (model.GenerationReceipt, bool, error)
 	Find(context.Context, string, string, string, string) (model.GenerationReceipt, error)
 	// Transition requires the entire execution binding and a matching old state.
+	// not_submitted can only be inserted by Begin, never entered or left here.
 	Transition(context.Context, model.GenerationReceipt, []string, string, string, *time.Time) (model.GenerationReceipt, bool, error)
 }
 
@@ -93,7 +94,7 @@ func (r *MemoryGenerationReceiptRepository) Transition(ctx context.Context, bind
 	if !sameGenerationReceiptExecution(row, binding) {
 		return row, false, ErrGenerationReceiptConflict
 	}
-	if !slices.Contains(from, row.State) {
+	if row.State == model.GenerationReceiptStateNotSubmitted || state == model.GenerationReceiptStateNotSubmitted || !slices.Contains(from, row.State) {
 		return row, false, nil
 	}
 	row.State, row.Error, row.UpdatedAt = state, message, time.Now().UTC()
@@ -137,7 +138,8 @@ func (r *GormGenerationReceiptRepository) Transition(ctx context.Context, bindin
 		updates["expires_at"] = *expires
 	}
 	result := r.db.WithContext(ctx).Model(&model.GenerationReceipt{}).
-		Where("id = ? AND user_id = ? AND workspace_id = ? AND kind = ? AND key = ? AND request_hash = ? AND execution_token = ? AND state IN ?", binding.ID, binding.UserID, binding.WorkspaceID, binding.Kind, binding.Key, binding.RequestHash, binding.ExecutionToken, from).Updates(updates)
+		Where("id = ? AND user_id = ? AND workspace_id = ? AND kind = ? AND key = ? AND request_hash = ? AND execution_token = ? AND state IN ?", binding.ID, binding.UserID, binding.WorkspaceID, binding.Kind, binding.Key, binding.RequestHash, binding.ExecutionToken, from).
+		Where("state <> ? AND ? <> ?", model.GenerationReceiptStateNotSubmitted, state, model.GenerationReceiptStateNotSubmitted).Updates(updates)
 	if result.Error != nil {
 		return model.GenerationReceipt{}, false, result.Error
 	}
