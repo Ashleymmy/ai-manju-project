@@ -1471,6 +1471,7 @@ export default function CanvasWorkspaceViewContent() {
   }), [autosaveController, backgroundMode, persistProjectKey, persistedGroups, showImageInfo]);
 
   generationController.updateBindings({
+    getUserId: () => user?.id || "",
     getProjectId: () => projectId,
     getProjectTitle: () => projectTitle,
     getProjectKey: () => projectSessionController.canonicalKey,

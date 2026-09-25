@@ -44,7 +44,11 @@ export type CanvasOnlineAgentLoopBindings = {
 };
 
 export type CanvasOnlineAgentLoopServices = {
-  requestText: (body: AiTextRequest) => ReturnType<typeof requestAiText>;
+  requestText: (
+    body: AiTextRequest,
+    signal?: AbortSignal,
+    onWaiting?: (waiting: boolean) => void,
+  ) => ReturnType<typeof requestAiText>;
 };
 
 const browserServices: CanvasOnlineAgentLoopServices = {
@@ -84,6 +88,8 @@ export class CanvasOnlineAgentLoop {
       messages: requestMessages,
       tools: ONLINE_AGENT_TOOLS,
       tool_choice: toolChoice,
+    }, undefined, waiting => {
+      this.bindings.onActivity(waiting ? "模型并发繁忙，已进入队列" : "在线模型思考中");
     });
     const calls = normalizeOnlineToolCalls(response.toolCalls);
     if (!calls.length) {

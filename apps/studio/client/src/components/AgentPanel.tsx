@@ -485,7 +485,10 @@ export default function AgentPanel({
       model: effectiveModel,
       messages: requestMessages,
       ...(isStudio ? {} : { tools: ONLINE_AGENT_TOOLS, tool_choice: toolChoice }),
-    }, signal);
+    }, signal, waiting => {
+      if (!isActiveAgentTurn(turnId) || signal.aborted) return;
+      setActivity(waiting ? "模型并发繁忙，已进入队列" : "在线模型思考中");
+    });
     if (!isActiveAgentTurn(turnId) || signal.aborted) return;
     const calls = normalizeToolCalls(response.toolCalls);
     if (isStudio && calls.length) throw new Error("当前对话未连接画布，未执行模型返回的操作。请进入对应画布继续。");
@@ -1037,6 +1040,7 @@ export default function AgentPanel({
           <X size={16} />
         </button>
       </div>
+      <div className="agent-activity" role="status" aria-live="polite">{activity}</div>
 
       {tab === "connect" ? (
         <div className="agent-connect">

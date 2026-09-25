@@ -14,6 +14,7 @@ import { requestAiText } from "@/services/api/ai";
 import { requestAudioGeneration } from "@/services/api/audio";
 import type { CanvasGenerationServices } from "./types";
 import { fetchMediaBlob } from "@/shared/lib/mediaDownload";
+import { browserPendingAudioUploadStore } from "@/features/canvas/domain/pendingAudioUpload";
 
 // Local metadata decoders can fail to emit load/error; bound each decode only.
 export const MEDIA_METADATA_TIMEOUT_MS = 30_000;
@@ -29,6 +30,9 @@ export const browserCanvasGenerationServices: CanvasGenerationServices = {
   waitForImageJob,
   requestAiText,
   requestAudioGeneration,
+  savePendingAudioUpload: browserPendingAudioUploadStore.save,
+  loadPendingAudioUpload: browserPendingAudioUploadStore.load,
+  removePendingAudioUpload: browserPendingAudioUploadStore.remove,
   createVideoGenerationTask,
   pollVideoGenerationTask,
   videoGenerationResultToBlob,

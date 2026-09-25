@@ -112,6 +112,14 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   audioFormat?: string;
   audioSpeed?: string;
   audioInstructions?: string;
+  /** Binary audio result retained in IndexedDB until asset upload succeeds. */
+  pendingAudioUpload?: {
+    key: string;
+    fileName: string;
+    contentType: string;
+    bytes: number;
+    createdAt: string;
+  };
   isBatchRoot?: boolean;
   batchChildIds?: string[];
   batchRootId?: string;

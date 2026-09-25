@@ -9,6 +9,7 @@ import type {
   VideoProvider,
 } from "@/features/video";
 import type { CanvasVideoReferenceSnapshot } from "@/features/canvas/domain/video";
+import type { CanvasPendingAudioUpload } from "@/features/canvas/domain/pendingAudioUpload";
 import type {
   CanvasEdgeData,
   CanvasImageReferenceSnapshot,
@@ -98,6 +99,8 @@ export type CanvasAudioTargetRunInput = {
 };
 
 export type CanvasGenerationBindings = {
+  /** Stable authenticated identity used to isolate locally retained result Blobs. */
+  getUserId?(): string;
   getProjectId(): string;
   getProjectTitle(): string;
   getProjectKey(): string;
@@ -149,6 +152,10 @@ export type CanvasGenerationServices = {
   waitForImageJob: typeof import("@/features/image").waitForImageJob;
   requestAiText: typeof import("@/services/api/ai").requestAiText;
   requestAudioGeneration: typeof import("@/services/api/audio").requestAudioGeneration;
+  /** Optional so non-browser harnesses can keep an in-memory pending result. */
+  savePendingAudioUpload?: (pending: CanvasPendingAudioUpload) => Promise<void>;
+  loadPendingAudioUpload?: (key: string) => Promise<CanvasPendingAudioUpload | null>;
+  removePendingAudioUpload?: (key: string) => Promise<void>;
   createVideoGenerationTask: typeof import("@/features/video").createVideoGenerationTask;
   pollVideoGenerationTask: typeof import("@/features/video").pollVideoGenerationTask;
   videoGenerationResultToBlob: typeof import("@/features/video").videoGenerationResultToBlob;

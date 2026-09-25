@@ -294,6 +294,42 @@ describe("CanvasGenerationJobsController", () => {
       : { status: "error", assetId: "old-asset", assetScope: "team", mimeType: "audio/wav", bytes: 123 });
   });
 
+  it("retries a failed audio upload from the retained Blob without regenerating", async () => {
+    const retained = new Map<string, Awaited<ReturnType<NonNullable<CanvasGenerationServices["loadPendingAudioUpload"]>>>>();
+    let failUpload = true;
+    const requestAudioGeneration = vi.fn(async () => new Blob(["generated-once"], { type: "audio/mpeg" }));
+    const uploadAsset = vi.fn(async () => {
+      if (failUpload) {
+        failUpload = false;
+        throw new Error("temporary upload failure");
+      }
+      return { id: "audio-recovered", name: "voice.mp3", type: "audio" as const, content_type: "audio/mpeg", size: 14 };
+    });
+    const services = createServices({
+      requestAudioGeneration,
+      uploadAsset,
+      savePendingAudioUpload: vi.fn(async pending => { retained.set(pending.key, pending); }),
+      loadPendingAudioUpload: vi.fn(async key => retained.get(key) || null),
+      removePendingAudioUpload: vi.fn(async key => { retained.delete(key); }),
+    });
+    const node = audioNode({ metadata: { status: "error", prompt: "旁白" } });
+    const harness = createHarness([node], services);
+
+    await harness.controller.retryAudioNode(node);
+    expect(requestAudioGeneration).toHaveBeenCalledTimes(1);
+    expect(uploadAsset).toHaveBeenCalledTimes(1);
+    const failed = harness.nodes[0];
+    expect(failed.metadata).toMatchObject({ status: "error", pendingAudioUpload: { key: expect.any(String) } });
+    expect(retained.size).toBe(1);
+
+    await harness.controller.retryAudioNode(failed);
+    expect(requestAudioGeneration).toHaveBeenCalledTimes(1);
+    expect(uploadAsset).toHaveBeenCalledTimes(2);
+    expect(harness.nodes[0].metadata).toMatchObject({ status: "success", assetId: "audio-recovered" });
+    expect(harness.nodes[0].metadata?.pendingAudioUpload).toBeUndefined();
+    expect(retained.size).toBe(0);
+  });
+
   it.each(["text", "audio"] as const)("marks orphan %s submission uncertain without reissuing a request", kind => {
     const node = imageNode({ kind, metadata: { status: "loading", prompt: "original", generationMode: kind } });
     const services = createServices();

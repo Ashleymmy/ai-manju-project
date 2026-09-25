@@ -80,6 +80,11 @@ import {
   videoResultPersistentMetadata,
 } from "@/features/canvas/domain/video";
 import { stringValue } from "@/features/canvas/domain/value";
+import {
+  canvasPendingAudioUploadDescriptor,
+  canvasPendingAudioUploadKey,
+  type CanvasPendingAudioUpload,
+} from "@/features/canvas/domain/pendingAudioUpload";
 import type { WorkspaceScope } from "@/shared/config";
 import type {
   CanvasEdgeData,
@@ -153,6 +158,8 @@ export class CanvasGenerationJobsController {
   private readonly recoveredJobIds = new Set<string>();
   private recoverGeneration = 0;
   private readonly cancellingRequestIds = new Set<string>();
+  /** In-memory fallback for browsers where IndexedDB is temporarily unavailable. */
+  private readonly pendingAudioUploads = new Map<string, CanvasPendingAudioUpload>();
   private recoveryController?: AbortController;
 
   constructor(
@@ -372,6 +379,7 @@ export class CanvasGenerationJobsController {
     });
     const isCurrent = () => this.currentRequest(request.targetNodeId, request.requestId, request.projectKey);
     const config = normalizeAudioGenerationConfig(input.config);
+    let pending: CanvasPendingAudioUpload | undefined;
     try {
       const blob = await this.generation(() => this.services.requestAudioGeneration(
         config,
@@ -380,33 +388,47 @@ export class CanvasGenerationJobsController {
       ));
       if (!isCurrent()) return false;
       const contentType = blob.type.startsWith("audio/") ? blob.type : audioMimeType(config.format);
-      const file = this.services.createFile(
-        [blob],
-        audioFileName(input.prompt.slice(0, 32) || "generated-audio", config.format),
-        { type: contentType },
-      );
-      const asset = await this.assets(() => this.services.uploadAsset(file, this.assetMetadata(
-        request.targetNodeId,
-        input.prompt,
-        "audio",
-        file.name,
-      ), request.scope, request.controller.signal));
-      if (!isCurrent()) return false;
-      const next = this.updateNodes(current => completeGeneratedAudioTarget(
-        current,
-        input.targetNodeId,
-        asset,
-        input.prompt,
+      pending = this.createPendingAudioUpload({
+        nodeId: input.targetNodeId,
+        originNodeId: input.originNodeId,
+        projectKey: input.projectKey,
+        scope: input.scope,
+        prompt: input.prompt,
         config,
-        input.originNodeId,
-        input.scope,
-      ));
-      await this.persist(next);
-      return true;
+        blob,
+        fileName: audioFileName(input.prompt.slice(0, 32) || "generated-audio", config.format),
+        contentType,
+      });
+      await this.savePendingAudioUpload(pending);
+      const pendingNodes = this.updateNodes(current => current.map(node => node.id === input.targetNodeId ? {
+        ...node,
+        metadata: {
+          ...node.metadata,
+          pendingAudioUpload: canvasPendingAudioUploadDescriptor(pending!),
+        },
+      } : node));
+      await this.persist(pendingNodes);
+      return await this.uploadPendingAudioResult(request, {
+        targetNodeId: input.targetNodeId,
+        originNodeId: input.originNodeId,
+        projectKey: input.projectKey,
+        scope: input.scope,
+        prompt: input.prompt,
+        config,
+      }, pending);
     } catch (error) {
       if (!isCurrent() || isAbortError(error)) return false;
-      const message = publicApiError(error, "音频生成失败");
-      const next = this.updateNodes(current => failGeneratedAudioTarget(current, input.targetNodeId, message));
+      const message = pending
+        ? "音频已生成，但上传未完成；请点击重试上传，不会重复调用生成服务"
+        : publicApiError(error, "音频生成失败");
+      const next = this.updateNodes(current => {
+        const failed = failGeneratedAudioTarget(current, input.targetNodeId, message);
+        if (!pending) return failed;
+        return failed.map(node => node.id === input.targetNodeId ? {
+          ...node,
+          metadata: { ...node.metadata, pendingAudioUpload: canvasPendingAudioUploadDescriptor(pending!) },
+        } : node);
+      });
       await this.persist(next);
       this.bindings.onError(message);
       return false;
@@ -750,6 +772,64 @@ export class CanvasGenerationJobsController {
     const projectKey = this.bindings.getProjectKey();
     if (!scope || !projectKey || this.bindings.isSwitching()) return;
     node = this.bindings.getNodes().find(item => item.id === node.id) || node;
+    // Keep the normal retry path synchronous up to its preparation registration;
+    // only await IndexedDB when the node (or this controller) advertises a
+    // retained result. This preserves cancellation semantics for ordinary
+    // retries and avoids delaying the running indicator by one microtask.
+    const pendingDescriptor = node.metadata?.pendingAudioUpload;
+    const hasPendingHint = Boolean(
+      pendingDescriptor
+      || Array.from(this.pendingAudioUploads.values()).some(item =>
+        item.projectKey === projectKey && item.nodeId === node.id),
+    );
+    const pendingLookup = hasPendingHint
+      ? await this.findPendingAudioUpload(node, projectKey)
+      : { pending: undefined, unavailable: false };
+    if (pendingLookup.unavailable) {
+      this.bindings.onWarning("待上传音频暂时无法读取，请稍后重试；不会重复调用生成服务");
+      return;
+    }
+    if (pendingLookup.pending) {
+      await this.withRetryPreparation(node, projectKey, async preparation => {
+        const pending = pendingLookup.pending!;
+        const next = this.updateNodes(current => current.map(item => item.id === node.id ? {
+          ...item,
+          title: "重新上传音频中…",
+          metadata: {
+            ...item.metadata,
+            generationMode: "audio" as const,
+            status: "loading" as const,
+            errorDetails: undefined,
+            pendingAudioUpload: canvasPendingAudioUploadDescriptor(pending),
+            jobId: undefined,
+            jobProgress: undefined,
+          },
+        } : item));
+        await this.persist(next);
+        if (!this.preparationIsCurrent(preparation)) return;
+        const request = this.startRequest({
+          targetNodeId: node.id,
+          originNodeId: pending.originNodeId,
+          runningNodeId: node.id,
+          projectKey,
+          scope,
+        });
+        this.finishPreparation(preparation.id);
+        try {
+          await this.uploadPendingAudioResult(request, {
+            targetNodeId: node.id,
+            originNodeId: pending.originNodeId,
+            projectKey,
+            scope,
+            prompt: pending.prompt,
+            config: pending.config,
+          }, pending);
+        } finally {
+          this.finishRequest(request.targetNodeId, request.requestId, request.projectKey);
+        }
+      });
+      return;
+    }
     const prompt = stringValue(node.metadata?.prompt) || node.content;
     const config = audioConfigFromNode(node, this.bindings.getAudioModel());
     if (!prompt.trim() || !config.model) {
@@ -1977,6 +2057,156 @@ export class CanvasGenerationJobsController {
       ), request.scope, request.controller.signal));
     } finally {
       if (temporaryUrl) this.services.revokeObjectURL(temporaryUrl);
+    }
+  }
+
+  private createPendingAudioUpload(input: {
+    nodeId: string;
+    originNodeId: string;
+    projectKey: string;
+    scope: WorkspaceScope;
+    prompt: string;
+    config: ReturnType<typeof normalizeAudioGenerationConfig>;
+    blob: Blob;
+    fileName: string;
+    contentType: string;
+  }): CanvasPendingAudioUpload {
+    const attemptId = this.services.createId();
+    const userId = this.bindings.getUserId?.() || "";
+    const projectId = this.bindings.getProjectId();
+    return {
+      key: canvasPendingAudioUploadKey(userId, input.scope, input.projectKey, input.nodeId, attemptId),
+      userId,
+      workspace: input.scope,
+      projectId,
+      projectKey: input.projectKey,
+      nodeId: input.nodeId,
+      originNodeId: input.originNodeId,
+      scope: input.scope,
+      prompt: input.prompt,
+      config: input.config,
+      blob: input.blob,
+      fileName: input.fileName,
+      contentType: input.contentType,
+      bytes: input.blob.size,
+      createdAt: new Date().toISOString(),
+      attemptId,
+    };
+  }
+
+  private async savePendingAudioUpload(pending: CanvasPendingAudioUpload) {
+    this.pendingAudioUploads.set(pending.key, pending);
+    if (!this.services.savePendingAudioUpload) return;
+    await this.services.savePendingAudioUpload(pending);
+  }
+
+  private async removePendingAudioUpload(key: string) {
+    this.pendingAudioUploads.delete(key);
+    try {
+      await this.services.removePendingAudioUpload?.(key);
+    } catch {
+      // A stale IndexedDB row is harmless after the node has a successful asset.
+    }
+  }
+
+  private async findPendingAudioUpload(node: CanvasNodeData, projectKey: string) {
+    const rawDescriptor = node.metadata?.pendingAudioUpload;
+    const descriptorKey = rawDescriptor && typeof rawDescriptor === "object"
+      ? stringValue((rawDescriptor as Record<string, unknown>).key)
+      : "";
+    const inMemory = descriptorKey
+      ? this.pendingAudioUploads.get(descriptorKey)
+      : Array.from(this.pendingAudioUploads.values()).find(item =>
+        item.projectKey === projectKey && item.nodeId === node.id);
+    if (inMemory) {
+      const pending = this.validPendingAudioUpload(inMemory, node, projectKey)
+        && (!descriptorKey || inMemory.key === descriptorKey)
+        ? inMemory
+        : undefined;
+      return { pending, unavailable: Boolean(descriptorKey && !pending) };
+    }
+    if (!descriptorKey) {
+      return { pending: undefined, unavailable: Boolean(rawDescriptor) };
+    }
+    if (!this.services.loadPendingAudioUpload) return { pending: undefined, unavailable: true };
+    let loaded: CanvasPendingAudioUpload | null;
+    try {
+      loaded = await this.services.loadPendingAudioUpload(descriptorKey);
+    } catch {
+      return { pending: undefined, unavailable: true };
+    }
+    const pending = loaded && loaded.key === descriptorKey && this.validPendingAudioUpload(loaded, node, projectKey)
+      ? loaded
+      : undefined;
+    if (pending) this.pendingAudioUploads.set(pending.key, pending);
+    return { pending, unavailable: !pending };
+  }
+
+  private validPendingAudioUpload(
+    pending: CanvasPendingAudioUpload,
+    node: CanvasNodeData,
+    projectKey: string,
+  ) {
+    const currentUserId = this.bindings.getUserId?.() || "";
+    return pending.key
+      && pending.nodeId === node.id
+      && pending.projectKey === projectKey
+      && pending.scope === this.bindings.getScope()
+      && pending.workspace === this.bindings.getScope()
+      && pending.projectId === this.bindings.getProjectId()
+      && (!currentUserId || pending.userId === currentUserId)
+      && pending.blob instanceof Blob
+      && pending.blob.size > 0
+      ? pending
+      : undefined;
+  }
+
+  private async uploadPendingAudioResult(
+    request: CanvasGenerationRequest,
+    input: {
+      targetNodeId: string;
+      originNodeId: string;
+      projectKey: string;
+      scope: WorkspaceScope;
+      prompt: string;
+      config: ReturnType<typeof normalizeAudioGenerationConfig>;
+    },
+    pending: CanvasPendingAudioUpload,
+  ) {
+    try {
+      const file = this.services.createFile([pending.blob], pending.fileName, { type: pending.contentType });
+      const asset = await this.assets(() => this.services.uploadAsset(file, this.assetMetadata(
+        request.targetNodeId,
+        input.prompt,
+        "audio",
+        file.name,
+      ), request.scope, request.controller.signal));
+      if (!this.currentRequest(request.targetNodeId, request.requestId, request.projectKey)) return false;
+      const next = this.updateNodes(current => completeGeneratedAudioTarget(
+        current,
+        input.targetNodeId,
+        asset,
+        input.prompt,
+        input.config,
+        input.originNodeId,
+        input.scope,
+      ));
+      await this.persist(next);
+      await this.removePendingAudioUpload(pending.key);
+      return true;
+    } catch (error) {
+      if (!this.currentRequest(request.targetNodeId, request.requestId, request.projectKey) || isAbortError(error)) return false;
+      const message = "音频已生成，但上传未完成；请点击重试上传，不会重复调用生成服务";
+      const next = this.updateNodes(current => {
+        const failed = failGeneratedAudioTarget(current, input.targetNodeId, message);
+        return failed.map(node => node.id === input.targetNodeId ? {
+          ...node,
+          metadata: { ...node.metadata, pendingAudioUpload: canvasPendingAudioUploadDescriptor(pending) },
+        } : node);
+      });
+      await this.persist(next);
+      this.bindings.onError(message);
+      return false;
     }
   }
 

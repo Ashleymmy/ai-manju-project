@@ -42,6 +42,7 @@ export function completeGeneratedAudioTarget(
       audioFormat: config.format,
       audioSpeed: config.speed,
       audioInstructions: config.instructions,
+      pendingAudioUpload: undefined,
       sourceNodeId,
       status: "success" as const,
       errorDetails: undefined,
