@@ -1,10 +1,8 @@
 package service
 
 import (
-	"errors"
+	"encoding/json"
 	"testing"
-
-	"github.com/ai-manju/api/internal/model"
 )
 
 func TestAutomaticVideoCreditsDecimalBoundary(t *testing.T) {
@@ -65,15 +63,16 @@ func TestAutomaticVideoBillingUnambiguousRateDoesNotNeedGeometryInference(t *tes
 	}
 }
 
-func TestAutomaticVideoBillingAmbiguousRateKeepsReservation(t *testing.T) {
+func TestAutomaticVideoBillingAutomaticTierSettlesWithoutGeometryGuess(t *testing.T) {
 	f := newLifecycleFixture(t, nil)
 	job, reserved := reserveAutomaticVideo(t, f, `{"model":"seedance-2.5","duration":-1}`, &VideoBillingPolicy{MaxDurationSeconds: 30, Resolutions: []string{"720p", "1080p"}})
 	job.Result = measuredVideoResult(5, 960, 960)
-	if _, err := f.engine.SettleCompletedJob(job); !errors.Is(err, ErrVideoBillingMetricsPending) {
-		t.Fatalf("ambiguous supplier tier accepted: %v", err)
+	outcome, err := f.engine.SettleCompletedJob(job)
+	if err != nil || outcome.Consumption.CreditsSettled != reserved.CreditsQuoted/6 {
+		t.Fatalf("automatic tier settlement=%+v error=%v", outcome, err)
 	}
-	after, err := f.credits.GetConsumptionByJobID(job.ID)
-	if err != nil || after.Status != model.TaskConsumptionStatusReserved || after.CreditsQuoted != reserved.CreditsQuoted {
-		t.Fatalf("reservation changed: %+v error=%v", after, err)
+	var params map[string]any
+	if json.Unmarshal(outcome.Consumption.Params, &params) != nil || params["settlement_resolution_basis"] != "reserved_automatic_tier" {
+		t.Fatalf("missing automatic tier evidence: %+v", params)
 	}
 }

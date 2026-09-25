@@ -143,20 +143,17 @@ func runAutomaticVideoBillingSuite(t *testing.T, db *gorm.DB) {
 		}
 		var params map[string]any
 		_ = json.Unmarshal(outcome.Consumption.Params, &params)
-		if _, exists := params["actual_resolution"]; exists || params["settlement_resolution_basis"] != "uniform_frozen_rate" || params["actual_width"] != float64(960) {
-			t.Fatalf("invented tier or missing evidence: %+v", params)
+		if params["settlement_resolution"] != "720p" || params["settlement_resolution_basis"] != "reserved_automatic_tier" || params["actual_width"] != float64(960) {
+			t.Fatalf("automatic tier settlement or evidence missing: %+v", params)
 		}
 	})
-	t.Run("UnmappedGeometryWithDifferentFrozenRatesKeepsReservation", func(t *testing.T) {
+	t.Run("UnmappedGeometryWithDifferentFrozenRatesUsesReservedTier", func(t *testing.T) {
 		f := newLifecycleFixture(t, db)
 		job, c := reserveAutomaticVideo(t, f, `{"model":"seedance-2.5","duration":-1,"resolution":"auto"}`, &VideoBillingPolicy{MaxDurationSeconds: 30, Resolutions: []string{"720p", "1080p"}})
 		job.Result = measuredVideoResult(10, 960, 960)
-		if _, err := f.engine.SettleCompletedJob(job); !errors.Is(err, ErrVideoBillingMetricsPending) {
-			t.Fatalf("guessed price tier: %v", err)
-		}
-		current, _ := f.credits.GetConsumptionByJobID(job.ID)
-		if current.Status != model.TaskConsumptionStatusReserved || current.CreditsQuoted != c.CreditsQuoted || current.CreditsSettled != 0 {
-			t.Fatal("pending reservation mutated")
+		outcome, err := f.engine.SettleCompletedJob(job)
+		if err != nil || outcome.Consumption.CreditsSettled != c.CreditsQuoted/3 {
+			t.Fatalf("reserved automatic tier settlement=%+v err=%v", outcome, err)
 		}
 	})
 	t.Run("UnmappedGeometryWithEqualFrozenRatesSettles", func(t *testing.T) {
@@ -260,8 +257,8 @@ func runAutomaticVideoBillingSuite(t *testing.T, db *gorm.DB) {
 		}
 		job.Result = measuredVideoResult(10, 1280, 720)
 		outcome, err := f.engine.SettleCompletedJob(job)
-		if err != nil || outcome.Consumption.CreditsSettled != 2200 {
-			t.Fatalf("actual resolution=%+v err=%v", outcome, err)
+		if err != nil || outcome.Consumption.CreditsSettled != 5600 {
+			t.Fatalf("frozen automatic tier settlement=%+v err=%v", outcome, err)
 		}
 	})
 	t.Run("PartialSettlementReleasesFEFOAndDoesNotReviveExpiredGrant", func(t *testing.T) {

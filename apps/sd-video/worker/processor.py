@@ -31,6 +31,32 @@ from worker.errors import exception_details, submission_rejected, terminal_detai
 
 logger = logging.getLogger("sdvideo.worker")
 
+# Storage adapters cap public signatures at one hour.  Keep references alive
+# for the complete provider polling window plus a small scheduling buffer;
+# otherwise a slow queued task can hand the supplier a URL that expires before
+# it fetches the media.  The configured TTL remains the lower bound for
+# deployments that intentionally use a longer (but still bounded) lifetime.
+REFERENCE_URL_MAX_TTL_SECONDS = 60 * 60
+REFERENCE_URL_SAFETY_SECONDS = 60
+
+
+def reference_url_ttl_seconds() -> int:
+    """Return a bounded TTL that covers the configured task wait window."""
+    try:
+        configured = int(settings.RESULT_SIGNED_URL_TTL_SECONDS)
+    except (TypeError, ValueError):
+        configured = 0
+    try:
+        wait_timeout = int(settings.MODEL_RETURN_WAIT_TIMEOUT_SECONDS)
+    except (TypeError, ValueError):
+        wait_timeout = 0
+    try:
+        poll_interval = int(settings.TASK_POLL_INTERVAL_SECONDS)
+    except (TypeError, ValueError):
+        poll_interval = 0
+    required = max(60, wait_timeout + max(1, poll_interval) + REFERENCE_URL_SAFETY_SECONDS)
+    return min(REFERENCE_URL_MAX_TTL_SECONDS, max(60, configured, required))
+
 
 class LeaseLost(RuntimeError):
     """原持有者不得在租约丢失或任务取消之后写入结果。"""
@@ -77,7 +103,7 @@ async def _references(record: Any) -> list[dict[str, Any]]:
         elif storage_token:
             if hasattr(local_storage, "url"):
                 try:
-                    url = str(await local_storage.url(storage_token, settings.RESULT_SIGNED_URL_TTL_SECONDS) or "").strip()
+                    url = str(await local_storage.url(storage_token, reference_url_ttl_seconds()) or "").strip()
                 except Exception as exc:
                     logger.info("input URL signing unavailable task=%s error=%s", record.id, type(exc).__name__)
             if not url:

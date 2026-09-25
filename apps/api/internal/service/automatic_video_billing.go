@@ -3,7 +3,6 @@ package service
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"math"
 	"math/big"
 	"strconv"
@@ -45,11 +44,16 @@ type videoRateSnapshot struct {
 }
 
 type automaticVideoPriceSnapshot struct {
-	Version             int                          `json:"version"`
-	MaxDurationSeconds  int64                        `json:"max_duration_seconds"`
-	RequestedResolution string                       `json:"requested_resolution"`
-	Rates               map[string]videoRateSnapshot `json:"rates"`
-	DiscountBps         int64                        `json:"discount_bps"`
+	Version             int    `json:"version"`
+	MaxDurationSeconds  int64  `json:"max_duration_seconds"`
+	RequestedResolution string `json:"requested_resolution"`
+	// SettlementResolution is the server-selected tier used when the request
+	// leaves resolution automatic or omitted. It is frozen with the quote so a
+	// non-standard output geometry cannot leave credits reserved forever or
+	// make settlement guess a supplier tier after the fact.
+	SettlementResolution string                       `json:"settlement_resolution"`
+	Rates                map[string]videoRateSnapshot `json:"rates"`
+	DiscountBps          int64                        `json:"discount_bps"`
 }
 
 func IsAutomaticVideoDuration(payload model.JSONB) bool {
@@ -129,6 +133,13 @@ func (p *CreditPricer) QuoteForJobWithVideoPolicy(jobType string, payload model.
 	if reserved < 0 {
 		return 0, "", nil, true, ErrAutomaticVideoPolicyUnavailable
 	}
+	if snapshot.RequestedResolution == "" {
+		// Automatic output dimensions are not a pricing contract. Freeze the
+		// highest supported tier used for the reservation and settle that same
+		// tier, while still settling the measured duration. This avoids guessing
+		// from square/ultrawide pixels and prevents a permanent credit hold.
+		snapshot.SettlementResolution = reservedResolution
+	}
 	rate := snapshot.Rates[reservedResolution]
 	params["pricing_source"], params["auto_video_pricing"] = "automatic_video_reservation", snapshot
 	params["reserve_credits"], params["resolution"] = reserved, strings.ToUpper(reservedResolution)
@@ -195,25 +206,12 @@ func (s *CreditLedgerService) SettleCompletedJob(job model.Job) (repository.Sett
 		return repository.SettleOutcome{}, ErrVideoBillingMetricsPending
 	}
 	resolution := snapshot.RequestedResolution
+	settlementBasis := "requested_resolution"
 	if resolution == "" {
-		resolution = fmt.Sprintf("%dp", min(result.Metrics.Width, result.Metrics.Height))
+		resolution = snapshot.SettlementResolution
+		settlementBasis = "reserved_automatic_tier"
 	}
 	rate, ok := snapshot.Rates[resolution]
-	if !ok && snapshot.RequestedResolution == "" {
-		// Square/pixel-budget outputs need a provider-specific tier mapping. When
-		// every frozen tier costs exactly the same, billing is unambiguous even
-		// without that mapping; do not invent an actual resolution label.
-		var uniform int64 = -1
-		for _, candidate := range snapshot.Rates {
-			if candidate.PerSecondScaled < 0 || (uniform >= 0 && uniform != candidate.PerSecondScaled) {
-				return repository.SettleOutcome{}, ErrVideoBillingMetricsPending
-			}
-			uniform = candidate.PerSecondScaled
-		}
-		if uniform >= 0 {
-			rate, ok, resolution = videoRateSnapshot{PerSecondScaled: uniform}, true, ""
-		}
-	}
 	if !ok || rate.PerSecondScaled < 0 {
 		return repository.SettleOutcome{}, ErrVideoBillingMetricsPending
 	}
@@ -227,15 +225,9 @@ func (s *CreditLedgerService) SettleCompletedJob(job model.Job) (repository.Sett
 	params["released_credits"] = consumption.CreditsQuoted - actual
 	params["actual_width"], params["actual_height"] = result.Metrics.Width, result.Metrics.Height
 	params["per_second"] = float64(rate.PerSecondScaled) / float64(videoCreditRatePrecision)
-	if resolution != "" {
-		params["actual_resolution"] = resolution
-		params["base_per_second"], params["reference_per_second"] = rate.BasePerSecond, rate.ReferencePerSecond
-	} else {
-		delete(params, "actual_resolution")
-		delete(params, "base_per_second")
-		delete(params, "reference_per_second")
-		params["settlement_resolution_basis"] = "uniform_frozen_rate"
-	}
+	params["settlement_resolution"] = resolution
+	params["settlement_resolution_basis"] = settlementBasis
+	params["base_per_second"], params["reference_per_second"] = rate.BasePerSecond, rate.ReferencePerSecond
 	params["settlement_status"] = "settled"
 	updatedParams, err := json.Marshal(params)
 	if err != nil {
