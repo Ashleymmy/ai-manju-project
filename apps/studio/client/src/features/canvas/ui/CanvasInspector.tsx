@@ -309,6 +309,9 @@ export function CanvasInspector({
   const imageSettingsIssue = selectedNode && selectedGenerationMode === "image" ? canvasImageGenerationSettingsIssue(selectedNode) : "";
   const generationBlocked = Boolean(imageSettingsIssue);
   const generationBlockedMessage = imageSettingsIssue;
+  const optimizationReceipt = selectedNode?.metadata?.promptOptimizationReceipt;
+  const pendingOptimization = optimizationReceipt?.state === "pending";
+  const savedOptimization = optimizationReceipt?.state === "received" && !optimizationReceipt.applied;
   const connectedSources = selectedNode
     ? edges
       .filter((edge) => edge.to === selectedNode.id)
@@ -644,12 +647,14 @@ export function CanvasInspector({
                 {selectedNode.kind !== "director" ? (
                   <Popover key={`${selectedNode.id}:skills`} active={inspectorOpen && !projectActionDisabled} onOpenChange={(open) => { if (open) onSkillsOpen(); }}>
                     <PopoverTrigger asChild>
-                      <button title="优化提示词" disabled={promptOptimizing}>{promptOptimizing ? <Loader2 className="spin" size={14} /> : <WandSparkles size={14} />}</button>
+                      <button title={pendingOptimization ? "恢复原优化结果" : savedOptimization ? "查看优化结果" : "优化提示词"} disabled={promptOptimizing}>{promptOptimizing ? <Loader2 className="spin" size={14} /> : <WandSparkles size={14} />}</button>
                     </PopoverTrigger>
                     <PopoverContent className="node-pop-card" align="end" sideOffset={8}>
-                      <p className="eyebrow">选择优化技能</p>
-                      <button className="node-pop-item" disabled={promptOptimizing} onClick={() => void optimizeNodePrompt(selectedNode)}><WandSparkles size={13} /> 默认优化</button>
-                      {enabledSkills.map((skill) => (
+                      <p className="eyebrow">{pendingOptimization || savedOptimization ? "原优化结果" : "选择优化技能"}</p>
+                      {pendingOptimization ? <p role="status">上次优化尚未取回结果，可恢复原回复。</p> : null}
+                      {savedOptimization ? <div className="node-pop-field"><label htmlFor="canvas-prompt-optimization-result">已保存的优化结果（采用后替换当前提示词）</label><textarea id="canvas-prompt-optimization-result" readOnly rows={5} value={optimizationReceipt.result || ""} /></div> : null}
+                      <button className="node-pop-item" disabled={promptOptimizing} onClick={() => void optimizeNodePrompt(selectedNode)}><WandSparkles size={13} /> {pendingOptimization ? "恢复原优化结果" : savedOptimization ? "采用优化结果" : "默认优化"}</button>
+                      {!pendingOptimization && !savedOptimization && enabledSkills.map((skill) => (
                         <button key={skill.id} className="node-pop-item" disabled={promptOptimizing} title={skill.description || skill.prompt} onClick={() => void optimizeNodePrompt(selectedNode, skill.prompt)}><Bot size={13} /> {skill.title}</button>
                       ))}
                       <button className="node-pop-item" onClick={() => setSkillLibraryOpen(true)}><Plus size={13} /> 管理技能库…</button>

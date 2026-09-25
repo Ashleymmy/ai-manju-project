@@ -1,5 +1,6 @@
 import { generationReceiptState } from "@/services/api/generationReceipt";
 import type { CanvasGenerationReceipt } from "@/features/canvas/domain/generationReceipt";
+import { validPromptOptimizationReceipt, type CanvasPromptOptimizationReceipt } from "@/features/canvas/domain/promptOptimizationReceipt";
 import type { Asset } from "@/entities/asset";
 import { jobErrorMessage, jobProgressNotice, type Job } from "@/entities/job";
 import { publicApiError } from "@/shared/api/errors";
@@ -1685,23 +1686,40 @@ export class CanvasGenerationJobsController {
     const scope = this.bindings.getScope();
     const projectKey = this.bindings.getProjectKey();
     if (!source || !scope || !projectKey || this.bindings.isSwitching() || this.bindings.isLoading()) return;
+    const userId = this.bindings.getUserId?.() || "";
+    const projectId = this.bindings.getProjectId();
+    const existing = source.metadata?.promptOptimizationReceipt;
+    if (existing && (!validPromptOptimizationReceipt(existing) || existing.userId !== userId
+      || existing.projectId !== projectId || existing.projectKey !== projectKey || existing.scope !== scope || existing.nodeId !== source.id)) {
+      this.bindings.onError("原优化记录属于其他账号或画布，或记录不完整；未重新提交优化");
+      return;
+    }
+    const recoverOnly = existing?.state === "pending";
+    // A saved suggestion is applied only by this explicit user action. Merely
+    // loading a canvas or retrieving a late result never overwrites newer edits.
+    const applySaved = existing?.state === "received" && !existing.applied;
     const prompt = promptTextFromNode(source);
-    if (!prompt.trim()) {
+    if (!recoverOnly && !applySaved && !prompt.trim()) {
       this.bindings.onWarning("先写点提示词再优化");
       return;
     }
-    const model = this.bindings.getTextModel();
+    const model = recoverOnly || applySaved ? existing!.model : this.bindings.getTextModel();
     if (!model) {
       this.bindings.onError("请先配置文本模型");
       return;
     }
+    let receipt: CanvasPromptOptimizationReceipt = recoverOnly || applySaved ? existing! : {
+      version: 1, key: this.services.createId(), userId, projectId, projectKey, scope,
+      nodeId: source.id, kind: source.kind, prompt, model, state: "pending",
+    };
     const optimization: CanvasPromptOptimization = {
-      controller: this.services.createAbortController(), userId: this.bindings.getUserId?.() || "",
-      projectId: this.bindings.getProjectId(), projectKey, scope,
+      controller: this.services.createAbortController(), userId, projectId, projectKey, scope,
       nodeId: source.id, kind: source.kind, prompt,
     };
     this.promptOptimization = optimization;
     this.bindings.setPromptOptimizing(true);
+    let submitted = false;
+    let delivered = false;
     let appliedPrompt: string | undefined;
     const currentNode = () => this.bindings.getNodes().find(item => item.id === optimization.nodeId);
     const isCurrent = () => this.promptOptimization === optimization
@@ -1710,47 +1728,68 @@ export class CanvasGenerationJobsController {
       const current = currentNode();
       return current?.kind === optimization.kind && promptTextFromNode(current) === expected;
     };
+    const storeReceipt = (value: CanvasPromptOptimizationReceipt | undefined, replacement?: string) => this.updateNodes(nodes => nodes.map(item => {
+      if (item.id !== source.id) return item;
+      const updated = replacement === undefined ? item : updateCanvasNodeComposer(item, replacement);
+      return { ...updated, metadata: { ...updated.metadata, promptOptimizationReceipt: value } };
+    }));
     try {
-      const instruction = skillPrompt?.trim()
-        || "你是提示词优化专家。在不改变主体与场景的前提下，补足画面、动作、光影与质感细节，直接返回优化后的提示词本身，不要解释。";
-      const result = await this.generation(() => this.services.requestAiText({
-        model,
-        prompt: `${instruction}\n\n待优化的提示词：\n${prompt.trim()}`,
-      }, optimization.controller.signal));
-      if (!isCurrent()) return;
-      if (!promptUnchanged(optimization.prompt)) {
-        if (currentNode()) this.bindings.onWarning("提示词已被修改，本次优化结果未覆盖你的编辑");
-        return;
+      if (!recoverOnly && !applySaved) {
+        if (!await this.persist(storeReceipt(receipt))) throw new Error("优化记录保存失败，尚未调用模型；请稍后重试");
+        if (!isCurrent()) return;
+        // The original text may have been edited during the initial save.
+        if (!promptUnchanged(prompt)) {
+          await this.persist(storeReceipt(existing));
+          if (isCurrent()) this.bindings.onWarning("提示词已被修改，尚未提交优化；请使用当前提示词重试");
+          return;
+        }
       }
-      const optimized = result.content.trim();
+      let optimized = applySaved ? receipt.result! : "";
+      if (!applySaved) {
+        const instruction = skillPrompt?.trim()
+          || "你是提示词优化专家。在不改变主体与场景的前提下，补足画面、动作、光影与质感细节，直接返回优化后的提示词本身，不要解释。";
+        submitted = true;
+        const result = await this.generation(() => this.services.requestAiText(recoverOnly ? { model } : {
+          model, prompt: `${instruction}\n\n待优化的提示词：\n${prompt.trim()}`,
+        }, optimization.controller.signal, undefined, { key: receipt.key, scope, recoverOnly }));
+        if (!isCurrent()) return;
+        optimized = result.content.trim();
+      }
+      delivered = true;
       if (!optimized) {
-        this.bindings.onWarning("优化结果为空");
+        receipt = { ...receipt, state: "failed" };
+        await this.persist(storeReceipt(receipt));
+        if (isCurrent()) this.bindings.onWarning("优化结果为空，可以重新优化");
         return;
       }
-      const next = this.updateNodes(nodes => nodes.map(item => (
-        item.id === optimization.nodeId ? updateCanvasNodeComposer(item, optimized) : item
-      )));
-      appliedPrompt = optimized;
-      const saved = await this.persist(next);
-      if (!isCurrent() || !promptUnchanged(optimized)) return;
-      if (saved) this.bindings.onSuccess("提示词已优化");
-      else this.bindings.onWarning("提示词已优化，但画布保存未完成；请保存画布后再离开");
+      const apply = promptUnchanged(applySaved ? prompt : receipt.prompt) && (applySaved || receipt.kind === optimization.kind);
+      receipt = { ...receipt, state: "received", result: optimized, applied: apply };
+      if (apply) appliedPrompt = optimized;
+      const saved = await this.persist(storeReceipt(receipt, apply ? optimized : undefined));
+      if (!isCurrent()) return;
+      if (!saved) this.bindings.onWarning("优化结果已保留，但画布保存未完成；请保存画布后再离开");
+      else if (apply && promptUnchanged(optimized)) this.bindings.onSuccess("提示词已优化");
+      else this.bindings.onWarning("提示词已被修改，本次优化结果未覆盖你的编辑；可在优化菜单查看并采用原结果");
     } catch (error) {
       if (!isCurrent() || isAbortError(error)) return;
-      if (appliedPrompt !== undefined) {
-        if (promptUnchanged(appliedPrompt)) this.bindings.onWarning("提示词已优化，但画布保存未完成；请保存画布后再离开");
-      } else if (promptUnchanged(optimization.prompt)) {
-        this.bindings.onError(publicApiError(error, "优化提示词失败"));
+      if (delivered || appliedPrompt !== undefined) {
+        this.bindings.onWarning("优化结果已保留，但画布保存未完成；请保存画布后再离开");
+      } else {
+        if (!submitted && !recoverOnly) storeReceipt(existing);
+        else if (generationReceiptState(error) === "failed") {
+          receipt = { ...receipt, state: "failed" };
+          try { await this.persist(storeReceipt(receipt)); } catch { /* original server failure remains definitive */ }
+          if (!isCurrent()) return;
+        }
+        this.bindings.onError(publicApiError(error, "优化中断，可在优化菜单恢复原结果；未重新提交优化"));
       }
     } finally {
-      // A canceled reply may settle after a newer optimization has started.
       if (this.promptOptimization === optimization) {
         this.promptOptimization = undefined;
         this.bindings.setPromptOptimizing(false);
       }
     }
   };
-
   private promptOptimizationSessionCurrent(optimization: CanvasPromptOptimization) {
     return optimization.userId === (this.bindings.getUserId?.() || "")
       && optimization.projectId === this.bindings.getProjectId()

@@ -1,3 +1,4 @@
+import { CANVAS_CLONE_EXECUTION_IDENTITY_KEYS } from "./clipboard";
 import { assetIdFromNode, imageSrcFromNode } from "./nodes";
 import { promptTextFromNode } from "./nodeUtils";
 import type { CanvasNodeData, CanvasNodeGenerationRevision } from "./types";
@@ -336,6 +337,7 @@ export function collectCanvasGenerationHistory(
 }
 
 const HISTORY_CLONE_STRIP_KEYS = [
+  ...CANVAS_CLONE_EXECUTION_IDENTITY_KEYS,
   "batchRootId",
   "isBatchRoot",
   "batchChildIds",

@@ -14,6 +14,36 @@ const edges = [
 ];
 
 describe("canvas clipboard", () => {
+  it.each(["text", "image", "video", "audio"] as const)("detaches execution receipts when duplicating or pasting a %s node", kind => {
+    const source = { ...nodes[0], kind, content: "现有内容", imageAssetId: "existing-asset", metadata: {
+      prompt: "原提示词", model: "original-model", assetId: "existing-asset", assetScope: "team", seconds: "12",
+      status: "loading", jobId: "original-job", sourceNodeId: "b", batchChildIds: ["b"],
+      generationReceipt: { key: "original-generation", nodeId: "a" },
+      pendingAudioUpload: { key: "original-upload", fileName: "voice.mp3" },
+      promptOptimizationReceipt: { key: "original-optimization", nodeId: "a", prompt: "原提示词" },
+    } };
+    const before = structuredClone(source);
+    const duplicate = duplicateCanvasNode(source, "duplicate");
+    const clipboard = createCanvasClipboard([source], [], [source.id], "personal:project-1")!;
+    const clipboardBefore = structuredClone(clipboard);
+    const pasted = pasteCanvasClipboard(clipboard, "personal:project-1", { x: 500, y: 300 }, () => "pasted")!.nodes[0];
+    for (const copy of [duplicate, pasted]) {
+      expect(copy).toMatchObject({ kind, content: "现有内容", imageAssetId: "existing-asset", metadata: {
+        prompt: "原提示词", model: "original-model", assetId: "existing-asset", assetScope: "team", seconds: "12",
+      } });
+      expect(copy.metadata).not.toHaveProperty("generationReceipt");
+      expect(copy.metadata).not.toHaveProperty("pendingAudioUpload");
+      expect(copy.metadata).not.toHaveProperty("promptOptimizationReceipt");
+    }
+    // Existing duplicate-vs-paste loading and relationship behavior is unchanged.
+    expect(duplicate.metadata.status).toBe("idle");
+    expect(duplicate.metadata).not.toHaveProperty("jobId");
+    expect(pasted.metadata).toMatchObject({ status: "loading", jobId: "original-job", batchChildIds: [] });
+    expect(pasted.metadata).not.toHaveProperty("sourceNodeId");
+    expect(source).toEqual(before);
+    expect(clipboard).toEqual(clipboardBefore);
+  });
+
   it("duplicates the image and settings without sharing nested data or original task relationships", () => {
     const source = {
       ...nodes[0], imageAssetId: "apple-asset", imageSrc: "/apple.png",

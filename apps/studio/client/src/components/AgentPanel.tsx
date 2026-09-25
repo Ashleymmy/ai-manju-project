@@ -154,6 +154,7 @@ export default function AgentPanel({
   const [pendingTool, setPendingTool] = useState<PendingAgentTool | null>(null);
   const [panelWidth, setPanelWidth] = useState(560); // 悬浮卡片初始宽度（可拖拽 250–600）
   const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
+  const [localConnectionVersion, setLocalConnectionVersion] = useState(0);
   const documentAttachments = useAgentDocuments(`${storageProjectId}:${conversationId}`);
   const [conversations, setConversationState] = useState<AgentConversation[]>(() => loadScopedAgentConversations(owner));
   const conversationsRef = useRef(conversations);
@@ -164,7 +165,9 @@ export default function AgentPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const clientId = useMemo(() => crypto.randomUUID(), [storageProjectId]);
+  // Local SSE routes by clientId: sharing it between chats lets old replies and
+  // tools enter the next chat as soon as a new turn clears interruptedRef.
+  const clientId = useMemo(() => crypto.randomUUID(), [storageProjectId, conversationId, localConnectionVersion]);
   const snapshotRef = useRef(snapshot);
   const pendingToolRef = useRef<PendingAgentTool | null>(null);
   const confirmToolsRef = useRef(confirmTools);
@@ -334,7 +337,10 @@ export default function AgentPanel({
   useEffect(() => {
     if (!enabled || !url.trim() || !token.trim()) return;
     let active = true;
-    const ownsConnection = () => active && liveOwnerRef.current === storageProjectId;
+    const epoch = conversationEpochRef.current;
+    const ownsConnection = () => active && epoch === conversationEpochRef.current
+      && liveOwnerRef.current === storageProjectId;
+    setConnected(false);
     const client = createLocalAgentSseClient({
       endpoint: url,
       token,
@@ -869,6 +875,7 @@ export default function AgentPanel({
     if (!url.trim()) { toast.warning("请填写 Agent 地址"); return; }
     if (!token.trim()) { toast.warning("请填写 Agent token"); return; }
     persistAgentConnectionSettings(url, token);
+    setLocalConnectionVersion(version => version + 1);
     setEnabled(true);
     setActivity("连接中");
     setTab("chat");
@@ -955,6 +962,7 @@ export default function AgentPanel({
     setReferenceNodeIds([]);
     localTurnReferencesRef.current = [];
     conversationEpochRef.current += 1;
+    setLocalConnectionVersion(version => version + 1);
     interruptedRef.current = true;
     turnIdRef.current += 1;
     turnAbortRef.current?.abort();
