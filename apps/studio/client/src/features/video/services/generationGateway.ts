@@ -444,7 +444,7 @@ export async function pollVideoGenerationTask(
   } catch (error) {
     if (options.signal?.aborted) throw error;
     // A failed status request says nothing about the durable generation result.
-    if (error instanceof ApiError && (error.status === 0 || error.status >= 500)) {
+    if (error instanceof ApiError && (error.status === 0 || error.status === 408 || error.status === 429 || error.status >= 500)) {
       return { status: "pending" };
     }
     throw error;

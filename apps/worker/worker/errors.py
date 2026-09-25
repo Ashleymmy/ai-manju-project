@@ -27,6 +27,14 @@ class SafeTaskError(Exception):
         return self.message
 
 
+class VideoTaskAcceptedError(SafeTaskError):
+    """The paid task exists; retrying generation would create another video."""
+
+
+class VideoSubmissionUncertainError(SafeTaskError):
+    """The submit may have been accepted; a new POST risks duplicate charges."""
+
+
 def job_canceled_error() -> SafeTaskError:
     return SafeTaskError("job was canceled", code="job_canceled", retryable=False)
 
@@ -42,9 +50,14 @@ def safe_message(value: object) -> str:
 
 def error_payload(exc: BaseException) -> dict[str, object]:
     if isinstance(exc, SafeTaskError):
+        public_message = PUBLIC_TASK_ERROR_MESSAGES.get(exc.code, exc.message)
+        if isinstance(exc, VideoTaskAcceptedError):
+            public_message = "视频任务已提交，查询或下载结果中断，请联系管理员核查，勿重复生成"
+        elif isinstance(exc, VideoSubmissionUncertainError):
+            public_message = "视频提交结果待确认，请勿重复提交，请联系管理员核查"
         payload: dict[str, object] = {
-            "message": safe_message(PUBLIC_TASK_ERROR_MESSAGES.get(exc.code, exc.message)),
-            "code": exc.code,
+            "message": safe_message(public_message),
+            "code": "video_result_pending" if isinstance(exc, VideoTaskAcceptedError) else exc.code,
             "retryable": exc.retryable,
         }
         if exc.retry_after_seconds is not None:

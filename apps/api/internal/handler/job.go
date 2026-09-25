@@ -107,6 +107,10 @@ func (h *JobHandler) Create(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "payload must be valid JSON")
 		return
 	}
+	if hasJobExecutionConfiguration(payload) {
+		response.Error(c, http.StatusBadRequest, "payload contains server-only execution configuration")
+		return
+	}
 	result, err := h.jobs.Enqueue(c.Request.Context(), service.EnqueueJobInput{
 		UserID:         user.ID,
 		Scope:          firstNonEmpty(req.Scope, requestWorkspaceScope(c)),
@@ -130,6 +134,25 @@ func (h *JobHandler) Create(c *gin.Context) {
 		return
 	}
 	response.Accepted(c, requestedJobResponse(c, result.Job))
+}
+
+// Provider execution configuration is resolved by the authenticated generation
+// routes. The generic jobs endpoint must reject it before billing or enqueue.
+func hasJobExecutionConfiguration(payload model.JSONB) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(payload, &fields) != nil {
+		return false
+	}
+	for key := range fields {
+		if key == "provider" || strings.HasPrefix(key, "_provider") || strings.HasPrefix(key, "provider_candidates") {
+			return true
+		}
+		switch key {
+		case "video_request_body", "generation_soft_timeout_seconds", "generation_attempt", "task_kwargs", "_task_kwargs":
+			return true
+		}
+	}
+	return false
 }
 
 func (h *JobHandler) List(c *gin.Context) {

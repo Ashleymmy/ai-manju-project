@@ -15,6 +15,10 @@ import (
 	"github.com/ai-manju/api/internal/repository"
 )
 
+// jobPublishTimeout bounds broker publication after the durable job exists,
+// independent of a browser disconnect or an expired HTTP request deadline.
+const jobPublishTimeout = 30 * time.Second
+
 type JobService struct {
 	repo        repository.JobRepository
 	producer    queue.Producer
@@ -198,21 +202,35 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 	payload := NormalizeJSON(&input.Payload)
 	workspaceID := WorkspaceIDForScope(input.Scope, input.UserID)
 	idempotencyKey := strings.TrimSpace(input.IdempotencyKey)
+	explicitKey := idempotencyKey
 	if idempotencyKey == "" {
 		fingerprintPayload := payload
 		if len(input.IdempotencyPayload) > 0 && json.Valid(input.IdempotencyPayload) {
 			fingerprintPayload = NormalizeJSON(&input.IdempotencyPayload)
 		}
 		idempotencyKey = fingerprintJob(input.UserID, workspaceID, input.Type, fingerprintPayload)
+	} else {
+		idempotencyKey = scopedExplicitJobKey(input.UserID, workspaceID, input.Type, idempotencyKey)
 	}
-	if existing, err := s.repo.GetByIdempotencyKey(idempotencyKey); err == nil {
+	existing, existingErr := s.repo.GetByIdempotencyKey(idempotencyKey)
+	if existingErr == nil && !jobMatchesScope(existing, input.UserID, workspaceID, input.Type) {
+		return EnqueueJobResult{}, fmt.Errorf("idempotency key conflicts with another job scope")
+	}
+	if existingErr != nil && explicitKey != "" {
+		// Older releases stored explicit keys verbatim. Only reuse those rows
+		// when all ownership boundaries match; a shared client key is not identity.
+		if legacy, err := s.repo.GetByIdempotencyKey(explicitKey); err == nil && jobMatchesScope(legacy, input.UserID, workspaceID, input.Type) {
+			existing, existingErr = legacy, nil
+		}
+	}
+	if existingErr == nil {
 		if input.RepublishExisting && existing.Status == model.JobStatusQueued {
 			if s.producer == nil {
 				return EnqueueJobResult{Job: existing, Created: false}, queue.ErrBrokerNotConfigured
 			}
-			if err := s.producer.Publish(ctx, queue.TaskMessage{
+			if err := s.publishDurableJob(ctx, queue.TaskMessage{
 				TaskName: taskNameForJobType(existing.Type), Queue: s.queueName, JobID: existing.ID,
-				Payload: existing.Payload, Kwargs: input.TaskKwargs,
+				Payload: existing.Payload, Kwargs: normalizedVideoTaskKwargs(existing.Type, existing.Payload, input.TaskKwargs),
 			}); err != nil {
 				return EnqueueJobResult{Job: existing, Created: false}, err
 			}
@@ -263,6 +281,9 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 		if s.billing != nil {
 			s.billing.ReleaseForJob(jobID)
 		}
+		if !jobMatchesScope(created, input.UserID, workspaceID, input.Type) {
+			return EnqueueJobResult{}, fmt.Errorf("idempotency key conflicts with another job scope")
+		}
 		return EnqueueJobResult{Job: created, Created: false}, nil
 	}
 
@@ -276,12 +297,12 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 		s.cleanupJobInputs(context.WithoutCancel(ctx), created)
 		return EnqueueJobResult{Job: created, Created: true}, queue.ErrBrokerNotConfigured
 	}
-	if err := s.producer.Publish(ctx, queue.TaskMessage{
+	if err := s.publishDurableJob(ctx, queue.TaskMessage{
 		TaskName: taskNameForJobType(created.Type),
 		Queue:    s.queueName,
 		JobID:    created.ID,
 		Payload:  created.Payload,
-		Kwargs:   input.TaskKwargs,
+		Kwargs:   normalizedVideoTaskKwargs(created.Type, created.Payload, input.TaskKwargs),
 	}); err != nil {
 		if failed, setErr := s.repo.SetError(created.ID, errorJSON(err.Error())); setErr == nil {
 			created = failed
@@ -298,6 +319,85 @@ func (s *JobService) Enqueue(ctx context.Context, input EnqueueJobInput) (Enqueu
 		}
 	}
 	return EnqueueJobResult{Job: created, Created: true}, nil
+}
+
+func (s *JobService) publishDurableJob(ctx context.Context, message queue.TaskMessage) error {
+	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), jobPublishTimeout)
+	defer cancel()
+	return s.producer.Publish(publishCtx, message)
+}
+
+func jobMatchesScope(job model.Job, userID, workspaceID, jobType string) bool {
+	return job.UserID == userID && job.WorkspaceID == workspaceID && job.Type == jobType
+}
+
+func scopedExplicitJobKey(userID, workspaceID, jobType, key string) string {
+	hash := sha256.Sum256([]byte(strings.Join([]string{userID, workspaceID, jobType, key}, "\x00")))
+	// Keep explicit keys in a separate namespace from payload fingerprints.
+	return "idem_" + hex.EncodeToString(hash[:])
+}
+
+// normalizedVideoTaskKwargs carries the billed payload's watermark through
+// every native provider request. Copy only modified maps so caller-owned
+// provider/candidate maps (which may alias each other) are never mutated.
+func normalizedVideoTaskKwargs(jobType string, payload model.JSONB, kwargs map[string]any) map[string]any {
+	if jobType != model.JobTypeVideoGenerate || len(kwargs) == 0 {
+		return kwargs
+	}
+	var body map[string]any
+	if json.Unmarshal(payload, &body) != nil {
+		return kwargs
+	}
+	watermark, ok := body["watermark"].(bool)
+	if !ok {
+		return kwargs
+	}
+	clone := func(original map[string]any) map[string]any {
+		copied := make(map[string]any, len(original))
+		for key, value := range original {
+			copied[key] = value
+		}
+		return copied
+	}
+	updateProvider := func(provider map[string]any) map[string]any {
+		request, ok := provider["video_request_body"].(map[string]any)
+		if !ok || request == nil {
+			return provider
+		}
+		copied := clone(provider)
+		request = clone(request)
+		if provider["provider_type"] == model.ModelProviderTypeAliyunYike {
+			parameters, _ := request["parameters"].(map[string]any)
+			parameters = clone(parameters)
+			parameters["watermark"] = watermark
+			request["parameters"] = parameters
+		} else {
+			request["watermark"] = watermark
+		}
+		copied["video_request_body"] = request
+		return copied
+	}
+	result := clone(kwargs)
+	if provider, ok := kwargs["provider"].(map[string]any); ok {
+		result["provider"] = updateProvider(provider)
+	}
+	switch candidates := kwargs["provider_candidates"].(type) {
+	case []map[string]any:
+		copied := make([]map[string]any, len(candidates))
+		for i, candidate := range candidates {
+			copied[i] = updateProvider(candidate)
+		}
+		result["provider_candidates"] = copied
+	case []any:
+		copied := append([]any(nil), candidates...)
+		for i, candidate := range candidates {
+			if provider, ok := candidate.(map[string]any); ok {
+				copied[i] = updateProvider(provider)
+			}
+		}
+		result["provider_candidates"] = copied
+	}
+	return result
 }
 
 func (s *JobService) GetForUser(id string, userID string) (model.Job, error) {

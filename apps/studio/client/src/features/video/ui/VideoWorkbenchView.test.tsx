@@ -7,7 +7,7 @@ import type { VideoWorkbenchConversation } from "../repositories/conversationRep
 import { PROMPT_REFERENCE_DISPLAY } from "../model/promptEditor";
 
 const mocks = vi.hoisted(() => ({
-  load: vi.fn(), write: vi.fn(), generate: vi.fn(), assetContent: vi.fn(), warning: vi.fn(),
+  load: vi.fn(), write: vi.fn(), generate: vi.fn(), poll: vi.fn(), cancel: vi.fn(), assetContent: vi.fn(), warning: vi.fn(),
 }));
 vi.mock("../repositories/cloudConversationRepository", () => ({ createCloudConversationRepository: () => ({
   load: mocks.load, write: mocks.write, dispose: vi.fn(), isLegacy: () => false,
@@ -15,12 +15,14 @@ vi.mock("../repositories/cloudConversationRepository", () => ({ createCloudConve
 vi.mock("../services/generationGateway", async (original) => ({
   ...(await original<typeof import("../services/generationGateway")>()),
   createVideoGenerationTask: mocks.generate,
+  pollVideoGenerationTask: mocks.poll,
   fetchVideoModelCatalog: async () => ({ videoModels: ["sdvideo/seedance-2.0"], defaultVideoModel: "sdvideo/seedance-2.0" }),
 }));
 vi.mock("@/entities/asset", async (original) => ({
   ...(await original<typeof import("@/entities/asset")>()), getAssetContentObjectUrl: mocks.assetContent,
 }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), warning: mocks.warning, error: vi.fn() } }));
+vi.mock("@/entities/job", async original => ({ ...(await original<typeof import("@/entities/job")>()), cancelJob: mocks.cancel }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), warning: mocks.warning, error: vi.fn(), message: vi.fn() } }));
 vi.mock("./MediaPickerDialog", () => ({ MediaPickerDialog: () => null }));
 vi.mock("./ToolkitPanel", () => ({ ToolkitPanel: () => null }));
 vi.mock("./ParamsBar", () => ({ ParamsBar: ({ config }: { config: { seconds: string } }) => <output data-testid="duration">{config.seconds}</output> }));
@@ -58,12 +60,42 @@ afterEach(async () => {
   container.remove();
   vi.restoreAllMocks();
   vi.resetAllMocks();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 async function render() { await act(async () => root.render(<QueryClientProvider client={queryClient}><VideoWorkbenchView ownerId="owner" /></QueryClientProvider>)); }
 async function edit() { await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="重新编辑提示词和参考素材"]')!.click()); }
 
 describe("视频历史消息重新编辑", () => {
+  it("keeps recovering the accepted task beyond 120 polls", async () => {
+    vi.useFakeTimers();
+    const history = conversations();
+    Object.assign(history[0].messages[1], { taskId: "job-running", taskProvider: "openai", taskStatus: "running" });
+    mocks.load.mockResolvedValue(history);
+    mocks.poll.mockResolvedValue({ status: "pending" });
+    await render();
+    await act(async () => { await vi.advanceTimersByTimeAsync(125 * 2500); });
+    expect(mocks.poll.mock.calls.length).toBeGreaterThan(120);
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
+
+  it("continues receiving status after a failed cancellation", async () => {
+    vi.useFakeTimers();
+    const history = conversations();
+    Object.assign(history[0].messages[1], { taskId: "job-running", taskProvider: "openai", taskStatus: "running" });
+    mocks.load.mockResolvedValue(history);
+    mocks.poll.mockResolvedValueOnce({ status: "pending" }).mockResolvedValueOnce({ status: "failed", error: "server terminal" });
+    mocks.cancel.mockRejectedValue(new Error("network unavailable"));
+    await render();
+    const signal = mocks.poll.mock.calls[0][2].signal;
+    await act(async () => container.querySelector<HTMLButtonElement>(".wb-task-cancel")!.click());
+    expect(signal.aborted).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    expect(mocks.poll).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("server terminal");
+    expect(mocks.generate).not.toHaveBeenCalled();
+  });
+
   it("历史视频使用可续签的媒体地址，不预先读取整段 Blob", async () => {
     const history = conversations();
     history[0].messages = [{ id: "video", role: "system", text: "已完成", createdAt: 2, taskStatus: "succeeded", resultAssetId: "asset-video", resultScope: "personal" }];

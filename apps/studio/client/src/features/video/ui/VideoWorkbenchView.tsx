@@ -606,7 +606,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
     setRuntime(message.id, { status: "running" });
     const task = { id: message.taskId, provider: message.taskProvider || workbenchProviderFromModel(message.model || message.config.model), model: message.model || message.config.model };
     try {
-      for (let attempt = 0; attempt < 120; attempt += 1) {
+      while (!controller.signal.aborted) {
         if (controller.signal.aborted) return;
         const state = await pollVideoGenerationTask(message.config, task, {
           signal: controller.signal,
@@ -628,7 +628,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
       if (controller.signal.aborted) return;
       console.warn("恢复任务轮询失败", error);
     } finally {
-      pollingRef.current.delete(message.id);
+      if (pollingRef.current.get(message.id) === controller) pollingRef.current.delete(message.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [completeVideoTask, patchMessage, setRuntime]);
@@ -636,17 +636,23 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   const handleCancelTask = useCallback(async (message: VideoWorkbenchMessage) => {
     if (!currentConversation) return;
     setRuntime(message.id, { cancelling: true });
-    pollingRef.current.get(message.id)?.abort();
-    pollingRef.current.delete(message.id);
     if (message.taskId && (message.taskProvider === "openai" || message.taskId.startsWith("job_"))) {
       try {
-        await cancelJob(message.taskId, pickerScope);
+        const canceled = await cancelJob(message.taskId, pickerScope);
+        // Completion can win the race with cancel; let the active poll report it.
+        if (canceled.status !== "canceled") {
+          setRuntime(message.id, { cancelling: false });
+          return;
+        }
       } catch (error) {
         toast.error(publicApiError(error, "取消任务失败，任务仍可恢复"));
         setRuntime(message.id, { cancelling: false });
         return;
       }
     }
+    // Keep receiving the original result until the server confirms cancellation.
+    pollingRef.current.get(message.id)?.abort();
+    pollingRef.current.delete(message.id);
     patchMessage(currentConversation.id, message.id, { taskStatus: "canceled", taskError: "已手动取消" });
     setRuntime(message.id, { status: "canceled", cancelling: false });
     toast.message("已取消生成");

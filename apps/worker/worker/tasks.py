@@ -11,7 +11,7 @@ from celery import Celery, Task
 from .assets import register_result_assets
 from .config import load_settings
 from .db import JOB_STATUS_CANCELED, JOB_STATUS_FAILED, JOB_STATUS_SUCCEEDED, JobStore, json_compatible
-from .errors import SafeTaskError, error_payload, job_canceled_error
+from .errors import SafeTaskError, VideoTaskAcceptedError, VideoSubmissionUncertainError, error_payload, job_canceled_error
 from .monitoring import attempt_event
 from .generation_failover import PROVIDER_CANDIDATES_FIELD, generation_attempt, is_provider_failure, unavailable_error
 from .image_output_validation import validate_canvas_image_outputs
@@ -260,7 +260,7 @@ def execute_job(
                     except Exception:
                         # Diagnostics must never replace a generation outcome or retry.
                         log_job("monitoring_write_failed", job_id)
-                if not generation_completed and isinstance(exc, SafeTaskError) and exc.code == "provider_rate_limited" and provider_throttle_can_wait(job):
+                if not generation_completed and isinstance(exc, SafeTaskError) and not isinstance(exc, (VideoTaskAcceptedError, VideoSubmissionUncertainError)) and exc.code == "provider_rate_limited" and provider_throttle_can_wait(job):
                     delay = max(PROVIDER_THROTTLE_RETRY_SECONDS, exc.retry_after_seconds or 0)
                     if gate is not None:
                         try:
@@ -294,7 +294,7 @@ def execute_job(
                         countdown=retry_after_seconds(exc, int(job.get("attempts") or 0)),
                         max_retries=100000,
                     )
-                if generation_max_attempts and not isinstance(exc, ImageParameterError):
+                if generation_max_attempts and not isinstance(exc, (ImageParameterError, VideoTaskAcceptedError, VideoSubmissionUncertainError)):
                     exc = unavailable_error() if generation_retry else SafeTaskError("任务处理失败，请稍后重试", code="generation_processing_failed", retryable=False)
                     payload_error = error_payload(exc)
                 stored = store.set_error(job_id, payload_error)

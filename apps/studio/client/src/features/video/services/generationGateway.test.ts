@@ -343,10 +343,10 @@ describe("video API", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("polls native videos through their durable job and ignores transient status failures", async () => {
+  it.each([408, 429, 503])("polls native videos through their durable job and ignores HTTP %s status failures", async status => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(apiResponse({ id: "job_native", job_id: "job_native" }))
-      .mockResolvedValueOnce(apiResponse(null, 503))
+      .mockResolvedValueOnce(apiResponse(null, status))
       .mockResolvedValueOnce(apiResponse({ id: "job_native", type: "video.generate", status: "running", progress: 35 }))
       .mockResolvedValueOnce(apiResponse({ id: "job_native", type: "video.generate", status: "failed", error: { message: "当前模型暂时不可用，请稍后重试" } }));
     const selected = { ...config, model: "removed::wan3.0-video" };

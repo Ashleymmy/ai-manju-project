@@ -5,7 +5,7 @@ from billiard.exceptions import SoftTimeLimitExceeded
 
 from test_tasks import FakeStore, FakeTask, RetryCalled
 from worker import tasks
-from worker.errors import SafeTaskError
+from worker.errors import SafeTaskError, VideoTaskAcceptedError, VideoSubmissionUncertainError
 from worker.generation_failover import PROVIDER_CANDIDATES_FIELD
 
 
@@ -105,6 +105,19 @@ class GenerationFailoverTest(unittest.TestCase):
         self.assertEqual(self.deliver(self.executor(succeed_at=1))["status"], "succeeded")
         self.assertEqual(self.calls, ["a"])
         self.assertEqual(self.store.retry_errors, [])
+
+    def test_accepted_or_uncertain_video_never_reposts_or_hides_reason(self):
+        for error_type in (VideoTaskAcceptedError, VideoSubmissionUncertainError):
+            with self.subTest(error_type=error_type):
+                self.store.job.update(status="queued", attempts=0)
+                self.calls.clear()
+                error = error_type("视频任务状态待确认，请勿重复提交", code="video_submission_uncertain", retryable=False)
+                with self.assertRaises(error_type):
+                    self.deliver(self.executor(exc=error))
+                self.assertEqual(self.calls, ["a"])
+                self.assertEqual(self.store.retry_errors, [])
+                self.assertEqual(self.store.final_errors[-1]["code"], "video_result_pending" if error_type is VideoTaskAcceptedError else "video_submission_uncertain")
+                self.assertNotEqual(self.store.final_errors[-1]["message"], "当前模型暂时不可用，请稍后重试")
 
     def test_real_celery_retry_keeps_server_candidates_between_deliveries(self):
         with patch.object(tasks, "generate_image", side_effect=self.executor(succeed_at=4)):

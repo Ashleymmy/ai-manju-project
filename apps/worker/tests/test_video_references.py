@@ -9,7 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from worker import video_references as refs
-from worker.errors import SafeTaskError, job_canceled_error
+from worker.errors import SafeTaskError, VideoTaskAcceptedError, VideoSubmissionUncertainError, job_canceled_error
 from worker.video import generate_video
 from test_video import FakeVideoResponse, test_settings
 
@@ -19,6 +19,15 @@ def inline(kind="image", data=b"reference bytes"):
 
 
 class NativeVideoReferencesTest(unittest.TestCase):
+    def test_unconfirmed_remote_task_keeps_its_downloadable_references(self):
+        for error_type in (VideoTaskAcceptedError, VideoSubmissionUncertainError):
+            with self.subTest(error_type=error_type), tempfile.TemporaryDirectory() as tmp, patch.object(refs.object_storage, "enabled", return_value=True), patch.object(refs.object_storage, "upload") as upload, patch.object(refs.object_storage, "signed_reference_url", return_value="https://media.test/signed"), patch.object(refs.object_storage, "delete") as delete:
+                with self.assertRaises(error_type):
+                    with refs.native_video_references("job", {"content": [inline()]}, {"_job_workspace_id": "default:user"}, test_settings(tmp)):
+                        raise error_type("unconfirmed", retryable=False)
+                upload.assert_called_once()
+                delete.assert_not_called()
+
     def test_media_use_short_urls_and_keep_original_bytes_and_roles(self):
         original = {"model": "doubao-seedance-2-5-260628", "content": [
             {"type": "text", "text": "animate"}, inline(), inline("video"), inline("audio"),

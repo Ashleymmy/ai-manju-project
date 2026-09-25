@@ -142,7 +142,7 @@ export async function waitForImageJob(jobId: string, callbacks: Omit<GenerationC
     } catch (error) {
       if (callbacks.signal?.aborted) throw new DOMException("Aborted", "AbortError");
       // A polling timeout does not mean the server-owned generation failed.
-      if (error instanceof ApiError && (error.status === 0 || error.status >= 500)) {
+      if (error instanceof ApiError && (error.status === 0 || error.status === 408 || error.status === 429 || error.status >= 500)) {
         await wait(imagePollIntervalMs, callbacks.signal);
         continue;
       }

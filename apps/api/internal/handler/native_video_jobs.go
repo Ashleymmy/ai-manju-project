@@ -103,7 +103,7 @@ func (h *AIHandler) serveGenerationVideoJob(c *gin.Context, content bool) bool {
 		public := jobResponse(job)
 		result := gin.H{"id": job.ID, "job_id": job.ID, "status": public["status"], "progress": job.Progress, "content": gin.H{}}
 		if job.Status == model.JobStatusFailed {
-			result["error"] = gin.H{"message": errGenerationUnavailable.Error()}
+			result["error"] = nativeVideoJobError(job.Error)
 		}
 		if job.Status == model.JobStatusSucceeded && assetID != "" {
 			result["content"] = gin.H{"video_url": "/api/ai/contents/generations/tasks/" + job.ID + "/content"}
@@ -127,6 +127,23 @@ func (h *AIHandler) serveGenerationVideoJob(c *gin.Context, content bool) bool {
 	defer asset.Reader.Close()
 	c.DataFromReader(http.StatusOK, asset.Object.Size, firstNonEmpty(asset.Object.ContentType, "video/mp4"), asset.Reader, map[string]string{"Cache-Control": "private, max-age=3600"})
 	return true
+}
+
+// Public fixed messages distinguish an accepted/uncertain task from a disabled
+// model without forwarding supplier bodies or signed media URLs.
+func nativeVideoJobError(raw model.JSONB) gin.H {
+	var failure struct {
+		Code string `json:"code"`
+	}
+	_ = json.Unmarshal(raw, &failure)
+	switch failure.Code {
+	case "video_submission_uncertain":
+		return gin.H{"code": failure.Code, "message": "视频提交结果待确认，请勿重复提交，请联系管理员核查"}
+	case "video_result_pending":
+		return gin.H{"code": failure.Code, "message": "视频任务已提交，查询或下载结果中断，请联系管理员核查，勿重复生成"}
+	default:
+		return gin.H{"message": errGenerationUnavailable.Error()}
+	}
 }
 
 func generationVideoAssetID(raw model.JSONB) string {

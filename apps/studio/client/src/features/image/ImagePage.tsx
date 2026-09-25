@@ -35,6 +35,8 @@ import {
   trashAssets,
   type Asset,
 } from "@/entities/asset";
+import { useAuth } from "@/contexts/AuthContext";
+import { useImageTaskSession } from "./model/useImageTaskSession";
 import { createProject } from "@/entities/project";
 import type { PromptPreset } from "@/entities/prompt";
 import { usePreferencesQuery } from "@/features/settings";
@@ -56,7 +58,6 @@ import {
 import { CropDialog, HistoryPreviewDialog, OutpaintDialog, UpscaleDialog } from "./ui/ImageEditDialogs";
 
 import {
-  generateImages,
   type GeneratedImage,
   type ImageModelCatalog,
 } from "./api";
@@ -140,7 +141,7 @@ export function ImageWorkbenchView() {
   const [, navigate] = useLocation();
   const referenceInputRef = useRef<HTMLInputElement>(null);
   const lightboxStageRef = useRef<HTMLDivElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const { user } = useAuth();
   const catalogInitializedRef = useRef(false);
   const preferencesInitializedRef = useRef(false);
   const [scope, setScope] = useState<WorkspaceScope>(() => initialScopeFromSearch());
@@ -161,12 +162,8 @@ export function ImageWorkbenchView() {
   const [assetPickerOpen, setAssetPickerOpen] = useState(false);
   const [assetPickerKeyword, setAssetPickerKeyword] = useState("");
   const [assetPickerUrls, setAssetPickerUrls] = useState<Record<string, string>>({});
-  const [result, setResult] = useState<GeneratedImage[]>([]);
   const [resultUrls, setResultUrls] = useState<Record<string, string>>({});
   const [selectedResult, setSelectedResult] = useState(0);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [jobProgress, setJobProgress] = useState(0);
-  const [generating, setGenerating] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxZoom, setLightboxZoom] = useState(1);
@@ -184,6 +181,11 @@ export function ImageWorkbenchView() {
   const catalogQuery = useImageModelCatalogQuery();
   const preferencesQuery = usePreferencesQuery();
   const historyQuery = useImageHistoryQuery(scope);
+  const { result, setResult, jobId, jobProgress, generating, generate: runGeneration, stop: stopGeneration } = useImageTaskSession(user?.id || "", scope, {
+    onCompleted: images => { toast.success(`生成完成，共 ${images.length} 张`); void historyQuery.refetch(); },
+    onError: error => toastGenerationError(error, "图像任务暂不可用，请稍后重试查看", () => navigate("/member/plans")),
+    onStopped: () => toast.info("已停止本次生成"),
+  });
   const assetPickerQuery = useImageAssetPickerQuery(
     scope,
     assetPickerKeyword,
@@ -274,10 +276,6 @@ export function ImageWorkbenchView() {
     sessionStorage.removeItem("ai-manju:image-reference-asset");
     void addAssetAsReference({ id: referenceAssetId, name: `${referenceAssetId}.png` });
   }, [addAssetAsReference]);
-
-  useEffect(() => () => {
-    abortRef.current?.abort();
-  }, []);
 
   useEffect(() => {
     if (!generating) return;
@@ -419,45 +417,19 @@ export function ImageWorkbenchView() {
 
   const generate = async (overrideCount?: number) => {
     if (generating || !model) return;
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setGenerating(true);
-    setResult([]);
     setResultUrls({});
     setSelectedResult(0);
-    setJobProgress(0);
-    try {
-      const requestOptions = resolveImageWorkbenchRequestOptions(size, quality);
-      const pixels = snapPixelSizeForModel(model, clampImagePixelSize({ width, height }, align16));
-      const generated = await generateImages({
-        model,
-        prompt,
-        size: workbenchRequestSize(size, pixels.width, pixels.height, align16),
-        quality: requestOptions.quality,
-        count: overrideCount ?? count,
-        referenceFiles: references.map((item) => item.file),
-        scope,
-        sourceType: "image_workbench",
-      }, {
-        signal: controller.signal,
-        onAccepted: (job) => setJobId(job.job_id || job.id || null),
-        onProgress: (job) => { setJobId(job.id); setJobProgress(job.progress ?? 0); },
-      });
-      setResult(generated.images);
-      setJobProgress(100);
-      toast.success(`生成完成，共 ${generated.images.length} 张`);
-      reloadHistory();
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") toast.info("已停止本次生成");
-      else toastGenerationError(error, "图像生成失败", () => navigate("/member/plans"));
-    } finally {
-      abortRef.current = null;
-      setGenerating(false);
-    }
-  };
-
-  const stopGeneration = () => {
-    abortRef.current?.abort();
+    const requestOptions = resolveImageWorkbenchRequestOptions(size, quality);
+    const pixels = snapPixelSizeForModel(model, clampImagePixelSize({ width, height }, align16));
+    await runGeneration({
+      model, prompt,
+      size: workbenchRequestSize(size, pixels.width, pixels.height, align16),
+      quality: requestOptions.quality,
+      count: overrideCount ?? count,
+      referenceFiles: references.map(item => item.file),
+      scope,
+      sourceType: "image_workbench",
+    });
   };
 
   const downloadResult = async (image: GeneratedImage) => {
@@ -574,44 +546,17 @@ export function ImageWorkbenchView() {
   const runOutpaint = async (margins: OutpaintMargins, promptText: string) => {
     if (generating || !model || !selectedImage) return;
     setOutpaintOpen(false);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setGenerating(true);
-    setResult([]);
     setResultUrls({});
     setSelectedResult(0);
-    setJobProgress(0);
-    try {
+    await runGeneration(async signal => {
       const url = await resolveFullImageUrl(selectedImage);
       if (!url) throw new Error("当前图片还没有可用内容");
+      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
       const referenceFile = await dataUrlToFile(await createOutpaintSourceDataUrl(url, margins), "outpaint-source.png");
       const maskFile = await dataUrlToFile(await createOutpaintMaskDataUrl(url, margins), "outpaint-mask.png");
-      const generated = await generateImages({
-        model,
-        prompt: promptText,
-        size: "auto",
-        quality,
-        count: 1,
-        referenceFiles: [referenceFile],
-        maskFile,
-        scope,
-        sourceType: "image_workbench",
-      }, {
-        signal: controller.signal,
-        onAccepted: (job) => setJobId(job.job_id || job.id || null),
-        onProgress: (job) => { setJobId(job.id); setJobProgress(job.progress ?? 0); },
-      });
-      setResult(generated.images);
-      setJobProgress(100);
-      toast.success("扩图完成");
-      reloadHistory();
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") toast.info("已停止本次扩图");
-      else toast.error(publicApiError(error, "扩图失败"));
-    } finally {
-      abortRef.current = null;
-      setGenerating(false);
-    }
+      return { model, prompt: promptText, size: "auto", quality, count: 1,
+        referenceFiles: [referenceFile], maskFile, scope, sourceType: "image_workbench" };
+    });
   };
 
   /* 历史记录（侧栏 / 近期归档）右键：重新载入预览区域，载入后底部编辑按钮变为可用 */

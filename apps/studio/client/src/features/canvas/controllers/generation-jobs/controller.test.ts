@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/shared/api/http";
 
 import type { CanvasEdgeData, CanvasNodeData } from "@/features/canvas/domain/types";
 import { buildCanvasMentionEditorModel, buildCanvasMentionReferences } from "@/features/canvas/domain/mentions";
@@ -212,6 +213,90 @@ function createHarness(
 }
 
 describe("CanvasGenerationJobsController", () => {
+  it("retries a transient recovery lookup without failing or resubmitting the accepted video", async () => {
+    const services = videoHistoryServices();
+    services.getJobs = vi.fn().mockRejectedValueOnce(new ApiError("temporary", 429)).mockResolvedValueOnce({ items: [{
+      id: "job-recovered", type: "video.generate", payload: { asset_registration: { source_project_id: "project-1", source_node_id: "video-1" } },
+    }] });
+    const harness = createHarness([videoNode({ metadata: { generationMode: "video", status: "loading", prompt: "Original" } })], services);
+    harness.controller.recoverPendingJobs();
+    await vi.waitFor(() => expect(harness.nodes[0].metadata?.status).toBe("success"));
+    expect(services.getJobs).toHaveBeenCalledTimes(2);
+    expect(services.waitForPoll).toHaveBeenCalledOnce();
+    expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
+    expect(harness.onError).not.toHaveBeenCalled();
+  });
+
+  it.each(["image", "video", "text", "audio"] as const)("cancels a new %s before slow mention lookup finishes", async kind => {
+    let release!: () => void;
+    const ready = new Promise<void>(resolve => { release = resolve; });
+    const services = createServices({ getAsset: vi.fn(async () => { await ready; return { id: "reference", type: "image", name: "Reference" }; }) });
+    const source = imageNode({ kind, content: "@[asset:reference]", metadata: { generationMode: kind, prompt: "@[asset:reference]" } });
+    const harness = createHarness([source], services);
+    const running = harness.controller.generateFromNode(source.id);
+    expect(harness.runningIds.has(source.id)).toBe(true);
+    harness.controller.stopGenerationByNodeId(source.id);
+    expect(harness.runningIds.size).toBe(0);
+    release();
+    await running;
+    expect(harness.bindings.mergeCanvasAssets).not.toHaveBeenCalled();
+    expect(services.getAssetContentObjectUrl).not.toHaveBeenCalled();
+    expect(services.generateImages).not.toHaveBeenCalled();
+    expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
+    expect(services.requestAiText).not.toHaveBeenCalled();
+    expect(services.requestAudioGeneration).not.toHaveBeenCalled();
+  });
+
+  it.each(["image", "video", "text", "audio"] as const)("cancels %s during snapshot saving and ignores the stale save after a new generation", async kind => {
+    let release!: (saved: boolean) => void;
+    const saving = new Promise<boolean>(resolve => { release = resolve; });
+    const services = videoHistoryServices();
+    services.generateImages = vi.fn(async () => ({ images: [{ id: "result", assetId: "result", src: "" }] }));
+    services.requestAiText = vi.fn(async () => ({ content: "Text result", model: "text-model" }));
+    services.requestAudioGeneration = vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" }));
+    services.uploadAsset = vi.fn(async () => ({ id: "result", name: "result.mp3", type: "audio" as const }));
+    const source = imageNode({ kind, metadata: { generationMode: kind, prompt: "Generate" } });
+    const harness = createHarness([source], services);
+    harness.persistSnapshot.mockImplementationOnce(() => saving);
+    const old = harness.controller.generateFromNode(source.id);
+    await vi.waitFor(() => expect(harness.persistSnapshot).toHaveBeenCalledOnce());
+    harness.controller.stopGenerationByNodeId(source.id);
+    expect(harness.runningIds.size).toBe(0);
+    expect(harness.nodes[0].metadata?.status).toBe("error");
+    await harness.controller.generateFromNode(source.id);
+    const completed = structuredClone(harness.nodes);
+    expect(completed[0].metadata?.status).toBe("success");
+    release(true);
+    await old;
+    expect(harness.nodes).toEqual(completed);
+    const submit = { image: services.generateImages, video: services.createVideoGenerationTask, text: services.requestAiText, audio: services.requestAudioGeneration }[kind];
+    expect(submit).toHaveBeenCalledOnce();
+    expect(harness.runningIds.size).toBe(0);
+  });
+
+  it("recovers a video accepted before its task ID reached the canvas snapshot or local ledger", async () => {
+    const services = videoHistoryServices();
+    services.getJobs = vi.fn(async () => ({ items: [{ id: "job-video-recovered", type: "video.generate", status: "running", payload: {
+      asset_registration: { source_project_id: "project-1", source_node_id: "video-1" },
+    } }], total: 1 }));
+    const source = videoNode({ metadata: { generationMode: "video", model: "video-model", status: "loading", prompt: "Original" } });
+    const harness = createHarness([source], services);
+    harness.controller.recoverPendingJobs();
+    await vi.waitFor(() => expect(harness.nodes[0].metadata?.status).toBe("success"));
+    expect(services.getJobs).toHaveBeenCalledWith(expect.objectContaining({ type: "image.generate,image.edit,video.generate" }));
+    expect(services.createVideoGenerationTask).not.toHaveBeenCalled();
+    expect(services.pollVideoGenerationTask).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "job-video-recovered" }), expect.anything());
+  });
+
+  it("does not declare a loading node failed when its job may be outside the capped recovery page", async () => {
+    const services = createServices({ getJobs: vi.fn(async () => ({ items: Array.from({ length: 100 }, (_, index) => ({ id: `job-${index}`, type: "video.generate" })), total: 100 })) });
+    const harness = createHarness([videoNode({ metadata: { generationMode: "video", status: "loading" } })], services);
+    harness.controller.recoverPendingJobs();
+    await vi.waitFor(() => expect(services.getJobs).toHaveBeenCalledOnce());
+    expect(harness.nodes[0].metadata?.status).toBe("loading");
+    expect(harness.onError).not.toHaveBeenCalled();
+  });
+
   it("blocks unavailable settings in direct calls but still resumes already accepted jobs", async () => {
     const services = createServices({
       waitForImageJob: vi.fn(async () => ({ id: "accepted", type: "image.generate", status: "succeeded", state: "succeeded" })),

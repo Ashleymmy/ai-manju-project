@@ -128,6 +128,8 @@ class JobStore:
         }
 
     def mark_running(self, job_id: str, progress: int = 5) -> dict[str, Any] | None:
+        # Lifecycle updates only need status; returning inline references on each
+        # poll/download chunk can repeatedly transfer tens of MB from PostgreSQL.
         with self.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -141,7 +143,7 @@ class JobStore:
                            updated_at = timezone('utc', now())
                      WHERE id = %s
                        AND status NOT IN (%s, %s, %s)
-                    RETURNING *
+                    RETURNING id, status, progress, attempts
                     """,
                     (JOB_STATUS_RUNNING, clamp_progress(progress), job_id, JOB_STATUS_SUCCEEDED, JOB_STATUS_FAILED, JOB_STATUS_CANCELED),
                 )
@@ -159,7 +161,7 @@ class JobStore:
                            updated_at = timezone('utc', now())
                      WHERE id = %s
                        AND status <> %s
-                    RETURNING *
+                    RETURNING id, status, progress, attempts
                     """,
                     (JOB_STATUS_QUEUED, job_id, JOB_STATUS_CANCELED),
                 )
@@ -175,7 +177,7 @@ class JobStore:
                            updated_at = timezone('utc', now())
                      WHERE id = %s
                        AND status IN (%s, %s)
-                    RETURNING *
+                    RETURNING id, status, progress, attempts
                     """,
                     (clamp_progress(progress), job_id, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
                 )
@@ -194,7 +196,7 @@ class JobStore:
                            updated_at = timezone('utc', now())
                      WHERE id = %s
                        AND status <> %s
-                    RETURNING *
+                    RETURNING id, status, progress, attempts
                     """,
                     (JOB_STATUS_QUEUED, Jsonb(error), job_id, JOB_STATUS_CANCELED),
                 )
@@ -230,7 +232,7 @@ class JobStore:
                            finished_at = timezone('utc', now())
                      WHERE id = %s
                        AND status <> %s
-                    RETURNING *
+                    RETURNING id, status, progress, attempts
                     """,
                     (JOB_STATUS_SUCCEEDED, Jsonb(result), job_id, JOB_STATUS_CANCELED),
                 )
@@ -250,7 +252,7 @@ class JobStore:
                            finished_at = timezone('utc', now())
                      WHERE id = %s
                        AND status <> %s
-                    RETURNING *
+                    RETURNING id, status, progress, attempts
                     """,
                     (JOB_STATUS_FAILED, Jsonb(error), job_id, JOB_STATUS_CANCELED),
                 )

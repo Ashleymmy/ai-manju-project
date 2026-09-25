@@ -6,6 +6,7 @@ export const CANVAS_PENDING_JOB_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export type RecoverableCanvasJob = {
   id: string;
+  type?: string;
   payload?: unknown;
   created_at?: string;
   updated_at?: string;
@@ -84,7 +85,7 @@ export function matchLoadingNodesToJobs(
     if (!job.id || !isFreshCanvasJob(job)) return false;
     const sourceProjectId = canvasJobSourceProjectId(job);
     return !sourceProjectId || sourceProjectId === projectId;
-  });
+  }).sort((a, b) => jobCreatedAt(b) - jobCreatedAt(a));
   const used = new Set<string>();
   const matches: CanvasJobAssignment[] = [];
 
@@ -97,7 +98,7 @@ export function matchLoadingNodesToJobs(
   loading.forEach(node => {
     take(
       node.id,
-      projectJobs.find(job => canvasJobSourceNodeId(job) === node.id),
+      projectJobs.find(job => matchesNodeKind(job, node) && canvasJobSourceNodeId(job) === node.id),
     );
   });
 
@@ -106,7 +107,7 @@ export function matchLoadingNodesToJobs(
     const originId = stringValue(node.metadata?.sourceNodeId);
     if (!originId) return;
     const candidates = projectJobs.filter(
-      job => !used.has(job.id) && canvasJobSourceNodeId(job) === originId,
+      job => !used.has(job.id) && matchesNodeKind(job, node) && canvasJobSourceNodeId(job) === originId,
     );
     if (candidates.length === 1) take(node.id, candidates[0]);
   });
@@ -117,7 +118,7 @@ export function matchLoadingNodesToJobs(
     take(
       node.id,
       projectJobs.find(job => {
-        if (used.has(job.id)) return false;
+        if (used.has(job.id) || !matchesNodeKind(job, node)) return false;
         const sourceNodeId = canvasJobSourceNodeId(job);
         return sourceNodeId === node.id || (originId !== "" && sourceNodeId === originId);
       }),
@@ -125,6 +126,16 @@ export function matchLoadingNodesToJobs(
   });
 
   return matches;
+}
+
+function jobCreatedAt(job: RecoverableCanvasJob) {
+  const timestamp = Date.parse(job.created_at || job.updated_at || "");
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function matchesNodeKind(job: RecoverableCanvasJob, node: CanvasNodeData) {
+  // Legacy job lists omitted type; typed results must never cross image/video.
+  return !job.type || job.type.startsWith(`${node.kind}.`);
 }
 
 export function markUnrecoverableCanvasGenerations(

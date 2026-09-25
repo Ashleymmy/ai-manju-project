@@ -28,6 +28,19 @@ function imageNode(
 }
 
 describe("generation resume", () => {
+  it("restores the newest matching video task and does not reuse an image task from the same source", () => {
+    const video = { ...imageNode("video", { status: "loading" }), kind: "video" as const };
+    const registration = { source_project_id: "project", source_node_id: "video" };
+    const now = Date.now();
+    const jobs = [
+      { id: "old-video", type: "video.generate", created_at: new Date(now - 2000).toISOString(), payload: { asset_registration: registration } },
+      { id: "image", type: "image.generate", created_at: new Date(now).toISOString(), payload: { asset_registration: registration } },
+      { id: "new-video", type: "video.generate", created_at: new Date(now - 1000).toISOString(), payload: { asset_registration: registration } },
+      { id: "other-project", type: "video.generate", created_at: new Date(now).toISOString(), payload: { asset_registration: { ...registration, source_project_id: "other" } } },
+    ];
+    expect(matchLoadingNodesToJobs([video], jobs, "project")).toEqual([{ nodeId: "video", jobId: "new-video" }]);
+  });
+
   it("marks a missing real root request as failed even when child jobs are recoverable", () => {
     const nodes = [
       imageNode("root", { isBatchRoot: true, batchModelV2: true, batchChildIds: ["child"], status: "loading" }),

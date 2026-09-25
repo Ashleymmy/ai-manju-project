@@ -36,6 +36,8 @@ export type CanvasGenerationPreparation = {
   projectKey: string;
   originNodeId: string;
   targetNodeId?: string;
+  /** Targets created by one new generation intent before requests are submitted. */
+  targetNodeIds?: string[];
   /** Batch retries also show preparation on their visible root. */
   runningNodeId?: string;
   referenceNodeIds: string[];

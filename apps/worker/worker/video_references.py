@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from . import object_storage
 from .config import Settings
-from .errors import SafeTaskError
+from .errors import SafeTaskError, VideoTaskAcceptedError, VideoSubmissionUncertainError
 from .staged_inputs import JOB_WORKSPACE_FIELD, workspace_prefix_parts
 
 # Match the supported reference upload budgets; never treat arbitrary data as media.
@@ -37,6 +37,7 @@ def native_video_references(job_id: str, body: dict[str, Any], payload: dict[str
         return
     prepared = copy.deepcopy(body)
     uploaded: list[str] = []
+    keep_references = False
     try:
         for index, item in enumerate(prepared["content"]):
             if not isinstance(item, dict):
@@ -77,8 +78,13 @@ def native_video_references(job_id: str, body: dict[str, Any], payload: dict[str
                 raise SafeTaskError("reference download URL unavailable", code="storage_configuration", retryable=False)
             reference["url"] = signed
         yield prepared
+    except (VideoTaskAcceptedError, VideoSubmissionUncertainError):
+        # The supplier may still be reading these URLs. Retain only this job's
+        # references for reconciliation rather than breaking an accepted task.
+        keep_references = True
+        raise
     finally:
-        for key in uploaded:
+        for key in ([] if keep_references else uploaded):
             try:
                 object_storage.delete(key)
             except Exception:

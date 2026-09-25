@@ -4,7 +4,7 @@ from typing import Any
 
 from billiard.exceptions import SoftTimeLimitExceeded
 
-from .errors import SafeTaskError
+from .errors import SafeTaskError, VideoTaskAcceptedError, VideoSubmissionUncertainError
 
 # Includes the initial request. Keep in sync with model.GenerationAttemptsPerProvider.
 ATTEMPTS_PER_PROVIDER = 3
@@ -29,6 +29,8 @@ def generation_attempt(payload: dict[str, Any], attempts: int) -> tuple[dict[str
 
 
 def is_provider_failure(exc: BaseException) -> bool:
+    if isinstance(exc, (VideoTaskAcceptedError, VideoSubmissionUncertainError)):
+        return False
     return isinstance(exc, SoftTimeLimitExceeded) or (
         isinstance(exc, SafeTaskError) and exc.code.startswith("provider_")
     )
