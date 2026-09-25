@@ -156,6 +156,15 @@ func (s *AdminUsageService) Report(f UsageFilter) (UsageReport, error) {
 		row := usageJobRow(j)
 		if c, ok := consumptions[j.ID]; ok {
 			attachConsumption(&row, c)
+			// A submission requiring reconciliation is only a pending charge
+			// while its reservation remains held. Historical failures must not
+			// look like frozen credits after settlement or release.
+			if row.CreditStatus == model.TaskConsumptionStatusReserved && row.Provider == "sd-video" && row.Status == model.JobStatusFailed {
+				var failure map[string]any
+				if json.Unmarshal(j.Error, &failure) == nil && usageString(failure, "code") == "submission_uncertain" {
+					row.PendingReason = "submission_uncertain"
+				}
+			}
 		}
 		rows = append(rows, row)
 	}
@@ -271,12 +280,6 @@ func usageJobRow(j model.Job) UsageRow {
 	if row.OutputCount == 0 && strings.HasPrefix(j.Type, "image.") {
 		row.OutputCount = 1
 	}
-	if row.Provider == "sd-video" && row.Status == model.JobStatusFailed {
-		var failure map[string]any
-		if json.Unmarshal(j.Error, &failure) == nil && usageString(failure, "code") == "submission_uncertain" {
-			row.PendingReason = "submission_uncertain"
-		}
-	}
 	return row
 }
 
@@ -291,14 +294,17 @@ func attachConsumption(row *UsageRow, c model.TaskConsumption) {
 	}
 	var p map[string]any
 	_ = json.Unmarshal(c.Params, &p)
+	row.PendingReason = ""
+	row.PendingAgeSeconds = 0
 	if c.Status == model.TaskConsumptionStatusReserved {
 		pendingSince := c.CreatedAt
 		if pendingSince.IsZero() {
 			pendingSince = row.CreatedAt
 		}
-		row.PendingAgeSeconds = math.Max(0, time.Since(pendingSince).Seconds())
+		if !pendingSince.IsZero() {
+			row.PendingAgeSeconds = math.Max(0, time.Since(pendingSince).Seconds())
+		}
 		switch {
-		case row.PendingReason != "":
 		case row.Status == model.JobStatusSucceeded && usageString(p, "billing_mode") == AutomaticVideoBillingMode:
 			row.PendingReason = "video_metrics_pending"
 		case row.QueuePhase != "":

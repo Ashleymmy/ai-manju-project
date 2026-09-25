@@ -86,7 +86,12 @@ func (s *JobService) dispatchJob(ctx context.Context, id string) error {
 		if job.DispatchState == repository.JobDispatchRecoveryPending || job.DispatchState == repository.JobDispatchRecoveryPublished {
 			return s.dispatchNativeRecovery(ctx, job)
 		}
-		if job.Status != model.JobStatusQueued || job.StartedAt != nil || job.QueuePhase == "waiting_provider_slot" || job.DispatchState == model.JobDispatchObserved {
+		// Redis retry delivery is not durable evidence of paid execution. Recover
+		// only a wait that predates mark_running and has no submission checkpoint;
+		// the existing receipt grace also limits repeated capacity-wait deliveries.
+		restoreProviderWait := repository.CanRedispatchProviderWait(job)
+		ordinaryQueuePhase := job.QueuePhase == "" || job.QueuePhase == model.JobQueueWaitingDispatch
+		if job.Status != model.JobStatusQueued || job.StartedAt != nil || (!ordinaryQueuePhase && !restoreProviderWait) || (job.DispatchState == model.JobDispatchObserved && !restoreProviderWait) {
 			next := time.Now().UTC().Add(jobDispatchReceiptGrace)
 			return s.repo.UpdateDispatch(id, model.JobDispatchObserved, &next, false)
 		}

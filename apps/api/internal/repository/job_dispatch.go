@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"encoding/json"
 	"sort"
 	"time"
 
@@ -8,15 +9,42 @@ import (
 	"gorm.io/gorm"
 )
 
+// Provider waits before mark_running have never entered paid execution. A lost
+// Celery retry may be restored only while that evidence is still unchanged.
+// Keep this predicate aligned with CanRedispatchProviderWait below; checkpoints
+// and recovery controls must never be mistaken for an unstarted queue wait.
+const providerWaitRedispatchSQL = `status = 'queued' AND queue_phase = 'waiting_provider_slot'
+ AND started_at IS NULL AND COALESCE(external_provider, '') = ''
+ AND COALESCE(jsonb_typeof(bridge_metadata), 'null') IN ('null', 'object')
+ AND NOT jsonb_exists(COALESCE(bridge_metadata, '{}'::jsonb), '_worker_video_checkpoint')
+ AND NOT jsonb_exists(COALESCE(bridge_metadata, '{}'::jsonb), '_worker_image_checkpoint')
+ AND NOT jsonb_exists(COALESCE(bridge_metadata, '{}'::jsonb), '_worker_recovery_control')`
+
+func CanRedispatchProviderWait(job model.Job) bool {
+	if job.Status != model.JobStatusQueued || job.QueuePhase != "waiting_provider_slot" || job.StartedAt != nil || job.ExternalProvider != "" {
+		return false
+	}
+	var metadata map[string]json.RawMessage
+	if len(job.BridgeMetadata) > 0 && json.Unmarshal(job.BridgeMetadata, &metadata) != nil {
+		return false
+	}
+	for _, key := range []string{"_worker_video_checkpoint", "_worker_image_checkpoint", JobRecoveryControlKey} {
+		if _, exists := metadata[key]; exists {
+			return false
+		}
+	}
+	return true
+}
+
 func (r *MemoryJobRepository) ListDispatchPendingIDs(now time.Time, limit int) ([]string, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	jobs := []model.Job{}
 	for _, job := range r.jobs {
-		// Observed active jobs retain their encrypted execution config for manual
-		// recovery. Do not repeatedly load large media payloads just to retain it.
+		// Most observed active jobs need manual recovery. Only unstarted provider
+		// waits can safely restore a lost retry, including legacy observed rows.
 		terminal := job.Status == model.JobStatusSucceeded || job.Status == model.JobStatusFailed || job.Status == model.JobStatusCanceled
-		if (job.DispatchState == model.JobDispatchPending || job.DispatchState == model.JobDispatchPublished || (job.DispatchState == model.JobDispatchObserved && terminal) || job.DispatchState == JobDispatchRecoveryPending || job.DispatchState == JobDispatchRecoveryPublished) && job.DispatchCiphertext != "" && (job.DispatchNextAttemptAt == nil || !job.DispatchNextAttemptAt.After(now)) {
+		if (job.DispatchState == model.JobDispatchPending || job.DispatchState == model.JobDispatchPublished || (job.DispatchState == model.JobDispatchObserved && (terminal || CanRedispatchProviderWait(job))) || job.DispatchState == JobDispatchRecoveryPending || job.DispatchState == JobDispatchRecoveryPublished) && job.DispatchCiphertext != "" && (job.DispatchNextAttemptAt == nil || !job.DispatchNextAttemptAt.After(now)) {
 			jobs = append(jobs, job)
 		}
 	}
@@ -71,7 +99,7 @@ func (r *MemoryJobRepository) UpdateDispatch(id string, state string, next *time
 
 func (r *GormJobRepository) ListDispatchPendingIDs(now time.Time, limit int) ([]string, error) {
 	ids := []string{}
-	query := r.db.Model(&model.Job{}).Where("(dispatch_state IN ? OR (dispatch_state = ? AND status IN ?)) AND COALESCE(dispatch_ciphertext,'') <> '' AND (dispatch_next_attempt_at IS NULL OR dispatch_next_attempt_at <= ?)", []string{model.JobDispatchPending, model.JobDispatchPublished, JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobDispatchObserved, []string{model.JobStatusSucceeded, model.JobStatusFailed, model.JobStatusCanceled}, now).
+	query := r.db.Model(&model.Job{}).Where("(dispatch_state IN ? OR (dispatch_state = ? AND (status IN ? OR ("+providerWaitRedispatchSQL+")))) AND COALESCE(dispatch_ciphertext,'') <> '' AND (dispatch_next_attempt_at IS NULL OR dispatch_next_attempt_at <= ?)", []string{model.JobDispatchPending, model.JobDispatchPublished, JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobDispatchObserved, []string{model.JobStatusSucceeded, model.JobStatusFailed, model.JobStatusCanceled}, now).
 		Order("COALESCE(dispatch_next_attempt_at, created_at) ASC").Order("id ASC")
 	if limit > 0 {
 		query = query.Limit(limit)
