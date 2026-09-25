@@ -463,4 +463,8 @@ type Job struct {
 	DispatchState         string     `json:"-" gorm:"index"`
 	DispatchNextAttemptAt *time.Time `json:"-" gorm:"index"`
 	DispatchAttempts      int        `json:"-"`
+	// WorkerRetryAt is the next Celery retry time written before publication.
+	// It is separate from relay acknowledgements so a late acknowledgement
+	// cannot shorten a supplier's Retry-After or create parallel retry chains.
+	WorkerRetryAt *time.Time `json:"-"`
 }

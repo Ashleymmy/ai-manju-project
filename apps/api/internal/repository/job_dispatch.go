@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"bytes"
 	"encoding/json"
 	"sort"
 	"time"
@@ -9,31 +10,88 @@ import (
 	"gorm.io/gorm"
 )
 
-// Provider waits before mark_running have never entered paid execution. A lost
-// Celery retry may be restored only while that evidence is still unchanged.
-// Keep this predicate aligned with CanRedispatchProviderWait below; checkpoints
-// and recovery controls must never be mistaken for an unstarted queue wait.
-const providerWaitRedispatchSQL = `status = 'queued' AND queue_phase = 'waiting_provider_slot'
- AND started_at IS NULL AND COALESCE(external_provider, '') = ''
+// Worker retry messages get the same receipt grace as initial delivery. This
+// shared value bounds recovery without republishing normally scheduled waits.
+const JobDispatchReceiptGrace = 2 * time.Minute
+
+const (
+	nativeRetryVideoCheckpointKey = "_worker_video_checkpoint"
+	nativeRetryImageCheckpointKey = "_worker_image_checkpoint"
+)
+
+// Recover either a never-started wait or an explicit durable rejection. Keep
+// SQL and Memory eligibility aligned; accepted/uncertain work is never retried.
+var providerWaitRedispatchSQL = `status = 'queued' AND queue_phase IN ('waiting_provider_slot','provider_retry_backoff')
+ AND COALESCE(external_provider, '') = ''
  AND COALESCE(jsonb_typeof(bridge_metadata), 'null') IN ('null', 'object')
- AND NOT jsonb_exists(COALESCE(bridge_metadata, '{}'::jsonb), '_worker_video_checkpoint')
- AND NOT jsonb_exists(COALESCE(bridge_metadata, '{}'::jsonb), '_worker_image_checkpoint')
- AND NOT jsonb_exists(COALESCE(bridge_metadata, '{}'::jsonb), '_worker_recovery_control')`
+ AND NOT jsonb_exists(COALESCE(bridge_metadata, '{}'::jsonb), '_worker_recovery_control')
+ AND ((started_at IS NULL AND queue_phase = 'waiting_provider_slot'
+       AND NOT jsonb_exists(COALESCE(bridge_metadata, '{}'::jsonb), '_worker_video_checkpoint')
+       AND NOT jsonb_exists(COALESCE(bridge_metadata, '{}'::jsonb), '_worker_image_checkpoint'))
+   OR (type = 'video.generate' AND ` + rejectedCheckpointSQL(nativeRetryVideoCheckpointKey, nativeRetryImageCheckpointKey) + `)
+   OR (type IN ('image.generate','image.edit') AND ` + rejectedCheckpointSQL(nativeRetryImageCheckpointKey, nativeRetryVideoCheckpointKey) + `))`
+
+func rejectedCheckpointSQL(key, other string) string {
+	cp := "(bridge_metadata->'" + key + "')"
+	return `NOT jsonb_exists(bridge_metadata,'` + other + `')
+ AND ` + cp + ` @> '{"version":1,"phase":"rejected"}'::jsonb
+ AND jsonb_typeof(` + cp + `->'revision') = 'number'
+ AND (` + cp + `->>'revision') ~ '^[1-9][0-9]*$'
+ AND ` + cp + `->'revision' <= '9223372036854775807'::jsonb
+ AND jsonb_typeof(` + cp + `->'provider_identity') = 'string'
+ AND ` + cp + `->>'provider_identity' <> ''
+ AND COALESCE(` + cp + `->'provider_task_id','""'::jsonb) = '""'::jsonb
+ AND COALESCE(` + cp + `->'result','null'::jsonb) = 'null'::jsonb
+ AND COALESCE(` + cp + `->'recovery','null'::jsonb) = 'null'::jsonb`
+}
 
 func CanRedispatchProviderWait(job model.Job) bool {
-	if job.Status != model.JobStatusQueued || job.QueuePhase != "waiting_provider_slot" || job.StartedAt != nil || job.ExternalProvider != "" {
+	if job.Status != model.JobStatusQueued || (job.QueuePhase != "waiting_provider_slot" && job.QueuePhase != "provider_retry_backoff") || job.ExternalProvider != "" {
 		return false
 	}
 	var metadata map[string]json.RawMessage
 	if len(job.BridgeMetadata) > 0 && json.Unmarshal(job.BridgeMetadata, &metadata) != nil {
 		return false
 	}
-	for _, key := range []string{"_worker_video_checkpoint", "_worker_image_checkpoint", JobRecoveryControlKey} {
-		if _, exists := metadata[key]; exists {
+	if _, exists := metadata[JobRecoveryControlKey]; exists {
+		return false
+	}
+	_, hasVideo := metadata[nativeRetryVideoCheckpointKey]
+	_, hasImage := metadata[nativeRetryImageCheckpointKey]
+	if !hasVideo && !hasImage {
+		return job.StartedAt == nil && job.QueuePhase == "waiting_provider_slot"
+	}
+	key := ""
+	switch job.Type {
+	case model.JobTypeVideoGenerate:
+		if !hasVideo || hasImage {
 			return false
 		}
+		key = nativeRetryVideoCheckpointKey
+	case model.JobTypeImageGenerate, model.JobTypeImageEdit:
+		if !hasImage || hasVideo {
+			return false
+		}
+		key = nativeRetryImageCheckpointKey
+	default:
+		return false
 	}
-	return true
+	var cp struct {
+		Version  int             `json:"version"`
+		Revision int64           `json:"revision"`
+		Phase    string          `json:"phase"`
+		Identity string          `json:"provider_identity"`
+		TaskID   json.RawMessage `json:"provider_task_id"`
+		Result   json.RawMessage `json:"result"`
+		Recovery json.RawMessage `json:"recovery"`
+	}
+	if json.Unmarshal(metadata[key], &cp) != nil || cp.Version != 1 || cp.Revision < 1 || cp.Phase != "rejected" || cp.Identity == "" {
+		return false
+	}
+	noResult := func(raw json.RawMessage) bool {
+		return len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+	}
+	return (len(cp.TaskID) == 0 || bytes.Equal(bytes.TrimSpace(cp.TaskID), []byte(`""`))) && noResult(cp.Result) && noResult(cp.Recovery)
 }
 
 func (r *MemoryJobRepository) ListDispatchPendingIDs(now time.Time, limit int) ([]string, error) {
@@ -41,6 +99,9 @@ func (r *MemoryJobRepository) ListDispatchPendingIDs(now time.Time, limit int) (
 	defer r.mu.RUnlock()
 	jobs := []model.Job{}
 	for _, job := range r.jobs {
+		if ProviderRetryScheduled(job, now) {
+			continue
+		}
 		// Most observed active jobs need manual recovery. Only unstarted provider
 		// waits can safely restore a lost retry, including legacy observed rows.
 		terminal := job.Status == model.JobStatusSucceeded || job.Status == model.JobStatusFailed || job.Status == model.JobStatusCanceled
@@ -100,12 +161,21 @@ func (r *MemoryJobRepository) UpdateDispatch(id string, state string, next *time
 func (r *GormJobRepository) ListDispatchPendingIDs(now time.Time, limit int) ([]string, error) {
 	ids := []string{}
 	query := r.db.Model(&model.Job{}).Where("(dispatch_state IN ? OR (dispatch_state = ? AND (status IN ? OR ("+providerWaitRedispatchSQL+")))) AND COALESCE(dispatch_ciphertext,'') <> '' AND (dispatch_next_attempt_at IS NULL OR dispatch_next_attempt_at <= ?)", []string{model.JobDispatchPending, model.JobDispatchPublished, JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobDispatchObserved, []string{model.JobStatusSucceeded, model.JobStatusFailed, model.JobStatusCanceled}, now).
+		Where("(dispatch_state IN ? OR status <> ? OR COALESCE(queue_phase,'') NOT IN ? OR worker_retry_at IS NULL OR worker_retry_at <= ?)", []string{JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobStatusQueued, []string{"waiting_provider_slot", "provider_retry_backoff"}, now.Add(-JobDispatchReceiptGrace)).
 		Order("COALESCE(dispatch_next_attempt_at, created_at) ASC").Order("id ASC")
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
 	err := query.Pluck("id", &ids).Error
 	return ids, err
+}
+
+// ProviderRetryScheduled must be checked again under the dispatch lock: a
+// Worker may have renewed its retry deadline after the ID-only scan.
+func ProviderRetryScheduled(job model.Job, now time.Time) bool {
+	return job.DispatchState != JobDispatchRecoveryPending && job.DispatchState != JobDispatchRecoveryPublished &&
+		job.Status == model.JobStatusQueued && (job.QueuePhase == "waiting_provider_slot" || job.QueuePhase == "provider_retry_backoff") &&
+		job.WorkerRetryAt != nil && job.WorkerRetryAt.Add(JobDispatchReceiptGrace).After(now)
 }
 
 func (r *GormJobRepository) UpdateDispatch(id string, state string, next *time.Time, completed bool) error {

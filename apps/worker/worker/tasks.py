@@ -200,7 +200,8 @@ def execute_job(
                 gate_error = SafeTaskError("provider concurrency gate is unavailable", code="provider_gate_unavailable", retryable=True)
                 # A Redis outage happens before any upstream Provider call. Keep
                 # the Job queued and do not consume one of its real attempts.
-                waiting = store.mark_waiting_provider(job_id)
+                delay = retry_countdown(int(job.get("attempts") or 0))
+                waiting = store.mark_waiting_provider(job_id, delay)
                 if waiting is None:
                     current = store.get_job(job_id)
                     if isinstance(current, dict) and current.get("status") in TERMINAL_STATUSES:
@@ -210,11 +211,11 @@ def execute_job(
                         return {"job_id": job_id, "status": current["status"]}
                 raise task.retry(
                     exc=gate_error,
-                    countdown=retry_countdown(int(job.get("attempts") or 0)),
+                    countdown=delay,
                     max_retries=100000,
                 ) from exc
             if not decision.acquired:
-                waiting = store.mark_waiting_provider(job_id)
+                waiting = store.mark_waiting_provider(job_id, decision.retry_after_seconds)
                 if waiting is None:
                     current = store.get_job(job_id)
                     if isinstance(current, dict) and current.get("status") in TERMINAL_STATUSES:
@@ -388,7 +389,7 @@ def execute_job(
                             gate.set_cooldown(delay)
                         except Exception:
                             pass
-                    store.mark_waiting_provider(job_id)
+                    store.mark_waiting_provider(job_id, delay)
                     log_job("job_waiting_provider_rate_limit", job_id, retry_after=delay)
                     raise task.retry(exc=SafeTaskError("waiting for provider capacity", code="provider_gate_wait", retryable=True), countdown=delay, max_retries=100000)
                 if gate is not None and isinstance(exc, SafeTaskError) and exc.code == "provider_rate_limited":
@@ -402,7 +403,8 @@ def execute_job(
                 if retry:
                     # Intermediate upstream errors and supplier identities are private.
                     payload_error = {} if generation_max_attempts else {**payload_error, "next_retry": attempts + 1}
-                    stored = store.record_retry(job_id, payload_error)
+                    delay = retry_after_seconds(exc, int(job.get("attempts") or 0))
+                    stored = store.record_retry(job_id, payload_error, delay)
                     if stored is None:
                         current = store.get_job(job_id)
                         if isinstance(current, dict) and current.get("status") in TERMINAL_STATUSES:
@@ -412,7 +414,7 @@ def execute_job(
                     log_job("job_retry", job_id, retry=attempts + 1)
                     raise task.retry(
                         exc=SafeTaskError("generation pending", code="generation_pending") if generation_max_attempts else exc,
-                        countdown=retry_after_seconds(exc, int(job.get("attempts") or 0)),
+                        countdown=delay,
                         max_retries=100000,
                     )
                 if generation_max_attempts and not isinstance(exc, (ImageParameterError, ImageResultRejectedError, VideoTaskAcceptedError, VideoSubmissionUncertainError, VideoReferenceError)):

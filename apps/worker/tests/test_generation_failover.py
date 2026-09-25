@@ -13,8 +13,8 @@ class DurableStore(FakeStore):
     def get_job(self, job_id):
         return dict(self.job)
 
-    def record_retry(self, job_id, error):
-        super().record_retry(job_id, error)
+    def record_retry(self, job_id, error, retry_seconds=0):
+        super().record_retry(job_id, error, retry_seconds)
         self.job.update(status="queued", attempts=self.job["attempts"] + 1)
         return self.get_job(job_id)
 

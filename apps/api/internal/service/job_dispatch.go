@@ -20,7 +20,7 @@ const (
 	jobDispatchRetryDelay = 15 * time.Second
 	// Receipt grace also spaces scans of observed work. Keep encrypted execution
 	// data until terminal so accepted tasks can be recovered without resubmission.
-	jobDispatchReceiptGrace = 2 * time.Minute
+	jobDispatchReceiptGrace = repository.JobDispatchReceiptGrace
 	jobDispatchBatchSize    = 20
 	// Match the maximum media request budget when restoring execution kwargs.
 	jobDispatchMaxDecodedBytes = 512 * 1024 * 1024
@@ -86,12 +86,15 @@ func (s *JobService) dispatchJob(ctx context.Context, id string) error {
 		if job.DispatchState == repository.JobDispatchRecoveryPending || job.DispatchState == repository.JobDispatchRecoveryPublished {
 			return s.dispatchNativeRecovery(ctx, job)
 		}
+		if repository.ProviderRetryScheduled(job, time.Now().UTC()) {
+			return nil
+		}
 		// Redis retry delivery is not durable evidence of paid execution. Recover
-		// only a wait that predates mark_running and has no submission checkpoint;
-		// the existing receipt grace also limits repeated capacity-wait deliveries.
+		// only never-started work or a durable explicit rejection. Accepted and
+		// uncertain submissions retain their original recovery-only behavior.
 		restoreProviderWait := repository.CanRedispatchProviderWait(job)
 		ordinaryQueuePhase := job.QueuePhase == "" || job.QueuePhase == model.JobQueueWaitingDispatch
-		if job.Status != model.JobStatusQueued || job.StartedAt != nil || (!ordinaryQueuePhase && !restoreProviderWait) || (job.DispatchState == model.JobDispatchObserved && !restoreProviderWait) {
+		if job.Status != model.JobStatusQueued || (job.StartedAt != nil && !restoreProviderWait) || (!ordinaryQueuePhase && !restoreProviderWait) || (job.DispatchState == model.JobDispatchObserved && !restoreProviderWait) {
 			next := time.Now().UTC().Add(jobDispatchReceiptGrace)
 			return s.repo.UpdateDispatch(id, model.JobDispatchObserved, &next, false)
 		}

@@ -301,7 +301,7 @@ class RecoveryDispatchPostgresTest(unittest.TestCase):
             user_id text DEFAULT 'synthetic-user', workspace_id text DEFAULT 'synthetic-workspace',
             created_at timestamptz DEFAULT now(), updated_at timestamptz,
             finished_at timestamptz, started_at timestamptz, dispatch_state text,
-            dispatch_next_attempt_at timestamptz
+            dispatch_next_attempt_at timestamptz, worker_retry_at timestamptz
         )""")
         self.job_id = "synthetic-recovery-" + uuid4().hex
         self.store = TempTableStore(self.conn)

@@ -45,7 +45,7 @@ class VideoCheckpointPostgresTest(unittest.TestCase):
                 external_provider text, status text NOT NULL DEFAULT 'running',
                 bridge_metadata jsonb, queue_phase text, error jsonb, result jsonb,
                 progress integer DEFAULT 50, attempts integer DEFAULT 1,
-                updated_at timestamptz, finished_at timestamptz, started_at timestamptz
+                updated_at timestamptz, finished_at timestamptz, started_at timestamptz, worker_retry_at timestamptz
             )""")
             conn.execute("INSERT INTO jobs (id, bridge_metadata) VALUES ('job', %s)", (Jsonb({"other": "keep"}),))
 
@@ -53,6 +53,25 @@ class VideoCheckpointPostgresTest(unittest.TestCase):
         # Only the randomly created test schema is ever removed.
         with psycopg.connect(TEST_DSN) as conn:
             conn.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(self.schema)))
+
+    def test_provider_wait_deadline_tracks_countdown_and_clears_on_execution(self):
+        self.store.mark_waiting_provider("job", 900)
+        with self.store.connect() as conn:
+            row = conn.execute("SELECT status,attempts,EXTRACT(EPOCH FROM worker_retry_at-now()) remaining FROM jobs WHERE id='job'").fetchone()
+        self.assertEqual((row["status"], row["attempts"]), ("queued", 1))
+        self.assertGreater(float(row["remaining"]), 895)
+        self.assertLessEqual(float(row["remaining"]), 900)
+        self.store.mark_running("job")
+        with self.store.connect() as conn:
+            row = conn.execute("SELECT status,worker_retry_at FROM jobs WHERE id='job'").fetchone()
+        self.assertEqual(row["status"], "running")
+        self.assertIsNone(row["worker_retry_at"])
+        self.store.record_retry("job", {}, 60)
+        with self.store.connect() as conn:
+            row = conn.execute("SELECT status,attempts,queue_phase,EXTRACT(EPOCH FROM worker_retry_at-now()) remaining FROM jobs WHERE id='job'").fetchone()
+        self.assertEqual((row["status"],row["attempts"],row["queue_phase"]), ("queued",2,"provider_retry_backoff"))
+        self.assertGreater(float(row["remaining"]), 55)
+        self.assertLessEqual(float(row["remaining"]), 60)
 
     def test_checkpoint_persists_and_recovery_preserves_attempts(self):
         checkpoint = VideoCheckpoint(self.store, "job", self.provider)

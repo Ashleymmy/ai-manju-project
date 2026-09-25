@@ -311,6 +311,7 @@ class JobStore:
                            queue_phase = '',
                            progress = GREATEST(progress, %s),
                            started_at = COALESCE(started_at, timezone('utc', now())),
+                           worker_retry_at = NULL,
                            finished_at = NULL,
                            updated_at = timezone('utc', now())
                      WHERE id = %s
@@ -321,7 +322,7 @@ class JobStore:
                 )
                 return cur.fetchone()
 
-    def mark_waiting_provider(self, job_id: str) -> dict[str, Any] | None:
+    def mark_waiting_provider(self, job_id: str, retry_seconds: int = 0) -> dict[str, Any] | None:
         with self.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -329,13 +330,14 @@ class JobStore:
                     UPDATE jobs
                        SET status = %s,
                            queue_phase = 'waiting_provider_slot',
+                           worker_retry_at = now() + (%s * interval '1 second'),
                            finished_at = NULL,
                            updated_at = timezone('utc', now())
                      WHERE id = %s
                        AND status IN (%s, %s)
                     RETURNING id, status, progress, attempts
                     """,
-                    (JOB_STATUS_QUEUED, job_id, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
+                    (JOB_STATUS_QUEUED, max(0, retry_seconds), job_id, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
                 )
                 return cur.fetchone()
 
@@ -355,7 +357,7 @@ class JobStore:
                 )
                 return cur.fetchone()
 
-    def record_retry(self, job_id: str, error: dict[str, Any]) -> dict[str, Any] | None:
+    def record_retry(self, job_id: str, error: dict[str, Any], retry_seconds: int = 0) -> dict[str, Any] | None:
         with self.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -363,6 +365,7 @@ class JobStore:
                     UPDATE jobs
                        SET status = %s,
                            queue_phase = 'provider_retry_backoff',
+                           worker_retry_at = now() + (%s * interval '1 second'),
                            error = %s,
                            attempts = attempts + 1,
                            updated_at = timezone('utc', now())
@@ -370,7 +373,7 @@ class JobStore:
                        AND status IN (%s, %s)
                     RETURNING id, status, progress, attempts
                     """,
-                    (JOB_STATUS_QUEUED, Jsonb(error), job_id, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
+                    (JOB_STATUS_QUEUED, max(0, retry_seconds), Jsonb(error), job_id, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
                 )
                 return cur.fetchone()
 
