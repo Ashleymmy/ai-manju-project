@@ -120,6 +120,10 @@ func (r *CreditReconciler) ReconcileOnce(ctx context.Context) (settled int, rele
 			}
 			settled++
 		case model.JobStatusFailed, model.JobStatusCanceled:
+			if repository.IsUncertainSubmission(job) {
+				log.Printf("job_id=%s event=credit_release_deferred reason=uncertain_submission", consumption.JobID)
+				continue
+			}
 			if _, relErr := r.engine.Release(consumption.JobID); relErr != nil {
 				log.Printf("job_id=%s event=credit_release_failed reason=%q", consumption.JobID, relErr.Error())
 				continue
