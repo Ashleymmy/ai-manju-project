@@ -155,6 +155,7 @@ export type CanvasGenerationServices = {
   /** Optional so non-browser harnesses can keep an in-memory pending result. */
   savePendingAudioUpload?: (pending: CanvasPendingAudioUpload) => Promise<void>;
   loadPendingAudioUpload?: (key: string) => Promise<CanvasPendingAudioUpload | null>;
+  findPendingAudioUpload?: (query: import("@/features/canvas/domain/pendingAudioUpload").CanvasPendingAudioUploadQuery) => Promise<CanvasPendingAudioUpload | null>;
   removePendingAudioUpload?: (key: string) => Promise<void>;
   createVideoGenerationTask: typeof import("@/features/video").createVideoGenerationTask;
   pollVideoGenerationTask: typeof import("@/features/video").pollVideoGenerationTask;

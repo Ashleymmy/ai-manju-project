@@ -32,6 +32,7 @@ export const browserCanvasGenerationServices: CanvasGenerationServices = {
   requestAudioGeneration,
   savePendingAudioUpload: browserPendingAudioUploadStore.save,
   loadPendingAudioUpload: browserPendingAudioUploadStore.load,
+  findPendingAudioUpload: browserPendingAudioUploadStore.find,
   removePendingAudioUpload: browserPendingAudioUploadStore.remove,
   createVideoGenerationTask,
   pollVideoGenerationTask,

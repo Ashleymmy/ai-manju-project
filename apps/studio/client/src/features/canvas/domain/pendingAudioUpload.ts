@@ -4,7 +4,7 @@ import type { WorkspaceScope } from "@/shared/config";
 import type { NormalizedCanvasAudioGenerationConfig } from "./audioConfig";
 
 /**
- * A generated audio result is kept here until its asset upload has completed.
+ * A generated audio result is kept until its asset and canvas are both saved.
  * The Blob is deliberately separate from the canvas snapshot: snapshots are
  * JSON-shaped and must remain cheap to save, while IndexedDB can retain the
  * binary result across a refresh without asking the provider to generate it
@@ -27,7 +27,12 @@ export type CanvasPendingAudioUpload = {
   bytes: number;
   createdAt: string;
   attemptId: string;
+  /** Saved before updating the canvas, so recovery never uploads twice. */
+  assetId?: string;
 };
+
+export type CanvasPendingAudioUploadQuery = Pick<CanvasPendingAudioUpload,
+  "userId" | "workspace" | "projectId" | "projectKey" | "nodeId">;
 
 export type CanvasPendingAudioUploadDescriptor = {
   key: string;
@@ -74,6 +79,21 @@ export const browserPendingAudioUploadStore = {
   },
   load(key: string) {
     return pendingAudioStore.getItem<CanvasPendingAudioUpload>(key);
+  },
+  async find(query: CanvasPendingAudioUploadQuery) {
+    // Locate orphan results even when the canvas descriptor never reached the
+    // server. Filter keys before loading Blobs, and never scan another user's
+    // media or another canvas into memory.
+    const prefix = canvasPendingAudioUploadKey(query.userId, query.workspace, query.projectKey, query.nodeId, "");
+    const keys = (await pendingAudioStore.keys()).filter(key => key.startsWith(prefix));
+    let latest: CanvasPendingAudioUpload | null = null;
+    for (const key of keys) {
+      const item = await pendingAudioStore.getItem<CanvasPendingAudioUpload>(key);
+      if (!item) continue;
+      if (item.key !== key) throw new Error("invalid pending audio record");
+      if (!latest || item.createdAt > latest.createdAt) latest = item;
+    }
+    return latest;
   },
   async remove(key: string) {
     await pendingAudioStore.removeItem(key);

@@ -342,6 +342,105 @@ describe("CanvasGenerationJobsController", () => {
     expect(services.getJobs).not.toHaveBeenCalled();
   });
 
+  it("keeps the uploaded audio receipt when the final canvas save returns false and recovers after refresh", async () => {
+    type Pending = NonNullable<Awaited<ReturnType<NonNullable<CanvasGenerationServices["loadPendingAudioUpload"]>>>>;
+    const retained = new Map<string, Pending>();
+    const asset = { id: "audio-saved-once", name: "voice.mp3", type: "audio" as const, content_type: "audio/mpeg", size: 5 };
+    const services = createServices({
+      requestAudioGeneration: vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" })),
+      uploadAsset: vi.fn(async () => asset),
+      getAsset: vi.fn(async () => asset),
+      savePendingAudioUpload: vi.fn(async pending => { retained.set(pending.key, { ...pending }); }),
+      loadPendingAudioUpload: vi.fn(async key => retained.get(key) || null),
+      removePendingAudioUpload: vi.fn(async key => { retained.delete(key); }),
+    });
+    const node = audioNode();
+    const first = createHarness([node], services);
+    let savedNodes = [node];
+    first.persistSnapshot.mockImplementation(async nodes => {
+      if (nodes[0].metadata?.status === "success") return false;
+      savedNodes = structuredClone(nodes);
+      return true;
+    });
+    await first.controller.retryAudioNode(node);
+    expect(first.nodes[0].metadata).toMatchObject({ status: "error", pendingAudioUpload: { key: expect.any(String) } });
+    expect([...retained.values()][0].assetId).toBe(asset.id);
+    expect(services.removePendingAudioUpload).not.toHaveBeenCalled();
+    first.controller.dispose();
+
+    const refreshed = createHarness(savedNodes, services);
+    await refreshed.controller.retryAudioNode(refreshed.nodes[0]);
+    expect(services.requestAudioGeneration).toHaveBeenCalledTimes(1);
+    expect(services.uploadAsset).toHaveBeenCalledTimes(1);
+    expect(services.getAsset).toHaveBeenCalledWith(asset.id, "personal");
+    expect(refreshed.nodes[0].metadata).toMatchObject({ status: "success", assetId: asset.id });
+    expect(retained.size).toBe(0);
+  });
+
+  it("recovers an orphan audio Blob without a canvas descriptor before Ctrl+Enter can generate again", async () => {
+    type Pending = NonNullable<Awaited<ReturnType<NonNullable<CanvasGenerationServices["loadPendingAudioUpload"]>>>>;
+    const retained = new Map<string, Pending>();
+    const services = createServices({
+      requestAudioGeneration: vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" })),
+      uploadAsset: vi.fn().mockRejectedValueOnce(new Error("upload unavailable")).mockResolvedValue({ id: "orphan-audio", name: "voice.mp3", type: "audio", content_type: "audio/mpeg", size: 5 }),
+      savePendingAudioUpload: vi.fn(async pending => { retained.set(pending.key, { ...pending }); }),
+      loadPendingAudioUpload: vi.fn(async key => retained.get(key) || null),
+      findPendingAudioUpload: vi.fn(async query => [...retained.values()].find(item =>
+        item.userId === query.userId && item.projectKey === query.projectKey && item.nodeId === query.nodeId) || null),
+      removePendingAudioUpload: vi.fn(async key => { retained.delete(key); }),
+    });
+    const node = audioNode();
+    const first = createHarness([node], services);
+    first.persistSnapshot.mockResolvedValue(false);
+    await first.controller.retryAudioNode(node);
+    const uploadKey = vi.mocked(services.uploadAsset).mock.calls[0][1]?.idempotency_key;
+    expect(uploadKey).toBeTruthy();
+    expect(retained.size).toBe(1);
+    first.controller.dispose();
+
+    // The server still has the original snapshot, with no pending descriptor.
+    const refreshed = createHarness([node], services);
+    await refreshed.controller.generateFromNode(node.id);
+    expect(services.requestAudioGeneration).toHaveBeenCalledTimes(1);
+    expect(services.uploadAsset).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(services.uploadAsset).mock.calls[1][1]?.idempotency_key).toBe(uploadKey);
+    expect(refreshed.nodes[0].metadata).toMatchObject({ status: "success", assetId: "orphan-audio" });
+  });
+
+  it("routes Ctrl+Enter through audio upload recovery when a descriptor exists", async () => {
+    const services = createServices({
+      requestAudioGeneration: vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" })),
+      uploadAsset: vi.fn().mockRejectedValueOnce(new Error("upload unavailable")).mockResolvedValue({ id: "existing-audio", type: "audio", name: "voice.mp3", content_type: "audio/mpeg", size: 5 }),
+    });
+    const harness = createHarness([audioNode()], services);
+    await harness.controller.retryAudioNode(harness.nodes[0]);
+    await harness.controller.generateFromNode(harness.nodes[0].id);
+    expect(services.requestAudioGeneration).toHaveBeenCalledTimes(1);
+    expect(harness.nodes[0].metadata).toMatchObject({ status: "success", assetId: "existing-audio" });
+  });
+
+  it("retains audio but does not mutate the new canvas after switching during Blob persistence", async () => {
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const services = createServices({
+      requestAudioGeneration: vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" })),
+      savePendingAudioUpload: vi.fn(async () => held),
+    });
+    const harness = createHarness([audioNode()], services);
+    const running = harness.controller.retryAudioNode(harness.nodes[0]);
+    await vi.waitFor(() => expect(services.savePendingAudioUpload).toHaveBeenCalledTimes(1));
+    harness.controller.abortAllGenerationRequests();
+    const replacement = audioNode({ title: "新的画布音频", metadata: { status: "idle" } });
+    harness.bindings.getProjectKey = () => "personal:project-2";
+    harness.bindings.setNodes([replacement]);
+    harness.persistSnapshot.mockClear();
+    release();
+    await running;
+    expect(harness.nodes).toEqual([replacement]);
+    expect(harness.persistSnapshot).not.toHaveBeenCalled();
+    expect(services.uploadAsset).not.toHaveBeenCalled();
+  });
+
   it("does not mark a live text request interrupted during a background recovery scan", async () => {
     let finish!: () => void;
     const services = createServices({ requestAiText: vi.fn(() => new Promise(resolve => { finish = () => resolve({ content: "result", model: "text-model" }); })) });
