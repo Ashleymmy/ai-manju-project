@@ -56,6 +56,27 @@ class ImageResultRejectedError(SafeTaskError):
     """A completed image response is invalid; it is not a supplier retry."""
 
 
+class VideoRecoveryAttentionError(VideoRecoveryPendingError):
+    """Keep the original paid task, but stop automatic queue recovery."""
+
+
+class ImageRecoveryAttentionError(ImageRecoveryPendingError):
+    """Keep the private image receipt, but stop automatic queue recovery."""
+
+
+class ResultPersistencePendingError(SafeTaskError):
+    """Completed local output was not accepted by the Job result write."""
+
+
+RECOVERY_ATTENTION_PHASES = {"video_recovery_attention", "image_recovery_attention"}
+
+
+def recovery_attention_error(kind: str):
+    label = "视频" if kind == "video" else "图片"
+    error_type = VideoRecoveryAttentionError if kind == "video" else ImageRecoveryAttentionError
+    return error_type(f"{label}结果恢复需要管理员核查，请勿重复提交", code=f"{kind}_recovery_attention", retryable=False)
+
+
 def job_canceled_error() -> SafeTaskError:
     return SafeTaskError("job was canceled", code="job_canceled", retryable=False)
 
@@ -72,13 +93,15 @@ def safe_message(value: object) -> str:
 def error_payload(exc: BaseException) -> dict[str, object]:
     if isinstance(exc, SafeTaskError):
         public_message = PUBLIC_TASK_ERROR_MESSAGES.get(exc.code, exc.message)
-        if isinstance(exc, VideoTaskAcceptedError):
+        if isinstance(exc, (VideoRecoveryAttentionError, ImageRecoveryAttentionError)):
+            public_message = recovery_attention_error("video" if isinstance(exc, VideoRecoveryAttentionError) else "image").message
+        elif isinstance(exc, VideoTaskAcceptedError):
             public_message = "视频任务已提交，查询或下载结果中断，请联系管理员核查，勿重复生成"
         elif isinstance(exc, VideoSubmissionUncertainError):
             public_message = "视频提交结果待确认，请勿重复提交，请联系管理员核查"
         payload: dict[str, object] = {
             "message": safe_message(public_message),
-            "code": "video_result_pending" if isinstance(exc, VideoTaskAcceptedError) else exc.code,
+            "code": "video_result_pending" if isinstance(exc, VideoTaskAcceptedError) and not isinstance(exc, VideoRecoveryAttentionError) else exc.code,
             "retryable": exc.retryable,
         }
         if exc.retry_after_seconds is not None:

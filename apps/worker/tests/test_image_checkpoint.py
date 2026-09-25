@@ -18,9 +18,10 @@ from test_image_output_validation import png_bytes
 from test_provider import FakeProviderResponse, test_settings
 from test_tasks import FakeTask, RetryCalled
 from worker import provider, tasks
+from worker.db import recovery_transition
 from worker.errors import ImageRecoveryPendingError, ImageResultRejectedError, ImageSubmissionUncertainError, SafeTaskError
 from worker.generation_failover import PROVIDER_CANDIDATES_FIELD
-from worker.image_checkpoint import IMAGE_CHECKPOINT_PAYLOAD_KEY, ImageCheckpoint
+from worker.image_checkpoint import IMAGE_CHECKPOINT_KEY, IMAGE_CHECKPOINT_PAYLOAD_KEY, ImageCheckpoint
 from worker.image_requirements import ImageParameterError
 
 
@@ -43,10 +44,14 @@ class RecoveryStore(DurableStore):
         self.checkpoints.status = self.job["status"]
         return self.checkpoints.save_image_checkpoint(job_id, value, expected)
 
-    def mark_image_recovery(self, job_id, *, uncertain=False):
+    def mark_image_recovery(self, job_id, *, uncertain=False, reason="", attention=False, recovered_result=None):
         self.recoveries.append(uncertain)
-        self.job.update(status="queued", queue_phase="image_submission_uncertain" if uncertain else "image_recovery_pending")
-        return self.get_job(job_id)
+        checkpoint, error, delay = recovery_transition(self.checkpoints.checkpoint, "image", uncertain=uncertain, reason=reason, attention=attention)
+        if recovered_result is not None and not checkpoint.get("result"):
+            checkpoint["result"] = recovered_result
+        self.checkpoints.checkpoint = checkpoint
+        self.job.update(status="queued", queue_phase=error["code"], error=error, bridge_metadata={IMAGE_CHECKPOINT_KEY: checkpoint})
+        return {**self.get_job(job_id), "recovery_retry_seconds": delay}
 
 
 class ImageCheckpointTest(unittest.TestCase):

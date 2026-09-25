@@ -13,7 +13,10 @@ func (r *MemoryJobRepository) ListDispatchPendingIDs(now time.Time, limit int) (
 	defer r.mu.RUnlock()
 	jobs := []model.Job{}
 	for _, job := range r.jobs {
-		if (job.DispatchState == model.JobDispatchPending || job.DispatchState == model.JobDispatchPublished) && job.DispatchCiphertext != "" && (job.DispatchNextAttemptAt == nil || !job.DispatchNextAttemptAt.After(now)) {
+		// Observed active jobs retain their encrypted execution config for manual
+		// recovery. Do not repeatedly load large media payloads just to retain it.
+		terminal := job.Status == model.JobStatusSucceeded || job.Status == model.JobStatusFailed || job.Status == model.JobStatusCanceled
+		if (job.DispatchState == model.JobDispatchPending || job.DispatchState == model.JobDispatchPublished || (job.DispatchState == model.JobDispatchObserved && terminal) || job.DispatchState == JobDispatchRecoveryPending || job.DispatchState == JobDispatchRecoveryPublished) && job.DispatchCiphertext != "" && (job.DispatchNextAttemptAt == nil || !job.DispatchNextAttemptAt.After(now)) {
 			jobs = append(jobs, job)
 		}
 	}
@@ -68,7 +71,7 @@ func (r *MemoryJobRepository) UpdateDispatch(id string, state string, next *time
 
 func (r *GormJobRepository) ListDispatchPendingIDs(now time.Time, limit int) ([]string, error) {
 	ids := []string{}
-	query := r.db.Model(&model.Job{}).Where("dispatch_state IN ? AND COALESCE(dispatch_ciphertext,'') <> '' AND (dispatch_next_attempt_at IS NULL OR dispatch_next_attempt_at <= ?)", []string{model.JobDispatchPending, model.JobDispatchPublished}, now).
+	query := r.db.Model(&model.Job{}).Where("(dispatch_state IN ? OR (dispatch_state = ? AND status IN ?)) AND COALESCE(dispatch_ciphertext,'') <> '' AND (dispatch_next_attempt_at IS NULL OR dispatch_next_attempt_at <= ?)", []string{model.JobDispatchPending, model.JobDispatchPublished, JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobDispatchObserved, []string{model.JobStatusSucceeded, model.JobStatusFailed, model.JobStatusCanceled}, now).
 		Order("COALESCE(dispatch_next_attempt_at, created_at) ASC").Order("id ASC")
 	if limit > 0 {
 		query = query.Limit(limit)

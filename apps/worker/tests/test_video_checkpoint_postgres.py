@@ -69,6 +69,26 @@ class VideoCheckpointPostgresTest(unittest.TestCase):
         self.assertEqual((row["status"], row["queue_phase"], row["progress"], row["attempts"]),
                          ("queued", "video_recovery_pending", 50, 1))
 
+    def test_recovery_escalation_is_atomic_and_preserves_original_task(self):
+        checkpoint = VideoCheckpoint(self.store, "job", self.provider)
+        checkpoint.begin()
+        checkpoint.accepted("original-paid-task")
+        for _ in range(3):
+            saved = self.store.mark_video_recovery("job", reason="video_recovery_http_404")
+        self.assertEqual(saved["queue_phase"], "video_recovery_attention")
+        self.assertFalse(saved["error"]["retryable"])
+        with self.store.connect() as conn:
+            row = conn.execute("SELECT * FROM jobs WHERE id = 'job'").fetchone()
+        private = row["bridge_metadata"][VIDEO_CHECKPOINT_KEY]
+        self.assertEqual(row["bridge_metadata"]["other"], "keep")
+        self.assertEqual(private["provider_task_id"], "original-paid-task")
+        self.assertEqual(private["phase"], "accepted")
+        self.assertEqual(private["recovery"]["failures"], 3)
+        self.assertTrue(private["recovery"]["requires_attention"])
+        self.assertEqual(row["attempts"], 1)
+        self.assertEqual(row["status"], "queued")
+        self.assertIsNone(row["finished_at"])
+
     def test_metadata_sql_null_and_json_null_both_persist_checkpoint(self):
         for value in (None, Jsonb(None)):
             with self.subTest(value=value):

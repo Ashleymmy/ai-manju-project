@@ -78,6 +78,8 @@ export function jobProgressNotice(job: Pick<Job, "status" | "queue_phase">): str
   if (job.queue_phase === "video_recovery_pending") return "正在恢复原视频任务，无需重新生成";
   if (job.queue_phase === "image_submission_uncertain") return "图片提交结果待确认，请联系管理员，勿重复生成";
   if (job.queue_phase === "image_recovery_pending") return "正在恢复原图片任务，无需重新生成";
+  if (job.queue_phase === "video_recovery_attention") return "原视频结果恢复需要管理员核查，请勿重复生成";
+  if (job.queue_phase === "image_recovery_attention") return "原图片结果恢复需要管理员核查，请勿重复生成";
   return undefined;
 }
 

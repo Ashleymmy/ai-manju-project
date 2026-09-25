@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .errors import VideoRecoveryPendingError, VideoSubmissionUncertainError, job_canceled_error
+from .errors import VideoRecoveryPendingError, VideoSubmissionUncertainError, job_canceled_error, recovery_attention_error
 
 # API serializers must remove this entire bridge_metadata entry from user output.
 VIDEO_CHECKPOINT_KEY = "_worker_video_checkpoint"
@@ -33,6 +33,7 @@ def provider_identity(provider: dict[str, Any]) -> str:
 class VideoCheckpoint:
     def __init__(self, store, job_id: str, provider: dict[str, Any]):
         self.store, self.job_id, self.provider = store, job_id, provider
+        self.recovery_only = False
         try:
             record = store.get_video_checkpoint(job_id)
         except Exception as exc:
@@ -74,17 +75,21 @@ class VideoCheckpoint:
         self.state = proposed
 
     def assert_recoverable(self):
+        if (self.state.get("recovery") or {}).get("requires_attention"):
+            raise recovery_attention_error("video")
         if self.state.get("phase") == "submission_intent" and not self.task_id:
             raise VideoSubmissionUncertainError("视频提交结果待确认，请勿重复提交，请联系管理员核查", code="video_submission_uncertain", retryable=False)
 
     def begin(self):
+        if self.recovery_only:
+            raise VideoSubmissionUncertainError("原视频任务无法恢复，不能重新生成", code="video_submission_uncertain", retryable=False)
         self.assert_recoverable()
         if self.task_id:
             raise recovery_error()
         self._save(phase="submission_intent", attempt=int(self.provider.get("generation_attempt") or 0),
                    provider_identity=provider_identity(self.provider), provider_id=str(self.provider.get("id") or ""),
                    model=str(self.provider.get("model") or ""), provider_task_id="", result=None,
-                   reference_keys=list(self.references), submitted_at=datetime.now(timezone.utc).isoformat())
+                   reference_keys=list(self.references), recovery=None, submitted_at=datetime.now(timezone.utc).isoformat())
 
     def accepted(self, task_id: str):
         self._save(phase="accepted", provider_task_id=task_id)

@@ -15,7 +15,7 @@ from test_video import FakeVideoResponse, test_settings
 from video_checkpoint_fakes import CheckpointStore
 from http_security_fakes import fake_public_send
 from worker import tasks, video
-from worker.db import JobStore
+from worker.db import JobStore, recovery_transition
 from worker.errors import SafeTaskError, VideoRecoveryPendingError, VideoSubmissionUncertainError, VideoReferenceError
 from worker.generation_failover import PROVIDER_CANDIDATES_FIELD
 from worker.video_checkpoint import VIDEO_CHECKPOINT_KEY, VIDEO_CHECKPOINT_PAYLOAD_KEY, VideoCheckpoint
@@ -40,10 +40,14 @@ class RecoveryStore(DurableStore):
         self.checkpoints.status = self.job["status"]
         return self.checkpoints.save_video_checkpoint(job_id, value, expected)
 
-    def mark_video_recovery(self, job_id, *, uncertain=False):
+    def mark_video_recovery(self, job_id, *, uncertain=False, reason="", attention=False, recovered_result=None):
         self.recoveries.append(uncertain)
-        self.job.update(status="queued", queue_phase="video_submission_uncertain" if uncertain else "video_recovery_pending")
-        return self.get_job(job_id)
+        checkpoint, error, delay = recovery_transition(self.checkpoints.checkpoint, "video", uncertain=uncertain, reason=reason, attention=attention)
+        if recovered_result is not None and not checkpoint.get("result"):
+            checkpoint["result"] = copy.deepcopy(recovered_result)
+        self.checkpoints.checkpoint = checkpoint
+        self.job.update(status="queued", queue_phase=error["code"], error=error, bridge_metadata={VIDEO_CHECKPOINT_KEY: checkpoint})
+        return {**self.get_job(job_id), "recovery_retry_seconds": delay}
 
 
 class VideoCheckpointTest(unittest.TestCase):

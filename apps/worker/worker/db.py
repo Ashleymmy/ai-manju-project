@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 import hashlib
 from typing import Any, Iterator
@@ -14,6 +14,7 @@ import psycopg
 
 from .video_checkpoint import VIDEO_CHECKPOINT_KEY
 from .image_checkpoint import IMAGE_CHECKPOINT_KEY
+from .errors import recovery_attention_error
 
 
 JOB_STATUS_QUEUED = "queued"
@@ -24,6 +25,48 @@ JOB_STATUS_CANCELED = "canceled"
 TERMINAL_STATUSES = {JOB_STATUS_SUCCEEDED, JOB_STATUS_FAILED, JOB_STATUS_CANCELED}
 # Diagnostic failures must not hold up a business retry during a DB outage.
 MONITORING_DB_TIMEOUT_SECONDS = 2
+# Failed recovery is bounded separately from generation attempts and credits.
+RECOVERY_MAX_FAILURES = 10
+RECOVERY_MAX_AGE_SECONDS = 30 * 60
+RECOVERY_ACCESS_FAILURE_LIMIT = 3
+RECOVERY_INITIAL_DELAY_SECONDS = 30
+RECOVERY_MAX_DELAY_SECONDS = 5 * 60
+RECOVERY_ACCESS_CODES = {"video_recovery_http_401", "video_recovery_http_403", "video_recovery_http_404"}
+
+
+def recovery_transition(checkpoint, kind, *, uncertain=False, reason="", attention=False, now=None):
+    """Private counters plus public state, preserving every existing output."""
+    now = now or datetime.now(timezone.utc)
+    checkpoint = dict(checkpoint) if isinstance(checkpoint, dict) else {}
+    recovery = dict(checkpoint.get("recovery") or {})
+    attention = attention or recovery.get("requires_attention") is True
+    count = int(recovery.get("failures") or 0)
+    if not uncertain and not attention:
+        count += 1
+        try:
+            started = datetime.fromisoformat(str(recovery["first_failure_at"]).replace("Z", "+00:00"))
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+        except (KeyError, TypeError, ValueError):
+            started = now
+        access_failures = int(recovery.get("consecutive_access_failures") or 0) + 1 if reason in RECOVERY_ACCESS_CODES else 0
+        attention = count >= RECOVERY_MAX_FAILURES or (now - started).total_seconds() >= RECOVERY_MAX_AGE_SECONDS or access_failures >= RECOVERY_ACCESS_FAILURE_LIMIT
+        recovery.update(failures=count, first_failure_at=started.isoformat(), last_failure_at=now.isoformat(),
+                        consecutive_access_failures=access_failures, reason=reason if reason in RECOVERY_ACCESS_CODES else "result_recovery_failed")
+    if attention:
+        recovery["requires_attention"] = True
+        error = recovery_attention_error(kind)
+        phase, message, retryable = error.code, error.message, False
+    else:
+        phase = f"{kind}_submission_uncertain" if uncertain else f"{kind}_recovery_pending"
+        label = "视频" if kind == "video" else "图片"
+        message = f"{label}提交结果待确认，请勿重复提交，请联系管理员核查" if uncertain else f"{label}结果正在恢复处理，请勿重复提交"
+        retryable = not uncertain
+    if recovery:
+        checkpoint["recovery"] = recovery
+        checkpoint["revision"] = int(checkpoint.get("revision") or 0) + 1
+    delay = min(RECOVERY_MAX_DELAY_SECONDS, RECOVERY_INITIAL_DELAY_SECONDS * (2 ** min(max(count - 1, 0), 4)))
+    return checkpoint, {"code": phase, "message": message, "retryable": retryable}, delay
 
 
 @dataclass
@@ -102,19 +145,10 @@ class JobStore:
                 )
                 return cur.fetchone()
 
-    def mark_video_recovery(self, job_id: str, *, uncertain: bool = False) -> dict[str, Any] | None:
+    def mark_video_recovery(self, job_id: str, *, uncertain: bool = False, reason: str = "", attention: bool = False, recovered_result=None) -> dict[str, Any] | None:
         # Keep credits reserved and generation attempts unchanged while only
         # polling/downloading/importing an existing paid task.
-        phase = 'video_submission_uncertain' if uncertain else 'video_recovery_pending'
-        message = '视频提交结果待确认，请勿重复提交，请联系管理员核查' if uncertain else '视频任务正在恢复处理，请勿重复提交'
-        with self.connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""UPDATE jobs SET status = 'queued', queue_phase = %s, error = %s,
-                           updated_at = timezone('utc', now()), finished_at = NULL
-                       WHERE id = %s AND type = 'video.generate' AND COALESCE(external_provider, '') = ''
-                         AND status IN ('queued', 'running') RETURNING id, status, progress, attempts""",
-                            (phase, Jsonb({"code": phase, "message": message, "retryable": not uncertain}), job_id))
-                return cur.fetchone()
+        return self._mark_media_recovery(job_id, "video", uncertain=uncertain, reason=reason, attention=attention, recovered_result=recovered_result)
 
     def get_image_checkpoint(self, job_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
@@ -137,17 +171,40 @@ class JobStore:
                             (IMAGE_CHECKPOINT_KEY, Jsonb(json_compatible(checkpoint)), job_id, IMAGE_CHECKPOINT_KEY, expected_revision))
                 return cur.fetchone()
 
-    def mark_image_recovery(self, job_id: str, *, uncertain: bool = False) -> dict[str, Any] | None:
-        phase = 'image_submission_uncertain' if uncertain else 'image_recovery_pending'
-        message = '图片提交结果待确认，请勿重复提交，请联系管理员核查' if uncertain else '图片结果正在恢复处理，请勿重复提交'
+    def mark_image_recovery(self, job_id: str, *, uncertain: bool = False, reason: str = "", attention: bool = False, recovered_result=None) -> dict[str, Any] | None:
+        return self._mark_media_recovery(job_id, "image", uncertain=uncertain, reason=reason, attention=attention, recovered_result=recovered_result)
+
+    def _mark_media_recovery(self, job_id, kind, *, uncertain=False, reason="", attention=False, recovered_result=None):
+        key = VIDEO_CHECKPOINT_KEY if kind == "video" else IMAGE_CHECKPOINT_KEY
+        types = ["video.generate", "video.transcode"] if kind == "video" else ["image.generate", "image.edit"]
         with self.connect() as conn:
             with conn.cursor() as cur:
+                cur.execute("""SELECT status, bridge_metadata FROM jobs WHERE id = %s
+                    AND type = ANY(%s) AND COALESCE(external_provider, '') = '' FOR UPDATE""", (job_id, types))
+                row = cur.fetchone()
+                if not row or row["status"] not in {"queued", "running"}:
+                    return None
+                metadata = dict(row["bridge_metadata"]) if isinstance(row.get("bridge_metadata"), dict) else {}
+                checkpoint, error, delay = recovery_transition(metadata.get(key), kind, uncertain=uncertain, reason=reason, attention=attention)
+                if recovered_result is not None and not checkpoint.get("result"):
+                    # Last-resort preservation for non-provider processing too.
+                    # Only local output metadata, never upstream URLs/credentials.
+                    checkpoint["result"] = {"outputs": [
+                        {field: item[field] for field in ("path", "size", "content_type", "file_name", "asset_id", "width", "height") if field in item}
+                        for item in recovered_result.get("outputs", []) if isinstance(item, dict)
+                    ]}
+                if checkpoint:
+                    metadata[key] = checkpoint
                 cur.execute("""UPDATE jobs SET status = 'queued', queue_phase = %s, error = %s,
+                        bridge_metadata = %s::jsonb,
                         updated_at = timezone('utc', now()), finished_at = NULL
-                    WHERE id = %s AND type IN ('image.generate', 'image.edit') AND COALESCE(external_provider, '') = ''
-                      AND status IN ('queued', 'running') RETURNING id, status, progress, attempts""",
-                            (phase, Jsonb({"code": phase, "message": message, "retryable": not uncertain}), job_id))
-                return cur.fetchone()
+                    WHERE id = %s AND status IN ('queued', 'running')
+                    RETURNING id, status, progress, attempts, queue_phase, error""",
+                            (error["code"], Jsonb(error), Jsonb(metadata), job_id))
+                saved = cur.fetchone()
+                if saved is not None:
+                    saved["recovery_retry_seconds"] = delay
+                return saved
 
     def count_by_status(self) -> dict[str, int]:
         with self.connect() as conn:

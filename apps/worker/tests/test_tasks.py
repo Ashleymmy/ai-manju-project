@@ -58,8 +58,9 @@ class FakeStore:
     def get_job(self, job_id: str) -> dict[str, Any]:
         return self.job
 
-    def mark_running(self, job_id: str, progress: int = 5) -> None:
+    def mark_running(self, job_id: str, progress: int = 5):
         self.job["status"] = "running"
+        return dict(self.job)
 
     def mark_waiting_provider(self, job_id: str) -> None:
         self.waiting_provider_count += 1
@@ -73,8 +74,10 @@ class FakeStore:
     def set_error(self, job_id: str, error: dict[str, Any]) -> None:
         self.final_errors.append(error)
 
-    def set_result(self, job_id: str, result: dict[str, Any]) -> None:
+    def set_result(self, job_id: str, result: dict[str, Any]):
         self.results.append(result)
+        self.job["status"] = "succeeded"
+        return dict(self.job)
 
 
 class TasksTest(unittest.TestCase):

@@ -313,6 +313,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 		admin := api.Group("/admin", middleware.RequireAdmin(authService), middleware.AdminAudit(repos.auditRepo), handler.SDVideoAssetCompatibility(sdVideoClient))
 		{
 			handler.RegisterSDVideoReconciliation(admin, jobService, sdVideoClient)
+			handler.RegisterGenerationRecovery(admin, jobService)
 			admin.GET("/users", authHandler.ListUsers)
 			admin.POST("/users", authHandler.CreateUser)
 			admin.PUT("/users/:id", authHandler.UpdateUser)

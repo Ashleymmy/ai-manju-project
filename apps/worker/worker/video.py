@@ -48,6 +48,8 @@ VIDEO_DOWNLOAD_RETRY_SECONDS = 1
 # Preserve the previous native endpoint download and response traversal limits.
 NATIVE_VIDEO_MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
 NATIVE_VIDEO_RESPONSE_MAX_DEPTH = 16
+# Access failures on an existing paid task must escalate, not create anew.
+VIDEO_RECOVERY_ACCESS_STATUSES = {401, 403, 404}
 VIDEO_SUCCESS_STATUSES = {"completed", "succeeded", "success", "done"}
 VIDEO_FAILURE_STATUSES = {"failed", "failure", "cancelled", "canceled", "expired", "rejected"}
 VIDEO_REQUEST_FIELDS = ("model", "prompt", "seconds", "size", "resolution_name", "preset")
@@ -230,6 +232,10 @@ def wait_for_video_task(
         if response.status_code == 429 or response.status_code >= 500:
             response.close()
             continue
+        if response.status_code in VIDEO_RECOVERY_ACCESS_STATUSES:
+            code = f"video_recovery_http_{response.status_code}"
+            response.close()
+            raise VideoRecoveryPendingError("视频结果访问暂不可用，请勿重复提交", code=code, retryable=True)
         ensure_video_response(response, "video provider status", retryable=False)
         task = video_response_json(response, "video provider returned invalid status response")
 
@@ -268,6 +274,8 @@ def download_video_result(
     except requests.RequestException as exc:
         raise SafeTaskError("video provider content request failed", code="provider_request_failed", retryable=False) from None
     try:
+        if response.status_code in VIDEO_RECOVERY_ACCESS_STATUSES:
+            raise VideoRecoveryPendingError("视频结果访问暂不可用，请勿重复提交", code=f"video_recovery_http_{response.status_code}", retryable=True)
         ensure_video_response(response, "video provider content", retryable=False)
     except Exception:
         response.close()

@@ -102,6 +102,9 @@ func (h *AIHandler) serveGenerationVideoJob(c *gin.Context, content bool) bool {
 	if !content {
 		public := jobResponse(job)
 		result := gin.H{"id": job.ID, "job_id": job.ID, "status": public["status"], "progress": job.Progress, "content": gin.H{}}
+		if job.QueuePhase != "" && (job.Status == model.JobStatusQueued || job.Status == model.JobStatusRunning) {
+			result["queue_phase"] = job.QueuePhase
+		}
 		if job.Status == model.JobStatusFailed {
 			result["error"] = nativeVideoJobError(job.Error)
 		}
@@ -141,6 +144,8 @@ func nativeVideoJobError(raw model.JSONB) gin.H {
 		return gin.H{"code": failure.Code, "message": "视频提交结果待确认，请勿重复提交，请联系管理员核查"}
 	case "video_result_pending":
 		return gin.H{"code": failure.Code, "message": "视频任务已提交，查询或下载结果中断，请联系管理员核查，勿重复生成"}
+	case "video_recovery_attention":
+		return gin.H{"code": failure.Code, "message": "原视频结果恢复需要管理员核查，请勿重复生成"}
 	case "video_reference_timeout":
 		return gin.H{"code": failure.Code, "message": "参考视频读取超时，请稍后重试或改用较小的视频。"}
 	default:

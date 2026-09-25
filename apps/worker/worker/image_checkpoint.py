@@ -17,7 +17,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .errors import ImageRecoveryPendingError, ImageResultRejectedError, ImageSubmissionUncertainError, job_canceled_error
+from .errors import ImageRecoveryPendingError, ImageResultRejectedError, ImageSubmissionUncertainError, job_canceled_error, recovery_attention_error
 
 IMAGE_CHECKPOINT_KEY = "_worker_image_checkpoint"
 IMAGE_CHECKPOINT_PAYLOAD_KEY = "_image_checkpoint"
@@ -73,6 +73,7 @@ def file_digest(path):
 class ImageCheckpoint:
     def __init__(self, store, job_id, provider, settings):
         self.store, self.job_id, self.provider, self.settings = store, job_id, provider, settings
+        self.recovery_only = False
         try:
             record = store.get_image_checkpoint(job_id)
         except Exception as exc:
@@ -80,6 +81,8 @@ class ImageCheckpoint:
         if record is None or record.get("status") == "canceled":
             raise job_canceled_error()
         self.state = copy.deepcopy(record.get("checkpoint") or {})
+        if (self.state.get("recovery") or {}).get("requires_attention"):
+            raise recovery_attention_error("image")
         if self.active and self.state.get("provider_identity") != provider_identity(provider):
             raise uncertain_error()
 
@@ -143,6 +146,8 @@ class ImageCheckpoint:
         return data
 
     def begin(self):
+        if self.recovery_only:
+            raise uncertain_error()
         if self.active:
             raise uncertain_error()
         if self.state.get("phase") == "terminal_failure":
@@ -150,7 +155,7 @@ class ImageCheckpoint:
         self._save(phase="submission_intent", provider_identity=provider_identity(self.provider),
                    provider_id=str(self.provider.get("id") or ""), model=str(self.provider.get("model") or ""),
                    attempt=int(self.provider.get("generation_attempt") or 0), receipt_id=secrets.token_hex(16),
-                   result=None, error=None, submitted_at=datetime.now(timezone.utc).isoformat())
+                   result=None, error=None, recovery=None, submitted_at=datetime.now(timezone.utc).isoformat())
 
     def rejected(self):
         self._save(phase="rejected", result=None)

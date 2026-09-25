@@ -6,20 +6,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log"
 	"time"
 
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/provider"
 	"github.com/ai-manju/api/internal/queue"
+	"github.com/ai-manju/api/internal/repository"
 )
 
 const (
 	jobDispatchInterval   = 10 * time.Second
 	jobDispatchRetryDelay = 15 * time.Second
-	// Retain encrypted delivery data until a worker actually observes the job,
-	// so Redis loss after an acknowledged LPUSH is also recoverable.
+	// Receipt grace also spaces scans of observed work. Keep encrypted execution
+	// data until terminal so accepted tasks can be recovered without resubmission.
 	jobDispatchReceiptGrace = 2 * time.Minute
 	jobDispatchBatchSize    = 20
 	// Match the maximum media request budget when restoring execution kwargs.
@@ -80,8 +80,15 @@ func (s *JobService) dispatchJob(ctx context.Context, id string) error {
 		if job.DispatchCiphertext == "" {
 			return nil
 		}
-		if job.Status != model.JobStatusQueued || job.StartedAt != nil || job.QueuePhase == "waiting_provider_slot" {
+		if job.Status == model.JobStatusSucceeded || job.Status == model.JobStatusFailed || job.Status == model.JobStatusCanceled {
 			return s.repo.UpdateDispatch(id, model.JobDispatchObserved, nil, true)
+		}
+		if job.DispatchState == repository.JobDispatchRecoveryPending || job.DispatchState == repository.JobDispatchRecoveryPublished {
+			return s.dispatchNativeRecovery(ctx, job)
+		}
+		if job.Status != model.JobStatusQueued || job.StartedAt != nil || job.QueuePhase == "waiting_provider_slot" || job.DispatchState == model.JobDispatchObserved {
+			next := time.Now().UTC().Add(jobDispatchReceiptGrace)
+			return s.repo.UpdateDispatch(id, model.JobDispatchObserved, &next, false)
 		}
 		if job.DispatchNextAttemptAt != nil && job.DispatchNextAttemptAt.After(time.Now().UTC()) {
 			return nil
@@ -91,26 +98,9 @@ func (s *JobService) dispatchJob(ctx context.Context, id string) error {
 		if err := s.repo.UpdateDispatch(id, model.JobDispatchPending, &next, false); err != nil {
 			return err
 		}
-		plain, err := s.dispatchBox.Decrypt(job.DispatchCiphertext)
+		envelope, err := s.decodeDispatch(job)
 		if err != nil {
-			return errors.New("task dispatch decryption unavailable")
-		}
-		reader, err := zlib.NewReader(bytes.NewBufferString(plain))
-		if err != nil {
-			return errors.New("invalid task dispatch encoding")
-		}
-		decoded, err := io.ReadAll(io.LimitReader(reader, jobDispatchMaxDecodedBytes+1))
-		_ = reader.Close()
-		if err != nil || len(decoded) > jobDispatchMaxDecodedBytes {
-			return errors.New("invalid task dispatch size")
-		}
-		var envelope jobDispatchEnvelope
-		if json.Unmarshal(decoded, &envelope) != nil || envelope.JobID != job.ID || envelope.TaskName != taskNameForJobType(job.Type) {
-			return errors.New("invalid durable task dispatch")
-		}
-		// JSON decoding uses float64; preserve the Celery integer timelimit field.
-		if value, ok := envelope.Kwargs["generation_soft_timeout_seconds"].(float64); ok {
-			envelope.Kwargs["generation_soft_timeout_seconds"] = int(value)
+			return err
 		}
 		if s.producer == nil {
 			return queue.ErrBrokerNotConfigured
