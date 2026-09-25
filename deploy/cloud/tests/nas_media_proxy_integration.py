@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 from pathlib import Path
 import ssl
 import subprocess
@@ -81,7 +82,7 @@ def run_origin():
 
         def do_GET(self):
             path = urlsplit(self.path)
-            if self.server.server_port == 3101:
+            if self.server.server_port == 3101 and not path.path.startswith("/storage/"):
                 self.reply(200, json.dumps({"path": path.path, "authorization": self.headers.get("Authorization")}).encode())
                 return
             with (fixture / "requests.jsonl").open("a", encoding="utf-8") as stream:
@@ -118,11 +119,29 @@ def run_origin():
             if self.headers.get("If-None-Match") == '"fixture-v1"':
                 self.reply(304, headers=headers)
                 return
-            if self.headers.get("Range") == "bytes=2-7":
-                headers["Content-Range"] = f"bytes 2-7/{len(BODY)}"
-                self.reply(206, BODY[2:8], headers)
+            body = BODY * (128 * 1024) if path.path.endswith("large.mp4") else BODY
+            requested_range = self.headers.get("Range", "")
+            # Reproduce the NAS suffix-range defect; the proxy must translate it.
+            if requested_range.startswith("bytes=-"):
+                if self.server.server_port == 3101:
+                    # Fake the API adapter; Go tests exercise its real HEAD/GET calls.
+                    count = min(int(requested_range[7:]), len(body))
+                    headers["Content-Range"] = f"bytes {len(body)-count}-{len(body)-1}/{len(body)}"
+                    self.reply(206, body[-count:], headers)
+                else:
+                    self.reply(500, b"unsupported suffix range")
                 return
-            self.reply(200, BODY, headers)
+            match = re.fullmatch(r"bytes=(\d+)-(\d*)", requested_range)
+            if match:
+                start = int(match[1])
+                end = min(int(match[2]) if match[2] else len(body) - 1, len(body) - 1)
+                if start >= len(body):
+                    self.reply(416, headers={"Content-Range": f"bytes */{len(body)}"})
+                    return
+                headers["Content-Range"] = f"bytes {start}-{end}/{len(body)}"
+                self.reply(206, body[start:end + 1], headers)
+                return
+            self.reply(200, body, headers)
 
         do_HEAD = do_GET
 
@@ -216,9 +235,28 @@ class NasMediaProxyTests(unittest.TestCase):
         result = subprocess.run(["docker", "exec", "-i", cls.origin, "python", "-B", "-c", client],
                                 input=request, capture_output=True, text=True, timeout=15)
         if result.returncode:
-            raise RuntimeError("Isolated HTTP client failed")
+            raise RuntimeError("Isolated HTTP client failed: " + result.stderr[-400:])
         status, response_headers, body = json.loads(result.stdout)
         return status, response_headers, base64.b64decode(body)
+
+    def test_suffix_range_translates_nas_failure(self):
+        path = signed_path("personal/user_a/reference.mp4")
+        for requested, expected in [("bytes=-6", BODY[-6:]), ("bytes=-999999", BODY)]:
+            with self.subTest(requested=requested):
+                status, headers, body = self.request(path, headers={"Range": requested})
+                self.assertEqual(status, 206)
+                self.assertEqual(body, expected)
+                self.assertEqual(headers.get("content-length"), str(len(expected)))
+        expired = signed_path("personal/user_a/reference.mp4", expires=-1)
+        self.assertEqual(self.request(expired, headers={"Range": "bytes=-6"})[0], 403)
+
+    def test_suffix_range_reads_large_file_tail(self):
+        source = BODY * (128 * 1024)
+        for length in (65536, 400000):
+            status, headers, body = self.request(signed_path("personal/u1/large.mp4"), headers={"Range": f"bytes=-{length}"})
+            self.assertEqual(status, 206)
+            self.assertEqual(body, source[-length:])
+            self.assertEqual(headers["content-range"], f"bytes {len(source)-length}-{len(source)-1}/{len(source)}")
 
     def test_01_existing_routes_are_unchanged(self):
         base = CONFIG.parents[2] / "apps/studio/nginx.conf"

@@ -77,6 +77,12 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	if assetStoreErr != nil {
 		panic(assetStoreErr)
 	}
+	// Signed NAS requests authenticate at Storage, without browser or service credentials.
+	if signedRanges, ok := assetStore.(interface {
+		ServeSignedSuffixRange(http.ResponseWriter, *http.Request)
+	}); ok {
+		r.GET("/storage/v1/object/sign/*object", func(c *gin.Context) { signedRanges.ServeSignedSuffixRange(c.Writer, c.Request) })
+	}
 	jobInputService := service.NewJobInputService(assetStore, cfg.MaxAssetUploadBytes)
 	jobService := service.NewJobService(
 		repos.jobRepo,
