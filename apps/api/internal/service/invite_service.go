@@ -122,27 +122,29 @@ func (s *InviteService) OnFirstPaidOrder(inviteeUserID string) (bool, error) {
 		}
 		return false, err
 	}
-	changed, err := s.invites.UpdateRewardStatus(record.ID, model.InviteRewardPendingFirstRecharge, model.InviteRewardGranted, s.clock())
-	if err != nil {
-		return false, err
-	}
-	if !changed {
+	if record.RewardStatus != model.InviteRewardPendingFirstRecharge && record.RewardStatus != model.InviteRewardGranted {
 		return false, nil
 	}
 
 	// 邀请人注册奖励 + 首充额外奖励合并发放为一批活动积分。
 	total := record.InviterReward + record.FirstChargeBonus
-	if _, err := s.engine.Grant(GrantInput{
+	outcome, err := s.engine.Grant(GrantInput{
 		UserID:     record.InviterID,
 		SourceType: model.GrantSourceInviteReward,
 		Amount:     total,
 		TTL:        time.Duration(model.CreditGrantInviteRewardTTLDays) * 24 * time.Hour,
 		PeriodKey:  "invite:inviter:" + record.ID,
 		RelatedID:  record.ID,
-	}); err != nil {
+	})
+	if err != nil {
 		return false, err
 	}
-	return true, nil
+	// Mark the reward delivered only after the idempotent ledger transaction.
+	// Also replay legacy "granted" rows whose original grant failed midway.
+	if _, err := s.invites.UpdateRewardStatus(record.ID, model.InviteRewardPendingFirstRecharge, model.InviteRewardGranted, s.clock()); err != nil {
+		return false, err
+	}
+	return outcome.Created, nil
 }
 
 // InviteOverview is the user-side 邀请有礼页数据：我的邀请码 + 记录 + 累计奖励。

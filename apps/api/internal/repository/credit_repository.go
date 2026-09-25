@@ -15,6 +15,7 @@ import (
 var (
 	ErrCreditAccountNotFound  = errors.New("credit account not found")
 	ErrCreditGrantNotFound    = errors.New("credit grant not found")
+	ErrCreditLedgerNotFound   = errors.New("credit ledger entry not found")
 	ErrConsumptionNotFound    = errors.New("task consumption not found")
 	ErrInsufficientCredits    = errors.New("insufficient credits")
 	ErrConsumptionNotReserved = errors.New("task consumption is not in reserved state")
@@ -109,6 +110,7 @@ type CreditRepository interface {
 	ListExpirableGrants(now time.Time, limit int) ([]model.CreditGrant, error)
 
 	LedgerEntryExists(idempotencyKey string) (bool, error)
+	GetLedgerByIdempotencyKey(idempotencyKey string) (model.CreditLedgerEntry, error)
 	ListLedger(userID string, entryType string, page int, pageSize int) ([]model.CreditLedgerEntry, int64, error)
 	// ListLedgerGlobal 全平台/按用户流水查询（后台模块4）：userID/entryType
 	// 空串不筛；start/end 零值不筛（start → created_at>=，end → created_at<=）；
@@ -885,6 +887,17 @@ func (r *MemoryCreditRepository) AdjustPermanent(userID string, delta int64, ent
 		CreatedAt:      now,
 	})
 	return AdjustOutcome{Account: account, Applied: true}, nil
+}
+
+func (r *MemoryCreditRepository) GetLedgerByIdempotencyKey(key string) (model.CreditLedgerEntry, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, entry := range r.ledger {
+		if entry.IdempotencyKey == key {
+			return entry, nil
+		}
+	}
+	return model.CreditLedgerEntry{}, ErrCreditLedgerNotFound
 }
 
 func (r *MemoryCreditRepository) DeductPermanentForRefund(userID string, credits int64, orderID string, now time.Time) (bool, error) {

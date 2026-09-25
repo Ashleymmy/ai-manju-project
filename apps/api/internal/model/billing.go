@@ -56,20 +56,26 @@ type CreditPackage struct {
 // the credits the order granted (credit pack: deduct permanent, allowing a
 // negative balance; membership: revoke + expire the current month's grant).
 type Order struct {
-	ID            string     `json:"id" gorm:"primaryKey"`
-	UserID        string     `json:"user_id" gorm:"not null;index"`
-	OrderType     string     `json:"order_type" gorm:"not null;index"`
-	PlanID        string     `json:"plan_id" gorm:"index"`
-	PackageID     string     `json:"package_id" gorm:"index"`
-	AmountCents   int64      `json:"amount_cents" gorm:"not null"` // 实付（折扣后）
-	Currency      string     `json:"currency" gorm:"not null;default:CNY"`
-	PayChannel    string     `json:"pay_channel"`
-	Status        string     `json:"status" gorm:"not null;index"`
-	InvoiceStatus string     `json:"invoice_status" gorm:"not null;default:none"`
-	PaidAt        *time.Time `json:"paid_at"`
-	RefundedAt    *time.Time `json:"refunded_at"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID          string `json:"id" gorm:"primaryKey"`
+	UserID      string `json:"user_id" gorm:"not null;index"`
+	OrderType   string `json:"order_type" gorm:"not null;index"`
+	PlanID      string `json:"plan_id" gorm:"index"`
+	PackageID   string `json:"package_id" gorm:"index"`
+	AmountCents int64  `json:"amount_cents" gorm:"not null"` // 实付（折扣后）
+	// PurchasedCredits snapshots pack credits or the membership's monthly grant.
+	// NULL identifies legacy orders, which are resolved once before fulfillment.
+	PurchasedCredits *int64     `json:"purchased_credits"`
+	Currency         string     `json:"currency" gorm:"not null;default:CNY"`
+	PayChannel       string     `json:"pay_channel"`
+	Status           string     `json:"status" gorm:"not null;index"`
+	InvoiceStatus    string     `json:"invoice_status" gorm:"not null;default:none"`
+	PaidAt           *time.Time `json:"paid_at"`
+	FulfilledAt      *time.Time `json:"fulfilled_at"`
+	// RefundStartedAt fences payment callbacks while a partial refund is retried.
+	RefundStartedAt *time.Time `json:"refund_started_at"`
+	RefundedAt      *time.Time `json:"refunded_at"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 // BillingConfig is a runtime-editable key/value row. Business code reads

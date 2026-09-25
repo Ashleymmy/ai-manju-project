@@ -124,6 +124,7 @@ func (s *PaymentService) CreateOrder(input CreateOrderInput) (model.Order, model
 			return model.Order{}, nil, ErrBillingItemNotFound
 		}
 		order.PlanID = plan.ID
+		order.PurchasedCredits = &plan.MonthlyCredits
 		switch input.Period {
 		case "year":
 			if plan.PriceYearCents <= 0 {
@@ -145,6 +146,7 @@ func (s *PaymentService) CreateOrder(input CreateOrderInput) (model.Order, model
 		}
 		order.OrderType = model.OrderTypeCreditPack
 		order.PackageID = pkg.ID
+		order.PurchasedCredits = &pkg.Credits
 		order.AmountCents = pkg.PriceCents
 		// 会员购积分折扣（基点：8000 = 8 折）。
 		if membership, err := s.memberships.GetActiveMembership(input.UserID, now); err == nil {
@@ -170,28 +172,79 @@ func (s *PaymentService) CreateOrder(input CreateOrderInput) (model.Order, model
 // MarkPaid 支付完成（渠道回调/ mock）。守卫迁移保证重复回调幂等；
 // 履约失败会返回错误，渠道应重试回调。
 func (s *PaymentService) MarkPaid(orderID string) (model.Order, error) {
+	var result model.Order
+	err := s.billing.WithOrderLock(orderID, func() error {
+		var err error
+		result, err = s.markPaidLocked(orderID)
+		return err
+	})
+	return result, err
+}
+
+func (s *PaymentService) markPaidLocked(orderID string) (model.Order, error) {
 	order, err := s.billing.GetOrderByID(orderID)
 	if err != nil {
 		return model.Order{}, err
 	}
-	if order.Status == model.OrderStatusPaid {
-		return order, nil // 幂等重放
-	}
-	if order.Status != model.OrderStatusPending {
+	if (order.Status != model.OrderStatusPending && order.Status != model.OrderStatusPaid) || order.RefundStartedAt != nil {
 		return model.Order{}, ErrOrderNotPending
 	}
+	if order.Status == model.OrderStatusPaid && order.FulfilledAt != nil {
+		return order, nil
+	}
+	// Legacy orders have no purchase snapshot. Prefer the original recharge
+	// ledger; otherwise freeze the current offer once before any credit movement.
+	if order.PurchasedCredits == nil {
+		order, err = s.snapshotLegacyOrderCredits(order)
+		if err != nil {
+			return model.Order{}, err
+		}
+	}
+	if order.Status == model.OrderStatusPending {
+		var changed bool
+		order, changed, err = s.billing.UpdateOrderStatus(orderID, model.OrderStatusPending, model.OrderStatusPaid, s.now())
+		if err != nil {
+			return model.Order{}, err
+		}
+		if !changed {
+			return model.Order{}, ErrOrderNotPending
+		}
+	}
+	if err := s.fulfill(order); err != nil {
+		return model.Order{}, err
+	}
+	if err := s.billing.MarkOrderFulfilled(orderID, s.now()); err != nil {
+		return model.Order{}, err
+	}
+	return s.billing.GetOrderByID(orderID)
+}
 
-	updated, changed, err := s.billing.UpdateOrderStatus(orderID, model.OrderStatusPending, model.OrderStatusPaid, s.now())
-	if err != nil {
-		return model.Order{}, err
+func (s *PaymentService) snapshotLegacyOrderCredits(order model.Order) (model.Order, error) {
+	var credits int64
+	switch order.OrderType {
+	case model.OrderTypeCreditPack:
+		entry, err := s.engine.orderRecharge(order)
+		if err == nil {
+			credits = entry.Amount
+		} else if errors.Is(err, repository.ErrCreditLedgerNotFound) {
+			pkg, err := s.billing.GetPackageByID(order.PackageID)
+			if err != nil {
+				return model.Order{}, err
+			}
+			credits = pkg.Credits
+		} else {
+			return model.Order{}, err
+		}
+	case model.OrderTypeMemberMonthly, model.OrderTypeMemberYearly:
+		plan, err := s.memberships.GetPlanByID(order.PlanID)
+		if err != nil {
+			return model.Order{}, err
+		}
+		credits = plan.MonthlyCredits
+	default:
+		return model.Order{}, ErrBillingItemNotFound
 	}
-	if !changed {
-		return s.billing.GetOrderByID(orderID) // 并发已被其他回调处理
-	}
-	if err := s.fulfill(updated); err != nil {
-		return model.Order{}, err
-	}
-	return updated, nil
+	return s.billing.SetOrderPurchasedCredits(order.ID, credits)
 }
 
 // fulfill 发货。积分包→永久积分（recharge 流水，幂等键=订单）；
@@ -200,11 +253,10 @@ func (s *PaymentService) fulfill(order model.Order) error {
 	now := s.now()
 	switch order.OrderType {
 	case model.OrderTypeCreditPack:
-		pkg, err := s.billing.GetPackageByID(order.PackageID)
-		if err != nil {
-			return err
+		if order.PurchasedCredits == nil {
+			return ErrInvalidCreditAmount
 		}
-		if _, err := s.engine.RechargePermanent(order.UserID, pkg.Credits, order.ID); err != nil {
+		if _, err := s.engine.RechargePermanent(order.UserID, *order.PurchasedCredits, order.ID); err != nil {
 			return err
 		}
 	case model.OrderTypeMemberMonthly, model.OrderTypeMemberYearly:
@@ -220,15 +272,18 @@ func (s *PaymentService) fulfill(order model.Order) error {
 		membership, err := s.memberships.ScheduleMembership(model.UserMembership{
 			UserID: order.UserID, PlanID: plan.ID, Status: model.MembershipStatusActive,
 			Source: model.MembershipSourcePurchase, OrderID: order.ID,
-			CreatedAt: now, UpdatedAt: now,
+			MonthlyCreditsOverride: order.PurchasedCredits,
+			CreatedAt:              now, UpdatedAt: now,
 		}, time.Duration(periodDays)*24*time.Hour, now)
 		if err != nil {
 			return err
 		}
 		// 首期月积分立即发放（不必等调度器下个 tick）。
-		if _, err := s.engine.GrantMonthlyMembershipCredits(membership, plan); err != nil {
+		if _, err := s.engine.grantMonthlyMembershipCredits(membership, plan); err != nil {
 			return err
 		}
+	default:
+		return ErrBillingItemNotFound
 	}
 
 	// 邀请首充奖励（未绑定邀请的用户此调用为空操作）。
@@ -242,6 +297,16 @@ func (s *PaymentService) fulfill(order model.Order) error {
 
 // CancelOrder 用户主动关闭待支付订单。守卫迁移 pending→closed。
 func (s *PaymentService) CancelOrder(orderID string, userID string) (model.Order, error) {
+	var result model.Order
+	err := s.billing.WithOrderLock(orderID, func() error {
+		var err error
+		result, err = s.cancelOrderLocked(orderID, userID)
+		return err
+	})
+	return result, err
+}
+
+func (s *PaymentService) cancelOrderLocked(orderID string, userID string) (model.Order, error) {
 	order, err := s.billing.GetOrderByID(orderID)
 	if err != nil {
 		return model.Order{}, err

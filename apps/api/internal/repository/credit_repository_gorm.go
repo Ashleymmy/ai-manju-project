@@ -727,6 +727,15 @@ func (r *GormCreditRepository) AdjustPermanent(userID string, delta int64, entry
 	return outcome, err
 }
 
+func (r *GormCreditRepository) GetLedgerByIdempotencyKey(key string) (model.CreditLedgerEntry, error) {
+	var entry model.CreditLedgerEntry
+	err := r.db.First(&entry, "idempotency_key = ?", key).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return model.CreditLedgerEntry{}, ErrCreditLedgerNotFound
+	}
+	return entry, err
+}
+
 func (r *GormCreditRepository) DeductPermanentForRefund(userID string, credits int64, orderID string, now time.Time) (bool, error) {
 	key := "refund:" + orderID
 	applied := false
