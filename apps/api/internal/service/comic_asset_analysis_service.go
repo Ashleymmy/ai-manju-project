@@ -130,6 +130,10 @@ type ComicAnalysisDetail struct {
 
 type CreateComicAnalysisSessionInput struct {
 	CreateComicProjectInput
+	IdempotencyKey string
+	// These identities are assigned from the immutable server submission claim.
+	sessionID          string
+	analysisReceiptKey string
 	Async              bool
 	SourceType         string
 	SourceFileName     string
@@ -178,6 +182,13 @@ type BulkComicPromptApprovalResult struct {
 }
 
 func (s *ComicAssetService) CreateAnalysisSession(ctx context.Context, userID string, scope string, input CreateComicAnalysisSessionInput) (ComicAnalysisDetail, error) {
+	if input.Async && input.IdempotencyKey != "" {
+		return s.createAnalysisSubmission(ctx, userID, scope, input)
+	}
+	return s.createAnalysisSession(ctx, userID, scope, input)
+}
+
+func (s *ComicAssetService) createAnalysisSession(ctx context.Context, userID string, scope string, input CreateComicAnalysisSessionInput) (ComicAnalysisDetail, error) {
 	if s.sourceStorage == nil {
 		return ComicAnalysisDetail{}, ErrComicSourceUnavailable
 	}
@@ -215,6 +226,9 @@ func (s *ComicAssetService) CreateAnalysisSession(ctx context.Context, userID st
 	}
 
 	sessionID := "comic_analysis_" + randomHex(10)
+	if input.sessionID != "" {
+		sessionID = input.sessionID
+	}
 	storageKey := comicAnalysisSourceStorageKey(projectInput.WorkspaceID, sessionID, extension)
 	object, err := s.sourceStorage.Put(ctx, storageKey, io.LimitReader(input.Source, ComicProjectSourceMaxBytes+1), storage.PutMeta{
 		ContentType: contentType,
@@ -248,6 +262,9 @@ func (s *ComicAssetService) CreateAnalysisSession(ctx context.Context, userID st
 			// Separate, unexposed identity prevents a client reconciliation from
 			// claiming the internal operation before its background execution.
 			session.AnalysisReceiptKey = "comic-analysis:" + randomHex(24)
+			if input.analysisReceiptKey != "" {
+				session.AnalysisReceiptKey = input.analysisReceiptKey
+			}
 		}
 		session, err = s.repo.CreatePendingAnalysisSession(session)
 		if err != nil {

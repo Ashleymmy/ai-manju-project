@@ -436,6 +436,12 @@ func writeComicAssetError(c *gin.Context, operation string, err error) {
 	}
 	status := http.StatusInternalServerError
 	switch {
+	case errors.Is(err, service.ErrGenerationReceiptNotFound):
+		status = http.StatusNotFound
+	case errors.Is(err, service.ErrGenerationReceiptConflict), errors.Is(err, service.ErrComicAnalysisSubmissionPending):
+		status = http.StatusConflict
+	case errors.Is(err, service.ErrGenerationReceiptInvalid):
+		status = http.StatusBadRequest
 	case errors.Is(err, repository.ErrComicAssetProjectNotFound),
 		errors.Is(err, repository.ErrComicAssetNotFound),
 		errors.Is(err, repository.ErrComicAssetBatchNotFound),

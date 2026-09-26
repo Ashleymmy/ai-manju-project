@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isDefinitiveGenerationReceiptFailure, readGenerationReceiptResult } from "./generationReceipt";
 
-vi.mock("./request", async importOriginal => ({
-  ...await importOriginal<typeof import("./request")>(),
+vi.mock("@/shared/api/http", async importOriginal => ({
+  ...await importOriginal<typeof import("@/shared/api/http")>(),
   getAuthToken: () => "test-token",
   clearAuthToken: vi.fn(),
 }));

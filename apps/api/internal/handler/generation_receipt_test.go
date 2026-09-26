@@ -41,6 +41,8 @@ func receiptTestRouter(t *testing.T, next gin.HandlerFunc) (*gin.Engine, *AIHand
 	})
 	r.POST("/text", h.WithGenerationReceipt(model.GenerationReceiptKindText, next))
 	r.POST("/audio", h.WithGenerationReceipt(model.GenerationReceiptKindAudio, next))
+	r.POST("/comic_revision", h.WithGenerationReceiptResource(model.GenerationReceiptKindComicRevision, next))
+	r.POST("/comic_prompt", h.WithGenerationReceiptResource(model.GenerationReceiptKindComicPrompt, next))
 	r.GET("/receipts/:kind/:key", h.GenerationReceiptStatus)
 	r.GET("/receipts/:kind/:key/result", h.GenerationReceiptResult)
 	r.POST("/receipts/:kind/:key/reconcile", h.GenerationReceiptReconcile)
@@ -190,6 +192,125 @@ func TestGenerationReceiptLegacyCallsKeepExistingBehavior(t *testing.T) {
 	}
 }
 
+func TestScopedGenerationReceiptBindsComicResourcePath(t *testing.T) {
+	var calls atomic.Int32
+	h := NewAIHandler(nil, nil)
+	h.SetGenerationReceiptService(service.NewGenerationReceiptService(repository.NewMemoryGenerationReceiptRepository(), storage.NewLocalFSStorage(t.TempDir()), provider.NewSecretBox("isolated-scoped-receipt-test")))
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set(auth.ContextUserKey, model.User{ID: "owner"})
+		c.Set("request_id", "current-request-id")
+	})
+	next := func(c *gin.Context) {
+		calls.Add(1)
+		response.OK(c, gin.H{"call": calls.Load(), "path": c.Request.URL.Path})
+	}
+	middleware := h.WithGenerationReceiptResource(model.GenerationReceiptKindComicPrompt, next)
+	r.POST("/api/comic-asset-projects/:projectId/assets/:assetId/prompt-optimize", middleware)
+	r.POST("/api/comic-asset-projects/:projectId/assets/:assetId/prompt-optimize-alt", middleware)
+	request := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"direction":"bright"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", "same-client-key")
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec
+	}
+	first := request("/api/comic-asset-projects/project-a/assets/asset-a/prompt-optimize")
+	duplicate := request("/api/comic-asset-projects/project-a/assets/asset-a/prompt-optimize")
+	otherResource := request("/api/comic-asset-projects/project-b/assets/asset-a/prompt-optimize")
+	otherRoute := request("/api/comic-asset-projects/project-a/assets/asset-a/prompt-optimize-alt")
+	if first.Code != http.StatusOK || duplicate.Code != http.StatusOK || otherResource.Code != http.StatusConflict || otherRoute.Code != http.StatusConflict {
+		t.Fatalf("unexpected statuses: first=%d duplicate=%d other_resource=%d other_route=%d", first.Code, duplicate.Code, otherResource.Code, otherRoute.Code)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("same client key crossed resource boundary or duplicate executed: calls=%d", calls.Load())
+	}
+	if duplicate.Body.String() != first.Body.String() {
+		t.Fatalf("same resource did not replay durable output: first=%s duplicate=%s", first.Body.String(), duplicate.Body.String())
+	}
+}
+
+func TestComicOperationReceiptsSurviveDisconnectAndIsolateOwnerScope(t *testing.T) {
+	for _, kind := range []string{model.GenerationReceiptKindComicRevision, model.GenerationReceiptKindComicPrompt} {
+		t.Run(kind, func(t *testing.T) {
+			started, finish, returned := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			var calls atomic.Int32
+			r, h := receiptTestRouter(t, func(*gin.Context) {})
+			r.POST("/comic/:resourceId", h.WithGenerationReceiptResource(kind, func(c *gin.Context) {
+				calls.Add(1)
+				close(started)
+				<-finish
+				if err := c.Request.Context().Err(); err != nil {
+					t.Errorf("disconnection canceled owned comic operation: %v", err)
+				}
+				response.Created(c, gin.H{"private_result": "saved revision", "resource": c.Param("resourceId")})
+			}))
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			first := httptest.NewRequest(http.MethodPost, "/comic/a?scope=team", strings.NewReader(`{"model":"mock","direction":"better"}`)).WithContext(ctx)
+			first.Header.Set("Idempotency-Key", "comic-operation-key")
+			go func() {
+				defer close(returned)
+				r.ServeHTTP(httptest.NewRecorder(), first)
+			}()
+			select {
+			case <-started:
+			case <-time.After(3 * time.Second):
+				t.Fatal("comic operation did not start")
+			}
+			cancel()
+			duplicate := receiptRequest(r, http.MethodPost, "/comic/a?scope=team", "comic-operation-key", `{"direction":"better","model":"mock"}`, "")
+			if duplicate.Code != http.StatusAccepted || calls.Load() != 1 {
+				t.Fatalf("duplicate called the model: status=%d calls=%d", duplicate.Code, calls.Load())
+			}
+			close(finish)
+			select {
+			case <-returned:
+			case <-time.After(3 * time.Second):
+				t.Fatal("comic operation did not finish")
+			}
+			resultPath := "/receipts/" + kind + "/comic-operation-key/result"
+			result := receiptRequest(r, http.MethodGet, resultPath+"?scope=team", "", "", "")
+			if result.Code != http.StatusOK || !strings.Contains(result.Body.String(), "saved revision") || calls.Load() != 1 {
+				t.Fatalf("original comic response lost: status=%d calls=%d", result.Code, calls.Load())
+			}
+			for _, tc := range []struct{ path, user string }{{resultPath + "?scope=team", "another-user"}, {resultPath, "owner"}} {
+				isolated := receiptRequest(r, http.MethodGet, tc.path, "", "", tc.user)
+				if isolated.Code != http.StatusNotFound || strings.Contains(isolated.Body.String(), "saved revision") {
+					t.Fatal("comic receipt crossed actor/workspace isolation")
+				}
+			}
+			changed := receiptRequest(r, http.MethodPost, "/comic/a?scope=team", "comic-operation-key", `{"direction":"changed","model":"mock"}`, "")
+			if changed.Code != http.StatusConflict || calls.Load() != 1 {
+				t.Fatal("changed comic operation reused an existing receipt")
+			}
+		})
+	}
+}
+
+func TestComicOperationReceiptServerFailureRemainsUncertain(t *testing.T) {
+	var calls int
+	r, h := receiptTestRouter(t, func(*gin.Context) {})
+	r.POST("/comic/:resourceId", h.WithGenerationReceiptResource(model.GenerationReceiptKindComicPrompt, func(c *gin.Context) {
+		calls++
+		// A database failure can happen after the generated prompt was received.
+		response.Error(c, http.StatusInternalServerError, "prompt save failed")
+	}))
+	first := receiptRequest(r, http.MethodPost, "/comic/a", "save-error", `{"direction":"better"}`, "")
+	if first.Code != http.StatusInternalServerError {
+		t.Fatalf("first error changed: %d", first.Code)
+	}
+	status := receiptRequest(r, http.MethodGet, "/receipts/comic_prompt/save-error", "", "", "")
+	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), `"status":"uncertain"`) {
+		t.Fatalf("server error was marked safe to repeat: %s", status.Body.String())
+	}
+	retry := receiptRequest(r, http.MethodPost, "/comic/a", "save-error", `{"direction":"better"}`, "")
+	if retry.Code != http.StatusConflict || calls != 1 {
+		t.Fatalf("ambiguous comic operation was repeated: status=%d calls=%d", retry.Code, calls)
+	}
+}
+
 type unavailableReceiptStorage struct{ storage.Storage }
 
 func (s unavailableReceiptStorage) Put(context.Context, string, io.Reader, storage.PutMeta) (storage.StorageObject, error) {
@@ -248,7 +369,7 @@ func assertReconciledReceipt(t *testing.T, rec *httptest.ResponseRecorder, code 
 func TestGenerationReceiptReconcileBlocksLatePOSTWithoutHandlerOrBilling(t *testing.T) {
 	var calls atomic.Int32
 	r, _ := receiptTestRouter(t, func(c *gin.Context) { calls.Add(1); response.OK(c, gin.H{"text": "paid handler must not run"}) })
-	for _, kind := range []string{"text", "audio"} {
+	for _, kind := range []string{"text", "audio", model.GenerationReceiptKindComicRevision, model.GenerationReceiptKindComicPrompt} {
 		key := "never-submitted-" + kind
 		base := "/receipts/" + kind + "/" + key
 		missing := receiptRequest(r, "GET", base+"/result", "", "", "")

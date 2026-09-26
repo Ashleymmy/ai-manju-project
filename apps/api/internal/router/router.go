@@ -459,17 +459,18 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			comicProjects.DELETE("/:projectId/assets/:assetId", comicAssetHandler.DeleteAsset)
 			comicProjects.POST("/:projectId/assets/:assetId/prompt-preview", comicAssetHandler.PreviewPrompt)
 			comicProjects.PUT("/:projectId/assets/:assetId/prompt", comicAssetHandler.SavePrompt)
-			comicProjects.POST("/:projectId/assets/:assetId/prompt-optimize", comicAssetHandler.OptimizePrompt)
+			comicProjects.POST("/:projectId/assets/:assetId/prompt-optimize", aiHandler.WithGenerationReceiptResource(model.GenerationReceiptKindComicPrompt, comicAssetHandler.OptimizePrompt))
 			comicProjects.POST("/:projectId/prompts/bulk-approve", comicAssetHandler.BulkApprovePrompts)
 			comicProjects.GET("/:projectId/generation-batches", comicAssetHandler.ListBatches)
 			comicProjects.POST("/:projectId/generation-batches", comicAssetHandler.CreateBatch)
 		}
 
 		comicAnalysisSessions := api.Group("/comic-asset-analysis-sessions", middleware.RequireAuth(authService))
+		api.GET("/comic-asset-analysis-submissions/:key", middleware.RequireAuth(authService), comicAssetHandler.GetAnalysisSubmission)
 		{
 			comicAnalysisSessions.POST("", comicAssetHandler.CreateAnalysisSession)
 			comicAnalysisSessions.GET("/:sessionId", comicAssetHandler.GetAnalysisSession)
-			comicAnalysisSessions.POST("/:sessionId/revisions", comicAssetHandler.CreateAnalysisRevision)
+			comicAnalysisSessions.POST("/:sessionId/revisions", aiHandler.WithGenerationReceiptResource(model.GenerationReceiptKindComicRevision, comicAssetHandler.CreateAnalysisRevision))
 			comicAnalysisSessions.PUT("/:sessionId/active-revision", comicAssetHandler.SetActiveAnalysisRevision)
 			comicAnalysisSessions.POST("/:sessionId/confirm", comicAssetHandler.ConfirmAnalysisSession)
 		}

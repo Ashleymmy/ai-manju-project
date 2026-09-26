@@ -162,7 +162,7 @@ func TestGenerationReceiptConcurrentBeginNeverReclaimsOriginalExecution(t *testi
 }
 
 func TestGenerationReceiptEncryptedResultsSurviveRestartAndDoNotExposeBindings(t *testing.T) {
-	for _, kind := range []string{model.GenerationReceiptKindText, model.GenerationReceiptKindAudio} {
+	for _, kind := range []string{model.GenerationReceiptKindText, model.GenerationReceiptKindAudio, model.GenerationReceiptKindComicRevision, model.GenerationReceiptKindComicPrompt} {
 		t.Run(kind, func(t *testing.T) {
 			repo, store := repository.NewMemoryGenerationReceiptRepository(), newReceiptMemoryStorage()
 			svc := receiptService(repo, store)

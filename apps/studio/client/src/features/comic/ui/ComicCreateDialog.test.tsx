@@ -3,12 +3,13 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ComicAssetProject } from "@/entities/comic";
 
 const mocks = vi.hoisted(() => ({
   catalog: { data: { models: ["a::gpt-5.6-luna", "b::gpt-5.6-luna", "b::text-real"], defaultModel: "b::text-real", labels: {}, providerNames: {} }, isPending: false, isFetching: false, error: null as Error | null, errorUpdatedAt: 0, refetch: vi.fn() },
-  projects: { data: [], refetch: vi.fn(async () => ({ data: [] })), error: null },
+  projects: { data: [] as ComicAssetProject[], refetch: vi.fn(async () => ({ data: [] })), error: null },
   images: { data: null }, folders: { data: [] }, references: { data: [] }, batch: { data: null },
-  analyze: vi.fn(), empty: vi.fn(), error: vi.fn(), success: vi.fn(),
+  analyze: vi.fn(), empty: vi.fn(), load: vi.fn(), error: vi.fn(), success: vi.fn(),
 }));
 vi.mock("../model/queries", () => ({
   useComicTextModelsQuery: () => mocks.catalog, useComicProjectsQuery: () => mocks.projects,
@@ -16,7 +17,8 @@ vi.mock("../model/queries", () => ({
   useComicReferenceAssetsQuery: () => mocks.references, useComicBatchQuery: () => mocks.batch,
 }));
 vi.mock("../controllers/source", () => ({ analyzeComicSource: mocks.analyze }));
-vi.mock("../controllers/project", async importOriginal => ({ ...await importOriginal<object>(), createEmptyComicProject: mocks.empty }));
+vi.mock("../controllers/project", async importOriginal => ({ ...await importOriginal<object>(), createEmptyComicProject: mocks.empty, loadComicProject: mocks.load }));
+vi.mock("../controllers/batch", async importOriginal => ({ ...await importOriginal<object>(), loadLatestComicBatch: vi.fn(async () => null) }));
 vi.mock("sonner", () => ({ toast: { error: mocks.error, success: mocks.success, info: vi.fn() } }));
 
 import { ComicAssetsView } from "./ComicAssetsView";
@@ -46,6 +48,7 @@ describe("comic creation uses the real catalog and analysis workflow", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.projects.data = [];
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     Element.prototype.scrollIntoView = vi.fn();
     mocks.catalog.data.models = ["a::gpt-5.6-luna", "b::gpt-5.6-luna", "b::text-real"];
@@ -54,6 +57,36 @@ describe("comic creation uses the real catalog and analysis workflow", () => {
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
+
+  it("does not apply a late analysis result after opening another project", async () => {
+    mocks.projects.data = [{ id: "other", title: "另一个项目" } as ComicAssetProject];
+    mocks.load.mockResolvedValue({ project: { id: "other", title: "另一个项目" }, assets: [] });
+    await open(); await setTitle("旧分析"); await setFile();
+    let finish!: (value: unknown) => void;
+    mocks.analyze.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    await act(async () => button("解析并预览").click());
+    await act(async () => button("另一个项目").click());
+    await act(async () => finish({ kind: "analysis", detail: {
+      session: { id: "old-session", title: "旧分析", active_revision_id: "old-revision" },
+      revisions: [{ id: "old-revision", candidate: { assets: [] } }],
+    }, candidateCount: 0, truncated: false }));
+    expect(container.querySelector(".candidate-review")).toBeNull();
+    expect(mocks.success).not.toHaveBeenCalledWith("已识别 0 项候选资产");
+    expect(container.textContent).toContain("另一个项目");
+  });
+
+  it("keeps the latest selected project when an earlier load finishes last", async () => {
+    mocks.projects.data = [{ id: "first", title: "项目一" }, { id: "second", title: "项目二" }] as ComicAssetProject[];
+    let finish!: (value: unknown) => void;
+    mocks.load.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+      .mockResolvedValueOnce({ project: { id: "second", title: "当前项目详情" }, assets: [] });
+    await render();
+    await act(async () => button("项目一").click());
+    await act(async () => button("项目二").click());
+    await act(async () => finish({ project: { id: "first", title: "旧项目详情" }, assets: [] }));
+    expect(container.textContent).toContain("当前项目详情");
+    expect(container.textContent).not.toContain("旧项目详情");
+  });
 
   it("loads actual model names once and sends the selected provider-qualified value to analysis", async () => {
     await open();

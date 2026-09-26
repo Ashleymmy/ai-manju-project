@@ -42,6 +42,22 @@ func generationReceiptScope(c *gin.Context, kind, key string) service.Generation
 // writer is retained after return. Supplier execution is bounded independently
 // of a browser disconnect, and output is durable before it is sent to the client.
 func (h *AIHandler) WithGenerationReceipt(kind string, next gin.HandlerFunc) gin.HandlerFunc {
+	return h.withGenerationReceiptRequest(kind, nil, next)
+}
+
+// WithGenerationReceiptResource is the resource-scoped variant used by comic
+// revision and prompt operations. A browser may accidentally reuse an
+// Idempotency-Key on a different URL; binding the route path into the durable
+// request hash prevents replaying a valid response for the wrong project, asset
+// or analysis session. The ordinary receipt endpoints still accept the original
+// client key, so recovery never needs the submitted prompt or resource payload.
+func (h *AIHandler) WithGenerationReceiptResource(kind string, next gin.HandlerFunc) gin.HandlerFunc {
+	return h.withGenerationReceiptRequest(kind, func(c *gin.Context, body any) any {
+		return map[string]any{"method": c.Request.Method, "path": c.Request.URL.Path, "body": body}
+	}, next)
+}
+
+func (h *AIHandler) withGenerationReceiptRequest(kind string, bindRequest func(*gin.Context, any) any, next gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
 		if key == "" {
@@ -64,6 +80,9 @@ func (h *AIHandler) WithGenerationReceipt(kind string, next gin.HandlerFunc) gin
 		if decoder.Decode(&body) != nil || decoder.Decode(new(any)) != io.EOF {
 			response.Error(c, http.StatusBadRequest, "生成请求不是有效的 JSON，尚未提交生成")
 			return
+		}
+		if bindRequest != nil {
+			body = bindRequest(c, body)
 		}
 		hash, err := service.GenerationReceiptRequestHash(body)
 		if err != nil {
@@ -103,7 +122,11 @@ func (h *AIHandler) WithGenerationReceipt(kind string, next gin.HandlerFunc) gin
 		}
 		if buffer.Status() < http.StatusOK || buffer.Status() >= http.StatusMultipleChoices {
 			message := generationReceiptFailureMessage(buffer.body.Bytes())
-			uncertain := strings.Contains(message, errGenerationSubmissionUncertain.Error())
+			// Comic handlers can fail while saving a revision after the paid
+			// provider call succeeded. A server failure is not proof that no call
+			// happened; retain the same request for recovery instead of offering a
+			// fresh execution through the client's terminal-failure path.
+			uncertain := strings.Contains(message, errGenerationSubmissionUncertain.Error()) || (bindRequest != nil && buffer.Status() >= http.StatusInternalServerError)
 			if err := h.receipts.Fail(saveCtx, receipt, message, uncertain); err != nil {
 				response.Error(c, http.StatusServiceUnavailable, "生成状态保存暂时失败，请查询原请求，请勿重复生成")
 				return

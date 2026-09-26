@@ -20,9 +20,10 @@ import type {
   ImportComicProjectInput,
   ComicAssetGenerationConfigInput,
 } from "./model";
-import { API_BASE_URL, getAuthToken, request } from "@/shared/api/http";
+import { API_BASE_URL, ApiError, getAuthToken, request } from "@/shared/api/http";
 import type { WorkspaceScope } from "@/shared/config";
 import { awaitComicAnalysis } from "./analysisTask";
+import { awaitComicOperation } from "./operationTask";
 
 export function listComicProjects(scope: WorkspaceScope = "personal") {
   return request<ComicAssetProject[]>("/api/comic-asset-projects", {
@@ -182,12 +183,31 @@ export function createComicAnalysisSession(
     JSON.stringify({ ...input, source_type: "script", default_templates: {} })
   );
   body.set("source_file", sourceFile, sourceFile.name);
-  return awaitComicAnalysis(() => request<ComicAnalysisDetail>("/api/comic-asset-analysis-sessions", {
+  const analysisInput = { ...input, scope, source_file_name: sourceFile.name, source_file_size: sourceFile.size, source_file_modified: sourceFile.lastModified };
+  const recoverSubmission = async (key: string) => {
+    const path = `/api/comic-asset-analysis-submissions/${encodeURIComponent(key)}`;
+    const read = () => request<{ status: string; session_id?: string }>(path, { query: { scope } });
+    try { return await read(); }
+    catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 404) throw error;
+      // Seal an absent claim using the same unique key as multipart submission.
+      // Never turn an ordinary 404 into permission for a second paid POST.
+      const result = await request<{ receipt: { kind: string; key: string; status: string } }>(
+        `/api/ai/receipts/comic_analysis/${encodeURIComponent(key)}/reconcile`, { method: "POST", query: { scope } });
+      if (result?.receipt?.key !== key || result?.receipt?.kind !== "comic_analysis"
+        || !["not_submitted", "running", "succeeded", "failed", "uncertain", "expired"].includes(result.receipt.status)) {
+        throw new Error("分析任务状态无法确认；未重复提交");
+      }
+      return read();
+    }
+  };
+  return awaitComicAnalysis((idempotencyKey) => request<ComicAnalysisDetail>("/api/comic-asset-analysis-sessions", {
     method: "POST",
+    headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
     query: { scope, async: true },
     body,
     timeoutMs: 0, // Upload duration is independent of the background analysis.
-  }), (id) => getComicAnalysisSession(id, scope), { ...input, scope, source_file_name: sourceFile.name });
+  }), (id) => getComicAnalysisSession(id, scope), analysisInput, recoverSubmission);
 }
 
 export function createComicAnalysisRevision(
@@ -200,15 +220,18 @@ export function createComicAnalysisRevision(
   },
   scope: WorkspaceScope = "personal"
 ) {
-  return request<ComicAnalysisDetail>(
-    `/api/comic-asset-analysis-sessions/${encodeURIComponent(sessionId)}/revisions`,
-    {
-      method: "POST",
-      query: { scope },
-      body: { ...input, source: "ai" },
-      timeoutMs: 0, // The server bounds each same-model supplier attempt.
-    }
-  );
+  const body = { ...input, source: "ai" };
+  return awaitComicOperation<ComicAnalysisDetail>({
+    kind: "comic_revision", resource: [sessionId], scope, payload: body,
+    validate: value => {
+      const detail = value as ComicAnalysisDetail | undefined;
+      return detail?.session?.id === sessionId && Array.isArray(detail.revisions);
+    },
+    submit: key => request<ComicAnalysisDetail>(
+      `/api/comic-asset-analysis-sessions/${encodeURIComponent(sessionId)}/revisions`,
+      { method: "POST", headers: { "Idempotency-Key": key }, query: { scope }, body, timeoutMs: 0 },
+    ),
+  });
 }
 
 export function confirmComicAnalysisSession(
@@ -273,15 +296,18 @@ export function optimizeComicPrompt(
   },
   scope: WorkspaceScope = "personal"
 ) {
-  return request<ComicPromptOptimizeResult>(
-    `/api/comic-asset-projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/prompt-optimize`,
-    {
-      method: "POST",
-      query: { scope },
-      body: input,
-      timeoutMs: 0, // Allow the full server retry sequence.
-    }
-  );
+  const body = { ...input };
+  return awaitComicOperation<ComicPromptOptimizeResult>({
+    kind: "comic_prompt", resource: [projectId, assetId], scope, payload: body,
+    validate: value => {
+      const result = value as ComicPromptOptimizeResult | undefined;
+      return result?.asset?.id === assetId && result.asset.project_id === projectId;
+    },
+    submit: key => request<ComicPromptOptimizeResult>(
+      `/api/comic-asset-projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/prompt-optimize`,
+      { method: "POST", headers: { "Idempotency-Key": key }, query: { scope }, body, timeoutMs: 0 },
+    ),
+  });
 }
 
 export function bulkApproveComicPrompts(

@@ -13,6 +13,10 @@ func TestGenerationReceiptRoutesRequireAuthentication(t *testing.T) {
 		"/api/ai/receipts/text/test-key",
 		"/api/ai/receipts/text/test-key/result",
 		"/api/ai/receipts/audio/test-key/result?scope=team",
+		"/api/comic-asset-analysis-submissions/test-key?scope=personal",
+		"/api/ai/receipts/comic_analysis/test-key/result",
+		"/api/ai/receipts/comic_revision/test-key/result",
+		"/api/ai/receipts/comic_prompt/test-key/result",
 	} {
 		response := httptest.NewRecorder()
 		r.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))

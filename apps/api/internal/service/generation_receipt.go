@@ -161,7 +161,7 @@ func validGenerationReceiptScope(scope GenerationReceiptScope) bool {
 	if strings.ContainsAny(scope.WorkspaceID, "/\\") || scope.WorkspaceID == "." || scope.WorkspaceID == ".." || strings.TrimPrefix(scope.WorkspaceID, "default:") == ".." {
 		return false
 	}
-	return scope.Kind == model.GenerationReceiptKindText || scope.Kind == model.GenerationReceiptKindAudio
+	return scope.Kind == model.GenerationReceiptKindText || scope.Kind == model.GenerationReceiptKindAudio || scope.Kind == model.GenerationReceiptKindComicAnalysis || scope.Kind == model.GenerationReceiptKindComicRevision || scope.Kind == model.GenerationReceiptKindComicPrompt
 }
 
 func generationReceiptScope(receipt model.GenerationReceipt) GenerationReceiptScope {
@@ -348,7 +348,7 @@ func validGenerationReceiptResult(kind string, result GenerationReceiptResult) b
 	if err != nil {
 		return false
 	}
-	if kind == model.GenerationReceiptKindText {
+	if kind != model.GenerationReceiptKindAudio {
 		return mediaType == "application/json" && json.Valid(result.Body)
 	}
 	return strings.HasPrefix(mediaType, "audio/") || mediaType == "application/octet-stream"

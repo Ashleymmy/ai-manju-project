@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -48,6 +49,39 @@ func TestComicAnalysisReceiptIsBoundBeforeAsyncStartAndHiddenFromResponse(t *tes
 	finished := waitPendingAnalysis(t, fx, detail.Session.ID)
 	if finished.Session.Status != model.ComicAnalysisStatusActive {
 		t.Fatalf("status=%s", finished.Session.Status)
+	}
+}
+
+func TestComicAnalysisSubmissionIsIdempotentWhenAcceptanceResponseIsLost(t *testing.T) {
+	fx := newComicServiceFixture()
+	fx.service.SetSourceStorage(storage.NewLocalFSStorage(t.TempDir()))
+	receipts := repository.NewMemoryGenerationReceiptRepository()
+	fx.service.SetAnalysisReceiptService(receiptService(receipts, newReceiptMemoryStorage()))
+	var calls atomic.Int32
+	fx.service.SetTextGenerator(func(context.Context, string, string, provider.TextGenerationRequest) (provider.TextResponse, error) {
+		calls.Add(1)
+		return provider.TextResponse{Text: `{"assets":[{"class":"character","name":"Actor"}]}`}, nil
+	})
+	input := pendingAnalysisInput()
+	input.Source = bytes.NewBufferString("actor enters")
+	input.IdempotencyKey = "comic-stable-acceptance"
+	first, err := fx.service.CreateAnalysisSession(context.Background(), fx.userID, WorkspaceScopePersonal, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondInput := pendingAnalysisInput()
+	secondInput.Source = bytes.NewBufferString("actor enters")
+	secondInput.IdempotencyKey = input.IdempotencyKey
+	second, err := fx.service.CreateAnalysisSession(context.Background(), fx.userID, WorkspaceScopePersonal, secondInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Session.ID != second.Session.ID || calls.Load() > 1 {
+		t.Fatalf("duplicate submission first=%s second=%s provider_calls=%d", first.Session.ID, second.Session.ID, calls.Load())
+	}
+	status, err := fx.service.GetAnalysisSubmission(context.Background(), fx.userID, WorkspaceScopePersonal, input.IdempotencyKey)
+	if err != nil || status.SessionID != first.Session.ID {
+		t.Fatalf("status=%+v err=%v", status, err)
 	}
 }
 

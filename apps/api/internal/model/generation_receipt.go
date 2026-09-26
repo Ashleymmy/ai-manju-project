@@ -5,6 +5,14 @@ import "time"
 const (
 	GenerationReceiptKindText  = "text"
 	GenerationReceiptKindAudio = "audio"
+	// Submission receipt is distinct from the background text execution receipt.
+	GenerationReceiptKindComicAnalysis = "comic_analysis"
+	// Comic revision and prompt receipts protect synchronous, billable text
+	// provider calls when the browser loses the HTTP response. They are kept
+	// separate from the generic text route so a client key cannot cross a
+	// resource operation.
+	GenerationReceiptKindComicRevision = "comic_revision"
+	GenerationReceiptKindComicPrompt   = "comic_prompt"
 
 	GenerationReceiptStateRunning   = "running"
 	GenerationReceiptStateSucceeded = "succeeded"

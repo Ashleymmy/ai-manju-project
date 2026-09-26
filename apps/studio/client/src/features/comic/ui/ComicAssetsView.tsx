@@ -47,6 +47,7 @@ import {
   renameComicProject,
 } from "../controllers/project";
 import { analyzeComicSource, type ComicSourceResult } from "../controllers/source";
+import { useComicViewContext } from "../controllers/useComicViewContext";
 import {
   COMIC_CLASS_LABELS,
   COMIC_DEFAULT_ANALYSIS_MODEL,
@@ -120,6 +121,23 @@ export function ComicAssetsView() {
   const [assetFilterKeyword, setAssetFilterKeyword] = useState("");
   const [editingAssetId, setEditingAssetId] = useState("");
   const [assetDraft, setAssetDraft] = useState<ComicAssetDraft | null>(null);
+  // Switching projects invalidates old UI callbacks, while server work keeps
+  // running and its durable receipt remains available in the original context.
+  const { captureView, invalidateView } = useComicViewContext();
+  const leaveCurrentView = () => {
+    invalidateView();
+    setBusy(false);
+    setPromptBusy("");
+    setIsParsingScript(false);
+  };
+  const switchScope = (next: WorkspaceScope) => {
+    if (scope === next) return;
+    leaveCurrentView();
+    setScope(next);
+    setProjectDetail(null); setAnalysis(null); setBatchDetail(null);
+    setSelected([]); setReferenceAssets([]); setEditingAssetId("");
+    setCreateDialogOpen(false); setStage(1);
+  };
 
   const projectsQuery = useComicProjectsQuery(scope);
   const textModelsQuery = useComicTextModelsQuery();
@@ -193,13 +211,15 @@ export function ComicAssetsView() {
     setSelected((items) => items.includes(id) ? items.filter((item) => item !== id) : [...items, id]);
   };
 
-  const applySourceResult = async (result: ComicSourceResult) => {
+  const applySourceResult = async (result: ComicSourceResult, isCurrent: () => boolean) => {
+    if (!isCurrent()) return;
     if (result.kind === "project") {
       setProjectDetail(result.detail);
       setAnalysis(null);
       setSelected(result.detail.assets.map(asset => asset.id));
       setStage(3);
       await reloadProjects();
+      if (!isCurrent()) return;
       toast.success(`已从资产表导入 ${result.importedCount} 项资产`);
       return;
     }
@@ -223,6 +243,7 @@ export function ComicAssetsView() {
     if (extension !== "xlsx" && !instruction.trim())
       return toast.error("请填写首次分析方向");
 
+    const isCurrent = captureView();
     setBusy(true);
     try {
       const result = await analyzeComicSource({
@@ -233,16 +254,17 @@ export function ComicAssetsView() {
         model,
         scope,
       });
-      await applySourceResult(result);
+      await applySourceResult(result, isCurrent);
     } catch (error) {
-      toast.error(publicApiError(error, "剧本分析失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "剧本分析失败"));
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   };
 
   const revise = async () => {
     if (!analysis || !activeRevision || !revisionInstruction.trim()) return;
+    const isCurrent = captureView();
     setBusy(true);
     try {
       const detail = await reviseComicAnalysis(
@@ -252,18 +274,20 @@ export function ComicAssetsView() {
         model,
         scope
       );
+      if (!isCurrent()) return;
       setAnalysis(detail);
       setRevisionInstruction("");
       toast.success("已生成新的分析版本");
     } catch (error) {
-      toast.error(publicApiError(error, "再次分析失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "再次分析失败"));
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   };
 
   const switchRevision = async (revisionId: string) => {
     if (!analysis || analysis.session.active_revision_id === revisionId) return;
+    const isCurrent = captureView();
     setBusy(true);
     try {
       const detail = await activateComicAnalysisRevision(
@@ -271,37 +295,46 @@ export function ComicAssetsView() {
         revisionId,
         scope
       );
+      if (!isCurrent()) return;
       setAnalysis(detail);
       toast.success("已切换活跃分析版本");
     } catch (error) {
-      toast.error(publicApiError(error, "切换分析版本失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "切换分析版本失败"));
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   };
 
   const confirm = async () => {
     if (!analysis || !activeRevision) return;
+    const isCurrent = captureView();
     setBusy(true);
     try {
       const detail = await confirmComicAnalysis(analysis, activeRevision, scope);
+      if (!isCurrent()) return;
       setProjectDetail(detail);
       setSelected(detail.assets.map((asset) => asset.id));
       setStage(3);
       await reloadProjects();
+      if (!isCurrent()) return;
       toast.success("分析版本已确认并创建项目");
     } catch (error) {
-      toast.error(publicApiError(error, "确认分析失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "确认分析失败"));
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   };
 
   const openProject = async (projectId: string) => {
     if (!projectId) return;
+    leaveCurrentView();
+    setProjectDetail(null); setAnalysis(null); setBatchDetail(null);
+    setSelected([]); setEditingAssetId(""); setReferenceAssets([]);
+    const isCurrent = captureView();
     setBusy(true);
     try {
       const detail = await loadComicProject(projectId, scope);
+      if (!isCurrent()) return;
       setProjectDetail(detail);
       setAnalysis(null);
       setSelected(detail.assets.map((item) => item.id));
@@ -309,9 +342,9 @@ export function ComicAssetsView() {
       setStage(3);
       void loadLatestBatch(detail.project.id);
     } catch (error) {
-      toast.error(publicApiError(error, "读取漫剧项目失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "读取漫剧项目失败"));
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   };
 
@@ -362,19 +395,23 @@ export function ComicAssetsView() {
   };
 
   const loadLatestBatch = useCallback(async (projectId: string) => {
+    const isCurrent = captureView();
     try {
-      setBatchDetail(await loadLatestComicBatch(projectId, scope));
+      const detail = await loadLatestComicBatch(projectId, scope);
+      if (isCurrent()) setBatchDetail(detail);
     } catch (error) {
-      toast.error(publicApiError(error, "读取生成批次失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "读取生成批次失败"));
     }
-  }, [scope]);
+  }, [scope, captureView]);
 
   const refreshProjectDetail = useCallback(async (projectId = projectDetail?.project.id || "") => {
     if (!projectId) return;
+    const isCurrent = captureView();
     const detail = await loadComicProject(projectId, scope);
+    if (!isCurrent()) return;
     setProjectDetail(detail);
     setSelected((items) => items.length ? items.filter((id) => detail.assets.some((asset) => asset.id === id)) : detail.assets.map((asset) => asset.id));
-  }, [projectDetail?.project.id, scope]);
+  }, [projectDetail?.project.id, scope, captureView]);
 
   useEffect(() => {
     if (projectDetail?.project.id) void loadLatestBatch(projectDetail.project.id);
@@ -488,6 +525,7 @@ export function ComicAssetsView() {
   const optimizeAssetPrompt = async (asset: ComicAsset, operation: "optimize" | "merge") => {
     if (!projectDetail) return;
     if (!optimizeDirection.trim()) return toast.error("请先填写优化方向");
+    const isCurrent = captureView();
     setPromptBusy(asset.id + operation);
     try {
       const result = await optimizeComicAssetPrompt(
@@ -498,12 +536,13 @@ export function ComicAssetsView() {
         operation,
         scope
       );
+      if (!isCurrent()) return;
       mergeAsset(result.asset);
       toast.success(operation === "merge" ? "已生成融合提示词草稿" : "已生成 AI 优化草稿");
     } catch (error) {
-      toast.error(publicApiError(error, "优化提示词失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "优化提示词失败"));
     } finally {
-      setPromptBusy("");
+      if (isCurrent()) setPromptBusy("");
     }
   };
 
@@ -644,6 +683,7 @@ export function ComicAssetsView() {
   };
 
   const handleCreateProject = () => {
+    leaveCurrentView();
     setCreateDialogOpen(true);
     setNewProjectTitle("");
     setNewProjectStylePreset("");
@@ -665,31 +705,35 @@ export function ComicAssetsView() {
       if (!/\.(docx|txt|md)$/i.test(sourceFile!.name)) return toast.error("请选择 DOCX、TXT 或 MD 剧本");
     }
     if (creationMode === "import" && !/\.xlsx$/i.test(sourceFile!.name)) return toast.error("请选择 XLSX 资产表");
+    const isCurrent = captureView();
     setIsParsingScript(true);
     setBusy(true);
     try {
       if (creationMode === "empty") {
         await createEmptyComicProject({ title: newProjectTitle, stylePreset: newProjectStylePreset }, scope);
+        if (!isCurrent()) return;
         await reloadProjects();
+        if (!isCurrent()) return;
         toast.success("项目创建成功");
       } else {
         const result = await analyzeComicSource({
           file: sourceFile!, title: newProjectTitle, stylePreset: newProjectStylePreset,
           instruction: newProjectInstruction, model: newProjectAnalysisModel, scope,
         });
+        if (!isCurrent()) return;
         setTitle(newProjectTitle);
         setStylePreset(newProjectStylePreset);
         setInstruction(newProjectInstruction);
         setModel(newProjectAnalysisModel);
         setFileName(sourceFile!.name);
-        await applySourceResult(result);
+        await applySourceResult(result, isCurrent);
       }
+      if (!isCurrent()) return;
       setCreateDialogOpen(false);
     } catch (error) {
-      toast.error(publicApiError(error, "创建项目失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "创建项目失败"));
     } finally {
-      setIsParsingScript(false);
-      setBusy(false);
+      if (isCurrent()) { setIsParsingScript(false); setBusy(false); }
     }
   };
 
@@ -697,7 +741,7 @@ export function ComicAssetsView() {
     ? <button className="vermilion-button" disabled={busy} onClick={() => void analyze()}>{busy ? "分析中…" : "开始分析"} <ChevronRight size={16} /></button>
     : stage === 2
       ? <button className="vermilion-button" disabled={busy || !analysis} onClick={() => void confirm()}>确认当前版本 <Check size={16} /></button>
-      : <button className="vermilion-button" onClick={() => setStage(1)}><Plus size={16} /> 新建分析</button>;
+      : <button className="vermilion-button" onClick={() => { leaveCurrentView(); setStage(1); }}><Plus size={16} /> 新建分析</button>;
 
   return <div className="feature-page comic-page">
     <input ref={fileInputRef} hidden type="file" accept=".txt,.md,.docx,.xlsx,text/plain,text/markdown" onChange={(event) => setFileName(event.target.files?.[0]?.name || "")} />
@@ -708,9 +752,9 @@ export function ComicAssetsView() {
         <h1>资产助手</h1>
         <p className="comic-hero-description">可从剧本、四 Sheet 资产表或空项目开始；候选资产确认入库后，再处理提示词并创建服务端后台批次。关闭页面不会中断已创建的任务。</p>
         <div className="comic-hero-actions">
-          <button className={`comic-tab-button ${scope === "personal" ? "active" : ""}`} onClick={() => setScope("personal")}>个人空间</button>
+          <button className={`comic-tab-button ${scope === "personal" ? "active" : ""}`} onClick={() => switchScope("personal")}>个人空间</button>
           {/* 暂时隐藏"团队空间"标签按钮（全局隐藏），恢复时取消注释
-          <button className={`comic-tab-button ${scope === "team" ? "active" : ""}`} onClick={() => setScope("team")}>团队空间</button>
+          <button className={`comic-tab-button ${scope === "team" ? "active" : ""}`} onClick={() => switchScope("team")}>团队空间</button>
           */}
           <button className="create-button" onClick={handleCreateProject}><Plus size={16} /> 新建资产项目</button>
         </div>
