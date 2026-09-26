@@ -161,7 +161,7 @@ func validGenerationReceiptScope(scope GenerationReceiptScope) bool {
 	if strings.ContainsAny(scope.WorkspaceID, "/\\") || scope.WorkspaceID == "." || scope.WorkspaceID == ".." || strings.TrimPrefix(scope.WorkspaceID, "default:") == ".." {
 		return false
 	}
-	return scope.Kind == model.GenerationReceiptKindText || scope.Kind == model.GenerationReceiptKindAudio || scope.Kind == model.GenerationReceiptKindComicAnalysis || scope.Kind == model.GenerationReceiptKindComicRevision || scope.Kind == model.GenerationReceiptKindComicPrompt
+	return scope.Kind == model.GenerationReceiptKindText || scope.Kind == model.GenerationReceiptKindAudio || scope.Kind == model.GenerationReceiptKindComicAnalysis || scope.Kind == model.GenerationReceiptKindComicRevision || scope.Kind == model.GenerationReceiptKindComicPrompt || scope.Kind == model.GenerationReceiptKindComicBatch
 }
 
 func generationReceiptScope(receipt model.GenerationReceipt) GenerationReceiptScope {
@@ -407,45 +407,22 @@ func (s *GenerationReceiptService) Complete(ctx context.Context, binding model.G
 	}
 	receipt, err := s.repo.Find(ctx, binding.UserID, binding.WorkspaceID, binding.Kind, binding.Key)
 	if err != nil {
+		// The binding comes from Begin, never from the HTTP client. If the DB
+		// becomes unavailable after generation, preserve output using that claim
+		// in encrypted storage. Lookup still requires the original DB row and
+		// exact binding before exposing or finalizing it after recovery.
+		if !errors.Is(err, repository.ErrGenerationReceiptNotFound) && binding.ExpiresAt.After(s.clock()) &&
+			(binding.State == model.GenerationReceiptStateRunning || binding.State == model.GenerationReceiptStateUncertain) {
+			_, _ = s.persistReceiptOutcome(ctx, binding, result)
+		}
 		return ErrGenerationReceiptUnavailable
 	}
 	if !sameReceiptBinding(receipt, binding) || receipt.State == model.GenerationReceiptStateNotSubmitted || receipt.State == model.GenerationReceiptStateExpired || !receipt.ExpiresAt.After(s.clock()) {
 		return ErrGenerationReceiptConflict
 	}
-	key, err := s.storageKey(receipt)
+	envelope, err := s.persistReceiptOutcome(ctx, receipt, result)
 	if err != nil {
 		return err
-	}
-	existing, envelope, err := s.readOutcome(ctx, receipt)
-	if errors.Is(err, os.ErrNotExist) {
-		if receipt.State != model.GenerationReceiptStateRunning && receipt.State != model.GenerationReceiptStateUncertain {
-			return ErrGenerationReceiptConflict
-		}
-		envelope = generationReceiptEnvelope{Version: generationReceiptEnvelopeV1, ID: receipt.ID, UserID: receipt.UserID, WorkspaceID: receipt.WorkspaceID, Kind: receipt.Kind, RequestHash: receipt.RequestHash, ExecutionToken: receipt.ExecutionToken, ContentType: result.ContentType, BodySize: len(result.Body), ExpiresAt: s.clock().Add(GenerationReceiptRetention)}
-		header, err := json.Marshal(envelope)
-		if err != nil || len(header) > generationReceiptHeaderLimit {
-			return ErrGenerationReceiptInvalid
-		}
-		encrypted, err := s.box.Encrypt(string(header) + "\n" + string(result.Body))
-		if err != nil {
-			return ErrGenerationReceiptUnavailable
-		}
-		_, putErr := s.storage.Put(ctx, key, strings.NewReader(encrypted), storage.PutMeta{ContentType: "application/octet-stream", Size: int64(len(encrypted))})
-		if putErr != nil {
-			// A lost storage response can follow a successful write. Read the same
-			// immutable object; never overwrite it or fall back to generation.
-			existing, envelope, err = s.readOutcome(ctx, receipt)
-			if err != nil {
-				return ErrGenerationReceiptUnavailable
-			}
-		} else {
-			existing = &result
-		}
-	} else if err != nil {
-		return ErrGenerationReceiptUnavailable
-	}
-	if existing == nil || existing.ContentType != result.ContentType || !bytes.Equal(existing.Body, result.Body) {
-		return ErrGenerationReceiptConflict
 	}
 	updated, _, err := s.repo.Transition(ctx, receipt, []string{model.GenerationReceiptStateRunning, model.GenerationReceiptStateUncertain, model.GenerationReceiptStateFailed}, model.GenerationReceiptStateSucceeded, "", &envelope.ExpiresAt)
 	if err != nil {
@@ -455,6 +432,46 @@ func (s *GenerationReceiptService) Complete(ctx context.Context, binding model.G
 		return ErrGenerationReceiptConflict
 	}
 	return nil
+}
+
+func (s *GenerationReceiptService) persistReceiptOutcome(ctx context.Context, receipt model.GenerationReceipt, result GenerationReceiptResult) (generationReceiptEnvelope, error) {
+	var envelope generationReceiptEnvelope
+	key, err := s.storageKey(receipt)
+	if err != nil {
+		return envelope, err
+	}
+	existing, envelope, err := s.readOutcome(ctx, receipt)
+	if errors.Is(err, os.ErrNotExist) {
+		if receipt.State != model.GenerationReceiptStateRunning && receipt.State != model.GenerationReceiptStateUncertain {
+			return envelope, ErrGenerationReceiptConflict
+		}
+		envelope = generationReceiptEnvelope{Version: generationReceiptEnvelopeV1, ID: receipt.ID, UserID: receipt.UserID, WorkspaceID: receipt.WorkspaceID, Kind: receipt.Kind, RequestHash: receipt.RequestHash, ExecutionToken: receipt.ExecutionToken, ContentType: result.ContentType, BodySize: len(result.Body), ExpiresAt: s.clock().Add(GenerationReceiptRetention)}
+		header, err := json.Marshal(envelope)
+		if err != nil || len(header) > generationReceiptHeaderLimit {
+			return envelope, ErrGenerationReceiptInvalid
+		}
+		encrypted, err := s.box.Encrypt(string(header) + "\n" + string(result.Body))
+		if err != nil {
+			return envelope, ErrGenerationReceiptUnavailable
+		}
+		_, putErr := s.storage.Put(ctx, key, strings.NewReader(encrypted), storage.PutMeta{ContentType: "application/octet-stream", Size: int64(len(encrypted))})
+		if putErr != nil {
+			// A lost storage response can follow a successful write. Read the same
+			// immutable object; never overwrite it or fall back to generation.
+			existing, envelope, err = s.readOutcome(ctx, receipt)
+			if err != nil {
+				return envelope, ErrGenerationReceiptUnavailable
+			}
+		} else {
+			existing = &result
+		}
+	} else if err != nil {
+		return envelope, ErrGenerationReceiptUnavailable
+	}
+	if existing == nil || existing.ContentType != result.ContentType || !bytes.Equal(existing.Body, result.Body) {
+		return envelope, ErrGenerationReceiptConflict
+	}
+	return envelope, nil
 }
 
 func (s *GenerationReceiptService) Fail(ctx context.Context, receipt model.GenerationReceipt, publicMessage string, uncertain bool) error {

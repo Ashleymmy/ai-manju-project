@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -49,6 +50,8 @@ func TestComicOperationReceiptReplaysSavedRevisionAndPromptAfterStateChanges(t *
 	}
 
 	router, ai := receiptTestRouter(t, nil)
+	comicService.SetAnalysisReceiptService(ai.receipts)
+	ai.SetComicOperationRecoveryService(comicService)
 	comic := NewComicAssetHandler(comicService)
 	router.POST("/revisions/:sessionId", ai.WithGenerationReceiptResource(model.GenerationReceiptKindComicRevision, comic.CreateAnalysisRevision))
 	router.POST("/prompts/:projectId/:assetId", ai.WithGenerationReceiptResource(model.GenerationReceiptKindComicPrompt, comic.OptimizePrompt))
@@ -87,5 +90,94 @@ func TestComicOperationReceiptReplaysSavedRevisionAndPromptAfterStateChanges(t *
 	saved, err := repo.GetAsset(project.Project.ID, asset.ID, workspace)
 	if err != nil || saved.PromptVersion != optimizedBody.Data.Asset.PromptVersion+1 {
 		t.Fatalf("lost-response retry duplicated prompt versions: version=%d err=%v", saved.PromptVersion, err)
+	}
+}
+
+type comicOperationWriteFailureRepository struct {
+	repository.ComicAssetRepository
+	failPrompt bool
+}
+
+func (r *comicOperationWriteFailureRepository) UpdateAssetPromptCandidate(asset model.ComicAsset, workspaceID string, expected int) (model.ComicAsset, error) {
+	if r.failPrompt {
+		return model.ComicAsset{}, errors.New("simulated database outage")
+	}
+	return r.ComicAssetRepository.UpdateAssetPromptCandidate(asset, workspaceID, expected)
+}
+
+func TestComicOperationReceiptRepairsPersistenceAndPreservesConflictingCandidate(t *testing.T) {
+	for _, conflict := range []bool{false, true} {
+		name := "database_recovery"
+		if conflict {
+			name = "concurrent_edit"
+		}
+		t.Run(name, func(t *testing.T) {
+			repo := &comicOperationWriteFailureRepository{ComicAssetRepository: repository.NewMemoryComicAssetRepository()}
+			comicService := service.NewComicAssetService(repo, nil)
+			router, ai := receiptTestRouter(t, nil)
+			comicService.SetAnalysisReceiptService(ai.receipts)
+			ai.SetComicOperationRecoveryService(comicService)
+			comic := NewComicAssetHandler(comicService)
+			router.POST("/prompts/:projectId/:assetId", ai.WithGenerationReceiptResource(model.GenerationReceiptKindComicPrompt, comic.OptimizePrompt))
+			project, err := comicService.CreateProject("owner", "personal", service.CreateComicProjectInput{Title: "Recovery"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			class, assetName, source := "character", "Actor", "blue coat"
+			asset, err := comicService.CreateAsset(project.Project.ID, "owner", "personal", service.ComicAssetInput{Class: &class, Name: &assetName, SourcePrompt: &source})
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			comicService.SetTextGenerator(func(_ context.Context, _, _ string, _ provider.TextGenerationRequest) (provider.TextResponse, error) {
+				calls++
+				if conflict {
+					edited := "user renamed the actor"
+					if _, err := comicService.UpdateAsset(project.Project.ID, asset.ID, "owner", "personal", service.ComicAssetInput{Name: &edited}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return provider.TextResponse{Text: "original paid blue coat output", Model: "mock"}, nil
+			})
+			repo.failPrompt = !conflict
+			path := "/prompts/" + project.Project.ID + "/" + asset.ID
+			body := `{"model":"mock","direction":"soft light","operation":"optimize"}`
+			first := receiptRequest(router, http.MethodPost, path, "save-key", body, "owner")
+			if conflict && first.Code != http.StatusConflict || !conflict && first.Code != http.StatusServiceUnavailable {
+				t.Fatalf("unexpected save failure response %d %s", first.Code, first.Body.String())
+			}
+			repo.failPrompt = false
+			resultPath := "/receipts/comic_prompt/save-key/result"
+			if other := receiptRequest(router, http.MethodGet, resultPath, "", "", "another-owner"); other.Code != http.StatusNotFound {
+				t.Fatalf("another user accessed output: %d", other.Code)
+			}
+			for range 2 {
+				recovered := receiptRequest(router, http.MethodGet, resultPath, "", "", "owner")
+				want := http.StatusOK
+				if conflict {
+					want = http.StatusConflict
+				}
+				if recovered.Code != want || !strings.Contains(recovered.Body.String(), "original paid blue coat output") || calls != 1 {
+					t.Fatalf("recovery lost/repeated model output: status=%d calls=%d body=%s", recovered.Code, calls, recovered.Body.String())
+				}
+				if conflict && (!strings.Contains(recovered.Body.String(), `"status":"uncertain"`) || !strings.Contains(recovered.Body.String(), `"candidate"`)) {
+					t.Fatal("conflicting generated output was not retained separately")
+				}
+			}
+			replayed := receiptRequest(router, http.MethodPost, path, "save-key", body, "owner")
+			if calls != 1 || conflict && replayed.Code != http.StatusConflict || !conflict && replayed.Code != http.StatusOK {
+				t.Fatalf("repeated model execution or lost final state: calls=%d status=%d", calls, replayed.Code)
+			}
+			saved, err := repo.GetAsset(project.Project.ID, asset.ID, service.WorkspaceIDForScope("personal", "owner"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if conflict && (saved.Name != "user renamed the actor" || saved.DraftPrompt != asset.DraftPrompt) {
+				t.Fatalf("recovery overwrote user edit: %+v", saved)
+			}
+			if !conflict && (saved.DraftPrompt != "original paid blue coat output" || saved.PromptVersion != asset.PromptVersion+1) {
+				t.Fatalf("candidate not applied exactly once: %+v", saved)
+			}
+		})
 	}
 }

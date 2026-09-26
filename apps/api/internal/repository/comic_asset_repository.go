@@ -38,6 +38,7 @@ type ComicAssetRepository interface {
 	UpdateAsset(asset model.ComicAsset, workspaceID string) (model.ComicAsset, error)
 	DeleteAsset(projectID string, assetID string, workspaceID string) error
 	UpdateAssetIfPromptVersion(asset model.ComicAsset, workspaceID string, expectedVersion int) (model.ComicAsset, error)
+	UpdateAssetPromptCandidate(asset model.ComicAsset, workspaceID string, expectedVersion int) (model.ComicAsset, error)
 
 	CreateAnalysisSession(session model.ComicAssetAnalysisSession, revision model.ComicAssetAnalysisRevision) (model.ComicAssetAnalysisSession, model.ComicAssetAnalysisRevision, error)
 	CreatePendingAnalysisSession(session model.ComicAssetAnalysisSession) (model.ComicAssetAnalysisSession, error)
@@ -45,6 +46,7 @@ type ComicAssetRepository interface {
 	RecoverAnalysisSessionFromReceipt(sessionID, workspaceID, ownerID, receiptKey string, revision model.ComicAssetAnalysisRevision, now time.Time) error
 	GetAnalysisSession(id string, workspaceID string) (model.ComicAssetAnalysisSession, []model.ComicAssetAnalysisRevision, error)
 	CreateAnalysisRevision(sessionID string, workspaceID string, expectedActiveRevisionID string, revision model.ComicAssetAnalysisRevision) (model.ComicAssetAnalysisSession, []model.ComicAssetAnalysisRevision, error)
+	CreateAnalysisRevisionIfUnchanged(sessionID, workspaceID, expectedActiveRevisionID string, expectedUpdatedAt time.Time, revision model.ComicAssetAnalysisRevision) (model.ComicAssetAnalysisSession, []model.ComicAssetAnalysisRevision, error)
 	SetActiveAnalysisRevision(sessionID string, revisionID string, workspaceID string) (model.ComicAssetAnalysisSession, []model.ComicAssetAnalysisRevision, error)
 	ConfirmAnalysisSession(sessionID string, revisionID string, workspaceID string, project model.ComicAssetProject, assets []model.ComicAsset) (model.ComicAssetAnalysisSession, model.ComicAssetProject, []model.ComicAsset, error)
 	ListExpiredAnalysisSessions(now time.Time) ([]model.ComicAssetAnalysisSession, error)
@@ -271,11 +273,14 @@ func (r *MemoryComicAssetRepository) UpdateAsset(asset model.ComicAsset, workspa
 	if err != nil {
 		return model.ComicAsset{}, err
 	}
+	if !comicSameUpdatedAt(current.UpdatedAt, asset.UpdatedAt) {
+		return model.ComicAsset{}, ErrComicAssetConflict
+	}
 	if r.assetCodeExistsLocked(asset.ProjectID, asset.Code, asset.ID) {
 		return model.ComicAsset{}, ErrComicAssetConflict
 	}
 	asset.CreatedAt = current.CreatedAt
-	asset.UpdatedAt = time.Now().UTC()
+	asset.UpdatedAt = comicNextUpdatedAt(current.UpdatedAt)
 	r.assets[asset.ID] = asset
 	return asset, nil
 }
@@ -326,7 +331,7 @@ func (r *MemoryComicAssetRepository) CreateBatch(batch model.ComicAssetGeneratio
 	defer r.mu.Unlock()
 	for _, existing := range r.batches {
 		if existing.IdempotencyKey != "" && existing.IdempotencyKey == batch.IdempotencyKey {
-			if existing.RequestFingerprint != batch.RequestFingerprint {
+			if existing.RequestFingerprint != batch.RequestFingerprint || existing.ProjectID != batch.ProjectID || existing.WorkspaceID != batch.WorkspaceID || existing.UserID != batch.UserID {
 				return model.ComicAssetGenerationBatch{}, nil, ErrComicAssetConflict
 			}
 			return existing, r.listBatchItemsLocked(existing.ID), nil
@@ -816,16 +821,23 @@ func (r *GormComicAssetRepository) CreateAsset(asset model.ComicAsset, workspace
 }
 
 func (r *GormComicAssetRepository) UpdateAsset(asset model.ComicAsset, workspaceID string) (model.ComicAsset, error) {
-	current, err := r.GetAsset(asset.ProjectID, asset.ID, workspaceID)
-	if err != nil {
-		return model.ComicAsset{}, err
-	}
-	asset.CreatedAt = current.CreatedAt
-	asset.UpdatedAt = time.Now().UTC()
-	if err := r.db.Save(&asset).Error; err != nil {
-		return model.ComicAsset{}, mapComicAssetConflict(err)
-	}
-	return asset, nil
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var project model.ComicAssetProject
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&project, "id = ? AND workspace_id = ?", asset.ProjectID, workspaceID).Error; err != nil {
+			return mapComicAssetGormError(err, ErrComicAssetProjectNotFound)
+		}
+		var current model.ComicAsset
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, "id = ? AND project_id = ?", asset.ID, asset.ProjectID).Error; err != nil {
+			return mapComicAssetGormError(err, ErrComicAssetNotFound)
+		}
+		if !comicSameUpdatedAt(current.UpdatedAt, asset.UpdatedAt) {
+			return ErrComicAssetConflict
+		}
+		asset.CreatedAt = current.CreatedAt
+		asset.UpdatedAt = comicNextUpdatedAt(current.UpdatedAt)
+		return tx.Session(&gorm.Session{SkipHooks: true}).Save(&asset).Error
+	})
+	return asset, mapComicAssetConflict(err)
 }
 
 func (r *GormComicAssetRepository) DeleteAsset(projectID string, assetID string, workspaceID string) error {
@@ -909,7 +921,7 @@ func (r *GormComicAssetRepository) CreateBatch(batch model.ComicAssetGenerationB
 	if err != nil && batch.IdempotencyKey != "" {
 		existing, existingItems, lookupErr := r.GetBatchByIdempotencyKey(batch.IdempotencyKey)
 		if lookupErr == nil {
-			if existing.RequestFingerprint != batch.RequestFingerprint {
+			if existing.RequestFingerprint != batch.RequestFingerprint || existing.ProjectID != batch.ProjectID || existing.WorkspaceID != batch.WorkspaceID || existing.UserID != batch.UserID {
 				return model.ComicAssetGenerationBatch{}, nil, ErrComicAssetConflict
 			}
 			return existing, existingItems, nil

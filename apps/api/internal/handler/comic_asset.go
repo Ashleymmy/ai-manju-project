@@ -381,6 +381,20 @@ func (h *ComicAssetHandler) GetBatch(c *gin.Context) {
 	response.OK(c, detail)
 }
 
+func (h *ComicAssetHandler) GetBatchSubmission(c *gin.Context) {
+	user, ok := comicCurrentUser(c)
+	if !ok {
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	detail, err := h.assets.GetBatchBySubmissionKey(c.Param("projectId"), user.ID, requestWorkspaceScope(c), c.Param("key"))
+	if err != nil {
+		writeComicAssetError(c, "get comic asset generation batch submission", err)
+		return
+	}
+	response.OK(c, detail)
+}
+
 func (h *ComicAssetHandler) PauseBatch(c *gin.Context)  { h.controlBatch(c, "pause") }
 func (h *ComicAssetHandler) ResumeBatch(c *gin.Context) { h.controlBatch(c, "resume") }
 func (h *ComicAssetHandler) StopBatch(c *gin.Context)   { h.controlBatch(c, "stop") }

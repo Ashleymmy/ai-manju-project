@@ -3,7 +3,7 @@ import type { WorkspaceScope } from "@/shared/config";
 
 /** Poll stored output only; receipt recovery must never submit a second generation. */
 export const GENERATION_RECEIPT_POLL_MS = 1_500;
-export type GenerationReceiptKind = "text" | "audio" | "comic_revision" | "comic_prompt";
+export type GenerationReceiptKind = "text" | "audio" | "comic_revision" | "comic_prompt" | "comic_batch";
 export type GenerationReceiptOptions = {
   key: string;
   scope?: WorkspaceScope;

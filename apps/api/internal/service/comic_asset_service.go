@@ -1019,6 +1019,26 @@ func (s *ComicAssetService) GetBatch(batchID string, userID string, scope string
 	return ComicBatchDetail{Batch: batch, Items: items}, nil
 }
 
+// GetBatchBySubmissionKey resolves only an already persisted batch. The original
+// account and workspace bind the opaque client key, including for team space;
+// this recovery lookup must never create a new batch or dispatch generation.
+func (s *ComicAssetService) GetBatchBySubmissionKey(projectID, userID, scope, clientKey string) (ComicBatchDetail, error) {
+	clientKey = strings.TrimSpace(clientKey)
+	if clientKey == "" {
+		return ComicBatchDetail{}, repository.ErrComicAssetBatchNotFound
+	}
+	workspaceID := WorkspaceIDForScope(scope, userID)
+	batch, items, err := s.repo.GetBatchByIdempotencyKey(comicBatchIdempotencyKey(userID, workspaceID, clientKey))
+	if err != nil {
+		return ComicBatchDetail{}, err
+	}
+	if batch.ProjectID != projectID || batch.WorkspaceID != workspaceID || batch.UserID != userID {
+		return ComicBatchDetail{}, repository.ErrComicAssetBatchNotFound
+	}
+	batch.Scope = WorkspaceScopeFromID(batch.WorkspaceID)
+	return ComicBatchDetail{Batch: batch, Items: items}, nil
+}
+
 func (s *ComicAssetService) ControlBatch(batchID string, userID string, scope string, action string) (ComicBatchDetail, error) {
 	if _, err := s.GetBatch(batchID, userID, scope); err != nil {
 		return ComicBatchDetail{}, err

@@ -48,6 +48,7 @@ import {
 } from "../controllers/project";
 import { analyzeComicSource, type ComicSourceResult } from "../controllers/source";
 import { useComicViewContext } from "../controllers/useComicViewContext";
+import { comicRetainedCandidate, type ComicRetainedCandidate } from "../controllers/operationRecovery";
 import {
   COMIC_CLASS_LABELS,
   COMIC_DEFAULT_ANALYSIS_MODEL,
@@ -72,6 +73,7 @@ import {
 } from "../model/workflow";
 import { ComicCreateDialog } from "./ComicCreateDialog";
 import { ComicBatchPanel } from "./ComicBatchPanel";
+import { ComicRetainedResult } from "./ComicRetainedResult";
 
 function SurfaceTitle({ eyebrow, title, description, actions }: { eyebrow: string; title: string; description: string; actions?: React.ReactNode }) {
   return <div className="feature-title"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>{actions}</div>;
@@ -83,6 +85,7 @@ export function ComicAssetsView() {
   const [stage, setStage] = useState(1);
   const [projectDetail, setProjectDetail] = useState<ComicProjectDetail | null>(null);
   const [analysis, setAnalysis] = useState<ComicAnalysisDetail | null>(null);
+  const [retainedCandidate, setRetainedCandidate] = useState<ComicRetainedCandidate | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [fileName, setFileName] = useState("");
   const [title, setTitle] = useState("");
@@ -126,6 +129,7 @@ export function ComicAssetsView() {
   const { captureView, invalidateView } = useComicViewContext();
   const leaveCurrentView = () => {
     invalidateView();
+    setRetainedCandidate(null);
     setBusy(false);
     setPromptBusy("");
     setIsParsingScript(false);
@@ -279,7 +283,10 @@ export function ComicAssetsView() {
       setRevisionInstruction("");
       toast.success("已生成新的分析版本");
     } catch (error) {
-      if (isCurrent()) toast.error(publicApiError(error, "再次分析失败"));
+      if (isCurrent()) {
+        setRetainedCandidate(comicRetainedCandidate(error) || null);
+        toast.error(publicApiError(error, "再次分析失败"));
+      }
     } finally {
       if (isCurrent()) setBusy(false);
     }
@@ -540,7 +547,10 @@ export function ComicAssetsView() {
       mergeAsset(result.asset);
       toast.success(operation === "merge" ? "已生成融合提示词草稿" : "已生成 AI 优化草稿");
     } catch (error) {
-      if (isCurrent()) toast.error(publicApiError(error, "优化提示词失败"));
+      if (isCurrent()) {
+        setRetainedCandidate(comicRetainedCandidate(error) || null);
+        toast.error(publicApiError(error, "优化提示词失败"));
+      }
     } finally {
       if (isCurrent()) setPromptBusy("");
     }
@@ -744,6 +754,7 @@ export function ComicAssetsView() {
       : <button className="vermilion-button" onClick={() => { leaveCurrentView(); setStage(1); }}><Plus size={16} /> 新建分析</button>;
 
   return <div className="feature-page comic-page">
+    {retainedCandidate && <ComicRetainedResult candidate={retainedCandidate} onClose={() => setRetainedCandidate(null)} />}
     <input ref={fileInputRef} hidden type="file" accept=".txt,.md,.docx,.xlsx,text/plain,text/markdown" onChange={(event) => setFileName(event.target.files?.[0]?.name || "")} />
 
     <div className="comic-hero-header">

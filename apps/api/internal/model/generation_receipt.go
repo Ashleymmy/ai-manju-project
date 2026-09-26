@@ -13,6 +13,9 @@ const (
 	// resource operation.
 	GenerationReceiptKindComicRevision = "comic_revision"
 	GenerationReceiptKindComicPrompt   = "comic_prompt"
+	// Batch submission and explicit retry receipts protect asynchronous jobs
+	// from a second paid dispatch when the first acceptance response is lost.
+	GenerationReceiptKindComicBatch = "comic_batch"
 
 	GenerationReceiptStateRunning   = "running"
 	GenerationReceiptStateSucceeded = "succeeded"

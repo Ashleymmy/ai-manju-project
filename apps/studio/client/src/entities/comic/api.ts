@@ -357,16 +357,31 @@ export function createComicBatch(
   },
   scope: WorkspaceScope = "personal"
 ) {
-  return request<ComicBatchDetail>(
-    `/api/comic-asset-projects/${encodeURIComponent(projectId)}/generation-batches`,
-    {
+  return awaitComicOperation<ComicBatchDetail>({
+    kind: "comic_batch", resource: ["create", projectId], scope, payload: input,
+    validate: value => {
+      const result = value as ComicBatchDetail | undefined;
+      return !!result?.batch?.id && result.batch.project_id === projectId && Array.isArray(result.items);
+    },
+    recoverPersisted: async key => {
+      try {
+        return await request<ComicBatchDetail>(
+          `/api/comic-asset-projects/${encodeURIComponent(projectId)}/generation-batch-submissions/${encodeURIComponent(key)}`,
+          { query: { scope } },
+        );
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return undefined;
+        throw error;
+      }
+    },
+    submit: key => request<ComicBatchDetail>(`/api/comic-asset-projects/${encodeURIComponent(projectId)}/generation-batches`, {
       method: "POST",
       query: { scope },
-      headers: { "Idempotency-Key": crypto.randomUUID() },
+      headers: { "Idempotency-Key": key },
       body: input,
       timeoutMs: 60_000,
-    }
-  );
+    }),
+  });
 }
 
 export function getComicBatch(
@@ -396,18 +411,26 @@ export function retryComicBatchItem(
   itemId: string,
   scope: WorkspaceScope = "personal"
 ) {
-  return request<ComicBatchDetail>(
-    `/api/comic-asset-generation-batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/retry`,
-    { method: "POST", query: { scope } }
-  );
+  return retryComicBatch(batchId, itemId, scope);
 }
 
 export function retryFailedComicBatchItems(
   batchId: string,
   scope: WorkspaceScope = "personal"
 ) {
-  return request<ComicBatchDetail>(
-    `/api/comic-asset-generation-batches/${encodeURIComponent(batchId)}/retry-failed`,
-    { method: "POST", query: { scope } }
-  );
+  return retryComicBatch(batchId, undefined, scope);
+}
+
+function retryComicBatch(batchId: string, itemId: string | undefined, scope: WorkspaceScope) {
+  return awaitComicOperation<ComicBatchDetail>({
+    kind: "comic_batch", resource: ["retry", batchId], scope, payload: { item_id: itemId || null },
+    validate: value => {
+      const result = value as ComicBatchDetail | undefined;
+      return result?.batch?.id === batchId && Array.isArray(result.items);
+    },
+    submit: key => request<ComicBatchDetail>(
+      `/api/comic-asset-generation-batches/${encodeURIComponent(batchId)}/${itemId ? `items/${encodeURIComponent(itemId)}/retry` : "retry-failed"}`,
+      { method: "POST", query: { scope }, headers: { "Idempotency-Key": key }, body: {} },
+    ),
+  });
 }

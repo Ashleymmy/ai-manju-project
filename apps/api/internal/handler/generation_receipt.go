@@ -32,6 +32,10 @@ func (h *AIHandler) SetGenerationReceiptService(receipts *service.GenerationRece
 	h.receipts = receipts
 }
 
+func (h *AIHandler) SetComicOperationRecoveryService(comic *service.ComicAssetService) {
+	h.comicOperations = comic
+}
+
 func generationReceiptScope(c *gin.Context, kind, key string) service.GenerationReceiptScope {
 	user := auth.MustCurrentUser(c)
 	return service.GenerationReceiptScope{UserID: user.ID, WorkspaceID: service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID), Kind: kind, Key: key}
@@ -103,6 +107,9 @@ func (h *AIHandler) withGenerationReceiptRequest(kind string, bindRequest func(*
 		originalRequest, originalWriter := c.Request, c.Writer
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(originalRequest.Context()), service.SyncGenerationExecutionTimeout)
 		defer cancel()
+		if h.comicOperations != nil {
+			ctx = service.WithComicOperationReceipt(ctx, receipt)
+		}
 		buffer := newGenerationReceiptWriter(originalWriter)
 		c.Writer = buffer
 		c.Request = originalRequest.WithContext(ctx)
@@ -121,6 +128,12 @@ func (h *AIHandler) withGenerationReceiptRequest(kind string, bindRequest func(*
 			return
 		}
 		if buffer.Status() < http.StatusOK || buffer.Status() >= http.StatusMultipleChoices {
+			// A model result checkpoint may exist even though its business write
+			// failed. Recover that candidate before classifying a CAS conflict as
+			// a terminal failure that would let the client pay for another call.
+			if h.replyRecoveredComicOperation(c, saveCtx, receipt) {
+				return
+			}
 			message := generationReceiptFailureMessage(buffer.body.Bytes())
 			// Comic handlers can fail while saving a revision after the paid
 			// provider call succeeded. A server failure is not proof that no call
@@ -220,6 +233,9 @@ func (h *AIHandler) replyGenerationReceipt(c *gin.Context, scope service.Generat
 		c.Data(http.StatusOK, result.ContentType, result.Body)
 		return
 	}
+	if receipt.State != model.GenerationReceiptStateExpired && receipt.State != model.GenerationReceiptStateNotSubmitted && h.replyRecoveredComicOperation(c, c.Request.Context(), receipt) {
+		return
+	}
 	if receipt.State == model.GenerationReceiptStateRunning {
 		response.Accepted(c, gin.H{"receipt": generationReceiptView(receipt)})
 		return
@@ -236,6 +252,52 @@ func (h *AIHandler) replyGenerationReceipt(c *gin.Context, scope service.Generat
 		message = "原生成结果暂时无法取回，请勿重复生成，请联系管理员核查"
 	}
 	response.ErrorWithData(c, status, message, gin.H{"receipt": generationReceiptView(receipt)})
+}
+
+// Recovery can only apply the original candidate with its original CAS
+// preconditions. It cannot invoke a model or overwrite a subsequent edit.
+func (h *AIHandler) replyRecoveredComicOperation(c *gin.Context, ctx context.Context, receipt model.GenerationReceipt) bool {
+	if h.comicOperations == nil || (receipt.Kind != model.GenerationReceiptKindComicRevision && receipt.Kind != model.GenerationReceiptKindComicPrompt) {
+		return false
+	}
+	recovery, err := h.comicOperations.RecoverComicOperation(ctx, receipt)
+	if err != nil {
+		_ = h.receipts.Fail(ctx, receipt, "", true)
+		generationReceiptError(c, err)
+		return true
+	}
+	if recovery == nil {
+		return false
+	}
+	if recovery.Status == service.ComicOperationRecoveryConflict {
+		_ = h.receipts.Fail(ctx, receipt, "", true)
+		receipt.State = model.GenerationReceiptStateUncertain
+		receipt.Error = service.ComicOperationConflictMessage
+		response.ErrorWithData(c, http.StatusConflict, service.ComicOperationConflictMessage, gin.H{"receipt": generationReceiptView(receipt), "recovery": recovery})
+		return true
+	}
+	if recovery.Status != service.ComicOperationRecoveryApplied || recovery.Result == nil {
+		generationReceiptError(c, service.ErrGenerationReceiptUnavailable)
+		return true
+	}
+	body, err := json.Marshal(gin.H{"success": true, "data": recovery.Result})
+	if err != nil {
+		generationReceiptError(c, service.ErrGenerationReceiptUnavailable)
+		return true
+	}
+	result := service.GenerationReceiptResult{ContentType: "application/json; charset=utf-8", Body: body}
+	if err := h.receipts.Complete(ctx, receipt, result); err != nil {
+		// A concurrent original response may already have finalized its envelope.
+		// Prefer it over a new snapshot; otherwise still deliver the saved result.
+		latest, saved, lookupErr := h.receipts.Lookup(ctx, service.GenerationReceiptScope{UserID: receipt.UserID, WorkspaceID: receipt.WorkspaceID, Kind: receipt.Kind, Key: receipt.Key})
+		if lookupErr == nil && saved != nil && latest.State == model.GenerationReceiptStateSucceeded {
+			result = *saved
+		} else {
+			c.Header(GenerationReceiptStateHeader, "unavailable")
+		}
+	}
+	c.Data(http.StatusOK, result.ContentType, result.Body)
+	return true
 }
 
 func generationReceiptError(c *gin.Context, err error) {

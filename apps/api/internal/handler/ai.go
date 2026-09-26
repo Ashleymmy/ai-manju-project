@@ -65,6 +65,7 @@ type AIHandler struct {
 	sdVideo          *sdvideo.Client
 	projects         *service.ProjectService
 	receipts         *service.GenerationReceiptService
+	comicOperations  *service.ComicAssetService
 	// entitlements Agent 模式门禁（WP-M6）：nil = 不启用（billing 关闭时）。
 	entitlements *service.EntitlementGate
 }

@@ -221,6 +221,7 @@ func TestGormComicRepositoryBatchLifecycleIntegration(t *testing.T) {
 	if replayedBatch.ID != createdBatch.ID || replayedItems[0].ID != createdItems[0].ID {
 		t.Fatalf("idempotent replay created different records: batch=%+v items=%+v", replayedBatch, replayedItems)
 	}
+	verifyComicBatchReplayScope(t, repo, createdBatch, createdItems)
 	conflicting := replayInput
 	conflicting.ID = prefix + "_batch_conflict"
 	conflicting.RequestFingerprint = "changed"

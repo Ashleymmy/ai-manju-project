@@ -5,7 +5,7 @@ import { createRandomUUID } from "@/shared/lib/cryptoRandomUuid";
 import { sha256Hex } from "@/shared/lib/sha256";
 
 const COMIC_OPERATION_STORAGE_PREFIX = "ai-manju:comic-operation:v1:";
-type ComicOperationKind = "comic_revision" | "comic_prompt";
+type ComicOperationKind = "comic_revision" | "comic_prompt" | "comic_batch";
 type ComicOperationReceipt = { version: 1; key: string; identity: string; payloadHash: string };
 type ComicOperationInput<T> = {
   kind: ComicOperationKind;
@@ -14,6 +14,9 @@ type ComicOperationInput<T> = {
   payload: unknown;
   submit: (key: string) => Promise<T>;
   validate: (value: unknown) => boolean;
+  // Optional lookup of an already durable domain result if saving its HTTP
+  // receipt failed. It must be read-only and return undefined only for 404.
+  recoverPersisted?: (key: string) => Promise<T | undefined>;
 };
 
 // This tab shares one operation per account/resource even if multiple components
@@ -54,7 +57,25 @@ export async function awaitComicOperation<T>(input: ComicOperationInput<T>): Pro
     if (!existing) savePending(storageKey, receipt);
     const recover = async () => {
       assertSession();
-      const response = await readGenerationReceiptResult(input.kind, { key: receipt.key, scope: input.scope, recoverOnly: true });
+      const recoverPersisted = async () => {
+        assertSession();
+        const result = await input.recoverPersisted?.(receipt.key);
+        assertSession();
+        if (result !== undefined && !input.validate(result)) throw new ApiError("原操作未返回可确认的结果，请稍后恢复；未重新提交操作", 502);
+        return result;
+      };
+      const persisted = await recoverPersisted();
+      if (persisted !== undefined) return persisted;
+      let response: Response;
+      try {
+        response = await readGenerationReceiptResult(input.kind, { key: receipt.key, scope: input.scope, recoverOnly: true });
+      } catch (error) {
+        // The batch may commit between the first lookup and receipt recovery.
+        // Never replace a committed batch with a second POST on that race.
+        const committed = await recoverPersisted();
+        if (committed !== undefined) return committed;
+        throw error;
+      }
       assertSession();
       const payload = await response.json().catch(() => undefined);
       assertSession();

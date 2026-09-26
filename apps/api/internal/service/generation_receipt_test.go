@@ -212,6 +212,50 @@ type receiptFinalizeFailureRepository struct {
 	fail bool
 }
 
+type receiptReadOutageRepository struct {
+	repository.GenerationReceiptRepository
+	fail bool
+}
+
+func (r *receiptReadOutageRepository) Find(ctx context.Context, user, workspace, kind, key string) (model.GenerationReceipt, error) {
+	if r.fail {
+		return model.GenerationReceipt{}, errors.New("database unavailable")
+	}
+	return r.GenerationReceiptRepository.Find(ctx, user, workspace, kind, key)
+}
+
+func TestGenerationReceiptPreservesOutputWhenDatabaseGoesOfflineAfterClaim(t *testing.T) {
+	repo := &receiptReadOutageRepository{GenerationReceiptRepository: repository.NewMemoryGenerationReceiptRepository()}
+	store := newReceiptMemoryStorage()
+	svc := receiptService(repo, store)
+	scope := receiptScope(model.GenerationReceiptKindText)
+	binding, claimed, err := svc.Begin(context.Background(), scope, receiptHash(t))
+	if err != nil || !claimed {
+		t.Fatal("claim failed")
+	}
+	repo.fail = true
+	result := GenerationReceiptResult{ContentType: "application/json", Body: []byte(`{"content":"original paid output"}`)}
+	for range 2 {
+		if err := svc.Complete(context.Background(), binding, result); !errors.Is(err, ErrGenerationReceiptUnavailable) {
+			t.Fatalf("database failure hidden: %v", err)
+		}
+	}
+	if store.puts != 1 || len(store.objects) != 1 {
+		t.Fatal("database outage lost or duplicated output")
+	}
+	if _, output, err := svc.Lookup(context.Background(), scope); output != nil || !errors.Is(err, ErrGenerationReceiptUnavailable) {
+		t.Fatal("output returned without checking durable owner binding")
+	}
+	repo.fail = false
+	recovered, output, err := receiptService(repo, store).Lookup(context.Background(), scope)
+	if err != nil || recovered.State != model.GenerationReceiptStateSucceeded || output == nil || !bytes.Equal(output.Body, result.Body) {
+		t.Fatal("original output was not recovered after database restart")
+	}
+	if _, claimed, err := svc.Begin(context.Background(), scope, receiptHash(t)); err != nil || claimed {
+		t.Fatal("recovery granted a second model execution")
+	}
+}
+
 func (r *receiptFinalizeFailureRepository) Transition(ctx context.Context, binding model.GenerationReceipt, from []string, state, message string, expires *time.Time) (model.GenerationReceipt, bool, error) {
 	if r.fail && state == model.GenerationReceiptStateSucceeded {
 		return model.GenerationReceipt{}, false, errors.New("database finalization unavailable")

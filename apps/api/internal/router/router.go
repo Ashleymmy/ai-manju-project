@@ -182,6 +182,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	generationReceipts := service.NewGenerationReceiptService(repos.generationReceiptRepo, assetStore, secretBox)
 	aiHandler.SetGenerationReceiptService(generationReceipts)
 	comicAssetService.SetAnalysisReceiptService(generationReceipts)
+	aiHandler.SetComicOperationRecoveryService(comicAssetService)
 	aiHandler.SetProjectService(projectService)
 	sdVideoClient := sdvideo.NewClient(cfg)
 	modelProviderHandler.SetSDVideoClient(sdVideoClient)
@@ -462,7 +463,8 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			comicProjects.POST("/:projectId/assets/:assetId/prompt-optimize", aiHandler.WithGenerationReceiptResource(model.GenerationReceiptKindComicPrompt, comicAssetHandler.OptimizePrompt))
 			comicProjects.POST("/:projectId/prompts/bulk-approve", comicAssetHandler.BulkApprovePrompts)
 			comicProjects.GET("/:projectId/generation-batches", comicAssetHandler.ListBatches)
-			comicProjects.POST("/:projectId/generation-batches", comicAssetHandler.CreateBatch)
+			comicProjects.GET("/:projectId/generation-batch-submissions/:key", comicAssetHandler.GetBatchSubmission)
+			comicProjects.POST("/:projectId/generation-batches", aiHandler.WithGenerationReceiptResource(model.GenerationReceiptKindComicBatch, comicAssetHandler.CreateBatch))
 		}
 
 		comicAnalysisSessions := api.Group("/comic-asset-analysis-sessions", middleware.RequireAuth(authService))
@@ -481,8 +483,8 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			comicBatches.POST("/:batchId/pause", comicAssetHandler.PauseBatch)
 			comicBatches.POST("/:batchId/resume", comicAssetHandler.ResumeBatch)
 			comicBatches.POST("/:batchId/stop", comicAssetHandler.StopBatch)
-			comicBatches.POST("/:batchId/items/:itemId/retry", comicAssetHandler.RetryItem)
-			comicBatches.POST("/:batchId/retry-failed", comicAssetHandler.RetryFailed)
+			comicBatches.POST("/:batchId/items/:itemId/retry", aiHandler.WithGenerationReceiptResource(model.GenerationReceiptKindComicBatch, comicAssetHandler.RetryItem))
+			comicBatches.POST("/:batchId/retry-failed", aiHandler.WithGenerationReceiptResource(model.GenerationReceiptKindComicBatch, comicAssetHandler.RetryFailed))
 		}
 
 		jobs := api.Group("/jobs", middleware.RequireAuth(authService))
