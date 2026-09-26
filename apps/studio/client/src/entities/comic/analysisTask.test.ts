@@ -22,6 +22,44 @@ async function finish<T>(promise: Promise<T>) {
 }
 
 describe("background comic analysis", () => {
+  it("keeps the same owner task after token renewal without resubmitting", async () => {
+    sessionStorage.setItem("ai-manju:auth_token", "original-login");
+    const submit = vi.fn().mockResolvedValue(detail("processing"));
+    const read = vi.fn().mockRejectedValue(new ApiError("offline", 0));
+    await finish(expect(awaitComicAnalysis(submit, read, { script: "same" }, undefined, { ownerID: "owner-one" })).rejects.toThrow("任务仍保留"));
+    sessionStorage.setItem("ai-manju:auth_token", "renewed-login");
+    read.mockResolvedValue(detail("active"));
+    await finish(awaitComicAnalysis(submit, read, { script: "same" }, undefined, { ownerID: "owner-one" }));
+    expect(submit).toHaveBeenCalledOnce();
+  });
+
+  it("migrates an existing token-scoped task before switching to owner identity", async () => {
+    const submit = vi.fn().mockResolvedValue(detail("processing"));
+    const read = vi.fn().mockRejectedValue(new ApiError("offline", 0));
+    await finish(expect(awaitComicAnalysis(submit, read, { script: "old" })).rejects.toThrow("任务仍保留"));
+    read.mockResolvedValue(detail("active"));
+    await finish(awaitComicAnalysis(submit, read, { script: "old" }, undefined, { ownerID: "owner-one" }));
+    expect(submit).toHaveBeenCalledOnce();
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it("resumes a server-discovered session with empty browser storage and never submits", async () => {
+    const submit = vi.fn();
+    const read = vi.fn().mockResolvedValueOnce(detail("processing")).mockResolvedValue(detail("active"));
+    await finish(awaitComicAnalysis(submit, read, { discovery: true }, undefined, { resumeSessionID: "server-session" }));
+    expect(submit).not.toHaveBeenCalled();
+    expect(read).toHaveBeenNthCalledWith(1, "server-session");
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it("closing discovery stops polling without canceling or restarting server generation", async () => {
+    const controller = new AbortController();
+    const submit = vi.fn();
+    const read = vi.fn(async () => { controller.abort(); return detail("processing"); });
+    await finish(expect(awaitComicAnalysis(submit, read, {}, undefined, { resumeSessionID: "server-session", signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" }));
+    expect(submit).not.toHaveBeenCalled(); expect(read).toHaveBeenCalledOnce();
+  });
+
   it("polls slow analysis and never submits twice after a gateway failure", async () => {
     const submit = vi.fn().mockResolvedValue(detail("processing"));
     const read = vi.fn().mockRejectedValueOnce(new ApiError("gateway", 504)).mockResolvedValueOnce(detail("processing")).mockResolvedValue(detail("active"));

@@ -471,6 +471,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 		api.GET("/comic-asset-analysis-submissions/:key", middleware.RequireAuth(authService), comicAssetHandler.GetAnalysisSubmission)
 		{
 			comicAnalysisSessions.POST("", comicAssetHandler.CreateAnalysisSession)
+			comicAnalysisSessions.GET("", comicAssetHandler.ListAnalysisSessions)
 			comicAnalysisSessions.GET("/:sessionId", comicAssetHandler.GetAnalysisSession)
 			comicAnalysisSessions.POST("/:sessionId/revisions", aiHandler.WithGenerationReceiptResource(model.GenerationReceiptKindComicRevision, comicAssetHandler.CreateAnalysisRevision))
 			comicAnalysisSessions.PUT("/:sessionId/active-revision", comicAssetHandler.SetActiveAnalysisRevision)

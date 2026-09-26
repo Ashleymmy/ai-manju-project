@@ -25,9 +25,9 @@ function pendingStorage(key: string, value?: string | null) {
   }
 }
 
-async function pendingKey(token: string | null, input: unknown) {
+async function pendingKey(token: string | null, input: unknown, ownerID?: string) {
   // Persist only an opaque task ID and digest; never store scripts or tokens.
-  return STORAGE_PREFIX + await sha256Hex(JSON.stringify([token, input]));
+  return STORAGE_PREFIX + (ownerID ? "owner:" : "") + await sha256Hex(JSON.stringify([ownerID || token, input]));
 }
 
 function transient(error: unknown) {
@@ -39,18 +39,33 @@ export async function awaitComicAnalysis(
   read: (id: string) => Promise<ComicAnalysisDetail>,
   input: unknown,
   recoverSubmission?: (idempotencyKey: string) => Promise<{ status: string; session_id?: string }>,
+  options?: { ownerID?: string; resumeSessionID?: string; signal?: AbortSignal },
 ): Promise<ComicAnalysisDetail> {
   const token = getAuthToken();
   const assertAccount = () => {
+    if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
     if (getAuthToken() !== token) throw new Error("账号已切换，原分析任务仍保留；请返回原账号查看");
   };
-  const key = await pendingKey(token, input);
+  const key = await pendingKey(token, input, options?.ownerID);
   assertAccount();
+  // Migrate a descriptor from the previous token-scoped tab format while the
+  // original login is still available. New descriptors survive token renewal.
+  if (options?.ownerID && !pendingStorage(key + SUBMISSION_SUFFIX)) {
+    const legacyKey = await pendingKey(token, input);
+    assertAccount();
+    const legacySubmission = pendingStorage(legacyKey + SUBMISSION_SUFFIX);
+    if (legacySubmission) {
+      pendingStorage(key + SUBMISSION_SUFFIX, legacySubmission);
+      const legacyID = pendingStorage(legacyKey);
+      if (legacyID) pendingStorage(key, legacyID);
+      pendingStorage(legacyKey, null); pendingStorage(legacyKey + SUBMISSION_SUFFIX, null);
+    }
+  }
   const submissionStorageKey = key + SUBMISSION_SUFFIX;
   const previousSubmission = pendingStorage(submissionStorageKey);
-  const idempotencyKey = previousSubmission || `comic-${createRandomUUID()}`;
-  pendingStorage(submissionStorageKey, idempotencyKey);
-  let id = pendingStorage(key);
+  const idempotencyKey = options?.resumeSessionID ? "" : previousSubmission || `comic-${createRandomUUID()}`;
+  if (!options?.resumeSessionID) pendingStorage(submissionStorageKey, idempotencyKey);
+  let id = options?.resumeSessionID || pendingStorage(key);
   const clear = () => { pendingStorage(key, null); pendingStorage(submissionStorageKey, null); };
   let detail: ComicAnalysisDetail | undefined;
   const recover = async (originalError: unknown): Promise<string> => {
@@ -69,7 +84,7 @@ export async function awaitComicAnalysis(
         // callback seals it atomically before returning not_submitted.
         if (!transient(error) && !(error instanceof ApiError && error.status === 404)) throw error;
         if (++failures >= COMIC_ANALYSIS_READ_RETRIES) throw new Error("暂时无法确认分析任务，任务未重新提交；请稍后重试");
-        await new Promise(resolve => window.setTimeout(resolve, COMIC_ANALYSIS_POLL_MS));
+        await waitForAnalysis(options?.signal);
         continue;
       }
       if (recovered.status === "ready" && recovered.session_id) return recovered.session_id;
@@ -83,7 +98,7 @@ export async function awaitComicAnalysis(
         throw new Error("原分析任务结果尚未取回，请联系管理员核查；未重复提交");
       }
       if (recovered.status !== "preparing") throw new Error("分析任务状态无法确认；未重复提交");
-      await new Promise(resolve => window.setTimeout(resolve, COMIC_ANALYSIS_POLL_MS));
+      await waitForAnalysis(options?.signal);
     }
     throw new Error("分析任务仍在提交中，请稍后查看原任务；未重复提交");
   };
@@ -130,7 +145,7 @@ export async function awaitComicAnalysis(
         clear();
         return detail;
       }
-      await new Promise((resolve) => window.setTimeout(resolve, COMIC_ANALYSIS_POLL_MS));
+      await waitForAnalysis(options?.signal);
     }
     try {
       detail = await read(id);
@@ -142,8 +157,17 @@ export async function awaitComicAnalysis(
       if (++failures >= COMIC_ANALYSIS_READ_RETRIES) {
         throw new Error("暂时无法获取分析进度，任务仍保留。请保持相同文件和设置，再点“解析并预览”继续查看");
       }
-      await new Promise((resolve) => window.setTimeout(resolve, COMIC_ANALYSIS_POLL_MS));
+      await waitForAnalysis(options?.signal);
     }
   }
   throw new Error("分析仍未返回结果。请保持相同文件和设置，再点“解析并预览”查看任务状态");
+}
+
+function waitForAnalysis(signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const abort = () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); };
+    const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, COMIC_ANALYSIS_POLL_MS);
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
+  });
 }

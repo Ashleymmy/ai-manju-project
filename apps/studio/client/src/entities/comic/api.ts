@@ -147,11 +147,12 @@ export function deleteComicAsset(
 
 export function getComicAnalysisSession(
   sessionId: string,
-  scope: WorkspaceScope = "personal"
+  scope: WorkspaceScope = "personal",
+  signal?: AbortSignal,
 ) {
   return request<ComicAnalysisDetail>(
     `/api/comic-asset-analysis-sessions/${encodeURIComponent(sessionId)}`,
-    { query: { scope } }
+    { query: { scope }, signal }
   );
 }
 
@@ -166,7 +167,7 @@ export function setActiveComicAnalysisRevision(
   );
 }
 
-export function createComicAnalysisSession(
+export async function createComicAnalysisSession(
   input: {
     title: string;
     style_preset?: string;
@@ -177,6 +178,9 @@ export function createComicAnalysisSession(
   sourceFile: File,
   scope: WorkspaceScope = "personal"
 ) {
+  const token = getAuthToken();
+  const owner = await request<{ id: string }>("/api/auth/me");
+  if (getAuthToken() !== token || !owner?.id) throw new ApiError("无法确认当前账号，尚未提交分析", 401);
   const body = new FormData();
   body.set(
     "payload",
@@ -207,7 +211,7 @@ export function createComicAnalysisSession(
     query: { scope, async: true },
     body,
     timeoutMs: 0, // Upload duration is independent of the background analysis.
-  }), (id) => getComicAnalysisSession(id, scope), analysisInput, recoverSubmission);
+  }), (id) => getComicAnalysisSession(id, scope), analysisInput, recoverSubmission, { ownerID: owner.id });
 }
 
 export function createComicAnalysisRevision(

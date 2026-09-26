@@ -20,6 +20,25 @@ type comicAnalysisCreateRequest struct {
 	Model            string            `json:"model"`
 }
 
+func (h *ComicAssetHandler) ListAnalysisSessions(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	user, ok := comicCurrentUser(c)
+	if !ok {
+		return
+	}
+	result, err := h.assets.ListAnalysisSessions(user.ID, requestWorkspaceScope(c), c.Query("cursor"))
+	if err != nil {
+		// Discovery exposes only summaries. Database failures must not return
+		// connection strings, SQL text, or private source metadata to clients.
+		if !errors.Is(err, service.ErrGenerationReceiptInvalid) {
+			err = service.ErrGenerationReceiptUnavailable
+		}
+		writeComicAssetError(c, "list comic analysis sessions", err)
+		return
+	}
+	response.OK(c, result)
+}
+
 func (h *ComicAssetHandler) CreateAnalysisSession(c *gin.Context) {
 	user, ok := comicCurrentUser(c)
 	if !ok {
