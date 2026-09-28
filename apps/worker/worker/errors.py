@@ -13,6 +13,7 @@ SENSITIVE_PATTERNS = [
 PUBLIC_TASK_ERROR_MESSAGES = {
     "image_output_size_mismatch": "本次图片未达到所选规格，请调整参数或更换模型后重试。",
     "image_output_unreadable": "本次图片未能完整生成，请稍后重试或更换模型。",
+    "video_reference_timeout": "参考视频读取超时，请稍后重试或改用较小的视频。",
 }
 
 
@@ -25,6 +26,55 @@ class SafeTaskError(Exception):
 
     def __str__(self) -> str:
         return self.message
+
+
+class VideoTaskAcceptedError(SafeTaskError):
+    """The paid task exists; retrying generation would create another video."""
+
+
+class VideoSubmissionUncertainError(SafeTaskError):
+    """The submit may have been accepted; a new POST risks duplicate charges."""
+
+
+class VideoRecoveryPendingError(VideoTaskAcceptedError):
+    """Resume this durable task; never count recovery as a generation attempt."""
+
+
+class VideoReferenceError(SafeTaskError):
+    """The supplier rejected reference media, not the model's availability."""
+
+
+class ImageSubmissionUncertainError(SafeTaskError):
+    """The paid POST may have completed; never retry generation automatically."""
+
+
+class ImageRecoveryPendingError(SafeTaskError):
+    """Recover an existing response/output without a new paid POST."""
+
+
+class ImageResultRejectedError(SafeTaskError):
+    """A completed image response is invalid; it is not a supplier retry."""
+
+
+class VideoRecoveryAttentionError(VideoRecoveryPendingError):
+    """Keep the original paid task, but stop automatic queue recovery."""
+
+
+class ImageRecoveryAttentionError(ImageRecoveryPendingError):
+    """Keep the private image receipt, but stop automatic queue recovery."""
+
+
+class ResultPersistencePendingError(SafeTaskError):
+    """Completed local output was not accepted by the Job result write."""
+
+
+RECOVERY_ATTENTION_PHASES = {"video_recovery_attention", "image_recovery_attention"}
+
+
+def recovery_attention_error(kind: str):
+    label = "视频" if kind == "video" else "图片"
+    error_type = VideoRecoveryAttentionError if kind == "video" else ImageRecoveryAttentionError
+    return error_type(f"{label}结果恢复需要管理员核查，请勿重复提交", code=f"{kind}_recovery_attention", retryable=False)
 
 
 def job_canceled_error() -> SafeTaskError:
@@ -42,9 +92,16 @@ def safe_message(value: object) -> str:
 
 def error_payload(exc: BaseException) -> dict[str, object]:
     if isinstance(exc, SafeTaskError):
+        public_message = PUBLIC_TASK_ERROR_MESSAGES.get(exc.code, exc.message)
+        if isinstance(exc, (VideoRecoveryAttentionError, ImageRecoveryAttentionError)):
+            public_message = recovery_attention_error("video" if isinstance(exc, VideoRecoveryAttentionError) else "image").message
+        elif isinstance(exc, VideoTaskAcceptedError):
+            public_message = "视频任务已提交，查询或下载结果中断，请联系管理员核查，勿重复生成"
+        elif isinstance(exc, VideoSubmissionUncertainError):
+            public_message = "视频提交结果待确认，请勿重复提交，请联系管理员核查"
         payload: dict[str, object] = {
-            "message": safe_message(PUBLIC_TASK_ERROR_MESSAGES.get(exc.code, exc.message)),
-            "code": exc.code,
+            "message": safe_message(public_message),
+            "code": "video_result_pending" if isinstance(exc, VideoTaskAcceptedError) and not isinstance(exc, VideoRecoveryAttentionError) else exc.code,
             "retryable": exc.retryable,
         }
         if exc.retry_after_seconds is not None:

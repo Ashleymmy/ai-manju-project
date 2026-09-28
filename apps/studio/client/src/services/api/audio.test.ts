@@ -31,6 +31,43 @@ class MemoryStorage implements Storage {
 describe("audio API", () => {
   const dispatchEvent = vi.fn();
 
+  it("does not restart receipt recovery after an accepted submission's missing result", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("{}", { status: 202 }));
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("{}", { status: 404 }));
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("{}", { status: 404 }));
+    await expect(requestAudioGeneration({ model: "tts" }, "文本", { receipt: { key: "accepted-audio" } }))
+      .rejects.toMatchObject({ status: 404 });
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/audio/speech"))).toHaveLength(1);
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/reconcile"))).toHaveLength(1);
+  });
+
+  it("recovers exact speech bytes after a lost response using a GET, never a second POST", async () => {
+    const bytes = new Uint8Array([0, 1, 255, 44]);
+    vi.mocked(fetch).mockRejectedValueOnce(new TypeError("lost response"));
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(bytes, { headers: { "Content-Type": "audio/wav" } }));
+    const blob = await requestAudioGeneration({ model: "tts", format: "wav" }, "文本", {
+      receipt: { key: "original-audio", scope: "team" },
+    });
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(bytes);
+    expect(blob.type).toBe("audio/wav");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetch).mock.calls[0][1]?.method).toBe("POST");
+    expect(vi.mocked(fetch).mock.calls[1][1]?.method).not.toBe("POST");
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toContain("/receipts/audio/original-audio/result?scope=team");
+  });
+
+  it.each([
+    ["", "audio/mpeg"],
+    ["<html>login</html>", "text/html"],
+    ["<!DOCTYPE html><html>gateway error</html>", "application/octet-stream"],
+    ['{"success":true,"task_id":"not-audio"}', "application/json"],
+  ])("rejects non-audio success bodies with MIME %s / %s", async (body, contentType) => {
+    vi.mocked(fetch).mockResolvedValue(new Response(body, { status: 200, headers: { "Content-Type": contentType } }));
+    await expect(requestAudioGeneration({ model: "tts" }, "测试")).rejects.toMatchObject({ name: "ApiError", message: "音频服务没有返回可用音频，请联系管理员检查模型配置" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   beforeEach(() => {
     dispatchEvent.mockReset();
     vi.stubGlobal("window", {

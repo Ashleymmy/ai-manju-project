@@ -1,6 +1,4 @@
 import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
-import { CanvasVideoPreflight } from "./CanvasVideoPreflight";
-import { useVideoPreflight, type VideoPreflightCheck } from "../controllers/useVideoPreflight";
 import { IMAGE_GENERATION_COUNTS } from "@/shared/config/generation";
 import { imageModelSupportsDetail } from "@/entities/model/imageProtocol";
 import { videoModelCapabilities, videoOptionAvailable } from "@/entities/model/videoCapabilities";
@@ -182,8 +180,6 @@ export type CanvasInspectorActions = {
 };
 
 export type CanvasInspectorProps = {
-  preflightProjectKey?: string;
-  preflightVideoNode?: VideoPreflightCheck;
   seedanceRegistrationState?: SeedanceRegistrationState;
   panelRef: RefObject<HTMLElement | null>;
   selectedNode?: CanvasNodeData;
@@ -220,8 +216,6 @@ export type CanvasInspectorProps = {
 };
 
 export function CanvasInspector({
-  preflightProjectKey,
-  preflightVideoNode,
   seedanceRegistrationState,
   panelRef,
   selectedNode,
@@ -312,19 +306,12 @@ export function CanvasInspector({
     startPanelResize,
   } = actions;
   const promptReferences = selectedNode ? mentionReferencesForNode(selectedNode.id) : [];
-  // Positions/selection do not change media compatibility. Source contents,
-  // references, model parameters and graph connections do.
-  const videoPreflightKey = selectedGenerationMode === "video" ? JSON.stringify([
-    preflightProjectKey, selectedNode?.id, selectedVideoConfig, videoModelCapabilities(selectedVideoConfig?.model || ""),
-    nodes.map(node => [node.id, node.kind, node.title, node.content, node.imageSrc, node.imageAssetId, node.metadata?.assetId, node.metadata?.assetScope,
-      node.metadata?.content, node.metadata?.composerContent, node.metadata?.prompt, node.metadata?.status,
-      node.metadata?.seedanceMaterialAssets, node.metadata?.seedanceVolcanoAssets, node.metadata?.videoReferenceInputs]),
-    edges.map(edge => [edge.from, edge.to]),
-  ]) : "";
-  const videoPreflight = useVideoPreflight(inspectorOpen && !selectedGroup && !projectActionDisabled && selectedGenerationMode === "video" ? selectedNode?.id || "" : "", videoPreflightKey, preflightVideoNode);
   const imageSettingsIssue = selectedNode && selectedGenerationMode === "image" ? canvasImageGenerationSettingsIssue(selectedNode) : "";
-  const generationBlocked = videoPreflight.blocked || Boolean(imageSettingsIssue);
-  const generationBlockedMessage = imageSettingsIssue || videoPreflight.message;
+  const generationBlocked = Boolean(imageSettingsIssue);
+  const generationBlockedMessage = imageSettingsIssue;
+  const optimizationReceipt = selectedNode?.metadata?.promptOptimizationReceipt;
+  const pendingOptimization = optimizationReceipt?.state === "pending";
+  const savedOptimization = optimizationReceipt?.state === "received" && !optimizationReceipt.applied;
   const connectedSources = selectedNode
     ? edges
       .filter((edge) => edge.to === selectedNode.id)
@@ -622,8 +609,6 @@ export function CanvasInspector({
                   )}
                 </div>
               </div>
-
-              {selectedGenerationMode === "video" ? <CanvasVideoPreflight model={selectedVideoConfig?.model || selectedGenerationModel} state={videoPreflight} onRetry={videoPreflight.retry} /> : null}
               {imageSettingsIssue ? <p role="alert" className="px-3 py-2 text-xs text-amber-300">{imageSettingsIssue}</p> : null}
               <div className="node-card-ops">
                 {/* 暂时隐藏「从此节点连接」入口（需求暂定，后期恢复时取消本行与顶部 Link2 导入的注释）
@@ -662,12 +647,14 @@ export function CanvasInspector({
                 {selectedNode.kind !== "director" ? (
                   <Popover key={`${selectedNode.id}:skills`} active={inspectorOpen && !projectActionDisabled} onOpenChange={(open) => { if (open) onSkillsOpen(); }}>
                     <PopoverTrigger asChild>
-                      <button title="优化提示词" disabled={promptOptimizing}>{promptOptimizing ? <Loader2 className="spin" size={14} /> : <WandSparkles size={14} />}</button>
+                      <button title={pendingOptimization ? "恢复原优化结果" : savedOptimization ? "查看优化结果" : "优化提示词"} disabled={promptOptimizing}>{promptOptimizing ? <Loader2 className="spin" size={14} /> : <WandSparkles size={14} />}</button>
                     </PopoverTrigger>
                     <PopoverContent className="node-pop-card" align="end" sideOffset={8}>
-                      <p className="eyebrow">选择优化技能</p>
-                      <button className="node-pop-item" disabled={promptOptimizing} onClick={() => void optimizeNodePrompt(selectedNode)}><WandSparkles size={13} /> 默认优化</button>
-                      {enabledSkills.map((skill) => (
+                      <p className="eyebrow">{pendingOptimization || savedOptimization ? "原优化结果" : "选择优化技能"}</p>
+                      {pendingOptimization ? <p role="status">上次优化尚未取回结果，可恢复原回复。</p> : null}
+                      {savedOptimization ? <div className="node-pop-field"><label htmlFor="canvas-prompt-optimization-result">已保存的优化结果（采用后替换当前提示词）</label><textarea id="canvas-prompt-optimization-result" readOnly rows={5} value={optimizationReceipt.result || ""} /></div> : null}
+                      <button className="node-pop-item" disabled={promptOptimizing} onClick={() => void optimizeNodePrompt(selectedNode)}><WandSparkles size={13} /> {pendingOptimization ? "恢复原优化结果" : savedOptimization ? "采用优化结果" : "默认优化"}</button>
+                      {!pendingOptimization && !savedOptimization && enabledSkills.map((skill) => (
                         <button key={skill.id} className="node-pop-item" disabled={promptOptimizing} title={skill.description || skill.prompt} onClick={() => void optimizeNodePrompt(selectedNode, skill.prompt)}><Bot size={13} /> {skill.title}</button>
                       ))}
                       <button className="node-pop-item" onClick={() => setSkillLibraryOpen(true)}><Plus size={13} /> 管理技能库…</button>

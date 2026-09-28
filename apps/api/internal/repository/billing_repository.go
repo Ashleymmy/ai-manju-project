@@ -1,12 +1,15 @@
 package repository
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/ai-manju/api/internal/model"
+	"github.com/jackc/pgx/v5"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -14,6 +17,7 @@ import (
 var (
 	ErrPackageNotFound       = errors.New("credit package not found")
 	ErrOrderNotFound         = errors.New("order not found")
+	ErrOrderStateConflict    = errors.New("order state changed")
 	ErrBillingConfigNotFound = errors.New("billing config not found")
 )
 
@@ -28,6 +32,11 @@ type BillingRepository interface {
 	GetOrderByID(id string) (model.Order, error)
 	ListOrders(userID string, status string, orderType string, page int, pageSize int) ([]model.Order, int64, error)
 	UpdateOrderStatus(id string, from string, to string, now time.Time) (model.Order, bool, error)
+	// Order-level serialization spans payment, fulfillment, cancellation and refund.
+	WithOrderLock(id string, fn func() error) error
+	SetOrderPurchasedCredits(id string, credits int64) (model.Order, error)
+	MarkOrderFulfilled(id string, now time.Time) error
+	StartOrderRefund(id string, now time.Time) error
 	// 订单统计（后台模块4 统计卡）
 	// SumPaidAmountByUser 该用户 status='paid' 订单 amount_cents 合计（累计充值）。
 	SumPaidAmountByUser(userID string) (int64, error)
@@ -42,10 +51,72 @@ type BillingRepository interface {
 }
 
 type MemoryBillingRepository struct {
-	mu       sync.RWMutex
-	packages map[string]model.CreditPackage
-	orders   map[string]model.Order
-	configs  map[string]model.BillingConfig
+	orderLocks sync.Map
+	mu         sync.RWMutex
+	packages   map[string]model.CreditPackage
+	orders     map[string]model.Order
+	configs    map[string]model.BillingConfig
+}
+
+// orderLockWait bounds lock acquisition; business mutations retain their own
+// transactions. A separate PostgreSQL connection avoids exhausting the pool.
+const orderLockWait = 30 * time.Second
+const orderLockCloseTimeout = 5 * time.Second
+
+func (r *MemoryBillingRepository) WithOrderLock(id string, fn func() error) error {
+	value, _ := r.orderLocks.LoadOrStore(id, &sync.Mutex{})
+	lock := value.(*sync.Mutex)
+	lock.Lock()
+	defer lock.Unlock()
+	return fn()
+}
+
+func (r *MemoryBillingRepository) SetOrderPurchasedCredits(id string, credits int64) (model.Order, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	order, ok := r.orders[id]
+	if !ok {
+		return model.Order{}, ErrOrderNotFound
+	}
+	if order.PurchasedCredits == nil {
+		order.PurchasedCredits = &credits
+		r.orders[id] = order
+	}
+	return order, nil
+}
+
+func (r *MemoryBillingRepository) MarkOrderFulfilled(id string, now time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	order, ok := r.orders[id]
+	if !ok {
+		return ErrOrderNotFound
+	}
+	if order.Status != model.OrderStatusPaid || order.RefundStartedAt != nil {
+		return ErrOrderStateConflict
+	}
+	if order.FulfilledAt == nil {
+		order.FulfilledAt, order.UpdatedAt = &now, now
+		r.orders[id] = order
+	}
+	return nil
+}
+
+func (r *MemoryBillingRepository) StartOrderRefund(id string, now time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	order, ok := r.orders[id]
+	if !ok {
+		return ErrOrderNotFound
+	}
+	if order.Status != model.OrderStatusPaid {
+		return ErrOrderStateConflict
+	}
+	if order.RefundStartedAt == nil {
+		order.RefundStartedAt, order.UpdatedAt = &now, now
+		r.orders[id] = order
+	}
+	return nil
 }
 
 func NewMemoryBillingRepository() *MemoryBillingRepository {
@@ -305,6 +376,73 @@ type GormBillingRepository struct {
 
 func NewGormBillingRepository(db *gorm.DB) *GormBillingRepository {
 	return &GormBillingRepository{db: db}
+}
+
+func (r *GormBillingRepository) WithOrderLock(id string, fn func() error) error {
+	dialect, ok := r.db.Dialector.(*postgres.Dialector)
+	if !ok || dialect.Config.DSN == "" {
+		return errors.New("order locking requires PostgreSQL DSN")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), orderLockWait)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, dialect.Config.DSN)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), orderLockCloseTimeout)
+		defer closeCancel()
+		_ = conn.Close(closeCtx)
+	}()
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock(hashtextextended($1,0))", "billing-order:"+id); err != nil {
+		return err
+	}
+	return fn()
+}
+
+func (r *GormBillingRepository) SetOrderPurchasedCredits(id string, credits int64) (model.Order, error) {
+	if err := r.db.Model(&model.Order{}).Where("id = ? AND purchased_credits IS NULL", id).Update("purchased_credits", credits).Error; err != nil {
+		return model.Order{}, err
+	}
+	return r.GetOrderByID(id)
+}
+
+func (r *GormBillingRepository) MarkOrderFulfilled(id string, now time.Time) error {
+	result := r.db.Model(&model.Order{}).Where("id = ? AND status = ? AND refund_started_at IS NULL AND fulfilled_at IS NULL", id, model.OrderStatusPaid).
+		Updates(map[string]any{"fulfilled_at": now, "updated_at": now})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		order, err := r.GetOrderByID(id)
+		if err != nil {
+			return err
+		}
+		if order.Status == model.OrderStatusPaid && order.RefundStartedAt == nil && order.FulfilledAt != nil {
+			return nil
+		}
+		return ErrOrderStateConflict
+	}
+	return nil
+}
+
+func (r *GormBillingRepository) StartOrderRefund(id string, now time.Time) error {
+	result := r.db.Model(&model.Order{}).Where("id = ? AND status = ? AND refund_started_at IS NULL", id, model.OrderStatusPaid).
+		Updates(map[string]any{"refund_started_at": now, "updated_at": now})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		order, err := r.GetOrderByID(id)
+		if err != nil {
+			return err
+		}
+		if order.Status == model.OrderStatusPaid && order.RefundStartedAt != nil {
+			return nil
+		}
+		return ErrOrderStateConflict
+	}
+	return nil
 }
 
 func (r *GormBillingRepository) ListPackages(enabledOnly bool) ([]model.CreditPackage, error) {

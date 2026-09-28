@@ -87,12 +87,19 @@ func (h *BillingHooks) NormalizePayloadForJob(userID string, jobType string, pay
 
 // ReserveForJob 先过并发准入（WP-M6），再冻结积分（WP-M3）。
 func (h *BillingHooks) ReserveForJob(userID string, jobType string, jobID string, payload model.JSONB) error {
+	return h.ReserveForJobWithVideoPolicy(userID, jobType, jobID, payload, nil)
+}
+
+func (h *BillingHooks) ReserveForJobWithVideoPolicy(userID string, jobType string, jobID string, payload model.JSONB, policy *VideoBillingPolicy) error {
 	if h.gate != nil && jobType != model.JobTypeVideoGenerate {
 		if err := h.gate.CheckAdmission(userID, jobType); err != nil {
 			return err
 		}
 	}
-	credits, taskType, params, chargeable := h.pricer.QuoteForJob(jobType, payload)
+	credits, taskType, params, chargeable, err := h.pricer.QuoteForJobWithVideoPolicy(jobType, payload, policy)
+	if err != nil {
+		return err
+	}
 	if !chargeable || credits <= 0 {
 		return nil
 	}
@@ -103,7 +110,7 @@ func (h *BillingHooks) ReserveForJob(userID string, jobType string, jobID string
 			modelName = jsonString(body["model"])
 		}
 	}
-	_, err := h.engine.Reserve(userID, CreditQuote{
+	_, err = h.engine.Reserve(userID, CreditQuote{
 		JobID:    jobID,
 		TaskType: taskType,
 		Model:    modelName,

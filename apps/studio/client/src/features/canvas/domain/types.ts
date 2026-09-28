@@ -77,6 +77,7 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   jobProgress?: number;
   /** Waiting for a submission slot; no server job has been accepted yet. */
   generationQueued?: boolean;
+  generationNotice?: string;
   model?: string;
   videoProvider?: "openai" | "seedance";
   size?: string;
@@ -113,6 +114,18 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   audioFormat?: string;
   audioSpeed?: string;
   audioInstructions?: string;
+  /** Original server-owned text/audio attempt, safe to retrieve after refresh. */
+  generationReceipt?: import("./generationReceipt").CanvasGenerationReceipt;
+  /** Original prompt-edit response; independent from text/audio node generation. */
+  promptOptimizationReceipt?: import("./promptOptimizationReceipt").CanvasPromptOptimizationReceipt;
+  /** Binary audio result retained in IndexedDB until asset upload succeeds. */
+  pendingAudioUpload?: {
+    key: string;
+    fileName: string;
+    contentType: string;
+    bytes: number;
+    createdAt: string;
+  };
   isBatchRoot?: boolean;
   batchChildIds?: string[];
   batchRootId?: string;

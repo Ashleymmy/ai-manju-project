@@ -20,8 +20,12 @@ STORAGE_ROLE = "studio_storage_service"
 TOKEN_MAX_LIFETIME = 300
 TRANSFER_CHUNK_BYTES = 1024 * 1024
 REQUEST_TIMEOUT = 120
-# Reference links remain valid for one full media submission/polling window.
-REFERENCE_URL_LIFETIME = 15 * 60
+# Reference links must outlive the worker's provider polling window.  A
+# provider may acknowledge a task before it fetches every input URL, so an
+# exact 15-minute lifetime (the old value) could expire during a slow submit
+# or at the polling deadline.  Keep a bounded buffer while staying below the
+# Storage service's practical one-hour signing limit.
+REFERENCE_URL_LIFETIME = 20 * 60
 
 
 def _secret(name: str) -> str:

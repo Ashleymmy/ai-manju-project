@@ -32,6 +32,7 @@ import { DashboardPanel } from "./DashboardPanel";
 import { InvitesPanel } from "./InvitesPanel";
 import { MemberUsersPanel } from "./MemberUsersPanel";
 import { MonitoringPanel } from "./MonitoringPanel";
+import { GenerationRecoveryPanel } from "./GenerationRecoveryPanel";
 import { OrdersPanel } from "./OrdersPanel";
 import { PlansConfigPanel } from "./PlansConfigPanel";
 import { ModelPricesPanel } from "./ModelPricesPanel";
@@ -118,6 +119,7 @@ export default function AdminWorkspaceView() {
         queryClient.invalidateQueries({ queryKey: ["admin", "usage-report"] }),
         queryClient.invalidateQueries({ queryKey: ["admin", "cost-rates"] }),
         queryClient.invalidateQueries({ queryKey: ["admin", "model-prices"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "generation-recovery"] }),
         plansConfigController.reload(),
         dashboardController.reload(),
         invitesController.reload(),
@@ -185,7 +187,10 @@ export default function AdminWorkspaceView() {
             <AnnouncementsPanel controller={announcementsController} />
           ) : null}
           {tab === "monitoring" ? (
-            <MonitoringPanel controller={monitoringController} />
+            <>
+              <GenerationRecoveryPanel role={user?.role} />
+              <MonitoringPanel controller={monitoringController} />
+            </>
           ) : null}
           {tab === "seedance" ? (
             <SeedanceAssetsPanel controller={seedanceController} />

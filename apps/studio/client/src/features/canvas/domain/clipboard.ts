@@ -30,8 +30,14 @@ export type CanvasClipboardPayload<TNode extends CanvasClipboardNode, TEdge exte
 // 让单节点副本与原节点错开，便于直接选中和拖动。
 const CANVAS_NODE_DUPLICATE_OFFSET = 36;
 
+/** Recovery and upload receipts belong to one node identity, never its copies. */
+export const CANVAS_CLONE_EXECUTION_IDENTITY_KEYS = [
+  "generationReceipt", "pendingAudioUpload", "promptOptimizationReceipt",
+] as const;
+
 // 副本保留内容和生成参数，但不能控制原节点的任务或批次。
 const CANVAS_NODE_DUPLICATE_DETACHED_KEYS = [
+  ...CANVAS_CLONE_EXECUTION_IDENTITY_KEYS,
   "sourceNodeId", "batchRootId", "batchChildIds", "isBatchRoot", "batchModelV2",
   "batchStatus", "batchErrorDetails", "primaryImageId", "ownAssetId", "ownImageSrc",
   "imageBatchExpanded", "jobId", "jobProgress",
@@ -135,6 +141,7 @@ export function pasteCanvasClipboard<TNode extends CanvasClipboardNode, TEdge ex
 function remapCanvasClipboardMetadata(metadata: Record<string, unknown> | undefined, idMap: ReadonlyMap<string, string>) {
   if (!metadata) return metadata;
   const next = structuredClone(metadata);
+  for (const key of CANVAS_CLONE_EXECUTION_IDENTITY_KEYS) delete next[key];
   for (const key of ["sourceNodeId", "batchRootId", "primaryImageId"]) {
     const value = next[key];
     if (typeof value !== "string") continue;

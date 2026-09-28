@@ -47,6 +47,8 @@ import {
   renameComicProject,
 } from "../controllers/project";
 import { analyzeComicSource, type ComicSourceResult } from "../controllers/source";
+import { useComicViewContext } from "../controllers/useComicViewContext";
+import { comicRetainedCandidate, type ComicRetainedCandidate } from "../controllers/operationRecovery";
 import {
   COMIC_CLASS_LABELS,
   COMIC_DEFAULT_ANALYSIS_MODEL,
@@ -71,6 +73,8 @@ import {
 } from "../model/workflow";
 import { ComicCreateDialog } from "./ComicCreateDialog";
 import { ComicBatchPanel } from "./ComicBatchPanel";
+import { ComicRetainedResult } from "./ComicRetainedResult";
+import { ComicAnalysisHistory } from "./ComicAnalysisHistory";
 
 function SurfaceTitle({ eyebrow, title, description, actions }: { eyebrow: string; title: string; description: string; actions?: React.ReactNode }) {
   return <div className="feature-title"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>{actions}</div>;
@@ -79,9 +83,11 @@ function SurfaceTitle({ eyebrow, title, description, actions }: { eyebrow: strin
 export function ComicAssetsView() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [scope, setScope] = useState<WorkspaceScope>("personal");
+  const [viewGeneration, setViewGeneration] = useState(0);
   const [stage, setStage] = useState(1);
   const [projectDetail, setProjectDetail] = useState<ComicProjectDetail | null>(null);
   const [analysis, setAnalysis] = useState<ComicAnalysisDetail | null>(null);
+  const [retainedCandidate, setRetainedCandidate] = useState<ComicRetainedCandidate | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [fileName, setFileName] = useState("");
   const [title, setTitle] = useState("");
@@ -120,6 +126,52 @@ export function ComicAssetsView() {
   const [assetFilterKeyword, setAssetFilterKeyword] = useState("");
   const [editingAssetId, setEditingAssetId] = useState("");
   const [assetDraft, setAssetDraft] = useState<ComicAssetDraft | null>(null);
+  const currentProjectId = useRef(projectDetail?.project.id);
+  currentProjectId.current = projectDetail?.project.id;
+  // Switching projects invalidates old UI callbacks, while server work keeps
+  // running and its durable receipt remains available in the original context.
+  const { captureView, invalidateView } = useComicViewContext();
+  // Editing can change inside one project while a template request is pending.
+  const { captureView: captureEditor, invalidateView: invalidateEditor } = useComicViewContext();
+  const pendingPrompts = useRef(new Map<symbol, { label: string; isCurrent: () => boolean }>());
+  const updatePromptBusy = () => {
+    for (const [id, pending] of pendingPrompts.current) {
+      if (!pending.isCurrent()) pendingPrompts.current.delete(id);
+    }
+    setPromptBusy([...pendingPrompts.current.values()].at(-1)?.label || "");
+  };
+  const startPromptOperation = (label: string) => {
+    const isViewCurrent = captureView();
+    const projectId = currentProjectId.current;
+    const isCurrent = () => isViewCurrent() && currentProjectId.current === projectId;
+    const id = Symbol(label);
+    pendingPrompts.current.set(id, { label, isCurrent });
+    updatePromptBusy();
+    return { isCurrent, finish: () => {
+      pendingPrompts.current.delete(id);
+      if (isCurrent()) updatePromptBusy();
+    } };
+  };
+  const leaveCurrentView = () => {
+    invalidateView();
+    setViewGeneration(value => value + 1);
+    invalidateEditor();
+    pendingPrompts.current.clear();
+    setRetainedCandidate(null);
+    setBusy(false);
+    setPromptBusy("");
+    setIsParsingScript(false);
+    setEditingAssetId("");
+    setAssetDraft(null);
+  };
+  const switchScope = (next: WorkspaceScope) => {
+    if (scope === next) return;
+    leaveCurrentView();
+    setScope(next);
+    setProjectDetail(null); setAnalysis(null); setBatchDetail(null);
+    setSelected([]); setReferenceAssets([]); setEditingAssetId("");
+    setCreateDialogOpen(false); setStage(1);
+  };
 
   const projectsQuery = useComicProjectsQuery(scope);
   const textModelsQuery = useComicTextModelsQuery();
@@ -154,12 +206,13 @@ export function ComicAssetsView() {
   const selectedProjectAssets = projectAssets.filter((asset) => selected.includes(asset.id));
 
   const reloadProjects = useCallback(async () => {
+    const isCurrent = captureView();
     const result = await projectsQuery.refetch();
-    if (result.error) {
+    if (isCurrent() && result.error) {
       const error = result.error;
       toast.error(publicApiError(error, "读取漫剧项目失败"));
     }
-  }, [projectsQuery.refetch]);
+  }, [projectsQuery.refetch, captureView]);
 
   useEffect(() => {
     if (projectsQuery.error)
@@ -193,13 +246,17 @@ export function ComicAssetsView() {
     setSelected((items) => items.includes(id) ? items.filter((item) => item !== id) : [...items, id]);
   };
 
-  const applySourceResult = async (result: ComicSourceResult) => {
+  const applySourceResult = async (result: ComicSourceResult, isCurrent: () => boolean) => {
+    if (!isCurrent()) return;
+    setBatchDetail(null);
+    setReferenceAssets([]);
     if (result.kind === "project") {
       setProjectDetail(result.detail);
       setAnalysis(null);
       setSelected(result.detail.assets.map(asset => asset.id));
       setStage(3);
       await reloadProjects();
+      if (!isCurrent()) return;
       toast.success(`已从资产表导入 ${result.importedCount} 项资产`);
       return;
     }
@@ -223,6 +280,7 @@ export function ComicAssetsView() {
     if (extension !== "xlsx" && !instruction.trim())
       return toast.error("请填写首次分析方向");
 
+    const isCurrent = captureView();
     setBusy(true);
     try {
       const result = await analyzeComicSource({
@@ -233,16 +291,17 @@ export function ComicAssetsView() {
         model,
         scope,
       });
-      await applySourceResult(result);
+      await applySourceResult(result, isCurrent);
     } catch (error) {
-      toast.error(publicApiError(error, "剧本分析失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "剧本分析失败"));
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   };
 
   const revise = async () => {
     if (!analysis || !activeRevision || !revisionInstruction.trim()) return;
+    const isCurrent = captureView();
     setBusy(true);
     try {
       const detail = await reviseComicAnalysis(
@@ -252,18 +311,23 @@ export function ComicAssetsView() {
         model,
         scope
       );
+      if (!isCurrent()) return;
       setAnalysis(detail);
       setRevisionInstruction("");
       toast.success("已生成新的分析版本");
     } catch (error) {
-      toast.error(publicApiError(error, "再次分析失败"));
+      if (isCurrent()) {
+        setRetainedCandidate(comicRetainedCandidate(error) || null);
+        toast.error(publicApiError(error, "再次分析失败"));
+      }
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   };
 
   const switchRevision = async (revisionId: string) => {
     if (!analysis || analysis.session.active_revision_id === revisionId) return;
+    const isCurrent = captureView();
     setBusy(true);
     try {
       const detail = await activateComicAnalysisRevision(
@@ -271,85 +335,106 @@ export function ComicAssetsView() {
         revisionId,
         scope
       );
+      if (!isCurrent()) return;
       setAnalysis(detail);
       toast.success("已切换活跃分析版本");
     } catch (error) {
-      toast.error(publicApiError(error, "切换分析版本失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "切换分析版本失败"));
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   };
 
   const confirm = async () => {
     if (!analysis || !activeRevision) return;
+    const isCurrent = captureView();
     setBusy(true);
     try {
       const detail = await confirmComicAnalysis(analysis, activeRevision, scope);
+      if (!isCurrent()) return;
       setProjectDetail(detail);
+      setBatchDetail(null);
       setSelected(detail.assets.map((asset) => asset.id));
       setStage(3);
       await reloadProjects();
+      if (!isCurrent()) return;
       toast.success("分析版本已确认并创建项目");
     } catch (error) {
-      toast.error(publicApiError(error, "确认分析失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "确认分析失败"));
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   };
 
   const openProject = async (projectId: string) => {
     if (!projectId) return;
+    leaveCurrentView();
+    setProjectDetail(null); setAnalysis(null); setBatchDetail(null);
+    setSelected([]); setEditingAssetId(""); setReferenceAssets([]);
+    const isCurrent = captureView();
     setBusy(true);
     try {
       const detail = await loadComicProject(projectId, scope);
+      if (!isCurrent()) return;
       setProjectDetail(detail);
       setAnalysis(null);
       setSelected(detail.assets.map((item) => item.id));
       setEditingAssetId("");
       setStage(3);
-      void loadLatestBatch(detail.project.id);
     } catch (error) {
-      toast.error(publicApiError(error, "读取漫剧项目失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "读取漫剧项目失败"));
     } finally {
-      setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   };
 
   const renameProject = async (project: ComicAssetProject) => {
     const nextTitle = window.prompt("项目名称", project.title)?.trim();
     if (!nextTitle || nextTitle === project.title) return;
+    const isCurrent = captureView();
     try {
       await renameComicProject(project.id, nextTitle, scope);
+      if (!isCurrent()) return;
       await reloadProjects();
+      if (!isCurrent()) return;
       if (projectDetail?.project.id === project.id) await refreshProjectDetail(project.id);
+      if (!isCurrent()) return;
       toast.success("项目已重命名");
     } catch (error) {
-      toast.error(publicApiError(error, "重命名项目失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "重命名项目失败"));
     }
   };
 
   const removeProject = async (project: ComicAssetProject) => {
     if (!window.confirm(`删除项目“${project.title}”及其全部资产？此操作不可恢复。`)) return;
+    const isCurrent = captureView();
     try {
       await removeComicProject(project.id, scope);
+      if (!isCurrent()) return;
       if (projectDetail?.project.id === project.id) {
+        leaveCurrentView();
         setProjectDetail(null);
+        setAnalysis(null);
         setBatchDetail(null);
+        setSelected([]);
         setStage(1);
       }
+      const isReloadCurrent = captureView();
       await reloadProjects();
-      toast.success("项目已删除");
+      if (isReloadCurrent()) toast.success("项目已删除");
     } catch (error) {
-      toast.error(publicApiError(error, "删除项目失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "删除项目失败"));
     }
   };
 
   const downloadSource = async (project: ComicAssetProject) => {
+    const isCurrent = captureView();
     try {
       const { blob, fileName: sourceName } = await downloadComicSource(
         project,
         scope
       );
+      if (!isCurrent()) return;
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -357,24 +442,28 @@ export function ComicAssetsView() {
       anchor.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
     } catch (error) {
-      toast.error(publicApiError(error, "下载剧本源文件失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "下载剧本源文件失败"));
     }
   };
 
   const loadLatestBatch = useCallback(async (projectId: string) => {
+    const isCurrent = captureView("batch-snapshot");
     try {
-      setBatchDetail(await loadLatestComicBatch(projectId, scope));
+      const detail = await loadLatestComicBatch(projectId, scope);
+      if (isCurrent() && currentProjectId.current === projectId && (!detail || detail.batch.project_id === projectId)) setBatchDetail(detail);
     } catch (error) {
-      toast.error(publicApiError(error, "读取生成批次失败"));
+      if (isCurrent() && currentProjectId.current === projectId) toast.error(publicApiError(error, "读取生成批次失败"));
     }
-  }, [scope]);
+  }, [scope, captureView]);
 
   const refreshProjectDetail = useCallback(async (projectId = projectDetail?.project.id || "") => {
     if (!projectId) return;
+    const isCurrent = captureView("project-read");
     const detail = await loadComicProject(projectId, scope);
-    setProjectDetail(detail);
+    if (!isCurrent() || currentProjectId.current !== projectId || detail.project.id !== projectId) return;
+    setProjectDetail(current => current?.project.id === projectId ? detail : current);
     setSelected((items) => items.length ? items.filter((id) => detail.assets.some((asset) => asset.id === id)) : detail.assets.map((asset) => asset.id));
-  }, [projectDetail?.project.id, scope]);
+  }, [projectDetail?.project.id, scope, captureView]);
 
   useEffect(() => {
     if (projectDetail?.project.id) void loadLatestBatch(projectDetail.project.id);
@@ -393,46 +482,59 @@ export function ComicAssetsView() {
   ]);
 
   const mergeAsset = (asset: ComicAsset) => {
-    setProjectDetail((detail) => detail ? { ...detail, assets: detail.assets.map((item) => item.id === asset.id ? asset : item) } : detail);
+    setProjectDetail((detail) => detail?.project.id === asset.project_id ? { ...detail, assets: detail.assets.map((item) => item.id === asset.id ? asset : item) } : detail);
   };
 
   const beginEditAsset = (asset: ComicAsset) => {
+    invalidateEditor();
     setEditingAssetId(asset.id);
     setAssetDraft(comicAssetDraft(asset));
   };
 
+  const closeAssetEditor = () => {
+    invalidateEditor();
+    setEditingAssetId("");
+    setAssetDraft(null);
+  };
+  const changeAssetDraft = (update: (draft: ComicAssetDraft) => ComicAssetDraft) => {
+    invalidateEditor();
+    setAssetDraft(draft => draft ? update(draft) : draft);
+  };
+
   const saveAssetDraft = async (asset: ComicAsset, approve: boolean) => {
     if (!projectDetail || !assetDraft) return;
-    setPromptBusy(asset.id + "edit");
+    const { isCurrent, finish } = startPromptOperation(asset.id + "edit");
+    const isEditorCurrent = captureEditor();
     try {
-      mergeAsset(
-        await saveComicAssetDraft(
-          projectDetail.project.id,
-          asset,
-          assetDraft,
-          approve,
-          scope
-        )
+      const saved = await saveComicAssetDraft(
+        projectDetail.project.id,
+        asset,
+        assetDraft,
+        approve,
+        scope
       );
-      setEditingAssetId("");
-      setAssetDraft(null);
+      if (!isCurrent()) return;
+      mergeAsset(saved);
+      if (isEditorCurrent()) closeAssetEditor();
       toast.success(approve ? "资产已保存并确认提示词" : "资产草稿已保存");
     } catch (error) {
-      toast.error(publicApiError(error, "保存资产失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "保存资产失败"));
     } finally {
-      setPromptBusy("");
+      finish();
     }
   };
 
   const previewTemplate = async (asset: ComicAsset) => {
     if (!projectDetail) return;
-    setPromptBusy(asset.id + "preview");
+    const { isCurrent, finish } = startPromptOperation(asset.id + "preview");
+    const isEditorCurrent = captureEditor();
     try {
       const preview = await loadComicPromptTemplate(
         projectDetail.project.id,
         asset.id,
         scope
       );
+      if (!isCurrent() || !isEditorCurrent()) return;
       if (editingAssetId === asset.id) {
         setAssetDraft((draft) => draft ? { ...draft, prompt: preview.template || draft.prompt } : draft);
         toast.success("模板提示词已填入编辑框");
@@ -444,9 +546,9 @@ export function ComicAssetsView() {
       preview.warnings?.forEach((warning) => toast.warning(warning));
       preview.blockers?.forEach((blocker) => toast.error(blocker));
     } catch (error) {
-      toast.error(publicApiError(error, "生成模板提示词失败"));
+      if (isCurrent() && isEditorCurrent()) toast.error(publicApiError(error, "生成模板提示词失败"));
     } finally {
-      setPromptBusy("");
+      finish();
     }
   };
 
@@ -454,6 +556,8 @@ export function ComicAssetsView() {
     if (!projectDetail) return;
     const name = window.prompt("新资产名称")?.trim();
     if (!name) return;
+    const isCurrent = captureView();
+    const isEditorCurrent = captureEditor();
     try {
       const created = await createComicProjectAsset(
         projectDetail.project.id,
@@ -461,34 +565,39 @@ export function ComicAssetsView() {
         assetFilterClass || "character",
         scope
       );
-      setProjectDetail((detail) => detail ? { ...detail, assets: [...detail.assets, created] } : detail);
-      beginEditAsset(created);
+      if (!isCurrent() || currentProjectId.current !== projectDetail.project.id) return;
+      setProjectDetail((detail) => detail?.project.id === created.project_id ? { ...detail, assets: [...detail.assets, created] } : detail);
+      if (isEditorCurrent()) beginEditAsset(created);
       toast.success("资产已创建，请补全设定与提示词");
     } catch (error) {
-      toast.error(publicApiError(error, "创建资产失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "创建资产失败"));
     }
   };
 
   const removeAsset = async (asset: ComicAsset) => {
     if (!projectDetail || !window.confirm(`删除资产“${asset.name}”？`)) return;
+    const isCurrent = captureView();
+    const isEditorCurrent = captureEditor();
     try {
       await removeComicProjectAsset(
         projectDetail.project.id,
         asset.id,
         scope
       );
+      if (!isCurrent() || currentProjectId.current !== projectDetail.project.id) return;
       setProjectDetail((detail) => detail ? { ...detail, assets: detail.assets.filter((item) => item.id !== asset.id) } : detail);
       setSelected((items) => items.filter((id) => id !== asset.id));
+      if (isEditorCurrent() && editingAssetId === asset.id) closeAssetEditor();
       toast.success("资产已删除");
     } catch (error) {
-      toast.error(publicApiError(error, "删除资产失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "删除资产失败"));
     }
   };
 
   const optimizeAssetPrompt = async (asset: ComicAsset, operation: "optimize" | "merge") => {
     if (!projectDetail) return;
     if (!optimizeDirection.trim()) return toast.error("请先填写优化方向");
-    setPromptBusy(asset.id + operation);
+    const { isCurrent, finish } = startPromptOperation(asset.id + operation);
     try {
       const result = await optimizeComicAssetPrompt(
         projectDetail.project.id,
@@ -498,12 +607,16 @@ export function ComicAssetsView() {
         operation,
         scope
       );
+      if (!isCurrent()) return;
       mergeAsset(result.asset);
       toast.success(operation === "merge" ? "已生成融合提示词草稿" : "已生成 AI 优化草稿");
     } catch (error) {
-      toast.error(publicApiError(error, "优化提示词失败"));
+      if (isCurrent()) {
+        setRetainedCandidate(comicRetainedCandidate(error) || null);
+        toast.error(publicApiError(error, "优化提示词失败"));
+      }
     } finally {
-      setPromptBusy("");
+      finish();
     }
   };
 
@@ -511,20 +624,20 @@ export function ComicAssetsView() {
     if (!projectDetail) return;
     const content = asset.draft_prompt || asset.approved_prompt || asset.source_prompt;
     if (!content.trim()) return toast.error("此资产没有可批准的提示词");
-    setPromptBusy(asset.id + "approve");
+    const { isCurrent, finish } = startPromptOperation(asset.id + "approve");
     try {
-      mergeAsset(
-        await approveComicAssetPrompt(
-          projectDetail.project.id,
-          asset,
-          scope
-        )
+      const approved = await approveComicAssetPrompt(
+        projectDetail.project.id,
+        asset,
+        scope
       );
+      if (!isCurrent()) return;
+      mergeAsset(approved);
       toast.success("提示词已确认");
     } catch (error) {
-      toast.error(publicApiError(error, "确认提示词失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "确认提示词失败"));
     } finally {
-      setPromptBusy("");
+      finish();
     }
   };
 
@@ -534,13 +647,14 @@ export function ComicAssetsView() {
       .filter((asset) => asset.prompt_status !== "approved")
       .map((asset) => ({ asset_id: asset.id, expected_prompt_version: asset.prompt_version }));
     if (!approvals.length) return toast.info("当前选中资产都已经确认");
-    setPromptBusy("bulk-approve");
+    const { isCurrent, finish } = startPromptOperation("bulk-approve");
     try {
       const result = await approveComicAssetPrompts(
         projectDetail.project.id,
         selectedProjectAssets,
         scope
       );
+      if (!isCurrent()) return;
       const okAssets = result.results.flatMap((item) => item.asset ? [item.asset] : []);
       setProjectDetail((detail) => detail ? {
         ...detail,
@@ -548,9 +662,9 @@ export function ComicAssetsView() {
       } : detail);
       toast.success(`批量确认完成：${result.results.filter((item) => item.ok).length} 成功，${result.results.filter((item) => !item.ok).length} 失败`);
     } catch (error) {
-      toast.error(publicApiError(error, "批量确认提示词失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "批量确认提示词失败"));
     } finally {
-      setPromptBusy("");
+      finish();
     }
   };
 
@@ -560,7 +674,8 @@ export function ComicAssetsView() {
     if (!approved.length) return toast.error("请先选择已确认提示词的资产");
     if (!generationModel) return toast.error("请先选择图像模型");
     if (destinationMode === "custom" && !destinationFolderId) return toast.error("请选择落库目录，或切回自动归档");
-    setPromptBusy("batch-create");
+    const { isCurrent, finish } = startPromptOperation("batch-create");
+    const isBatchCurrent = captureView("batch-snapshot");
     try {
       const detail = await createComicGenerationBatch(
         projectDetail.project.id,
@@ -579,59 +694,61 @@ export function ComicAssetsView() {
         },
         scope
       );
+      if (!isCurrent() || !isBatchCurrent() || detail.batch.project_id !== projectDetail.project.id) return;
       setBatchDetail(detail);
       toast.success("批量生成已创建，关闭页面不影响执行");
     } catch (error) {
-      toast.error(publicApiError(error, "创建批量生成失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "创建批量生成失败"));
     } finally {
-      setPromptBusy("");
+      finish();
     }
   };
 
   const controlBatch = async (action: "pause" | "resume" | "stop") => {
     if (!batchDetail) return;
-    setPromptBusy("batch-control");
+    const { isCurrent, finish } = startPromptOperation("batch-control");
+    const isBatchCurrent = captureView("batch-snapshot");
     try {
-      setBatchDetail(
-        await changeComicBatchState(batchDetail.batch.id, action, scope)
-      );
+      const detail = await changeComicBatchState(batchDetail.batch.id, action, scope);
+      if (isCurrent() && isBatchCurrent() && detail.batch.id === batchDetail.batch.id) setBatchDetail(detail);
     } catch (error) {
-      toast.error(publicApiError(error, "控制批次失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "控制批次失败"));
     } finally {
-      setPromptBusy("");
+      finish();
     }
   };
 
   const retryBatchItem = async (itemId: string) => {
     if (!batchDetail) return;
-    setPromptBusy("batch-retry-item");
+    const { isCurrent, finish } = startPromptOperation("batch-retry-item");
+    const isBatchCurrent = captureView("batch-snapshot");
     try {
-      setBatchDetail(
-        await retryComicGenerationItem(
-          batchDetail.batch.id,
-          itemId,
-          scope
-        )
+      const detail = await retryComicGenerationItem(
+        batchDetail.batch.id,
+        itemId,
+        scope
       );
+      if (!isCurrent() || !isBatchCurrent() || detail.batch.id !== batchDetail.batch.id) return;
+      setBatchDetail(detail);
       toast.success("已重新排队该资产");
     } catch (error) {
-      toast.error(publicApiError(error, "重试该资产失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "重试该资产失败"));
     } finally {
-      setPromptBusy("");
+      finish();
     }
   };
 
   const retryFailedBatch = async () => {
     if (!batchDetail) return;
-    setPromptBusy("batch-retry");
+    const { isCurrent, finish } = startPromptOperation("batch-retry");
+    const isBatchCurrent = captureView("batch-snapshot");
     try {
-      setBatchDetail(
-        await retryFailedComicGenerationItems(batchDetail.batch.id, scope)
-      );
+      const detail = await retryFailedComicGenerationItems(batchDetail.batch.id, scope);
+      if (isCurrent() && isBatchCurrent() && detail.batch.id === batchDetail.batch.id) setBatchDetail(detail);
     } catch (error) {
-      toast.error(publicApiError(error, "重试失败项失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "重试失败项失败"));
     } finally {
-      setPromptBusy("");
+      finish();
     }
   };
 
@@ -644,6 +761,7 @@ export function ComicAssetsView() {
   };
 
   const handleCreateProject = () => {
+    leaveCurrentView();
     setCreateDialogOpen(true);
     setNewProjectTitle("");
     setNewProjectStylePreset("");
@@ -665,31 +783,35 @@ export function ComicAssetsView() {
       if (!/\.(docx|txt|md)$/i.test(sourceFile!.name)) return toast.error("请选择 DOCX、TXT 或 MD 剧本");
     }
     if (creationMode === "import" && !/\.xlsx$/i.test(sourceFile!.name)) return toast.error("请选择 XLSX 资产表");
+    const isCurrent = captureView();
     setIsParsingScript(true);
     setBusy(true);
     try {
       if (creationMode === "empty") {
         await createEmptyComicProject({ title: newProjectTitle, stylePreset: newProjectStylePreset }, scope);
+        if (!isCurrent()) return;
         await reloadProjects();
+        if (!isCurrent()) return;
         toast.success("项目创建成功");
       } else {
         const result = await analyzeComicSource({
           file: sourceFile!, title: newProjectTitle, stylePreset: newProjectStylePreset,
           instruction: newProjectInstruction, model: newProjectAnalysisModel, scope,
         });
+        if (!isCurrent()) return;
         setTitle(newProjectTitle);
         setStylePreset(newProjectStylePreset);
         setInstruction(newProjectInstruction);
         setModel(newProjectAnalysisModel);
         setFileName(sourceFile!.name);
-        await applySourceResult(result);
+        await applySourceResult(result, isCurrent);
       }
+      if (!isCurrent()) return;
       setCreateDialogOpen(false);
     } catch (error) {
-      toast.error(publicApiError(error, "创建项目失败"));
+      if (isCurrent()) toast.error(publicApiError(error, "创建项目失败"));
     } finally {
-      setIsParsingScript(false);
-      setBusy(false);
+      if (isCurrent()) { setIsParsingScript(false); setBusy(false); }
     }
   };
 
@@ -697,9 +819,21 @@ export function ComicAssetsView() {
     ? <button className="vermilion-button" disabled={busy} onClick={() => void analyze()}>{busy ? "分析中…" : "开始分析"} <ChevronRight size={16} /></button>
     : stage === 2
       ? <button className="vermilion-button" disabled={busy || !analysis} onClick={() => void confirm()}>确认当前版本 <Check size={16} /></button>
-      : <button className="vermilion-button" onClick={() => setStage(1)}><Plus size={16} /> 新建分析</button>;
+      : <button className="vermilion-button" onClick={() => { leaveCurrentView(); setStage(1); }}><Plus size={16} /> 新建分析</button>;
 
   return <div className="feature-page comic-page">
+    <ComicAnalysisHistory key={`${viewGeneration}:${scope}:${projectDetail?.project.id || ""}:${analysis?.session.id || ""}`} scope={scope} onRecovered={async (detail, signal) => {
+      const isCurrent = captureView("analysis-history");
+      const project = detail.session.status === "confirmed" && detail.session.project_id
+        ? await loadComicProject(detail.session.project_id, scope) : null;
+      if (!isCurrent() || signal.aborted) return;
+      leaveCurrentView();
+      setBatchDetail(null); setReferenceAssets([]); setEditingAssetId(""); setAssetDraft(null);
+      setProjectDetail(project); setAnalysis(project ? null : detail);
+      setSelected(project ? project.assets.map(asset => asset.id) : (activeComicRevision(detail)?.candidate.assets.map(asset => asset.name) || []));
+      setStage(project ? 3 : 2);
+    }} />
+    {retainedCandidate && <ComicRetainedResult candidate={retainedCandidate} onClose={() => setRetainedCandidate(null)} />}
     <input ref={fileInputRef} hidden type="file" accept=".txt,.md,.docx,.xlsx,text/plain,text/markdown" onChange={(event) => setFileName(event.target.files?.[0]?.name || "")} />
 
     <div className="comic-hero-header">
@@ -708,9 +842,9 @@ export function ComicAssetsView() {
         <h1>资产助手</h1>
         <p className="comic-hero-description">可从剧本、四 Sheet 资产表或空项目开始；候选资产确认入库后，再处理提示词并创建服务端后台批次。关闭页面不会中断已创建的任务。</p>
         <div className="comic-hero-actions">
-          <button className={`comic-tab-button ${scope === "personal" ? "active" : ""}`} onClick={() => setScope("personal")}>个人空间</button>
+          <button className={`comic-tab-button ${scope === "personal" ? "active" : ""}`} onClick={() => switchScope("personal")}>个人空间</button>
           {/* 暂时隐藏"团队空间"标签按钮（全局隐藏），恢复时取消注释
-          <button className={`comic-tab-button ${scope === "team" ? "active" : ""}`} onClick={() => setScope("team")}>团队空间</button>
+          <button className={`comic-tab-button ${scope === "team" ? "active" : ""}`} onClick={() => switchScope("team")}>团队空间</button>
           */}
           <button className="create-button" onClick={handleCreateProject}><Plus size={16} /> 新建资产项目</button>
         </div>
@@ -846,7 +980,7 @@ export function ComicAssetsView() {
               <div><b>{asset.name}</b><small>{COMIC_CLASS_LABELS[asset.class] || asset.class} · {asset.state || "未设置"} · prompt v{asset.prompt_version}</small>{!editing && <p>{asset.draft_prompt || asset.approved_prompt || asset.source_prompt || "暂无提示词"}</p>}</div>
               <span className={`status-chip ${asset.prompt_status === "approved" ? "succeeded" : "queued"}`}>{asset.prompt_status}</span>
               <div className="comic-row-actions">
-                <button onClick={() => editing ? (setEditingAssetId(""), setAssetDraft(null)) : beginEditAsset(asset)} disabled={Boolean(promptBusy)}>{editing ? <X size={14} /> : <Pencil size={14} />} {editing ? "取消" : "编辑"}</button>
+                <button onClick={() => editing ? closeAssetEditor() : beginEditAsset(asset)} disabled={Boolean(promptBusy)}>{editing ? <X size={14} /> : <Pencil size={14} />} {editing ? "取消" : "编辑"}</button>
                 <button onClick={() => void previewTemplate(asset)} disabled={Boolean(promptBusy)}><FileText size={14} /> 模板</button>
                 <button onClick={() => void optimizeAssetPrompt(asset, "optimize")} disabled={Boolean(promptBusy)}><Sparkles size={14} /> 优化</button>
                 <button onClick={() => void optimizeAssetPrompt(asset, "merge")} disabled={Boolean(promptBusy)}><Plus size={14} /> 融合</button>
@@ -855,12 +989,12 @@ export function ComicAssetsView() {
               </div>
               {editing && <div className="comic-asset-editor">
                 <div className="comic-asset-editor-grid">
-                  <label>名称<input value={assetDraft.name} onChange={(event) => setAssetDraft((draft) => draft ? { ...draft, name: event.target.value } : draft)} /></label>
-                  <label>状态 / 版本<input value={assetDraft.state} onChange={(event) => setAssetDraft((draft) => draft ? { ...draft, state: event.target.value } : draft)} /></label>
-                  <label>类别<select value={assetDraft.class} onChange={(event) => setAssetDraft((draft) => draft ? { ...draft, class: event.target.value as ComicAssetClass } : draft)}>{(Object.keys(COMIC_CLASS_LABELS) as ComicAssetClass[]).map((item) => <option key={item} value={item}>{COMIC_CLASS_LABELS[item]}</option>)}</select></label>
+                  <label>名称<input value={assetDraft.name} onChange={(event) => changeAssetDraft(draft => ({ ...draft, name: event.target.value }))} /></label>
+                  <label>状态 / 版本<input value={assetDraft.state} onChange={(event) => changeAssetDraft(draft => ({ ...draft, state: event.target.value }))} /></label>
+                  <label>类别<select value={assetDraft.class} onChange={(event) => changeAssetDraft(draft => ({ ...draft, class: event.target.value as ComicAssetClass }))}>{(Object.keys(COMIC_CLASS_LABELS) as ComicAssetClass[]).map((item) => <option key={item} value={item}>{COMIC_CLASS_LABELS[item]}</option>)}</select></label>
                 </div>
-                <label>视觉设定<textarea value={assetDraft.visual_description} onChange={(event) => setAssetDraft((draft) => draft ? { ...draft, visual_description: event.target.value } : draft)} /></label>
-                <label>提示词（手动编辑）<textarea className="comic-prompt-editor" value={assetDraft.prompt} onChange={(event) => setAssetDraft((draft) => draft ? { ...draft, prompt: event.target.value } : draft)} /></label>
+                <label>视觉设定<textarea value={assetDraft.visual_description} onChange={(event) => changeAssetDraft(draft => ({ ...draft, visual_description: event.target.value }))} /></label>
+                <label>提示词（手动编辑）<textarea className="comic-prompt-editor" value={assetDraft.prompt} onChange={(event) => changeAssetDraft(draft => ({ ...draft, prompt: event.target.value }))} /></label>
                 <div className="comic-editor-actions"><button className="outline-button small" disabled={promptBusy === asset.id + "edit"} onClick={() => void saveAssetDraft(asset, false)}>保存草稿</button><button className="vermilion-button" disabled={promptBusy === asset.id + "edit"} onClick={() => void saveAssetDraft(asset, true)}><Check size={14} /> 保存并确认</button></div>
               </div>}
             </article>;

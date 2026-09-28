@@ -50,6 +50,7 @@ class FakeStore:
         self.final_errors: list[dict[str, Any]] = []
         self.results: list[dict[str, Any]] = []
         self.waiting_provider_count = 0
+        self.retry_deadlines: list[int] = []
 
     @contextmanager
     def job_lock(self, job_id: str):
@@ -58,23 +59,28 @@ class FakeStore:
     def get_job(self, job_id: str) -> dict[str, Any]:
         return self.job
 
-    def mark_running(self, job_id: str, progress: int = 5) -> None:
+    def mark_running(self, job_id: str, progress: int = 5):
         self.job["status"] = "running"
+        return dict(self.job)
 
-    def mark_waiting_provider(self, job_id: str) -> None:
+    def mark_waiting_provider(self, job_id: str, retry_seconds: int = 0) -> None:
         self.waiting_provider_count += 1
+        self.retry_deadlines.append(retry_seconds)
 
     def update_progress(self, job_id: str, progress: int) -> None:
         self.job["progress"] = progress
 
-    def record_retry(self, job_id: str, error: dict[str, Any]) -> None:
+    def record_retry(self, job_id: str, error: dict[str, Any], retry_seconds: int = 0) -> None:
         self.retry_errors.append(error)
+        self.retry_deadlines.append(retry_seconds)
 
     def set_error(self, job_id: str, error: dict[str, Any]) -> None:
         self.final_errors.append(error)
 
-    def set_result(self, job_id: str, result: dict[str, Any]) -> None:
+    def set_result(self, job_id: str, result: dict[str, Any]):
         self.results.append(result)
+        self.job["status"] = "succeeded"
+        return dict(self.job)
 
 
 class TasksTest(unittest.TestCase):
@@ -91,6 +97,7 @@ class TasksTest(unittest.TestCase):
                 with self.assertRaises(RetryCalled):
                     execute_job(FakeTask(10), "job_123", payload, executor, "image")
         self.assertEqual(store.waiting_provider_count, 5)
+        self.assertEqual(store.retry_deadlines, [20] * 5)
         self.assertEqual(store.retry_errors, [])
         self.assertEqual(store.final_errors, [])
         self.assertEqual(gate.release.call_count, 5)
@@ -142,6 +149,7 @@ class TasksTest(unittest.TestCase):
             tasks.provider_gate_from_payload = original_gate_factory
 
         self.assertEqual(fake_store.waiting_provider_count, 1)
+        self.assertEqual(fake_store.retry_deadlines, [3])
         self.assertEqual(fake_store.retry_errors, [])
         self.assertEqual(fake_store.final_errors, [])
 
@@ -164,6 +172,7 @@ class TasksTest(unittest.TestCase):
             tasks.provider_gate_from_payload = original_gate_factory
 
         self.assertEqual(fake_store.waiting_provider_count, 1)
+        self.assertEqual(fake_store.retry_deadlines, [retry_countdown(0)])
         self.assertEqual(fake_store.retry_errors, [])
         self.assertEqual(fake_store.final_errors, [])
 

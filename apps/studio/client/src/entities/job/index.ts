@@ -5,6 +5,7 @@ export {
   cancelJob,
   isTerminalJob,
   jobErrorMessage,
+  jobProgressNotice,
 } from "./api";
 export type {
   JobState,

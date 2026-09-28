@@ -69,7 +69,23 @@ def test_video_submission_uses_fresh_http_signature(signed_input, monkeypatch):
         "kind": "image", "storage_token": key, "url": "http://old.example/expired",
     }]})
     assert asyncio.run(processor._references(record))[0]["url"] == url
-    storage.url.assert_awaited_once_with(key, settings.RESULT_SIGNED_URL_TTL_SECONDS)
+    storage.url.assert_awaited_once_with(key, processor.reference_url_ttl_seconds())
+
+
+def test_reference_ttl_covers_slow_provider_polling(monkeypatch):
+    monkeypatch.setattr(settings, "RESULT_SIGNED_URL_TTL_SECONDS", 60)
+    monkeypatch.setattr(settings, "MODEL_RETURN_WAIT_TIMEOUT_SECONDS", 3600)
+    monkeypatch.setattr(settings, "TASK_POLL_INTERVAL_SECONDS", 10)
+    # Storage caps signing at one hour, so the required 3670 seconds is
+    # bounded while still covering the entire polling window.
+    assert processor.reference_url_ttl_seconds() == 3600
+
+
+def test_reference_ttl_keeps_explicit_longer_value(monkeypatch):
+    monkeypatch.setattr(settings, "RESULT_SIGNED_URL_TTL_SECONDS", 1800)
+    monkeypatch.setattr(settings, "MODEL_RETURN_WAIT_TIMEOUT_SECONDS", 300)
+    monkeypatch.setattr(settings, "TASK_POLL_INTERVAL_SECONDS", 10)
+    assert processor.reference_url_ttl_seconds() == 1800
 
 
 @pytest.mark.parametrize("previous_failure", [False, True])

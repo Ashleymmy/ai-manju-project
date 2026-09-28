@@ -79,6 +79,15 @@ export type {
   NormalizedCanvasAudioGenerationConfig,
 } from "./audioConfig";
 export {
+  browserPendingAudioUploadStore,
+  canvasPendingAudioUploadDescriptor,
+  canvasPendingAudioUploadKey,
+} from "./pendingAudioUpload";
+export type {
+  CanvasPendingAudioUpload,
+  CanvasPendingAudioUploadDescriptor,
+} from "./pendingAudioUpload";
+export {
   buildRoundTripCanvasSnapshot,
   collectRoundTripCanvasEdgeEntries,
   collectRoundTripCanvasEdges,

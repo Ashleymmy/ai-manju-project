@@ -10,7 +10,11 @@ type CachedConversations = { items: VideoWorkbenchConversation[]; draftIds: stri
 const timestamp = (value: number | string | undefined) => typeof value === "number" ? value * 1000 : Date.parse(value || "") || Date.now();
 
 /** 记录级同步；旧 conversations key 只容纳原有无归属历史，绝不自动上传。 */
-export function createCloudConversationRepository(ownerId: string, scope: WorkspaceScope = "personal") {
+export function createCloudConversationRepository(
+  ownerId: string,
+  scope: WorkspaceScope = "personal",
+  onLocalStorageFailure?: () => void,
+) {
   const controller = new AbortController();
   const api = createSDVideoClient(scope, controller.signal);
   const cacheKey = `cloud:${scope}:${ownerId}`;
@@ -21,6 +25,15 @@ export function createCloudConversationRepository(ownerId: string, scope: Worksp
   let tail: Promise<void> = Promise.resolve();
   let failure: unknown;
   let loaded = false;
+  let legacyReadable = true;
+  let cacheReadable = true;
+  let localFailureReported = false;
+
+  function reportLocalFailure() {
+    if (localFailureReported) return;
+    localFailureReported = true;
+    onLocalStorageFailure?.();
+  }
 
   function fromMessage(row: VideoMessageRecord): VideoWorkbenchMessage {
     messageVersions.set(row.id, row.version);
@@ -42,13 +55,20 @@ export function createCloudConversationRepository(ownerId: string, scope: Worksp
   }
 
   async function cacheDrafts(items: VideoWorkbenchConversation[]) {
-    await conversationStore.setItem<CachedConversations>(cacheKey, {
-      items,
-      draftIds: items.filter(item => !saved.has(item.id)).map(item => item.id),
-      pendingMessages: Object.fromEntries(items.map(item => [item.id, item.messages
-        .filter(message => !saved.get(item.id)?.messages.some(previous => previous.id === message.id))
-        .map(message => message.id)])),
-    });
+    // 读取失败时不能用当前云端快照覆盖未知的本机草稿。
+    if (!cacheReadable) return;
+    try {
+      await conversationStore.setItem<CachedConversations>(cacheKey, {
+        items,
+        draftIds: items.filter(item => !saved.has(item.id)).map(item => item.id),
+        pendingMessages: Object.fromEntries(items.map(item => [item.id, item.messages
+          .filter(message => !saved.get(item.id)?.messages.some(previous => previous.id === message.id))
+          .map(message => message.id)])),
+      });
+    } catch {
+      cacheReadable = false;
+      reportLocalFailure();
+    }
   }
 
   async function sync(snapshot: VideoWorkbenchConversation[]) {
@@ -93,15 +113,41 @@ export function createCloudConversationRepository(ownerId: string, scope: Worksp
         conversationVersions.delete(id);
       }
     }
-    await queueVideoWorkbenchWrite(snapshot.filter(item => legacyIds.has(item.id)));
-    await conversationStore.setItem<CachedConversations>(cacheKey, { items: remote, draftIds: [] });
+    if (legacyReadable) {
+      try {
+        await queueVideoWorkbenchWrite(snapshot.filter(item => legacyIds.has(item.id)));
+      } catch {
+        legacyReadable = false;
+        reportLocalFailure();
+      }
+    }
+    if (cacheReadable) {
+      try {
+        await conversationStore.setItem<CachedConversations>(cacheKey, { items: remote, draftIds: [] });
+      } catch {
+        cacheReadable = false;
+        reportLocalFailure();
+      }
+    }
   }
 
   return {
     async load() {
-      const legacy = await loadVideoWorkbenchConversations();
+      let legacy: VideoWorkbenchConversation[] = [];
+      try {
+        legacy = await loadVideoWorkbenchConversations();
+      } catch {
+        legacyReadable = false;
+        reportLocalFailure();
+      }
       legacy.forEach(item => legacyIds.add(item.id));
-      const cached = await conversationStore.getItem<CachedConversations>(cacheKey);
+      let cached: CachedConversations | null = null;
+      try {
+        cached = await conversationStore.getItem<CachedConversations>(cacheKey);
+      } catch {
+        cacheReadable = false;
+        reportLocalFailure();
+      }
       const rows = await api.conversations();
       const cloud = await Promise.all(rows.map(async row => {
         conversationVersions.set(row.id, row.version);

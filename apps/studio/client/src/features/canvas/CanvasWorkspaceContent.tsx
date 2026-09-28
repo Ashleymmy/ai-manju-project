@@ -1471,6 +1471,7 @@ export default function CanvasWorkspaceViewContent() {
   }), [autosaveController, backgroundMode, persistProjectKey, persistedGroups, showImageInfo]);
 
   generationController.updateBindings({
+    getUserId: () => user?.id || "",
     getProjectId: () => projectId,
     getProjectTitle: () => projectTitle,
     getProjectKey: () => projectSessionController.canonicalKey,
@@ -4705,8 +4706,6 @@ export default function CanvasWorkspaceViewContent() {
         />
 
         <CanvasInspector
-          preflightProjectKey={projectSessionController.canonicalKey}
-          preflightVideoNode={generationController.preflightVideoNode}
           seedanceRegistrationState={selectedNode ? seedanceRegistrationStates[seedanceRegistrationKey(projectSessionController.canonicalKey, selectedNode)] : undefined}
           panelRef={panelRef}
           selectedNode={selectedNode}
@@ -4783,6 +4782,7 @@ export default function CanvasWorkspaceViewContent() {
         />
         <CanvasWorkspaceDialogHost
           agent={{
+            userId: user?.id || "",
             projectId,
             referenceSelection: agentReferenceSelection,
             assetScope: projectSessionController.canonicalScope || scope,

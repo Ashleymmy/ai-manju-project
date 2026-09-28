@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -101,7 +102,7 @@ func TestTextGenerationRetriesEachSupplierAndStopsOnSuccess(t *testing.T) {
 					_, _ = w.Write([]byte(`{"output_text":"done","model":"shared-model"}`))
 					return
 				}
-				w.WriteHeader(http.StatusServiceUnavailable)
+				w.WriteHeader(http.StatusTooManyRequests)
 				_, _ = w.Write([]byte(`{"error":"private supplier failure"}`))
 			}))
 			defer server.Close()
@@ -124,7 +125,7 @@ func TestTextGenerationRetriesEachSupplierAndStopsOnSuccess(t *testing.T) {
 			if succeed && (err != nil || result.Text != "done") {
 				t.Fatalf("result=%+v err=%v", result, err)
 			}
-			if !succeed && err != errGenerationUnavailable {
+			if !succeed && !errors.Is(err, errGenerationUnavailable) {
 				t.Fatalf("err=%v", err)
 			}
 			ctx, cancel := context.WithCancel(context.Background())
@@ -145,6 +146,26 @@ func TestPendingJobHidesSupplierRetry(t *testing.T) {
 	}
 }
 
+func TestAgentToolChoiceTimeoutDoesNotResubmit(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusRequestTimeout)
+		_, _ = w.Write([]byte(`{"error":"timeout while processing tool_choice required"}`))
+	}))
+	defer server.Close()
+	config := generationTestConfig("original", "")
+	config.BaseURL, config.TextModel = server.URL+"/v1", "shared-agent"
+	_, _, err := generateTextWithCandidates(context.Background(), []modelSelection{{Config: config, Model: "shared-agent"}}, provider.TextGenerationRequest{
+		Prompt: "inspect", ToolChoice: "required",
+		Tools: []map[string]any{{"type": "function", "function": map[string]any{"name": "canvas_get_state", "parameters": map[string]any{"type": "object"}}}},
+	})
+	if calls != 1 || !errors.Is(err, errGenerationSubmissionUncertain) {
+		t.Fatalf("ambiguous tool request repeated: calls=%d uncertain=%v", calls, errors.Is(err, errGenerationSubmissionUncertain))
+	}
+}
+
 func TestAgentTextFailoverPreservesToolsAndSkipsIncompatibleSuppliers(t *testing.T) {
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +178,7 @@ func TestAgentTextFailoverPreservesToolsAndSkipsIncompatibleSuppliers(t *testing
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if id == "a" {
-			w.WriteHeader(http.StatusServiceUnavailable)
+			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
 		_, _ = w.Write([]byte(`{"model":"shared-agent","output":[{"type":"function_call","call_id":"call-1","name":"canvas_get_state","arguments":"{}"}]}`))

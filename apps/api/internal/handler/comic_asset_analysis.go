@@ -20,6 +20,25 @@ type comicAnalysisCreateRequest struct {
 	Model            string            `json:"model"`
 }
 
+func (h *ComicAssetHandler) ListAnalysisSessions(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	user, ok := comicCurrentUser(c)
+	if !ok {
+		return
+	}
+	result, err := h.assets.ListAnalysisSessions(user.ID, requestWorkspaceScope(c), c.Query("cursor"))
+	if err != nil {
+		// Discovery exposes only summaries. Database failures must not return
+		// connection strings, SQL text, or private source metadata to clients.
+		if !errors.Is(err, service.ErrGenerationReceiptInvalid) {
+			err = service.ErrGenerationReceiptUnavailable
+		}
+		writeComicAssetError(c, "list comic analysis sessions", err)
+		return
+	}
+	response.OK(c, result)
+}
+
 func (h *ComicAssetHandler) CreateAnalysisSession(c *gin.Context) {
 	user, ok := comicCurrentUser(c)
 	if !ok {
@@ -50,7 +69,8 @@ func (h *ComicAssetHandler) CreateAnalysisSession(c *gin.Context) {
 	}
 	defer file.Close()
 	detail, err := h.assets.CreateAnalysisSession(c.Request.Context(), user.ID, requestWorkspaceScope(c), service.CreateComicAnalysisSessionInput{
-		Async: c.Query("async") == "true",
+		Async:          c.Query("async") == "true",
+		IdempotencyKey: c.GetHeader("Idempotency-Key"),
 		CreateComicProjectInput: service.CreateComicProjectInput{
 			Title: req.Title, StylePreset: req.StylePreset, DefaultTemplates: req.DefaultTemplates,
 		},
@@ -66,6 +86,20 @@ func (h *ComicAssetHandler) CreateAnalysisSession(c *gin.Context) {
 		return
 	}
 	response.Created(c, detail)
+}
+
+func (h *ComicAssetHandler) GetAnalysisSubmission(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	user, ok := comicCurrentUser(c)
+	if !ok {
+		return
+	}
+	status, err := h.assets.GetAnalysisSubmission(c.Request.Context(), user.ID, requestWorkspaceScope(c), c.Param("key"))
+	if err != nil {
+		writeComicAssetError(c, "get analysis submission", err)
+		return
+	}
+	response.OK(c, status)
 }
 
 func (h *ComicAssetHandler) GetAnalysisSession(c *gin.Context) {

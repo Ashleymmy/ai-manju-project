@@ -20,9 +20,10 @@ import type {
   ImportComicProjectInput,
   ComicAssetGenerationConfigInput,
 } from "./model";
-import { API_BASE_URL, getAuthToken, request } from "@/shared/api/http";
+import { API_BASE_URL, ApiError, getAuthToken, request } from "@/shared/api/http";
 import type { WorkspaceScope } from "@/shared/config";
 import { awaitComicAnalysis } from "./analysisTask";
+import { awaitComicOperation } from "./operationTask";
 
 export function listComicProjects(scope: WorkspaceScope = "personal") {
   return request<ComicAssetProject[]>("/api/comic-asset-projects", {
@@ -146,11 +147,12 @@ export function deleteComicAsset(
 
 export function getComicAnalysisSession(
   sessionId: string,
-  scope: WorkspaceScope = "personal"
+  scope: WorkspaceScope = "personal",
+  signal?: AbortSignal,
 ) {
   return request<ComicAnalysisDetail>(
     `/api/comic-asset-analysis-sessions/${encodeURIComponent(sessionId)}`,
-    { query: { scope } }
+    { query: { scope }, signal }
   );
 }
 
@@ -165,7 +167,7 @@ export function setActiveComicAnalysisRevision(
   );
 }
 
-export function createComicAnalysisSession(
+export async function createComicAnalysisSession(
   input: {
     title: string;
     style_preset?: string;
@@ -176,18 +178,40 @@ export function createComicAnalysisSession(
   sourceFile: File,
   scope: WorkspaceScope = "personal"
 ) {
+  const token = getAuthToken();
+  const owner = await request<{ id: string }>("/api/auth/me");
+  if (getAuthToken() !== token || !owner?.id) throw new ApiError("无法确认当前账号，尚未提交分析", 401);
   const body = new FormData();
   body.set(
     "payload",
     JSON.stringify({ ...input, source_type: "script", default_templates: {} })
   );
   body.set("source_file", sourceFile, sourceFile.name);
-  return awaitComicAnalysis(() => request<ComicAnalysisDetail>("/api/comic-asset-analysis-sessions", {
+  const analysisInput = { ...input, scope, source_file_name: sourceFile.name, source_file_size: sourceFile.size, source_file_modified: sourceFile.lastModified };
+  const recoverSubmission = async (key: string) => {
+    const path = `/api/comic-asset-analysis-submissions/${encodeURIComponent(key)}`;
+    const read = () => request<{ status: string; session_id?: string }>(path, { query: { scope } });
+    try { return await read(); }
+    catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 404) throw error;
+      // Seal an absent claim using the same unique key as multipart submission.
+      // Never turn an ordinary 404 into permission for a second paid POST.
+      const result = await request<{ receipt: { kind: string; key: string; status: string } }>(
+        `/api/ai/receipts/comic_analysis/${encodeURIComponent(key)}/reconcile`, { method: "POST", query: { scope } });
+      if (result?.receipt?.key !== key || result?.receipt?.kind !== "comic_analysis"
+        || !["not_submitted", "running", "succeeded", "failed", "uncertain", "expired"].includes(result.receipt.status)) {
+        throw new Error("分析任务状态无法确认；未重复提交");
+      }
+      return read();
+    }
+  };
+  return awaitComicAnalysis((idempotencyKey) => request<ComicAnalysisDetail>("/api/comic-asset-analysis-sessions", {
     method: "POST",
+    headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
     query: { scope, async: true },
     body,
     timeoutMs: 0, // Upload duration is independent of the background analysis.
-  }), (id) => getComicAnalysisSession(id, scope), { ...input, scope, source_file_name: sourceFile.name });
+  }), (id) => getComicAnalysisSession(id, scope), analysisInput, recoverSubmission, { ownerID: owner.id });
 }
 
 export function createComicAnalysisRevision(
@@ -200,15 +224,18 @@ export function createComicAnalysisRevision(
   },
   scope: WorkspaceScope = "personal"
 ) {
-  return request<ComicAnalysisDetail>(
-    `/api/comic-asset-analysis-sessions/${encodeURIComponent(sessionId)}/revisions`,
-    {
-      method: "POST",
-      query: { scope },
-      body: { ...input, source: "ai" },
-      timeoutMs: 0, // The server bounds each same-model supplier attempt.
-    }
-  );
+  const body = { ...input, source: "ai" };
+  return awaitComicOperation<ComicAnalysisDetail>({
+    kind: "comic_revision", resource: [sessionId], scope, payload: body,
+    validate: value => {
+      const detail = value as ComicAnalysisDetail | undefined;
+      return detail?.session?.id === sessionId && Array.isArray(detail.revisions);
+    },
+    submit: key => request<ComicAnalysisDetail>(
+      `/api/comic-asset-analysis-sessions/${encodeURIComponent(sessionId)}/revisions`,
+      { method: "POST", headers: { "Idempotency-Key": key }, query: { scope }, body, timeoutMs: 0 },
+    ),
+  });
 }
 
 export function confirmComicAnalysisSession(
@@ -273,15 +300,18 @@ export function optimizeComicPrompt(
   },
   scope: WorkspaceScope = "personal"
 ) {
-  return request<ComicPromptOptimizeResult>(
-    `/api/comic-asset-projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/prompt-optimize`,
-    {
-      method: "POST",
-      query: { scope },
-      body: input,
-      timeoutMs: 0, // Allow the full server retry sequence.
-    }
-  );
+  const body = { ...input };
+  return awaitComicOperation<ComicPromptOptimizeResult>({
+    kind: "comic_prompt", resource: [projectId, assetId], scope, payload: body,
+    validate: value => {
+      const result = value as ComicPromptOptimizeResult | undefined;
+      return result?.asset?.id === assetId && result.asset.project_id === projectId;
+    },
+    submit: key => request<ComicPromptOptimizeResult>(
+      `/api/comic-asset-projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/prompt-optimize`,
+      { method: "POST", headers: { "Idempotency-Key": key }, query: { scope }, body, timeoutMs: 0 },
+    ),
+  });
 }
 
 export function bulkApproveComicPrompts(
@@ -331,16 +361,31 @@ export function createComicBatch(
   },
   scope: WorkspaceScope = "personal"
 ) {
-  return request<ComicBatchDetail>(
-    `/api/comic-asset-projects/${encodeURIComponent(projectId)}/generation-batches`,
-    {
+  return awaitComicOperation<ComicBatchDetail>({
+    kind: "comic_batch", resource: ["create", projectId], scope, payload: input,
+    validate: value => {
+      const result = value as ComicBatchDetail | undefined;
+      return !!result?.batch?.id && result.batch.project_id === projectId && Array.isArray(result.items);
+    },
+    recoverPersisted: async key => {
+      try {
+        return await request<ComicBatchDetail>(
+          `/api/comic-asset-projects/${encodeURIComponent(projectId)}/generation-batch-submissions/${encodeURIComponent(key)}`,
+          { query: { scope } },
+        );
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return undefined;
+        throw error;
+      }
+    },
+    submit: key => request<ComicBatchDetail>(`/api/comic-asset-projects/${encodeURIComponent(projectId)}/generation-batches`, {
       method: "POST",
       query: { scope },
-      headers: { "Idempotency-Key": crypto.randomUUID() },
+      headers: { "Idempotency-Key": key },
       body: input,
       timeoutMs: 60_000,
-    }
-  );
+    }),
+  });
 }
 
 export function getComicBatch(
@@ -370,18 +415,26 @@ export function retryComicBatchItem(
   itemId: string,
   scope: WorkspaceScope = "personal"
 ) {
-  return request<ComicBatchDetail>(
-    `/api/comic-asset-generation-batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/retry`,
-    { method: "POST", query: { scope } }
-  );
+  return retryComicBatch(batchId, itemId, scope);
 }
 
 export function retryFailedComicBatchItems(
   batchId: string,
   scope: WorkspaceScope = "personal"
 ) {
-  return request<ComicBatchDetail>(
-    `/api/comic-asset-generation-batches/${encodeURIComponent(batchId)}/retry-failed`,
-    { method: "POST", query: { scope } }
-  );
+  return retryComicBatch(batchId, undefined, scope);
+}
+
+function retryComicBatch(batchId: string, itemId: string | undefined, scope: WorkspaceScope) {
+  return awaitComicOperation<ComicBatchDetail>({
+    kind: "comic_batch", resource: ["retry", batchId], scope, payload: { item_id: itemId || null },
+    validate: value => {
+      const result = value as ComicBatchDetail | undefined;
+      return result?.batch?.id === batchId && Array.isArray(result.items);
+    },
+    submit: key => request<ComicBatchDetail>(
+      `/api/comic-asset-generation-batches/${encodeURIComponent(batchId)}/${itemId ? `items/${encodeURIComponent(itemId)}/retry` : "retry-failed"}`,
+      { method: "POST", query: { scope }, headers: { "Idempotency-Key": key }, body: {} },
+    ),
+  });
 }

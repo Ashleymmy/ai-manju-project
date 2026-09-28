@@ -1,6 +1,6 @@
 import { request } from "@/shared/api/http";
 
-export type CreditQuote = { credits: number; params: { pricing_source?: string; base_per_image?: number; reference_per_image?: number; reference_count?: number; per_second?: number; base_per_second?: number; reference_per_second?: number; range_min?: number; range_max?: number } };
+export type CreditQuote = { credits: number; params: { pricing_source?: string; base_per_image?: number; reference_per_image?: number; reference_count?: number; per_second?: number; base_per_second?: number; reference_per_second?: number; range_min?: number; range_max?: number; billing_mode?: string; reserve_duration_sec?: number } };
 
 export function fetchGenerationQuote(jobType: string, payload: Record<string, unknown>, signal?: AbortSignal) {
   return request<CreditQuote>("/api/member/quote", { method: "POST", body: { job_type: jobType, payload }, signal });

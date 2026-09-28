@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -12,6 +13,7 @@ from worker.config import Settings
 from worker.errors import SafeTaskError, job_canceled_error
 from worker import video as video_module
 from worker.video import generate_video, video_input_path
+from http_security_fakes import fake_public_send
 
 
 def test_settings(root: str) -> Settings:
@@ -104,6 +106,11 @@ class FakeVideoResponse:
 
 
 class VideoGenerationTest(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(patch("worker.http_security._send_public_once", side_effect=fake_public_send))
+        from video_checkpoint_fakes import isolated_checkpoint
+        self.enterContext(patch("worker.video.checkpoint_for_video", side_effect=isolated_checkpoint))
+
     def test_generates_polls_and_persists_openai_compatible_video(self) -> None:
         captured: dict[str, Any] = {}
         original_post = video_module.requests.post

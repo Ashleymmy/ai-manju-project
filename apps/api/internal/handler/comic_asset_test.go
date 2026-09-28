@@ -29,7 +29,10 @@ func TestComicAnalysisAndPromptCollaborationEndpoints(t *testing.T) {
 		{Text: `{"assets":[{"class":"character","code":"C001","name":"阿青","visual_description":"青衣执伞","source_prompt":"青衣少年执伞"}]}`, Model: "mock-v2"},
 		{Text: "冷色雨夜全身人物设定", Model: "mock-v3"},
 	}
-	comicService.SetTextGenerator(func(_ context.Context, _ string, _ provider.TextGenerationRequest) (provider.TextResponse, error) {
+	comicService.SetTextGenerator(func(_ context.Context, userID string, _ string, _ provider.TextGenerationRequest) (provider.TextResponse, error) {
+		if userID != "user_a" {
+			t.Fatalf("authenticated text actor lost: %q", userID)
+		}
 		result := responses[0]
 		responses = responses[1:]
 		return result, nil
@@ -123,7 +126,7 @@ func TestComicAssetHandlerPromptAndBatchFlow(t *testing.T) {
 	comicRepo := repository.NewMemoryComicAssetRepository()
 	jobService := service.NewJobService(repository.NewMemoryJobRepository(), &queue.MemoryProducer{}, "celery", 3)
 	comicService := service.NewComicAssetService(comicRepo, jobService)
-	comicService.SetImageJobResolver(func(requested string, _ string) (service.ComicImageJobResolution, error) {
+	comicService.SetImageJobResolver(func(_ string, requested string, _ string) (service.ComicImageJobResolution, error) {
 		return service.ComicImageJobResolution{Selector: "provider::image-v1", Model: "image-v1", TaskKwargs: map[string]any{"provider": map[string]any{"api_key": "transient"}}}, nil
 	})
 	handler := NewComicAssetHandler(comicService)

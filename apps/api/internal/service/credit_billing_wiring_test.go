@@ -250,6 +250,35 @@ func TestReconcilerSettlesSucceededAndReleasesFailed(t *testing.T) {
 	_ = running
 }
 
+func TestReconcilerKeepsUncertainSDVideoReservation(t *testing.T) {
+	fx := newBillingFixture(t)
+	if _, err := fx.engine.Adjust("user_uncertain", 1000, "ops", "nonce_uncertain"); err != nil {
+		t.Fatal(err)
+	}
+	created, err := fx.jobs.CreateExternal(ExternalJobInput{
+		UserID: "user_uncertain", Scope: WorkspaceScopePersonal,
+		Type: model.JobTypeVideoGenerate, ExternalProvider: "sd-video", ExternalTaskID: "remote-uncertain",
+		Payload: model.JSONB(`{"model":"seedance-2.5","duration":5}`), IdempotencyKey: "uncertain-video",
+	})
+	if err != nil || !created.Created {
+		t.Fatalf("create uncertain external job: %+v err=%v", created, err)
+	}
+	if _, err := fx.jobs.SetError(created.Job.ID, model.JSONB(`{"code":"submission_uncertain"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.jobs.UpdateExternalState(created.Job.ID, "sd-video", "remote-uncertain", "failed", model.JSONB(`{"status":"failed"}`)); err != nil {
+		t.Fatal(err)
+	}
+	settled, released, err := fx.reconciler.ReconcileOnce(context.Background())
+	if err != nil || settled != 0 || released != 0 {
+		t.Fatalf("uncertain reconcile=%d,%d,%v, want 0/0", settled, released, err)
+	}
+	consumption, err := fx.credits.GetConsumptionByJobID(created.Job.ID)
+	if err != nil || consumption.Status != model.TaskConsumptionStatusReserved {
+		t.Fatalf("uncertain reservation changed: %+v err=%v", consumption, err)
+	}
+}
+
 func TestReconcilerReleasesOrphanReservationAfterGrace(t *testing.T) {
 	fx := newBillingFixture(t)
 	if _, err := fx.engine.Adjust("user_e", 100, "ops", "nonce_e"); err != nil {

@@ -73,13 +73,30 @@ describe("creation credits", () => {
     expect(fetchGenerationQuote).toHaveBeenCalledWith("video.generate", expect.objectContaining({ duration: 10, content: [{ type: "video_url" }] }), expect.any(AbortSignal));
     expect(container.textContent).toContain("3,300");
     expect(container.querySelector("span")?.title).toContain("195 + 附加 135 = 330");
-    vi.mocked(fetchGenerationQuote).mockResolvedValue({ credits: 60, params: { pricing_source: "legacy", base_per_second: 195, reference_per_second: 135, per_second: 330 } });
+    vi.mocked(fetchGenerationQuote).mockResolvedValue({ credits: 9900, params: { pricing_source: "automatic_video_reservation", billing_mode: "actual_video_duration", reserve_duration_sec: 30, base_per_second: 195, reference_per_second: 135, per_second: 330 } });
     await act(async () => { render("-1"); await new Promise(r => setTimeout(r, 20)); });
     await act(async () => { await new Promise(r => setTimeout(r, 20)); });
-    expect(container.textContent).toBe("330 积分/秒 · 含视频参考附加费");
-    expect(container.querySelector("span")?.title).toContain("当前时长自动");
+    expect(container.textContent).toBe("预冻结 9,900 积分 · 按实际时长结算");
+    expect(container.querySelector("span")?.title).toContain("最长 30 秒");
+    expect(container.querySelector("span")?.title).toContain("195 + 附加 135 = 330");
+    expect(container.querySelector("span")?.title).toContain("提交时的价格");
+    expect(container.querySelector("span")?.title).toContain("剩余冻结积分自动释放");
     await act(async () => render("-1", true));
-    expect(container.textContent).toBe("330/秒");
+    expect(container.textContent).toBe("预冻结 9,900");
+    await act(async () => root.unmount()); client.clear();
+  });
+
+  it("uses the server's automatic-duration reserve across independent tasks without inventing reference fees", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.mocked(fetchGenerationQuote).mockResolvedValue({ credits: 123, params: { billing_mode: "actual_video_duration", reserve_duration_sec: 15, per_second: 12 } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div"); const root = createRoot(container);
+    await act(async () => { root.render(<QueryClientProvider client={client}><GenerationPrice kind="video" model="video-fast" seconds={-1} tasks={2} /></QueryClientProvider>); await new Promise(r => setTimeout(r, 20)); });
+    await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    expect(container.textContent).toBe("预冻结 246 积分 · 按实际时长结算");
+    expect(container.querySelector("span")?.title).toContain("最长 15 秒");
+    expect(container.querySelector("span")?.title).not.toContain("附加费");
+    expect(fetchGenerationQuote).toHaveBeenCalledWith("video.generate", expect.objectContaining({ duration: -1, content: [] }), expect.any(AbortSignal));
     await act(async () => root.unmount()); client.clear();
   });
 });

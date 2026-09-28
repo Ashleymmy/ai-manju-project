@@ -64,7 +64,7 @@ export function ModelPricesPanel({ readOnly }: { readOnly: boolean }) {
       </div>
       <div className="model-prices-note">
         <p>引用视频时，总积分 =（有参考视频单价 + 参考视频附加费）× 生成视频秒数。多个参考视频只加一次单价，不按参考视频数量或时长累计；只引用图片、音频时，使用无参考视频单价。Seedance 1.5 按无声／有声计价。</p>
-        <p>不支持画质档位的图片模型按分辨率单价计费。尺寸为自动，或支持画质档位的模型选择自动画质时，按（基础兜底单价 + 参考图片张数 × 参考图片附加费）× 输出张数计费，蒙版不计费。视频自动时长仍沿用基础规则。</p>
+        <p>不支持画质档位的图片模型按分辨率单价计费。尺寸为自动，或支持画质档位的模型选择自动画质时，按（基础兜底单价 + 参考图片张数 × 参考图片附加费）× 输出张数计费，蒙版不计费。视频自动时长按模型支持的最长时长预冻结积分，成功后按实际生成时长和提交时的价格结算，剩余冻结积分自动释放。</p>
         <p><Link href="/admin/plans-config">基础兜底价格与活动折扣</Link> · <Link href="/admin/consumptions">平台模型成本</Link>单独管理。</p>
       </div>
       {error ? <p role="alert" className="model-prices-error">{error}</p> : null}

@@ -13,6 +13,7 @@ import (
 	"github.com/ai-manju/api/internal/database"
 	"github.com/ai-manju/api/internal/handler"
 	"github.com/ai-manju/api/internal/middleware"
+	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/provider"
 	"github.com/ai-manju/api/internal/queue"
 	"github.com/ai-manju/api/internal/repository"
@@ -50,7 +51,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.RequestID(), middleware.SafeAccessLog(gin.DefaultWriter), middleware.RuntimeMonitoring(runtimeRepo), middleware.SafeRecovery(gin.DefaultErrorWriter))
 	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Expose-Headers", middleware.RequestIDHeader)
+		c.Writer.Header().Set("Access-Control-Expose-Headers", middleware.RequestIDHeader+", "+handler.GenerationReceiptStateHeader)
 		c.Next()
 	})
 
@@ -58,7 +59,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 		AllowOrigins:     cfg.FrontendURLs,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     corsAllowedHeaders,
-		ExposeHeaders:    []string{middleware.RequestIDHeader},
+		ExposeHeaders:    []string{middleware.RequestIDHeader, handler.GenerationReceiptStateHeader},
 		AllowCredentials: true,
 	}))
 
@@ -76,6 +77,12 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	assetStore, assetStoreErr := storage.NewConfiguredStorage(cfg)
 	if assetStoreErr != nil {
 		panic(assetStoreErr)
+	}
+	// Signed NAS requests authenticate at Storage, without browser or service credentials.
+	if signedRanges, ok := assetStore.(interface {
+		ServeSignedSuffixRange(http.ResponseWriter, *http.Request)
+	}); ok {
+		r.GET("/storage/v1/object/sign/*object", func(c *gin.Context) { signedRanges.ServeSignedSuffixRange(c.Writer, c.Request) })
 	}
 	jobInputService := service.NewJobInputService(assetStore, cfg.MaxAssetUploadBytes)
 	jobService := service.NewJobService(
@@ -108,6 +115,10 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	redemptionService := service.NewRedemptionService(repos.redemptionRepo, repos.membershipRepo, creditEngine)
 	redemptionHandler := handler.NewRedemptionHandler(repos.redemptionRepo, redemptionService)
 	secretBox := provider.NewSecretBox(cfg.AppSecret)
+	if cfg.AppSecret != "" {
+		jobService.EnableDurableDispatch(secretBox)
+		jobService.StartDispatch(context.Background())
+	}
 	assetService := service.NewAssetService(repos.assetRepo, assetStore)
 	assetService.SetReferenceRepository(repos.assetReferenceRepo)
 	assetFolderService := service.NewAssetFolderService(repos.assetFolderRepo, repos.assetRepo)
@@ -144,16 +155,18 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	}
 	assetExportHandler := handler.NewAssetExportHandler(assetExportService)
 	modelProviderHandler := handler.NewModelProviderHandler(repos.modelProviderRepo, secretBox, cfg.AppSecret)
+	modelProviderHandler.SetBackgroundUserRepository(repos.userRepo)
+	memberHandler.SetModelProviderHandler(modelProviderHandler)
 	modelProviderHandler.SetVideoModelFamilyResolver(service.NewCreditPricer(repos.billingRepo).ResolveModelFamily)
 	comicAssetService := service.NewComicAssetService(repos.comicAssetRepo, jobService)
 	comicAssetService.SetSourceStorage(assetStore)
 	comicAssetService.SetReferenceServices(assetService, jobInputService)
 	comicAssetService.SetAssetFolderService(assetFolderService)
 	comicAssetService.SetAssetReferenceRepository(repos.assetReferenceRepo)
-	comicAssetService.SetTextGenerator(modelProviderHandler.GenerateBackgroundText)
+	comicAssetService.SetTextGenerator(modelProviderHandler.GenerateBackgroundTextForUser)
 	comicAssetService.StartAnalysisMaintenance(context.Background(), service.ComicAnalysisMaintenanceInterval)
-	comicAssetService.SetImageJobResolver(func(requestedModel string, jobType string) (service.ComicImageJobResolution, error) {
-		resolved, err := modelProviderHandler.ResolveBackgroundImageJob(requestedModel, jobType)
+	comicAssetService.SetImageJobResolver(func(userID, requestedModel string, jobType string) (service.ComicImageJobResolution, error) {
+		resolved, err := modelProviderHandler.ResolveBackgroundImageJobForUser(userID, requestedModel, jobType)
 		if err != nil {
 			return service.ComicImageJobResolution{}, err
 		}
@@ -166,6 +179,10 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	materialService := service.NewSeedanceMaterialService(repos.modelProviderRepo, secretBox)
 	seedanceAssetService := service.NewSeedanceAssetService(repos.modelProviderRepo, repos.seedanceAssetRepo, secretBox, assetStore, cfg.PublicAssetBaseURL)
 	aiHandler := handler.NewAIHandler(modelProviderHandler, jobService, repos.monitoringRepo)
+	generationReceipts := service.NewGenerationReceiptService(repos.generationReceiptRepo, assetStore, secretBox)
+	aiHandler.SetGenerationReceiptService(generationReceipts)
+	comicAssetService.SetAnalysisReceiptService(generationReceipts)
+	aiHandler.SetComicOperationRecoveryService(comicAssetService)
 	aiHandler.SetProjectService(projectService)
 	sdVideoClient := sdvideo.NewClient(cfg)
 	modelProviderHandler.SetSDVideoClient(sdVideoClient)
@@ -212,6 +229,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	materialHandler := handler.NewSeedanceMaterialHandler(materialService)
 	seedanceAssetHandler := handler.NewSeedanceAssetHandler(seedanceAssetService, cfg)
 	jobHandler := handler.NewJobHandler(jobService)
+	jobHandler.SetBillingEnabled(cfg.BillingEnabled)
 	jobHandler.SetSDVideoClient(sdVideoClient)
 	adminMonitoringHandler := handler.NewAdminMonitoringHandler(repos.monitoringRepo, storageStatus, dbStatus)
 	runtimeMonitoringHandler := handler.NewRuntimeMonitoringHandler(runtimeRepo, repos.userRepo)
@@ -301,6 +319,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 		admin := api.Group("/admin", middleware.RequireAdmin(authService), middleware.AdminAudit(repos.auditRepo), handler.SDVideoAssetCompatibility(sdVideoClient))
 		{
 			handler.RegisterSDVideoReconciliation(admin, jobService, sdVideoClient)
+			handler.RegisterGenerationRecovery(admin, jobService)
 			admin.GET("/users", authHandler.ListUsers)
 			admin.POST("/users", authHandler.CreateUser)
 			admin.PUT("/users/:id", authHandler.UpdateUser)
@@ -367,7 +386,10 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 		ai := api.Group("/ai", middleware.RequireAuth(authService), handler.SDVideoAssetCompatibility(sdVideoClient))
 		{
 			ai.GET("/models", func(c *gin.Context) { modelProviderHandler.AggregatedModelsWithSDVideo(c, sdVideoClient) })
-			ai.POST("/text", aiHandler.Text)
+			ai.POST("/text", aiHandler.WithGenerationReceipt(model.GenerationReceiptKindText, aiHandler.Text))
+			ai.GET("/receipts/:kind/:key", aiHandler.GenerationReceiptStatus)
+			ai.GET("/receipts/:kind/:key/result", aiHandler.GenerationReceiptResult)
+			ai.POST("/receipts/:kind/:key/reconcile", aiHandler.GenerationReceiptReconcile)
 			ai.POST("/images/generations", aiHandler.ImageGenerations)
 			ai.POST("/image/generations", aiHandler.ImageGenerations)
 			ai.POST("/images/edits", aiHandler.ImageEdits)
@@ -378,7 +400,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			ai.POST("/contents/generations/tasks", aiHandler.SeedanceTaskCreate)
 			ai.GET("/contents/generations/tasks/:id", aiHandler.SeedanceTaskGet)
 			ai.GET("/contents/generations/tasks/:id/content", aiHandler.SeedanceTaskContent)
-			ai.POST("/audio/speech", aiHandler.AudioSpeech)
+			ai.POST("/audio/speech", aiHandler.WithGenerationReceipt(model.GenerationReceiptKindAudio, aiHandler.AudioSpeech))
 			ai.POST("/materials/visual-validate-sessions", materialHandler.CreateVisualValidateSession)
 			ai.POST("/materials/real-validate-h5", materialHandler.CreateRealValidateH5)
 			ai.GET("/materials/visual-validate-result", materialHandler.GetVisualValidateResult)
@@ -438,17 +460,20 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			comicProjects.DELETE("/:projectId/assets/:assetId", comicAssetHandler.DeleteAsset)
 			comicProjects.POST("/:projectId/assets/:assetId/prompt-preview", comicAssetHandler.PreviewPrompt)
 			comicProjects.PUT("/:projectId/assets/:assetId/prompt", comicAssetHandler.SavePrompt)
-			comicProjects.POST("/:projectId/assets/:assetId/prompt-optimize", comicAssetHandler.OptimizePrompt)
+			comicProjects.POST("/:projectId/assets/:assetId/prompt-optimize", aiHandler.WithGenerationReceiptResource(model.GenerationReceiptKindComicPrompt, comicAssetHandler.OptimizePrompt))
 			comicProjects.POST("/:projectId/prompts/bulk-approve", comicAssetHandler.BulkApprovePrompts)
 			comicProjects.GET("/:projectId/generation-batches", comicAssetHandler.ListBatches)
-			comicProjects.POST("/:projectId/generation-batches", comicAssetHandler.CreateBatch)
+			comicProjects.GET("/:projectId/generation-batch-submissions/:key", comicAssetHandler.GetBatchSubmission)
+			comicProjects.POST("/:projectId/generation-batches", aiHandler.WithGenerationReceiptResource(model.GenerationReceiptKindComicBatch, comicAssetHandler.CreateBatch))
 		}
 
 		comicAnalysisSessions := api.Group("/comic-asset-analysis-sessions", middleware.RequireAuth(authService))
+		api.GET("/comic-asset-analysis-submissions/:key", middleware.RequireAuth(authService), comicAssetHandler.GetAnalysisSubmission)
 		{
 			comicAnalysisSessions.POST("", comicAssetHandler.CreateAnalysisSession)
+			comicAnalysisSessions.GET("", comicAssetHandler.ListAnalysisSessions)
 			comicAnalysisSessions.GET("/:sessionId", comicAssetHandler.GetAnalysisSession)
-			comicAnalysisSessions.POST("/:sessionId/revisions", comicAssetHandler.CreateAnalysisRevision)
+			comicAnalysisSessions.POST("/:sessionId/revisions", aiHandler.WithGenerationReceiptResource(model.GenerationReceiptKindComicRevision, comicAssetHandler.CreateAnalysisRevision))
 			comicAnalysisSessions.PUT("/:sessionId/active-revision", comicAssetHandler.SetActiveAnalysisRevision)
 			comicAnalysisSessions.POST("/:sessionId/confirm", comicAssetHandler.ConfirmAnalysisSession)
 		}
@@ -459,8 +484,8 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			comicBatches.POST("/:batchId/pause", comicAssetHandler.PauseBatch)
 			comicBatches.POST("/:batchId/resume", comicAssetHandler.ResumeBatch)
 			comicBatches.POST("/:batchId/stop", comicAssetHandler.StopBatch)
-			comicBatches.POST("/:batchId/items/:itemId/retry", comicAssetHandler.RetryItem)
-			comicBatches.POST("/:batchId/retry-failed", comicAssetHandler.RetryFailed)
+			comicBatches.POST("/:batchId/items/:itemId/retry", aiHandler.WithGenerationReceiptResource(model.GenerationReceiptKindComicBatch, comicAssetHandler.RetryItem))
+			comicBatches.POST("/:batchId/retry-failed", aiHandler.WithGenerationReceiptResource(model.GenerationReceiptKindComicBatch, comicAssetHandler.RetryFailed))
 		}
 
 		jobs := api.Group("/jobs", middleware.RequireAuth(authService))
@@ -549,22 +574,23 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 }
 
 type repositories struct {
-	projectRepo        repository.ProjectRepository
-	userRepo           repository.UserRepository
-	modelProviderRepo  repository.ModelProviderRepository
-	assetRepo          repository.AssetRepository
-	assetReferenceRepo repository.AssetReferenceRepository
-	assetFolderRepo    repository.AssetFolderRepository
-	tagRepo            repository.TagRepository
-	assetLineageRepo   repository.AssetLineageRepository
-	assetUsageRepo     repository.AssetUsageRepository
-	assetExportRepo    repository.AssetExportRepository
-	monitoringRepo     repository.MonitoringRepository
-	announcementRepo   repository.AnnouncementRepository
-	userPreferenceRepo repository.UserPreferenceRepository
-	jobRepo            repository.JobRepository
-	seedanceAssetRepo  repository.SeedanceAssetRepository
-	comicAssetRepo     repository.ComicAssetRepository
+	generationReceiptRepo repository.GenerationReceiptRepository
+	projectRepo           repository.ProjectRepository
+	userRepo              repository.UserRepository
+	modelProviderRepo     repository.ModelProviderRepository
+	assetRepo             repository.AssetRepository
+	assetReferenceRepo    repository.AssetReferenceRepository
+	assetFolderRepo       repository.AssetFolderRepository
+	tagRepo               repository.TagRepository
+	assetLineageRepo      repository.AssetLineageRepository
+	assetUsageRepo        repository.AssetUsageRepository
+	assetExportRepo       repository.AssetExportRepository
+	monitoringRepo        repository.MonitoringRepository
+	announcementRepo      repository.AnnouncementRepository
+	userPreferenceRepo    repository.UserPreferenceRepository
+	jobRepo               repository.JobRepository
+	seedanceAssetRepo     repository.SeedanceAssetRepository
+	comicAssetRepo        repository.ComicAssetRepository
 	// WP-M1 会员/积分仓储
 	creditRepo     repository.CreditRepository
 	membershipRepo repository.MembershipRepository
@@ -598,55 +624,57 @@ func newRepositories(cfg config.Config) (repositories, string, string) {
 	}
 
 	return repositories{
-		projectRepo:        repository.NewGormProjectRepository(db),
-		userRepo:           repository.NewGormUserRepository(db),
-		modelProviderRepo:  repository.NewGormModelProviderRepository(db),
-		assetRepo:          repository.NewGormAssetRepository(db),
-		assetReferenceRepo: repository.NewGormAssetReferenceRepository(db),
-		assetFolderRepo:    repository.NewGormAssetFolderRepository(db),
-		tagRepo:            repository.NewGormTagRepository(db),
-		assetLineageRepo:   repository.NewGormAssetLineageRepository(db),
-		assetUsageRepo:     repository.NewGormAssetUsageRepository(db),
-		assetExportRepo:    repository.NewGormAssetExportRepository(db),
-		monitoringRepo:     repository.NewGormMonitoringRepository(db),
-		announcementRepo:   repository.NewGormAnnouncementRepository(db),
-		userPreferenceRepo: repository.NewGormUserPreferenceRepository(db),
-		jobRepo:            repository.NewGormJobRepository(db),
-		seedanceAssetRepo:  repository.NewGormSeedanceAssetRepository(db),
-		comicAssetRepo:     repository.NewGormComicAssetRepository(db),
-		creditRepo:         repository.NewGormCreditRepository(db),
-		membershipRepo:     repository.NewGormMembershipRepository(db),
-		billingRepo:        repository.NewGormBillingRepository(db),
-		inviteRepo:         repository.NewGormInviteRepository(db),
-		auditRepo:          repository.NewGormAuditRepository(db),
-		redemptionRepo:     repository.NewGormRedemptionRepository(db),
+		generationReceiptRepo: repository.NewGormGenerationReceiptRepository(db),
+		projectRepo:           repository.NewGormProjectRepository(db),
+		userRepo:              repository.NewGormUserRepository(db),
+		modelProviderRepo:     repository.NewGormModelProviderRepository(db),
+		assetRepo:             repository.NewGormAssetRepository(db),
+		assetReferenceRepo:    repository.NewGormAssetReferenceRepository(db),
+		assetFolderRepo:       repository.NewGormAssetFolderRepository(db),
+		tagRepo:               repository.NewGormTagRepository(db),
+		assetLineageRepo:      repository.NewGormAssetLineageRepository(db),
+		assetUsageRepo:        repository.NewGormAssetUsageRepository(db),
+		assetExportRepo:       repository.NewGormAssetExportRepository(db),
+		monitoringRepo:        repository.NewGormMonitoringRepository(db),
+		announcementRepo:      repository.NewGormAnnouncementRepository(db),
+		userPreferenceRepo:    repository.NewGormUserPreferenceRepository(db),
+		jobRepo:               repository.NewGormJobRepository(db),
+		seedanceAssetRepo:     repository.NewGormSeedanceAssetRepository(db),
+		comicAssetRepo:        repository.NewGormComicAssetRepository(db),
+		creditRepo:            repository.NewGormCreditRepository(db),
+		membershipRepo:        repository.NewGormMembershipRepository(db),
+		billingRepo:           repository.NewGormBillingRepository(db),
+		inviteRepo:            repository.NewGormInviteRepository(db),
+		auditRepo:             repository.NewGormAuditRepository(db),
+		redemptionRepo:        repository.NewGormRedemptionRepository(db),
 	}, "postgres", "ok"
 }
 
 func newMemoryRepositories() repositories {
 	assetRepo := repository.NewMemoryAssetRepository()
 	return repositories{
-		projectRepo:        repository.NewMemoryProjectRepository(),
-		userRepo:           repository.NewMemoryUserRepository(),
-		modelProviderRepo:  repository.NewMemoryModelProviderRepository(),
-		assetRepo:          assetRepo,
-		assetReferenceRepo: repository.NewMemoryAssetReferenceRepository(),
-		assetFolderRepo:    repository.NewMemoryAssetFolderRepository(),
-		tagRepo:            repository.NewMemoryTagRepository(assetRepo),
-		assetLineageRepo:   repository.NewMemoryAssetLineageRepository(),
-		assetUsageRepo:     repository.NewMemoryAssetUsageRepository(),
-		assetExportRepo:    repository.NewMemoryAssetExportRepository(),
-		monitoringRepo:     repository.NewMemoryMonitoringRepository(),
-		announcementRepo:   repository.NewMemoryAnnouncementRepository(),
-		userPreferenceRepo: repository.NewMemoryUserPreferenceRepository(),
-		jobRepo:            repository.NewMemoryJobRepository(),
-		seedanceAssetRepo:  repository.NewMemorySeedanceAssetRepository(),
-		comicAssetRepo:     repository.NewMemoryComicAssetRepository(),
-		creditRepo:         repository.NewMemoryCreditRepository(),
-		membershipRepo:     repository.NewMemoryMembershipRepository(),
-		billingRepo:        repository.NewMemoryBillingRepository(),
-		inviteRepo:         repository.NewMemoryInviteRepository(),
-		auditRepo:          repository.NewMemoryAuditRepository(),
-		redemptionRepo:     repository.NewMemoryRedemptionRepository(),
+		generationReceiptRepo: repository.NewMemoryGenerationReceiptRepository(),
+		projectRepo:           repository.NewMemoryProjectRepository(),
+		userRepo:              repository.NewMemoryUserRepository(),
+		modelProviderRepo:     repository.NewMemoryModelProviderRepository(),
+		assetRepo:             assetRepo,
+		assetReferenceRepo:    repository.NewMemoryAssetReferenceRepository(),
+		assetFolderRepo:       repository.NewMemoryAssetFolderRepository(),
+		tagRepo:               repository.NewMemoryTagRepository(assetRepo),
+		assetLineageRepo:      repository.NewMemoryAssetLineageRepository(),
+		assetUsageRepo:        repository.NewMemoryAssetUsageRepository(),
+		assetExportRepo:       repository.NewMemoryAssetExportRepository(),
+		monitoringRepo:        repository.NewMemoryMonitoringRepository(),
+		announcementRepo:      repository.NewMemoryAnnouncementRepository(),
+		userPreferenceRepo:    repository.NewMemoryUserPreferenceRepository(),
+		jobRepo:               repository.NewMemoryJobRepository(),
+		seedanceAssetRepo:     repository.NewMemorySeedanceAssetRepository(),
+		comicAssetRepo:        repository.NewMemoryComicAssetRepository(),
+		creditRepo:            repository.NewMemoryCreditRepository(),
+		membershipRepo:        repository.NewMemoryMembershipRepository(),
+		billingRepo:           repository.NewMemoryBillingRepository(),
+		inviteRepo:            repository.NewMemoryInviteRepository(),
+		auditRepo:             repository.NewMemoryAuditRepository(),
+		redemptionRepo:        repository.NewMemoryRedemptionRepository(),
 	}
 }

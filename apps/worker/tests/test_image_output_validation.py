@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 import requests
 
 from test_provider import FakeProviderResponse, test_settings
+from image_checkpoint_fakes import isolated_image_checkpoint
+from http_security_fakes import fake_public_send
 from test_tasks import FakeStore, FakeTask
 from worker import provider, tasks
 from worker.generation_failover import PROVIDER_CANDIDATES_FIELD
@@ -25,6 +27,12 @@ def png_bytes(width, height):
 
 
 class ImageOutputValidationTest(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(patch("worker.http_security._send_public_once", side_effect=fake_public_send))
+        checkpoint = patch.object(provider, "checkpoint_for_image", side_effect=isolated_image_checkpoint)
+        checkpoint.start()
+        self.addCleanup(checkpoint.stop)
+
     def test_remote_original_is_downloaded_and_checked_before_registration(self):
         for dimensions in ((1024, 1024), (1254, 1254), (1536, 1024)):
             with self.subTest(dimensions=dimensions), tempfile.TemporaryDirectory() as tmp:
@@ -33,6 +41,7 @@ class ImageOutputValidationTest(unittest.TestCase):
                 payload = {"model": "image", "size": "1024x1024", "quality": "high", "prompt": "苹果",
                            "asset_registration": {"source_type": "canvas"}, PROVIDER_CANDIDATES_FIELD: [remote]}
                 response = MagicMock()
+                response.status_code = 200
                 response.__enter__.return_value = response
                 response.headers = {"Content-Type": "image/png"}
                 original = png_bytes(*dimensions)
@@ -62,6 +71,7 @@ class ImageOutputValidationTest(unittest.TestCase):
     def test_incomplete_remote_download_is_rejected_and_removed(self):
         with tempfile.TemporaryDirectory() as tmp:
             response = MagicMock()
+            response.status_code = 200
             response.__enter__.return_value = response
             response.headers = {"Content-Type": "image/png"}
 

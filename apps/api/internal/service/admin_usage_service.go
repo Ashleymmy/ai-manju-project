@@ -33,7 +33,10 @@ type UsageRow struct {
 	Model               string     `json:"model"`
 	Provider            string     `json:"provider"`
 	Status              string     `json:"status"`
+	QueuePhase          string     `json:"queue_phase"`
 	CreditStatus        string     `json:"credit_status"`
+	PendingReason       string     `json:"pending_reason"`
+	PendingAgeSeconds   float64    `json:"pending_age_seconds"`
 	CreditsQuoted       int64      `json:"credits_quoted"`
 	CreditsSettled      int64      `json:"credits_settled"`
 	CreatedAt           time.Time  `json:"created_at"`
@@ -153,6 +156,15 @@ func (s *AdminUsageService) Report(f UsageFilter) (UsageReport, error) {
 		row := usageJobRow(j)
 		if c, ok := consumptions[j.ID]; ok {
 			attachConsumption(&row, c)
+			// A submission requiring reconciliation is only a pending charge
+			// while its reservation remains held. Historical failures must not
+			// look like frozen credits after settlement or release.
+			if row.CreditStatus == model.TaskConsumptionStatusReserved && row.Provider == "sd-video" && row.Status == model.JobStatusFailed {
+				var failure map[string]any
+				if json.Unmarshal(j.Error, &failure) == nil && usageString(failure, "code") == "submission_uncertain" {
+					row.PendingReason = "submission_uncertain"
+				}
+			}
 		}
 		rows = append(rows, row)
 	}
@@ -251,7 +263,7 @@ func (s *AdminUsageService) Report(f UsageFilter) (UsageReport, error) {
 func usageJobRow(j model.Job) UsageRow {
 	var payload map[string]any
 	_ = json.Unmarshal(j.Payload, &payload)
-	row := UsageRow{JobID: j.ID, UserID: j.UserID, WorkspaceID: j.WorkspaceID, TaskType: j.Type, Status: j.Status, CreatedAt: j.CreatedAt, StartedAt: j.StartedAt, FinishedAt: j.FinishedAt, Attempts: j.Attempts, CreditStatus: "untracked", Provider: j.ExternalProvider}
+	row := UsageRow{JobID: j.ID, UserID: j.UserID, WorkspaceID: j.WorkspaceID, TaskType: j.Type, Status: j.Status, QueuePhase: j.QueuePhase, CreatedAt: j.CreatedAt, StartedAt: j.StartedAt, FinishedAt: j.FinishedAt, Attempts: j.Attempts, CreditStatus: "untracked", Provider: j.ExternalProvider}
 	row.Model = usageString(payload, "model", "model_id")
 	if row.Provider == "" {
 		row.Provider = usageString(payload, "provider_id", "provider")
@@ -282,6 +294,27 @@ func attachConsumption(row *UsageRow, c model.TaskConsumption) {
 	}
 	var p map[string]any
 	_ = json.Unmarshal(c.Params, &p)
+	row.PendingReason = ""
+	row.PendingAgeSeconds = 0
+	if c.Status == model.TaskConsumptionStatusReserved {
+		pendingSince := c.CreatedAt
+		if pendingSince.IsZero() {
+			pendingSince = row.CreatedAt
+		}
+		if !pendingSince.IsZero() {
+			row.PendingAgeSeconds = math.Max(0, time.Since(pendingSince).Seconds())
+		}
+		switch {
+		case row.Status == model.JobStatusSucceeded && usageString(p, "billing_mode") == AutomaticVideoBillingMode:
+			row.PendingReason = "video_metrics_pending"
+		case row.QueuePhase != "":
+			row.PendingReason = row.QueuePhase
+		case row.Status == model.JobStatusQueued || row.Status == model.JobStatusRunning:
+			row.PendingReason = "job_in_progress"
+		default:
+			row.PendingReason = "reservation_pending"
+		}
+	}
 	if row.DurationSeconds == 0 {
 		row.DurationSeconds = usageNumber(p, "duration_sec", "duration")
 	}

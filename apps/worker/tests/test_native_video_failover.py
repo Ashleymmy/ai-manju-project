@@ -13,6 +13,12 @@ from worker.generation_failover import PROVIDER_CANDIDATES_FIELD
 
 
 class NativeVideoFailoverTest(unittest.TestCase):
+    def setUp(self):
+        from http_security_fakes import fake_public_send
+        self.enterContext(patch("worker.http_security._send_public_once", side_effect=fake_public_send))
+        from video_checkpoint_fakes import isolated_checkpoint
+        self.enterContext(patch("worker.video.checkpoint_for_video", side_effect=isolated_checkpoint))
+
     def test_native_result_preserves_nested_url_formats_and_rejects_nonvideo_content(self):
         self.assertEqual(video.native_video_url({"data": {"outputs": [{"downloadUrl": "https://storage.test/video"}]}}), "https://storage.test/video")
         with tempfile.TemporaryDirectory() as tmp, patch.object(video.requests, "get", return_value=FakeVideoResponse(content=b"error", content_type="text/html")):
@@ -47,9 +53,9 @@ class NativeVideoFailoverTest(unittest.TestCase):
                     return FakeVideoResponse({"output": {"task_id": "accepted-task", "task_status": "PENDING"}})
 
                 def get(url, **kwargs):
-                    self.assertNotIn("X-DashScope-Async", kwargs["headers"])
+                    self.assertNotIn("X-DashScope-Async", kwargs.get("headers", {}))
                     if "storage.test" in url:
-                        self.assertEqual(kwargs["headers"], {})
+                        self.assertEqual(kwargs.get("headers", {}), {})
                         return FakeVideoResponse(content=b"generated-video", content_type="video/mp4")
                     polls.append(url)
                     status = "SUCCEEDED" if success and "b.test" in url else "FAILED"

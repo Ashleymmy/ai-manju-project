@@ -2,8 +2,12 @@ package queue
 
 import (
 	"bufio"
+	"bytes"
+	"compress/zlib"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -15,7 +19,13 @@ import (
 	"github.com/ai-manju/api/internal/model"
 )
 
-const redisCommandTimeout = 5 * time.Second
+const (
+	redisCommandTimeout = 5 * time.Second
+	// Kombu's standard zlib codec keeps inline media from multiplying Redis traffic.
+	celeryCompressionThreshold = 256 * 1024
+	// Kombu Redis tracks each delivery by this tag, independently of task ID.
+	celeryDeliveryTagBytes = 16
+)
 
 type CeleryRedisProducer struct {
 	brokerURL string
@@ -75,6 +85,29 @@ func celeryMessagePayload(message TaskMessage) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	compression := ""
+	if len(bodyJSON) >= celeryCompressionThreshold {
+		var compressed bytes.Buffer
+		writer, err := zlib.NewWriterLevel(&compressed, zlib.BestSpeed)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := writer.Write(bodyJSON); err != nil {
+			return nil, err
+		}
+		if err := writer.Close(); err != nil {
+			return nil, err
+		}
+		if compressed.Len() < len(bodyJSON) {
+			bodyJSON = compressed.Bytes()
+			// This MIME name is Kombu's registered zlib codec, not a gzip wrapper.
+			compression = "application/x-gzip"
+		}
+	}
+	var deliveryTag [celeryDeliveryTagBytes]byte
+	if _, err := rand.Read(deliveryTag[:]); err != nil {
+		return nil, fmt.Errorf("generate celery delivery tag: %w", err)
+	}
 	envelope := map[string]any{
 		"body":             base64.StdEncoding.EncodeToString(bodyJSON),
 		"content-encoding": "utf-8",
@@ -92,7 +125,7 @@ func celeryMessagePayload(message TaskMessage) ([]byte, error) {
 		},
 		"properties": map[string]any{
 			"correlation_id": message.JobID,
-			"delivery_tag":   message.JobID,
+			"delivery_tag":   hex.EncodeToString(deliveryTag[:]),
 			"reply_to":       "",
 			"delivery_mode":  2,
 			"delivery_info": map[string]any{
@@ -105,6 +138,9 @@ func celeryMessagePayload(message TaskMessage) ([]byte, error) {
 	if soft, ok := message.Kwargs["generation_soft_timeout_seconds"].(int); ok && soft > 0 {
 		// Limits apply to each delivery, so later suppliers retain a full budget.
 		envelope["headers"].(map[string]any)["timelimit"] = []int{soft + int(model.GenerationHardTimeoutGrace.Seconds()), soft}
+	}
+	if compression != "" {
+		envelope["headers"].(map[string]any)["compression"] = compression
 	}
 	return json.Marshal(envelope)
 }

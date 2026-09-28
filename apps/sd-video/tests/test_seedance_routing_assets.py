@@ -132,7 +132,7 @@ def test_storage_reference_refreshes_signed_url_instead_of_reusing_snapshot(monk
         )
         references = await processor._references(record)
         assert references[0]["url"] == "https://cdn.example.com/fresh?token=rotated"
-        storage.url.assert_awaited_once_with("inputs/team/owner/ref.png", settings.RESULT_SIGNED_URL_TTL_SECONDS)
+        storage.url.assert_awaited_once_with("inputs/team/owner/ref.png", processor.reference_url_ttl_seconds())
     asyncio.run(check())
 
 

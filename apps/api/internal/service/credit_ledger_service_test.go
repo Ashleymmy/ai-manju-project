@@ -41,6 +41,13 @@ func (fx *creditEngineFixture) plan() model.MembershipPlan {
 
 func (fx *creditEngineFixture) activeMembership(t *testing.T, userID string, orderID string, expiresAt time.Time) model.UserMembership {
 	t.Helper()
+	if orderID != "" {
+		if _, err := fx.billing.GetOrderByID(orderID); errors.Is(err, repository.ErrOrderNotFound) {
+			if _, err := fx.billing.CreateOrder(model.Order{ID: orderID, UserID: userID, PlanID: "plan_198", OrderType: model.OrderTypeMemberMonthly, Status: model.OrderStatusPaid}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	membership, err := fx.memberships.CreateMembership(model.UserMembership{
 		UserID: userID, PlanID: "plan_198", Status: model.MembershipStatusActive,
 		Source: model.MembershipSourcePurchase, OrderID: orderID,
@@ -235,7 +242,7 @@ func TestRefundCreditPackOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 模拟已到账并被花掉一部分。
-	if _, err := fx.service.Adjust("user_r", 600, "ops", "nonce_r_seed"); err != nil {
+	if _, err := fx.service.RechargePermanent("user_r", 600, order.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fx.service.Reserve("user_r", fx.quote("job_r1", 400)); err != nil {

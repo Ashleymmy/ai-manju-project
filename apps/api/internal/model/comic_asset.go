@@ -138,6 +138,9 @@ type ComicAssetGenerationItem struct {
 }
 
 type ComicPromptRevision struct {
+	// OperationID makes a committed result identifiable after a lost database
+	// acknowledgement. It is an opaque receipt ID, never a credential.
+	OperationID    string                  `json:"operation_id,omitempty"`
 	Version        int                     `json:"version"`
 	Source         string                  `json:"source"`
 	Content        string                  `json:"content"`

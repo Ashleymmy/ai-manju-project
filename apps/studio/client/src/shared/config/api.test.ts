@@ -40,10 +40,12 @@ describe("API runtime config", () => {
     expect(normalizeApiBaseUrl("http://custom-api:3101/")).toBe("http://custom-api:3101");
   });
 
-  it("preserves the production fallback when no API is configured", () => {
+  it("uses same-origin in production when the API build setting is omitted", () => {
     vi.stubEnv("DEV", false);
     vi.stubGlobal("window", { location: { origin: "https://studio.example.com" } });
-    expect(normalizeApiBaseUrl(undefined)).toBe(DEFAULT_API_BASE_URL);
+    expect(normalizeApiBaseUrl(undefined)).toBe("https://studio.example.com");
+    expect(normalizeApiBaseUrl("")).toBe("https://studio.example.com");
+    expect(new URL(`${normalizeApiBaseUrl(undefined)}/api/auth/login`).pathname).toBe("/api/auth/login");
   });
 
   it("resolves the same-origin build option without a localhost fallback", async () => {
@@ -54,5 +56,31 @@ describe("API runtime config", () => {
     const url = new URL(`${configured.API_BASE_URL}/api/sd-video/conversations`);
     expect(url.origin).toBe(window.location.origin);
     expect(url.pathname).toBe("/api/sd-video/conversations");
+  });
+
+  it.each([
+    "http://127.0.0.1:3101", "http://localhost:3101/", "http://[::1]:3101",
+    "http://127.1:3101", "http://0.0.0.0:3101", "http://api.localhost:3101",
+  ])("ignores a developer loopback API %s on a cloud page", api => {
+    vi.stubGlobal("window", { location: { origin: "http://studio.clouddo.cc" } });
+    expect(normalizeApiBaseUrl(api)).toBe("http://studio.clouddo.cc");
+  });
+
+  it("preserves explicit loopback API settings for local development", () => {
+    vi.stubGlobal("window", { location: { origin: "http://localhost:3100" } });
+    expect(normalizeApiBaseUrl("http://127.0.0.1:3101/")).toBe("http://127.0.0.1:3101");
+  });
+
+  it("keeps explicitly configured remote APIs on cloud pages", () => {
+    vi.stubGlobal("window", { location: { origin: "https://studio.example.com" } });
+    expect(normalizeApiBaseUrl("https://api.example.com/")).toBe("https://api.example.com");
+  });
+
+  it("routes login to the page origin even when a build contains the old loopback setting", async () => {
+    vi.stubGlobal("window", { location: { origin: "http://studio.clouddo.cc" } });
+    vi.stubEnv("VITE_API_URL", "http://127.0.0.1:3101");
+    vi.resetModules();
+    const { apiUrl } = await import("../api/http/request");
+    expect(apiUrl("/api/auth/login")).toBe("http://studio.clouddo.cc/api/auth/login");
   });
 });

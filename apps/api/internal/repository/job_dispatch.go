@@ -1,0 +1,222 @@
+package repository
+
+import (
+	"bytes"
+	"encoding/json"
+	"sort"
+	"time"
+
+	"github.com/ai-manju/api/internal/model"
+	"gorm.io/gorm"
+)
+
+// Worker retry messages get the same receipt grace as initial delivery. This
+// shared value bounds recovery without republishing normally scheduled waits.
+const JobDispatchReceiptGrace = 2 * time.Minute
+
+const (
+	nativeRetryVideoCheckpointKey = "_worker_video_checkpoint"
+	nativeRetryImageCheckpointKey = "_worker_image_checkpoint"
+)
+
+// Recover either a never-started wait or an explicit durable rejection. Keep
+// SQL and Memory eligibility aligned; accepted/uncertain work is never retried.
+var providerWaitRedispatchSQL = `status = 'queued' AND queue_phase IN ('waiting_provider_slot','provider_retry_backoff')
+ AND COALESCE(external_provider, '') = ''
+ AND COALESCE(jsonb_typeof(bridge_metadata), 'null') IN ('null', 'object')
+ AND NOT jsonb_exists(COALESCE(bridge_metadata, '{}'::jsonb), '_worker_recovery_control')
+ AND ((started_at IS NULL AND queue_phase = 'waiting_provider_slot'
+       AND NOT jsonb_exists(COALESCE(bridge_metadata, '{}'::jsonb), '_worker_video_checkpoint')
+       AND NOT jsonb_exists(COALESCE(bridge_metadata, '{}'::jsonb), '_worker_image_checkpoint'))
+   OR (type = 'video.generate' AND ` + rejectedCheckpointSQL(nativeRetryVideoCheckpointKey, nativeRetryImageCheckpointKey) + `)
+   OR (type IN ('image.generate','image.edit') AND ` + rejectedCheckpointSQL(nativeRetryImageCheckpointKey, nativeRetryVideoCheckpointKey) + `))`
+
+func rejectedCheckpointSQL(key, other string) string {
+	cp := "(bridge_metadata->'" + key + "')"
+	return `NOT jsonb_exists(bridge_metadata,'` + other + `')
+ AND ` + cp + ` @> '{"version":1,"phase":"rejected"}'::jsonb
+ AND jsonb_typeof(` + cp + `->'revision') = 'number'
+ AND (` + cp + `->>'revision') ~ '^[1-9][0-9]*$'
+ AND ` + cp + `->'revision' <= '9223372036854775807'::jsonb
+ AND jsonb_typeof(` + cp + `->'provider_identity') = 'string'
+ AND ` + cp + `->>'provider_identity' <> ''
+ AND COALESCE(` + cp + `->'provider_task_id','""'::jsonb) = '""'::jsonb
+ AND COALESCE(` + cp + `->'result','null'::jsonb) = 'null'::jsonb
+ AND COALESCE(` + cp + `->'recovery','null'::jsonb) = 'null'::jsonb`
+}
+
+func CanRedispatchProviderWait(job model.Job) bool {
+	if job.Status != model.JobStatusQueued || (job.QueuePhase != "waiting_provider_slot" && job.QueuePhase != "provider_retry_backoff") || job.ExternalProvider != "" {
+		return false
+	}
+	var metadata map[string]json.RawMessage
+	if len(job.BridgeMetadata) > 0 && json.Unmarshal(job.BridgeMetadata, &metadata) != nil {
+		return false
+	}
+	if _, exists := metadata[JobRecoveryControlKey]; exists {
+		return false
+	}
+	_, hasVideo := metadata[nativeRetryVideoCheckpointKey]
+	_, hasImage := metadata[nativeRetryImageCheckpointKey]
+	if !hasVideo && !hasImage {
+		return job.StartedAt == nil && job.QueuePhase == "waiting_provider_slot"
+	}
+	key := ""
+	switch job.Type {
+	case model.JobTypeVideoGenerate:
+		if !hasVideo || hasImage {
+			return false
+		}
+		key = nativeRetryVideoCheckpointKey
+	case model.JobTypeImageGenerate, model.JobTypeImageEdit:
+		if !hasImage || hasVideo {
+			return false
+		}
+		key = nativeRetryImageCheckpointKey
+	default:
+		return false
+	}
+	var cp struct {
+		Version  int             `json:"version"`
+		Revision int64           `json:"revision"`
+		Phase    string          `json:"phase"`
+		Identity string          `json:"provider_identity"`
+		TaskID   json.RawMessage `json:"provider_task_id"`
+		Result   json.RawMessage `json:"result"`
+		Recovery json.RawMessage `json:"recovery"`
+	}
+	if json.Unmarshal(metadata[key], &cp) != nil || cp.Version != 1 || cp.Revision < 1 || cp.Phase != "rejected" || cp.Identity == "" {
+		return false
+	}
+	noResult := func(raw json.RawMessage) bool {
+		return len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+	}
+	return (len(cp.TaskID) == 0 || bytes.Equal(bytes.TrimSpace(cp.TaskID), []byte(`""`))) && noResult(cp.Result) && noResult(cp.Recovery)
+}
+
+func (r *MemoryJobRepository) ListDispatchPendingIDs(now time.Time, limit int) ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	jobs := []model.Job{}
+	for _, job := range r.jobs {
+		if ProviderRetryScheduled(job, now) {
+			continue
+		}
+		// Restore only proven rejections or accepted-result recovery. Paid work
+		// follows a separate recovery-only dispatch path and never becomes a POST.
+		terminal := job.Status == model.JobStatusSucceeded || job.Status == model.JobStatusFailed || job.Status == model.JobStatusCanceled
+		dispatchable := (job.DispatchState == model.JobDispatchPending || job.DispatchState == model.JobDispatchPublished || (job.DispatchState == model.JobDispatchObserved && (terminal || CanRedispatchProviderWait(job) || CanAutomaticallyRecoverNative(job))) || job.DispatchState == JobDispatchRecoveryPending || job.DispatchState == JobDispatchRecoveryPublished) && job.DispatchCiphertext != ""
+		if (dispatchable || CanRouteNativeOrphan(job)) && (job.DispatchNextAttemptAt == nil || !job.DispatchNextAttemptAt.After(now)) {
+			jobs = append(jobs, job)
+		}
+	}
+	sort.Slice(jobs, func(i, j int) bool {
+		iTime, jTime := jobs[i].CreatedAt, jobs[j].CreatedAt
+		if jobs[i].DispatchNextAttemptAt != nil {
+			iTime = *jobs[i].DispatchNextAttemptAt
+		}
+		if jobs[j].DispatchNextAttemptAt != nil {
+			jTime = *jobs[j].DispatchNextAttemptAt
+		}
+		if iTime.Equal(jTime) {
+			return jobs[i].ID < jobs[j].ID
+		}
+		return iTime.Before(jTime)
+	})
+	if limit > 0 && len(jobs) > limit {
+		jobs = jobs[:limit]
+	}
+	ids := make([]string, 0, len(jobs))
+	for _, job := range jobs {
+		ids = append(ids, job.ID)
+	}
+	return ids, nil
+}
+
+func (r *MemoryJobRepository) UpdateDispatch(id string, state string, next *time.Time, completed bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	job, ok := r.jobs[id]
+	if !ok {
+		return ErrJobNotFound
+	}
+	if job.DispatchCiphertext == "" {
+		return nil
+	}
+	job.DispatchState, job.DispatchNextAttemptAt = state, next
+	job.DispatchAttempts++
+	if completed {
+		job.DispatchCiphertext = ""
+	}
+	if job.Status == model.JobStatusQueued && job.StartedAt == nil && (job.QueuePhase == "" || job.QueuePhase == model.JobQueueWaitingDispatch) {
+		if state == model.JobDispatchPending {
+			job.QueuePhase = model.JobQueueWaitingDispatch
+		} else {
+			job.QueuePhase = ""
+		}
+	}
+	r.jobs[id] = job
+	return nil
+}
+
+func (r *GormJobRepository) ListDispatchPendingIDs(now time.Time, limit int) ([]string, error) {
+	ids := []string{}
+	query := r.db.Model(&model.Job{}).Where("(((dispatch_state IN ? OR (dispatch_state = ? AND (status IN ? OR ("+providerWaitRedispatchSQL+") OR ("+automaticNativeRecoverySQL+")))) AND COALESCE(dispatch_ciphertext,'') <> '') OR ("+orphanNativeRunningSQL+")) AND (dispatch_next_attempt_at IS NULL OR dispatch_next_attempt_at <= ?)", []string{model.JobDispatchPending, model.JobDispatchPublished, JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobDispatchObserved, []string{model.JobStatusSucceeded, model.JobStatusFailed, model.JobStatusCanceled}, now).
+		Where("(dispatch_state IN ? OR status <> ? OR COALESCE(queue_phase,'') NOT IN ? OR worker_retry_at IS NULL OR worker_retry_at <= ?)", []string{JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobStatusQueued, []string{"waiting_provider_slot", "provider_retry_backoff", "video_recovery_pending", "image_recovery_pending"}, now.Add(-JobDispatchReceiptGrace)).
+		Where("(dispatch_state IN ? OR status <> ? OR worker_retry_at IS NOT NULL OR (COALESCE(queue_phase,'') NOT IN ? AND NOT COALESCE(("+automaticNativeRecoverySQL+"), false)) OR updated_at <= ?)", []string{JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobStatusQueued, []string{"video_recovery_pending", "image_recovery_pending"}, now.Add(-JobDispatchReceiptGrace)).
+		Where("(dispatch_state IN ? OR status <> ? OR NOT COALESCE((("+automaticNativeRecoverySQL+") OR ("+orphanNativeRunningSQL+")), false) OR (updated_at IS NOT NULL AND updated_at <> ? AND updated_at <= ? AND (worker_retry_at IS NULL OR worker_retry_at <= ?)))", []string{JobDispatchRecoveryPending, JobDispatchRecoveryPublished}, model.JobStatusRunning, time.Time{}, now.Add(-NativeRunningRecoveryGrace), now.Add(-JobDispatchReceiptGrace)).
+		Order("COALESCE(dispatch_next_attempt_at, created_at) ASC").Order("id ASC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	err := query.Pluck("id", &ids).Error
+	return ids, err
+}
+
+// ProviderRetryScheduled must be checked again under the dispatch lock: a
+// Worker may have renewed its retry deadline after the ID-only scan.
+func ProviderRetryScheduled(job model.Job, now time.Time) bool {
+	if job.DispatchState == JobDispatchRecoveryPending || job.DispatchState == JobDispatchRecoveryPublished {
+		return false
+	}
+	if job.Status == model.JobStatusRunning && (CanAutomaticallyRecoverNative(job) || CanRouteNativeOrphan(job)) {
+		return RunningNativeRecoveryScheduled(job, now)
+	}
+	if job.Status != model.JobStatusQueued {
+		return false
+	}
+	recoveryPhase := job.QueuePhase == "video_recovery_pending" || job.QueuePhase == "image_recovery_pending"
+	if !recoveryPhase && job.QueuePhase != "waiting_provider_slot" && job.QueuePhase != "provider_retry_backoff" {
+		return false
+	}
+	if job.WorkerRetryAt != nil {
+		return job.WorkerRetryAt.Add(JobDispatchReceiptGrace).After(now)
+	}
+	// Old recovery messages did not persist a retry time. Their most recent
+	// state change still needs an observation window before the relay intervenes.
+	return (recoveryPhase || CanAutomaticallyRecoverNative(job)) && job.UpdatedAt.Add(JobDispatchReceiptGrace).After(now)
+}
+
+func (r *GormJobRepository) UpdateDispatch(id string, state string, next *time.Time, completed bool) error {
+	phase := ""
+	if state == model.JobDispatchPending {
+		phase = model.JobQueueWaitingDispatch
+	}
+	updates := map[string]any{
+		"dispatch_state": state, "dispatch_next_attempt_at": next,
+		"dispatch_attempts": gorm.Expr("COALESCE(dispatch_attempts,0) + 1"),
+		"queue_phase":       gorm.Expr("CASE WHEN status = 'queued' AND started_at IS NULL AND COALESCE(queue_phase,'') IN ('','waiting_dispatch') THEN ? ELSE queue_phase END", phase),
+	}
+	if completed {
+		updates["dispatch_ciphertext"] = ""
+	}
+	result := r.db.Model(&model.Job{}).Where("id = ? AND COALESCE(dispatch_ciphertext,'') <> ''", id).UpdateColumns(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		_, err := r.GetByID(id)
+		return err
+	}
+	return nil
+}

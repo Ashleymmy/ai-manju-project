@@ -49,3 +49,5 @@ export type {
 } from "./model";
 export { comicQueryKeys } from "./queries";
 export { invalidateComicProjects } from "./cache";
+export { listComicAnalysisHistory, resumeComicAnalysis } from "./analysisHistory";
+export type { ComicAnalysisSummary, ComicAnalysisHistoryPage } from "./analysisHistory";

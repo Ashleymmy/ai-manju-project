@@ -277,6 +277,38 @@ describe("buildCanvasGenerationHistoryMonth", () => {
 });
 
 describe("cloneCanvasNodeFromGenerationHistory", () => {
+  it.each(["image", "video"] as const)("restores independent %s history and revision nodes without original execution identities", kind => {
+    const source = node("original", { kind, content: "原有内容", imageAssetId: "current-asset", metadata: {
+      prompt: "原提示词", model: "current-model", seconds: "8", assetId: "current-asset", assetScope: "team",
+      generationReceipt: { key: "generation", userId: "owner", scope: "team", projectId: "project", projectKey: "team:project",
+        kind: "audio", nodeId: "original", originNodeId: "original", prompt: "原提示词", model: "audio-model" },
+      pendingAudioUpload: { key: "upload", fileName: "voice.mp3", contentType: "audio/mpeg", bytes: 5, createdAt: "2026-09-25" },
+      promptOptimizationReceipt: { version: 1, key: "optimization", userId: "owner", scope: "team", projectId: "project", projectKey: "team:project",
+        nodeId: "original", kind, prompt: "原提示词", model: "text-model", state: "pending" },
+    } });
+    const before = structuredClone(source);
+    const historical = cloneCanvasNodeFromGenerationHistory(source, { id: "history-copy", x: 400, y: 300 });
+    const revision = { id: "old", kind, title: "以前的内容", assetId: "revision-asset", assetScope: "personal" as const,
+      prompt: "以前的提示词", model: "revision-model", seconds: "12", size: "16:9" };
+    const revisionBefore = structuredClone(revision);
+    const restored = cloneCanvasNodeFromGenerationRevision(source, revision, { id: "revision-copy", x: 700, y: 300 });
+    for (const copy of [historical, restored]) {
+      expect(copy.kind).toBe(kind);
+      expect(copy.metadata?.appliedFromHistory).toBe(true);
+      expect(copy.metadata).not.toHaveProperty("generationReceipt");
+      expect(copy.metadata).not.toHaveProperty("pendingAudioUpload");
+      expect(copy.metadata).not.toHaveProperty("promptOptimizationReceipt");
+    }
+    expect(historical).toMatchObject({ id: "history-copy", content: "原有内容", imageAssetId: "current-asset", metadata: {
+      prompt: "原提示词", model: "current-model", seconds: "8", assetId: "current-asset", assetScope: "team",
+    } });
+    expect(restored).toMatchObject({ id: "revision-copy", content: "以前的提示词", imageAssetId: "revision-asset", metadata: {
+      prompt: "以前的提示词", model: "revision-model", seconds: "12", size: "16:9", assetId: "revision-asset", assetScope: "personal", status: "success",
+    } });
+    expect(source).toEqual(before);
+    expect(revision).toEqual(revisionBefore);
+  });
+
   it("复制为独立节点并去掉批次关系", () => {
     const cloned = cloneCanvasNodeFromGenerationHistory(
       node("child", {

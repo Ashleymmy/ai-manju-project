@@ -253,10 +253,6 @@ func TestAdminRefundOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 引擎调账模拟充值到账（永久余额 +100）
-	if _, err := f.engine.Adjust("user_member", 100, "user_ops", "refund-seed"); err != nil {
-		t.Fatal(err)
-	}
 	now := time.Now().UTC()
 	order, err := f.billingRepo.CreateOrder(model.Order{
 		UserID:      "user_member",
@@ -268,6 +264,10 @@ func TestAdminRefundOrder(t *testing.T) {
 		PaidAt:      &now,
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	// A refund reverses this order's immutable recharge, not unrelated admin grants.
+	if _, err := f.engine.RechargePermanent("user_member", 100, order.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -305,6 +305,34 @@ func TestAdminRefundOrder(t *testing.T) {
 	missing := performJSON(f.router, http.MethodPost, "/api/admin/billing/orders/ord_missing/refund", "", opsCookie)
 	if missing.Code != http.StatusNotFound {
 		t.Fatalf("missing order refund status = %d, want 404", missing.Code)
+	}
+}
+
+// An unpaid refund returns conflict before touching any existing user credits.
+func TestAdminRefundRejectsUnpaidOrderWithoutChangingCredits(t *testing.T) {
+	f := newAdminBillingFixture(t)
+	cookie := loginCookie(t, f.router, "ops", "secret")
+	if _, err := f.engine.Adjust("user_member", 100, "user_ops", "unpaid-refund-seed"); err != nil {
+		t.Fatal(err)
+	}
+	order, err := f.billingRepo.CreateOrder(model.Order{
+		UserID: "user_member", OrderType: model.OrderTypeCreditPack,
+		Status: model.OrderStatusPending, AmountCents: 600, Currency: "CNY",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := performJSON(f.router, http.MethodPost, "/api/admin/billing/orders/"+order.ID+"/refund", "", cookie)
+	if res.Code != http.StatusConflict {
+		t.Fatalf("unpaid refund status=%d", res.Code)
+	}
+	account, err := f.creditRepo.GetAccount("user_member")
+	if err != nil || account.PermanentBalance != 100 {
+		t.Fatalf("unpaid refund changed credits: balance=%d error=%v", account.PermanentBalance, err)
+	}
+	current, err := f.billingRepo.GetOrderByID(order.ID)
+	if err != nil || current.Status != model.OrderStatusPending || current.RefundStartedAt != nil {
+		t.Fatal("unpaid refund changed order")
 	}
 }
 

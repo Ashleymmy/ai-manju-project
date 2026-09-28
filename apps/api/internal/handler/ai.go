@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/ai-manju/api/internal/auth"
+	"github.com/ai-manju/api/internal/httpsecurity"
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/monitoring"
 	"github.com/ai-manju/api/internal/provider"
@@ -63,6 +64,8 @@ type AIHandler struct {
 	assets           *service.AssetService
 	sdVideo          *sdvideo.Client
 	projects         *service.ProjectService
+	receipts         *service.GenerationReceiptService
+	comicOperations  *service.ComicAssetService
 	// entitlements Agent 模式门禁（WP-M6）：nil = 不启用（billing 关闭时）。
 	entitlements *service.EntitlementGate
 }
@@ -188,7 +191,7 @@ func (h *AIHandler) Text(c *gin.Context) {
 	text, config, err := generateTextWithCandidates(c.Request.Context(), candidates, req)
 	if err != nil {
 		h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: config, Operation: "text", Model: modelID, InputCount: inputCount, OutputCount: 0, Err: err})
-		response.Error(c, http.StatusBadGateway, errGenerationUnavailable.Error())
+		response.Error(c, http.StatusBadGateway, generationPublicError(err))
 		return
 	}
 	outputCount := len(text.ToolCalls)
@@ -477,6 +480,11 @@ func (h *AIHandler) enqueueAIJob(c *gin.Context, jobType string, payload model.J
 		return service.EnqueueJobResult{}, errors.New("job service is not configured")
 	}
 	user := auth.MustCurrentUser(c)
+	billingPolicy, policyErr := h.automaticVideoBillingPolicy(c, jobType, payload)
+	if policyErr != nil {
+		response.Error(c, http.StatusBadRequest, policyErr.Error())
+		return service.EnqueueJobResult{}, policyErr
+	}
 	var stablePayload model.JSONB
 	if len(idempotencyPayload) > 0 {
 		stablePayload = idempotencyPayload[0]
@@ -500,8 +508,13 @@ func (h *AIHandler) enqueueAIJob(c *gin.Context, jobType string, payload model.J
 		IdempotencyPayload: stablePayload,
 		TaskKwargs:         kwargs,
 		IdempotencyKey:     c.GetHeader("Idempotency-Key"),
+		VideoBillingPolicy: billingPolicy,
 	})
 	if err != nil {
+		if errors.Is(err, service.ErrAutomaticVideoPolicyUnavailable) {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return result, err
+		}
 		if errors.Is(err, repository.ErrInsufficientCredits) {
 			response.Error(c, http.StatusPaymentRequired, "积分余额不足，请充值后重试")
 			return result, err
@@ -567,7 +580,8 @@ func (h *AIHandler) SeedanceTaskCreate(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if h.shouldUseSDVideo(stringFromAny(body["model"])) {
+	if requestedModel := firstNonEmpty(stringFromAny(body["model"]), c.Query("model")); h.shouldUseSDVideo(requestedModel) {
+		body["model"] = requestedModel
 		h.createSDVideoTask(c, body)
 		return
 	}
@@ -885,7 +899,7 @@ func (h *AIHandler) SeedanceTaskContent(c *gin.Context) {
 		response.Error(c, http.StatusBadGateway, "Seedance task did not return a video URL")
 		return
 	}
-	body, contentType, err := downloadSeedanceVideoContent(c.Request.Context(), videoURL)
+	body, contentType, err := downloadSeedanceVideoContent(c.Request.Context(), videoURL, config.BaseURL)
 	if err != nil {
 		response.Error(c, http.StatusBadGateway, err.Error())
 		return
@@ -894,9 +908,14 @@ func (h *AIHandler) SeedanceTaskContent(c *gin.Context) {
 }
 
 func (h *AIHandler) AudioSpeech(c *gin.Context) {
+	startedAt := time.Now().UTC()
 	var body map[string]any
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(stringFromAny(body["input"])) == "" {
+		response.Error(c, http.StatusBadRequest, "音频生成内容不能为空")
 		return
 	}
 	candidates, ok := h.providerHandler.LoadGenerationCandidates(c, model.ModelCapabilityAudio, stringFromAny(body["model"]))
@@ -904,8 +923,11 @@ func (h *AIHandler) AudioSpeech(c *gin.Context) {
 		return
 	}
 	removeGenerationPrivateFields(body)
+	var lastConfig model.ModelProviderConfig
+	var lastErr error
 	for _, candidate := range candidates {
 		config := candidate.Config
+		lastConfig = config
 		config.TimeoutMS = max(config.TimeoutMS, int(model.GenerationMediaRequestTimeout.Milliseconds()))
 		body["model"] = candidate.Model
 		for attempt := 0; attempt < model.GenerationAttemptsPerProvider; attempt++ {
@@ -914,15 +936,28 @@ func (h *AIHandler) AudioSpeech(c *gin.Context) {
 			}
 			client, err := provider.NewOpenAICompatibleClient(config, candidate.APIKey)
 			if err != nil {
+				lastErr = err
 				continue
 			}
 			content, contentType, err := client.ProxyBlob(c.Request.Context(), http.MethodPost, providerProxyPath(config, "/audio/speech"), body, true)
-			if err == nil && len(content) > 0 {
+			if err == nil && validSpeechOutput(content, contentType) {
+				h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: config, Operation: "audio", Model: candidate.Model, InputCount: 1, OutputCount: 1})
 				c.Data(http.StatusOK, firstNonEmpty(contentType, "application/octet-stream"), content)
+				return
+			}
+			if err == nil {
+				err = errors.New("provider returned invalid speech media")
+			}
+			lastErr = err
+			if !safeToRepeatGeneration(err) {
+				err = uncertainGeneration(err)
+				h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: config, Operation: "audio", Model: candidate.Model, InputCount: 1, Err: err})
+				response.Error(c, http.StatusBadGateway, generationPublicError(err))
 				return
 			}
 		}
 	}
+	h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: lastConfig, Operation: "audio", Model: stringFromAny(body["model"]), InputCount: 1, Err: lastErr})
 	response.Error(c, http.StatusBadGateway, errGenerationUnavailable.Error())
 }
 
@@ -1483,7 +1518,7 @@ func seedanceAssetIDsFromPayload(payload map[string]any) []string {
 	return ids
 }
 
-func downloadSeedanceVideoContent(ctx context.Context, rawURL string) ([]byte, string, error) {
+func downloadSeedanceVideoContent(ctx context.Context, rawURL string, trustedOrigins ...string) ([]byte, string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || parsed.Host == "" || parsed.User != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return nil, "", errors.New("Seedance returned an invalid video URL")
@@ -1493,10 +1528,10 @@ func downloadSeedanceVideoContent(ctx context.Context, rawURL string) ([]byte, s
 		return nil, "", err
 	}
 	req.Header.Set("Accept", "video/*,application/octet-stream;q=0.9,*/*;q=0.1")
-	client := &http.Client{Timeout: 10 * time.Minute}
+	client := httpsecurity.NewMediaClient(10*time.Minute, trustedOrigins...)
 	res, err := client.Do(req)
 	if err != nil {
-		return nil, "", err
+		return nil, "", errors.New("Seedance video download temporarily unavailable")
 	}
 	defer res.Body.Close()
 

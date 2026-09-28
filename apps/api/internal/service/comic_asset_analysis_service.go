@@ -49,9 +49,12 @@ var (
 	ErrComicPromptMergeBaseInvalid  = errors.New("comic asset prompt merge base is not a saved revision")
 	ErrComicTextModelRequired       = errors.New("text model is required")
 	ErrComicTextProvider            = errors.New("text model provider is unavailable; please contact an administrator")
+	ErrComicTextSubmissionUncertain = errors.New("生成响应中断，结果暂时无法确认；请勿重复提交，请联系管理员核查")
 )
 
-type ComicTextGenerator func(ctx context.Context, requestedModel string, request provider.TextGenerationRequest) (provider.TextResponse, error)
+// The actor ID comes from the authenticated request, never the model payload.
+// Background execution resolves the current account and provider policy afresh.
+type ComicTextGenerator func(ctx context.Context, userID string, requestedModel string, request provider.TextGenerationRequest) (provider.TextResponse, error)
 
 func (s *ComicAssetService) SetTextGenerator(generator ComicTextGenerator) {
 	s.textGenerator = generator
@@ -127,6 +130,10 @@ type ComicAnalysisDetail struct {
 
 type CreateComicAnalysisSessionInput struct {
 	CreateComicProjectInput
+	IdempotencyKey string
+	// These identities are assigned from the immutable server submission claim.
+	sessionID          string
+	analysisReceiptKey string
 	Async              bool
 	SourceType         string
 	SourceFileName     string
@@ -175,6 +182,13 @@ type BulkComicPromptApprovalResult struct {
 }
 
 func (s *ComicAssetService) CreateAnalysisSession(ctx context.Context, userID string, scope string, input CreateComicAnalysisSessionInput) (ComicAnalysisDetail, error) {
+	if input.Async && input.IdempotencyKey != "" {
+		return s.createAnalysisSubmission(ctx, userID, scope, input)
+	}
+	return s.createAnalysisSession(ctx, userID, scope, input)
+}
+
+func (s *ComicAssetService) createAnalysisSession(ctx context.Context, userID string, scope string, input CreateComicAnalysisSessionInput) (ComicAnalysisDetail, error) {
 	if s.sourceStorage == nil {
 		return ComicAnalysisDetail{}, ErrComicSourceUnavailable
 	}
@@ -212,6 +226,9 @@ func (s *ComicAssetService) CreateAnalysisSession(ctx context.Context, userID st
 	}
 
 	sessionID := "comic_analysis_" + randomHex(10)
+	if input.sessionID != "" {
+		sessionID = input.sessionID
+	}
 	storageKey := comicAnalysisSourceStorageKey(projectInput.WorkspaceID, sessionID, extension)
 	object, err := s.sourceStorage.Put(ctx, storageKey, io.LimitReader(input.Source, ComicProjectSourceMaxBytes+1), storage.PutMeta{
 		ContentType: contentType,
@@ -240,6 +257,15 @@ func (s *ComicAssetService) CreateAnalysisSession(ctx context.Context, userID st
 	}
 	if input.Async {
 		session.Status = model.ComicAnalysisStatusProcessing
+		if s.analysisReceipts != nil {
+			session.AnalysisReceiptVersion = model.ComicAnalysisReceiptVersion
+			// Separate, unexposed identity prevents a client reconciliation from
+			// claiming the internal operation before its background execution.
+			session.AnalysisReceiptKey = "comic-analysis:" + randomHex(24)
+			if input.analysisReceiptKey != "" {
+				session.AnalysisReceiptKey = input.analysisReceiptKey
+			}
+		}
 		session, err = s.repo.CreatePendingAnalysisSession(session)
 		if err != nil {
 			return ComicAnalysisDetail{}, err
@@ -251,7 +277,7 @@ func (s *ComicAssetService) CreateAnalysisSession(ctx context.Context, userID st
 		session.Scope = WorkspaceScopeFromID(session.WorkspaceID)
 		return ComicAnalysisDetail{Session: session, Revisions: []model.ComicAssetAnalysisRevision{}}, nil
 	}
-	generated, err := s.textGenerator(ctx, requestedModel, comicInitialAnalysisRequest(projectInput, sourceText, initialInstruction))
+	generated, err := s.textGenerator(ctx, userID, requestedModel, comicInitialAnalysisRequest(projectInput, sourceText, initialInstruction))
 	if err != nil {
 		return ComicAnalysisDetail{}, err
 	}
@@ -279,6 +305,15 @@ func (s *ComicAssetService) GetAnalysisSession(sessionID string, userID string, 
 	if err != nil {
 		return ComicAnalysisDetail{}, err
 	}
+	if comicAnalysisHasReceipt(session) {
+		if err := s.restorePendingAnalysisReceipt(session); err != nil {
+			return ComicAnalysisDetail{}, err
+		}
+		session, revisions, err = s.repo.GetAnalysisSession(sessionID, session.WorkspaceID)
+		if err != nil {
+			return ComicAnalysisDetail{}, err
+		}
+	}
 	// A process restart must not leave a saved task looking busy indefinitely.
 	if session.Status == model.ComicAnalysisStatusProcessing && time.Since(session.CreatedAt) > ComicAnalysisTaskTimeout {
 		if err := s.repo.FinishPendingAnalysisSession(session.ID, session.WorkspaceID, nil, comicAnalysisTimeoutMessage); err != nil && !errors.Is(err, repository.ErrComicAssetInvalidState) {
@@ -292,12 +327,19 @@ func (s *ComicAssetService) GetAnalysisSession(sessionID string, userID string, 
 	if err := validateComicAnalysisSession(session); err != nil {
 		return ComicAnalysisDetail{}, err
 	}
+	session.AnalysisRecoveryPending = session.Status == model.ComicAnalysisStatusFailed &&
+		(session.AnalysisError == comicAnalysisTimeoutMessage || session.AnalysisError == ErrComicTextSubmissionUncertain.Error())
 	session.Scope = WorkspaceScopeFromID(session.WorkspaceID)
 	return ComicAnalysisDetail{Session: session, Revisions: revisions}, nil
 }
 
 func (s *ComicAssetService) CreateAnalysisRevision(ctx context.Context, sessionID string, userID string, scope string, input CreateComicAnalysisRevisionInput) (ComicAnalysisDetail, error) {
 	workspaceID := WorkspaceIDForScope(scope, userID)
+	operationReceipt, hasReceipt, err := comicOperationReceipt(ctx, userID, workspaceID, model.GenerationReceiptKindComicRevision)
+	if err != nil {
+		return ComicAnalysisDetail{}, err
+	}
+	var checkpointClaim model.GenerationReceipt
 	session, revisions, err := s.repo.GetAnalysisSession(sessionID, workspaceID)
 	if err != nil {
 		return ComicAnalysisDetail{}, err
@@ -316,6 +358,9 @@ func (s *ComicAssetService) CreateAnalysisRevision(ctx context.Context, sessionI
 	expectedActive := strings.TrimSpace(input.ExpectedActiveRevisionID)
 	if expectedActive == "" {
 		expectedActive = session.ActiveRevisionID
+	}
+	if expectedActive != session.ActiveRevisionID {
+		return ComicAnalysisDetail{}, repository.ErrComicAssetConflict
 	}
 	source := strings.ToLower(strings.TrimSpace(input.Source))
 	var snapshot ComicAnalysisCandidateSnapshot
@@ -341,7 +386,13 @@ func (s *ComicAssetService) CreateAnalysisRevision(ctx context.Context, sessionI
 		if s.textGenerator == nil {
 			return ComicAnalysisDetail{}, ErrComicTextProvider
 		}
-		generated, generateErr := s.textGenerator(ctx, requestedModel, comicRevisionAnalysisRequest(session, parent, instruction))
+		if hasReceipt {
+			checkpointClaim, err = s.beginComicOperationCheckpoint(ctx, operationReceipt)
+			if err != nil {
+				return ComicAnalysisDetail{}, err
+			}
+		}
+		generated, generateErr := s.textGenerator(ctx, userID, requestedModel, comicRevisionAnalysisRequest(session, parent, instruction))
 		if generateErr != nil {
 			return ComicAnalysisDetail{}, generateErr
 		}
@@ -356,7 +407,16 @@ func (s *ComicAssetService) CreateAnalysisRevision(ctx context.Context, sessionI
 		Source: source, Instruction: instruction, RequestedModel: requestedModel, ResponseModel: responseModel,
 		Candidate: encodeComicJSON(snapshot, `{"assets":[]}`),
 	}
-	session, revisions, err = s.repo.CreateAnalysisRevision(sessionID, workspaceID, expectedActive, revision)
+	if hasReceipt && source == model.ComicAnalysisRevisionSourceAI {
+		revision.ID = "comic_revision_" + operationReceipt.ID
+		checkpoint := newComicOperationCheckpoint(operationReceipt)
+		checkpoint.SessionID, checkpoint.ExpectedActiveRevisionID, checkpoint.ExpectedUpdatedAt = sessionID, expectedActive, session.UpdatedAt
+		checkpoint.Revision = &revision
+		if err := s.saveComicOperationCheckpoint(checkpointClaim, checkpoint); err != nil {
+			return ComicAnalysisDetail{}, err
+		}
+	}
+	session, revisions, err = s.repo.CreateAnalysisRevisionIfUnchanged(sessionID, workspaceID, expectedActive, session.UpdatedAt, revision)
 	if err != nil {
 		return ComicAnalysisDetail{}, err
 	}
@@ -424,6 +484,12 @@ func (s *ComicAssetService) ConfirmAnalysisSession(sessionID string, revisionID 
 }
 
 func (s *ComicAssetService) OptimizePrompt(ctx context.Context, projectID string, assetID string, userID string, scope string, input OptimizeComicPromptInput) (OptimizeComicPromptResult, error) {
+	workspaceID := WorkspaceIDForScope(scope, userID)
+	operationReceipt, hasReceipt, err := comicOperationReceipt(ctx, userID, workspaceID, model.GenerationReceiptKindComicPrompt)
+	if err != nil {
+		return OptimizeComicPromptResult{}, err
+	}
+	var checkpointClaim model.GenerationReceipt
 	direction := trimRunes(strings.TrimSpace(input.Direction), ComicAnalysisMaxInstructionRunes)
 	if direction == "" {
 		return OptimizeComicPromptResult{}, ErrComicPromptDirectionRequired
@@ -442,7 +508,6 @@ func (s *ComicAssetService) OptimizePrompt(ctx context.Context, projectID string
 	if s.textGenerator == nil {
 		return OptimizeComicPromptResult{}, ErrComicTextProvider
 	}
-	workspaceID := WorkspaceIDForScope(scope, userID)
 	project, err := s.repo.GetProject(projectID, workspaceID)
 	if err != nil {
 		return OptimizeComicPromptResult{}, err
@@ -476,7 +541,13 @@ func (s *ComicAssetService) OptimizePrompt(ctx context.Context, projectID string
 		mergeBaseContent = baseContent
 		request = comicPromptMergeRequest(project, asset, baseContent, direction)
 	}
-	generated, err := s.textGenerator(ctx, requestedModel, request)
+	if hasReceipt {
+		checkpointClaim, err = s.beginComicOperationCheckpoint(ctx, operationReceipt)
+		if err != nil {
+			return OptimizeComicPromptResult{}, err
+		}
+	}
+	generated, err := s.textGenerator(ctx, userID, requestedModel, request)
 	if err != nil {
 		return OptimizeComicPromptResult{}, err
 	}
@@ -507,8 +578,19 @@ func (s *ComicAssetService) OptimizePrompt(ctx context.Context, projectID string
 		RequestedModel: requestedModel, ResponseModel: strings.TrimSpace(generated.Model), CreatedAt: time.Now().UTC(),
 		MergeReport: mergeReport,
 	})
+	if hasReceipt {
+		revisions[len(revisions)-1].OperationID = operationReceipt.ID
+	}
 	asset.PromptRevisions = encodeComicJSON(revisions, "[]")
-	asset, err = s.repo.UpdateAssetIfPromptVersion(asset, workspaceID, expectedVersion)
+	if hasReceipt {
+		checkpoint := newComicOperationCheckpoint(operationReceipt)
+		checkpoint.ExpectedPromptVersion, checkpoint.ExpectedUpdatedAt = expectedVersion, asset.UpdatedAt
+		checkpoint.Prompt = &OptimizeComicPromptResult{Asset: asset, RequestedModel: requestedModel, ResponseModel: strings.TrimSpace(generated.Model), MergeReport: mergeReport}
+		if err := s.saveComicOperationCheckpoint(checkpointClaim, checkpoint); err != nil {
+			return OptimizeComicPromptResult{}, err
+		}
+	}
+	asset, err = s.repo.UpdateAssetPromptCandidate(asset, workspaceID, expectedVersion)
 	if err != nil {
 		return OptimizeComicPromptResult{}, err
 	}

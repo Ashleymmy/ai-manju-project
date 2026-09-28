@@ -159,6 +159,14 @@
 .agent-toolbar-spacer {
   flex: 1;
 }
+.agent-activity {
+  min-height: 24px;
+  padding: 5px 12px;
+  color: rgba(239, 235, 222, .62);
+  font-size: 11px;
+  line-height: 14px;
+  border-bottom: 1px solid rgba(239, 235, 222, .06);
+}
 /* 婵炲棎鍨肩换瀣偩瀹€鍕〃闁挎稒鑹炬稊蹇曗偓闈涚秺缂嶅牓姊婚灏栧亾?+ 闁告瑥鑻崹顏囩疀椤愶絽绁归柛妤嬬磿婢?*/
 .agent-welcome {
   padding: 26px 18px 14px;

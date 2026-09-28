@@ -1,7 +1,10 @@
 package repository
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"sort"
 	"time"
 
@@ -10,7 +13,56 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// Keep optimistic timestamps monotonic even on clocks with coarse resolution.
+// PostgreSQL stores microseconds, so both implementations use that precision.
+func comicNextUpdatedAt(previous time.Time) time.Time {
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	if !now.After(previous) {
+		return previous.Truncate(time.Microsecond).Add(time.Microsecond)
+	}
+	return now
+}
+
+func comicSameUpdatedAt(left, right time.Time) bool {
+	return left.Truncate(time.Microsecond).Equal(right.Truncate(time.Microsecond))
+}
+
+// An optimization may only replace its prompt draft/history. It must not
+// resurrect stale source metadata or generation outputs when those changed
+// without incrementing PromptVersion, even within the same clock tick.
+func comicPromptSnapshotMatches(current, proposed model.ComicAsset) bool {
+	// PostgreSQL jsonb formatting and the encrypted JSON envelope need not
+	// preserve whitespace/key order. Compare output metadata semantically.
+	if !comicJSONSnapshotEqual(current.Outputs, proposed.Outputs) {
+		return false
+	}
+	current.Outputs = proposed.Outputs
+	current.DraftPrompt, current.PromptStatus = proposed.DraftPrompt, proposed.PromptStatus
+	current.PromptVersion, current.PromptWarnings, current.PromptRevisions = proposed.PromptVersion, proposed.PromptWarnings, proposed.PromptRevisions
+	current.CreatedAt, current.UpdatedAt = proposed.CreatedAt, proposed.UpdatedAt
+	return reflect.DeepEqual(current, proposed)
+}
+
+func comicJSONSnapshotEqual(left, right model.JSONB) bool {
+	if bytes.Equal(left, right) {
+		return true
+	}
+	var a, b any
+	leftDecoder, rightDecoder := json.NewDecoder(bytes.NewReader(left)), json.NewDecoder(bytes.NewReader(right))
+	leftDecoder.UseNumber()
+	rightDecoder.UseNumber()
+	return leftDecoder.Decode(&a) == nil && rightDecoder.Decode(&b) == nil && reflect.DeepEqual(a, b)
+}
+
 func (r *MemoryComicAssetRepository) UpdateAssetIfPromptVersion(asset model.ComicAsset, workspaceID string, expectedVersion int) (model.ComicAsset, error) {
+	return r.updateAssetPromptVersion(asset, workspaceID, expectedVersion, false)
+}
+
+func (r *MemoryComicAssetRepository) UpdateAssetPromptCandidate(asset model.ComicAsset, workspaceID string, expectedVersion int) (model.ComicAsset, error) {
+	return r.updateAssetPromptVersion(asset, workspaceID, expectedVersion, true)
+}
+
+func (r *MemoryComicAssetRepository) updateAssetPromptVersion(asset model.ComicAsset, workspaceID string, expectedVersion int, candidate bool) (model.ComicAsset, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	project, ok := r.projects[asset.ProjectID]
@@ -21,11 +73,13 @@ func (r *MemoryComicAssetRepository) UpdateAssetIfPromptVersion(asset model.Comi
 	if !ok || current.ProjectID != asset.ProjectID {
 		return model.ComicAsset{}, ErrComicAssetNotFound
 	}
-	if current.PromptVersion != expectedVersion {
+	// PromptVersion alone misses edits to source/name/template and generation
+	// output written while a paid optimization was in flight.
+	if current.PromptVersion != expectedVersion || !comicSameUpdatedAt(current.UpdatedAt, asset.UpdatedAt) || (candidate && !comicPromptSnapshotMatches(current, asset)) {
 		return model.ComicAsset{}, ErrComicAssetConflict
 	}
 	asset.CreatedAt = current.CreatedAt
-	asset.UpdatedAt = time.Now().UTC()
+	asset.UpdatedAt = comicNextUpdatedAt(current.UpdatedAt)
 	r.assets[asset.ID] = asset
 	return asset, nil
 }
@@ -74,6 +128,10 @@ func (r *MemoryComicAssetRepository) listAnalysisRevisionsLocked(sessionID strin
 }
 
 func (r *MemoryComicAssetRepository) CreateAnalysisRevision(sessionID string, workspaceID string, expectedActiveRevisionID string, revision model.ComicAssetAnalysisRevision) (model.ComicAssetAnalysisSession, []model.ComicAssetAnalysisRevision, error) {
+	return r.CreateAnalysisRevisionIfUnchanged(sessionID, workspaceID, expectedActiveRevisionID, time.Time{}, revision)
+}
+
+func (r *MemoryComicAssetRepository) CreateAnalysisRevisionIfUnchanged(sessionID, workspaceID, expectedActiveRevisionID string, expectedUpdatedAt time.Time, revision model.ComicAssetAnalysisRevision) (model.ComicAssetAnalysisSession, []model.ComicAssetAnalysisRevision, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	session, revisions, err := r.getAnalysisSessionLocked(sessionID, workspaceID)
@@ -84,6 +142,9 @@ func (r *MemoryComicAssetRepository) CreateAnalysisRevision(sessionID string, wo
 		return model.ComicAssetAnalysisSession{}, nil, ErrComicAssetInvalidState
 	}
 	if expectedActiveRevisionID != "" && session.ActiveRevisionID != expectedActiveRevisionID {
+		return model.ComicAssetAnalysisSession{}, nil, ErrComicAssetConflict
+	}
+	if !expectedUpdatedAt.IsZero() && !comicSameUpdatedAt(session.UpdatedAt, expectedUpdatedAt) {
 		return model.ComicAssetAnalysisSession{}, nil, ErrComicAssetConflict
 	}
 	if revision.ID == "" || revision.SessionID != sessionID {
@@ -99,7 +160,7 @@ func (r *MemoryComicAssetRepository) CreateAnalysisRevision(sessionID string, wo
 		}
 	}
 	revision.Version = len(revisions) + 1
-	revision.CreatedAt = time.Now().UTC()
+	revision.CreatedAt = comicNextUpdatedAt(session.UpdatedAt)
 	r.analysisRevisions[revision.ID] = revision
 	session.ActiveRevisionID = revision.ID
 	session.UpdatedAt = revision.CreatedAt
@@ -122,7 +183,7 @@ func (r *MemoryComicAssetRepository) SetActiveAnalysisRevision(sessionID string,
 		return model.ComicAssetAnalysisSession{}, nil, ErrComicAnalysisRevisionNotFound
 	}
 	session.ActiveRevisionID = revisionID
-	session.UpdatedAt = time.Now().UTC()
+	session.UpdatedAt = comicNextUpdatedAt(session.UpdatedAt)
 	r.analysisSessions[session.ID] = session
 	return session, r.listAnalysisRevisionsLocked(sessionID), nil
 }
@@ -225,6 +286,14 @@ func (r *MemoryComicAssetRepository) DeleteExpiredAnalysisSession(sessionID stri
 }
 
 func (r *GormComicAssetRepository) UpdateAssetIfPromptVersion(asset model.ComicAsset, workspaceID string, expectedVersion int) (model.ComicAsset, error) {
+	return r.updateAssetPromptVersion(asset, workspaceID, expectedVersion, false)
+}
+
+func (r *GormComicAssetRepository) UpdateAssetPromptCandidate(asset model.ComicAsset, workspaceID string, expectedVersion int) (model.ComicAsset, error) {
+	return r.updateAssetPromptVersion(asset, workspaceID, expectedVersion, true)
+}
+
+func (r *GormComicAssetRepository) updateAssetPromptVersion(asset model.ComicAsset, workspaceID string, expectedVersion int, candidate bool) (model.ComicAsset, error) {
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		var project model.ComicAssetProject
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&project, "id = ? AND workspace_id = ?", asset.ProjectID, workspaceID).Error; err != nil {
@@ -234,12 +303,14 @@ func (r *GormComicAssetRepository) UpdateAssetIfPromptVersion(asset model.ComicA
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, "id = ? AND project_id = ?", asset.ID, asset.ProjectID).Error; err != nil {
 			return mapComicAssetGormError(err, ErrComicAssetNotFound)
 		}
-		if current.PromptVersion != expectedVersion {
+		if current.PromptVersion != expectedVersion || !comicSameUpdatedAt(current.UpdatedAt, asset.UpdatedAt) || (candidate && !comicPromptSnapshotMatches(current, asset)) {
 			return ErrComicAssetConflict
 		}
 		asset.CreatedAt = current.CreatedAt
-		asset.UpdatedAt = time.Now().UTC()
-		return tx.Save(&asset).Error
+		asset.UpdatedAt = comicNextUpdatedAt(current.UpdatedAt)
+		// Keep the guarded monotonic timestamp instead of GORM's wall-clock
+		// auto-update hook, which can round back to the previous microsecond.
+		return tx.Session(&gorm.Session{SkipHooks: true}).Save(&asset).Error
 	})
 	return asset, mapComicAssetConflict(err)
 }
@@ -277,6 +348,10 @@ func (r *GormComicAssetRepository) listAnalysisRevisions(db *gorm.DB, sessionID 
 }
 
 func (r *GormComicAssetRepository) CreateAnalysisRevision(sessionID string, workspaceID string, expectedActiveRevisionID string, revision model.ComicAssetAnalysisRevision) (model.ComicAssetAnalysisSession, []model.ComicAssetAnalysisRevision, error) {
+	return r.CreateAnalysisRevisionIfUnchanged(sessionID, workspaceID, expectedActiveRevisionID, time.Time{}, revision)
+}
+
+func (r *GormComicAssetRepository) CreateAnalysisRevisionIfUnchanged(sessionID, workspaceID, expectedActiveRevisionID string, expectedUpdatedAt time.Time, revision model.ComicAssetAnalysisRevision) (model.ComicAssetAnalysisSession, []model.ComicAssetAnalysisRevision, error) {
 	var session model.ComicAssetAnalysisSession
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&session, "id = ? AND workspace_id = ?", sessionID, workspaceID).Error; err != nil {
@@ -286,6 +361,9 @@ func (r *GormComicAssetRepository) CreateAnalysisRevision(sessionID string, work
 			return ErrComicAssetInvalidState
 		}
 		if expectedActiveRevisionID != "" && session.ActiveRevisionID != expectedActiveRevisionID {
+			return ErrComicAssetConflict
+		}
+		if !expectedUpdatedAt.IsZero() && !comicSameUpdatedAt(session.UpdatedAt, expectedUpdatedAt) {
 			return ErrComicAssetConflict
 		}
 		if revision.ParentRevisionID != "" {
@@ -303,7 +381,7 @@ func (r *GormComicAssetRepository) CreateAnalysisRevision(sessionID string, work
 		}
 		revision.SessionID = sessionID
 		revision.Version = maxVersion + 1
-		revision.CreatedAt = time.Now().UTC()
+		revision.CreatedAt = comicNextUpdatedAt(session.UpdatedAt)
 		if err := tx.Create(&revision).Error; err != nil {
 			return mapComicAssetConflict(err)
 		}
@@ -335,7 +413,7 @@ func (r *GormComicAssetRepository) SetActiveAnalysisRevision(sessionID string, r
 			return ErrComicAnalysisRevisionNotFound
 		}
 		session.ActiveRevisionID = revisionID
-		session.UpdatedAt = time.Now().UTC()
+		session.UpdatedAt = comicNextUpdatedAt(session.UpdatedAt)
 		return tx.Model(&model.ComicAssetAnalysisSession{}).Where("id = ?", session.ID).Updates(map[string]any{"active_revision_id": revisionID, "updated_at": session.UpdatedAt}).Error
 	})
 	if err != nil {

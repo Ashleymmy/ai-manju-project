@@ -36,20 +36,20 @@ export async function getJobs(
   const normalizedQuery = normalizeJobListQuery(query);
   const raw = await request<ApiJob[] | { items: ApiJob[]; total?: number }>(
     "/api/jobs",
-    { query: normalizedQuery }
+    { query: { view: "status", ...normalizedQuery } }
   );
   return normalizeJobList(raw);
 }
 
 export async function getJob(id: string, signal?: AbortSignal) {
   return normalizeJob(
-    await request<ApiJob>(`/api/jobs/${encodeURIComponent(id)}`, { signal })
+    await request<ApiJob>(`/api/jobs/${encodeURIComponent(id)}`, { signal, query: { view: "status" } })
   );
 }
 
 export async function createJob(payload: CreateJobInput) {
   return normalizeJob(
-    await request<ApiJob>("/api/jobs", { method: "POST", body: payload })
+    await request<ApiJob>("/api/jobs", { method: "POST", body: payload, query: { view: "status" } })
   );
 }
 
@@ -57,7 +57,7 @@ export async function cancelJob(id: string, scope?: "personal" | "team") {
   return normalizeJob(
     await request<ApiJob>(`/api/jobs/${encodeURIComponent(id)}/cancel`, {
       method: "POST",
-      query: { scope },
+      query: { scope, view: "status" },
     })
   );
 }
@@ -68,6 +68,19 @@ export function isTerminalJob(job: Pick<Job, "status">) {
     job.status === "failed" ||
     job.status === "canceled"
   );
+}
+
+/** Recovery retains the original task ID; these notices must not enable resubmit. */
+export function jobProgressNotice(job: Pick<Job, "status" | "queue_phase">): string | undefined {
+  if (isTerminalJob(job)) return undefined;
+  if (job.queue_phase === "waiting_dispatch") return "任务已保存，正在等待调度，无需重复生成";
+  if (job.queue_phase === "video_submission_uncertain") return "提交结果待确认，请联系管理员，勿重复生成";
+  if (job.queue_phase === "video_recovery_pending") return "正在恢复原视频任务，无需重新生成";
+  if (job.queue_phase === "image_submission_uncertain") return "图片提交结果待确认，请联系管理员，勿重复生成";
+  if (job.queue_phase === "image_recovery_pending") return "正在恢复原图片任务，无需重新生成";
+  if (job.queue_phase === "video_recovery_attention") return "原视频结果恢复需要管理员核查，请勿重复生成";
+  if (job.queue_phase === "image_recovery_attention") return "原图片结果恢复需要管理员核查，请勿重复生成";
+  return undefined;
 }
 
 export function jobErrorMessage(

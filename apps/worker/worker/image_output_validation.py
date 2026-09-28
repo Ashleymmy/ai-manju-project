@@ -14,6 +14,7 @@ import requests
 
 from .config import Settings
 from .image_requirements import ImageParameterError
+from .http_security import HTTPPolicyError, public_media_get, trusted_media_origins
 from .image_specs import GEMINI_OUTPUT_ALIGNMENT_PIXELS, GEMINI_OUTPUT_ASPECT_TOLERANCE, is_gemini_image_model
 
 # Reading a local image header must not hold a worker slot indefinitely.
@@ -47,7 +48,7 @@ def validate_canvas_image_outputs(payload: dict[str, Any], result: dict[str, Any
         if not isinstance(output, dict):
             raise invalid_output()
         if not output.get("path") and output.get("remote_url"):
-            download_original_image(output, settings)
+            download_original_image(output, settings, payload.get("provider"))
         if not output.get("path"):
             raise invalid_output()
         path = Path(str(output["path"])).resolve()
@@ -89,7 +90,7 @@ def invalid_output() -> ImageOutputValidationError:
     return ImageOutputValidationError("生成服务未返回可校验的原图，请更换模型后重试。", code="image_output_unreadable", retryable=False)
 
 
-def download_original_image(output: dict[str, Any], settings: Settings) -> None:
+def download_original_image(output: dict[str, Any], settings: Settings, provider=None) -> None:
     url = str(output["remote_url"])
     parsed = urlparse(url)
     if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.username is not None:
@@ -97,7 +98,7 @@ def download_original_image(output: dict[str, Any], settings: Settings) -> None:
     path: Path | None = None
     deadline = time.monotonic() + IMAGE_DOWNLOAD_TIMEOUT_SECONDS
     try:
-        with requests.get(url, stream=True, timeout=IMAGE_PROBE_TIMEOUT_SECONDS) as response:
+        with public_media_get(url, stream=True, timeout=IMAGE_PROBE_TIMEOUT_SECONDS, trusted_origins=trusted_media_origins(provider)) as response:
             response.raise_for_status()
             settings.asset_storage_dir.mkdir(parents=True, exist_ok=True)
             content_type = str(response.headers.get("Content-Type") or "image/png").split(";", 1)[0].strip().lower()
@@ -110,10 +111,10 @@ def download_original_image(output: dict[str, Any], settings: Settings) -> None:
             if not path.stat().st_size:
                 raise invalid_output()
         output.update(path=str(path), content_type=content_type, size=path.stat().st_size)
-    except (requests.RequestException, OSError, ImageOutputValidationError) as exc:
+    except (requests.RequestException, HTTPPolicyError, OSError, ImageOutputValidationError) as exc:
         if path is not None:
             path.unlink(missing_ok=True)
-        raise invalid_output() from exc
+        raise invalid_output() from None
 
 
 def read_image_dimensions(path: Path, settings: Settings) -> tuple[int, int]:

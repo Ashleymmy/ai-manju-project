@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { CanvasNodeData } from "./types";
 import {
   applyPendingCanvasJobIds,
+  CANVAS_INTERRUPTED_REQUEST_NOTICE,
   canvasJobSourceNodeId,
   canvasJobSourceProjectId,
   markUnrecoverableCanvasGenerations,
+  markInterruptedCanvasRequests,
   matchLoadingNodesToJobs,
 } from "./generationResume";
 import { resetInterruptedCanvasGenerations } from "./batch";
@@ -28,6 +30,25 @@ function imageNode(
 }
 
 describe("generation resume", () => {
+  it("matches legacy top-level node identity while keeping project isolation", () => {
+    const node = { ...imageNode("video", { status: "loading" }), kind: "video" as const };
+    const jobs = [{ id: "wrong", type: "video.generate", payload: { project_id: "other", node_id: "video" } },
+      { id: "legacy", type: "video.generate", payload: { project_id: "canvas", node_id: "video" } }];
+    expect(matchLoadingNodesToJobs([node], jobs, "canvas")).toEqual([{ nodeId: "video", jobId: "legacy" }]);
+  });
+  it("restores the newest matching video task and does not reuse an image task from the same source", () => {
+    const video = { ...imageNode("video", { status: "loading" }), kind: "video" as const };
+    const registration = { source_project_id: "project", source_node_id: "video" };
+    const now = Date.now();
+    const jobs = [
+      { id: "old-video", type: "video.generate", created_at: new Date(now - 2000).toISOString(), payload: { asset_registration: registration } },
+      { id: "image", type: "image.generate", created_at: new Date(now).toISOString(), payload: { asset_registration: registration } },
+      { id: "new-video", type: "video.generate", created_at: new Date(now - 1000).toISOString(), payload: { asset_registration: registration } },
+      { id: "other-project", type: "video.generate", created_at: new Date(now).toISOString(), payload: { asset_registration: { ...registration, source_project_id: "other" } } },
+    ];
+    expect(matchLoadingNodesToJobs([video], jobs, "project")).toEqual([{ nodeId: "video", jobId: "new-video" }]);
+  });
+
   it("marks a missing real root request as failed even when child jobs are recoverable", () => {
     const nodes = [
       imageNode("root", { isBatchRoot: true, batchModelV2: true, batchChildIds: ["child"], status: "loading" }),
@@ -50,7 +71,27 @@ describe("generation resume", () => {
     const next = resetInterruptedCanvasGenerations(nodes);
     expect(next[0]?.metadata?.status).toBe("loading");
     expect(next[1]?.metadata?.status).toBe("error");
-    expect(next[1]?.metadata?.errorDetails).toContain("页面刷新后生成已中断");
+    expect(next[1]?.metadata?.errorDetails).toBe(CANVAS_INTERRUPTED_REQUEST_NOTICE);
+  });
+
+  it.each(["text", "audio"] as const)("marks refreshed %s without a durable task as uncertain and retains previous content", kind => {
+    const node: CanvasNodeData = { ...imageNode("original", { status: "loading", assetId: "old-asset", mimeType: "audio/mpeg", bytes: 42, titleEdited: true, titleBase: "保留标题" }), kind, title: "保留标题", content: "原来的结果" };
+    const next = resetInterruptedCanvasGenerations([node]);
+    expect(next[0]).toMatchObject({ title: "保留标题", content: "原来的结果", metadata: {
+      status: "error", assetId: "old-asset", mimeType: "audio/mpeg", bytes: 42,
+      errorDetails: CANVAS_INTERRUPTED_REQUEST_NOTICE,
+    } });
+    expect(next[0].metadata?.errorDetails).toContain("勿重复生成");
+    expect(next[0].metadata?.errorDetails).not.toContain("请重新生成");
+  });
+
+  it("leaves live targets and persisted task IDs untouched when detecting interrupted requests", () => {
+    const nodes: CanvasNodeData[] = [
+      { ...imageNode("live", { status: "loading" }), kind: "text" },
+      { ...imageNode("durable", { status: "loading", jobId: "job-audio" }), kind: "audio" },
+      { ...imageNode("done", { status: "success" }), kind: "text" },
+    ];
+    expect(markInterruptedCanvasRequests(nodes, new Set(["durable", "done"]))).toBe(nodes);
   });
 
   it("matches queued jobs to loading nodes by target then origin", () => {

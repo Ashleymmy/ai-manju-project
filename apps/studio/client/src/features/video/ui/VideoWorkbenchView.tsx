@@ -16,7 +16,7 @@ import {
   type Asset,
   type SeedanceAsset,
 } from "@/entities/asset";
-import { cancelJob } from "@/entities/job";
+import { cancelJob, jobProgressNotice } from "@/entities/job";
 
 import { publicApiError, toastGenerationError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
@@ -102,6 +102,8 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   const [framesEnabled, setFramesEnabled] = useState(false);
   const [view, setView] = useState<WorkbenchView>("generator");
   const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [taskRuntime, setTaskRuntime] = useState<Record<string, WorkbenchTaskRuntime>>({});
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerScope, setPickerScope] = useState<WorkspaceScope>("personal");
@@ -113,6 +115,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   const mountedRef = useRef(false);
   const conversationsRef = useRef<VideoWorkbenchConversation[]>([]);
   const pollingRef = useRef(new Map<string, AbortController>());
+  const cancellingTasksRef = useRef(new Set<string>());
   const objectUrlsRef = useRef(new Set<string>());
   const assetMentionCacheRef = useRef<{ at: number; items: MentionCandidate[] }>({ at: 0, items: [] });
   const resultUrlsRef = useRef<Record<string, string>>({});
@@ -149,20 +152,24 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   /* ---------- 初始化：模型目录 + 本地对话 ---------- */
   useEffect(() => {
     mountedRef.current = true;
-    const repository = createCloudConversationRepository(ownerId);
-    repositoryRef.current = repository;
     let active = true;
+    setReady(false);
+    setLoadError("");
+    const repository = createCloudConversationRepository(ownerId, "personal", () => {
+      if (active) toast.warning("本机对话缓存不可用；正在尝试云端会话，本地旧对话和未同步草稿可能暂时无法显示");
+    });
+    repositoryRef.current = repository;
     void (async () => {
       try {
         const catalog = await fetchVideoModelCatalog();
-        if (!mountedRef.current) return;
+        if (!active) return;
         setModels(catalog.videoModels);
         setLabels(catalog.modelLabels || {});
         setProviderNames(catalog.modelProviderNames || {});
         const selected = catalog.defaultVideoModel || catalog.videoModels[0] || "";
         if (selected) setConfig((current) => normalizeVideoGenerationConfig({ ...current, model: resolveModel(catalog.videoModels, current.model) || selected }));
       } catch (error) {
-        if (mountedRef.current) toast.error(publicApiError(error, "读取视频模型失败"));
+        if (active) toast.error(publicApiError(error, "读取视频模型失败"));
       }
       try {
         const stored = await repository.load();
@@ -180,20 +187,15 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
       } catch (error) {
         if (!active) return;
         console.warn("读取视频对话失败", error);
-        toast.error(publicApiError(error, "服务端对话加载失败，请刷新后重试"));
-        const fallback = [createVideoWorkbenchConversation()];
-        conversationsRef.current = fallback;
-        if (mountedRef.current) {
-          setConversations(fallback);
-          setCurrentId(fallback[0].id);
-        }
+        setLoadError(publicApiError(error, "服务端对话加载失败，请重试"));
       } finally {
-        if (mountedRef.current) setReady(true);
+        if (active) setReady(true);
       }
     })();
     return () => {
       active = false;
       repository.dispose();
+      if (repositoryRef.current === repository) repositoryRef.current = null;
       mountedRef.current = false;
       pollingRef.current.forEach((controller) => controller.abort());
       pollingRef.current.clear();
@@ -202,7 +204,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
       Object.values(resultUrlsRef.current).forEach((url) => { if (url.startsWith("blob:")) URL.revokeObjectURL(url); });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [ownerId, loadAttempt]);
 
   /* ---------- 对话持久化 ---------- */
   const commitConversations = useCallback((next: VideoWorkbenchConversation[]) => {
@@ -503,7 +505,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
         if (controller.signal.aborted) return;
         const state = await pollVideoGenerationTask(payload.config, task, {
           signal: controller.signal,
-          onProgress: (job) => setRuntime(message.id, { progress: job.progress }),
+          onProgress: (job) => setRuntime(message.id, { progress: job.progress, notice: jobProgressNotice(job) }),
         });
         if (controller.signal.aborted) return;
         if (state.status === "completed") {
@@ -529,7 +531,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
       setRuntime(message.id, { status: "failed", error: errorText });
       toastGenerationError(error, "视频生成失败", () => navigate("/member/plans"));
     } finally {
-      pollingRef.current.delete(message.id);
+      if (pollingRef.current.get(message.id) === controller) pollingRef.current.delete(message.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patchMessage, setRuntime]);
@@ -606,11 +608,11 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
     setRuntime(message.id, { status: "running" });
     const task = { id: message.taskId, provider: message.taskProvider || workbenchProviderFromModel(message.model || message.config.model), model: message.model || message.config.model };
     try {
-      for (let attempt = 0; attempt < 120; attempt += 1) {
+      while (!controller.signal.aborted) {
         if (controller.signal.aborted) return;
         const state = await pollVideoGenerationTask(message.config, task, {
           signal: controller.signal,
-          onProgress: (job) => setRuntime(message.id, { progress: job.progress }),
+          onProgress: (job) => setRuntime(message.id, { progress: job.progress, notice: jobProgressNotice(job) }),
         });
         if (controller.signal.aborted) return;
         if (state.status === "completed") {
@@ -628,29 +630,55 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
       if (controller.signal.aborted) return;
       console.warn("恢复任务轮询失败", error);
     } finally {
-      pollingRef.current.delete(message.id);
+      if (pollingRef.current.get(message.id) === controller) pollingRef.current.delete(message.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [completeVideoTask, patchMessage, setRuntime]);
 
   const handleCancelTask = useCallback(async (message: VideoWorkbenchMessage) => {
-    if (!currentConversation) return;
+    if (!currentConversation || cancellingTasksRef.current.has(message.id)) return;
+    const conversationId = currentConversation.id;
+    const currentMessage = () => {
+      const current = conversationsRef.current.find(item => item.id === conversationId)?.messages.find(item => item.id === message.id);
+      return mountedRef.current && current && current.taskId === message.taskId
+        && current.taskStatus !== "succeeded" && current.taskStatus !== "failed" && current.taskStatus !== "canceled" ? current : null;
+    };
+    const keepReceivingResult = () => {
+      const current = currentMessage();
+      if (current?.taskId && !pollingRef.current.has(message.id)) void resumeTaskPolling(conversationId, current);
+    };
+    cancellingTasksRef.current.add(message.id);
     setRuntime(message.id, { cancelling: true });
-    pollingRef.current.get(message.id)?.abort();
-    pollingRef.current.delete(message.id);
-    if (message.taskId && (message.taskProvider === "openai" || message.taskId.startsWith("job_"))) {
-      try {
-        await cancelJob(message.taskId, pickerScope);
-      } catch (error) {
-        toast.error(publicApiError(error, "取消任务失败，任务仍可恢复"));
-        setRuntime(message.id, { cancelling: false });
-        return;
+    try {
+      if (message.taskId) {
+        if (!(message.taskProvider === "openai" || message.taskId.startsWith("job_") || message.taskId.startsWith("sdv_"))) {
+          toast.warning("任务已提交，当前通道暂不支持取消，将继续同步结果");
+          keepReceivingResult();
+          return;
+        }
+        const canceled = await cancelJob(message.taskId, pickerScope);
+        // Only confirmed cancellation may stop receiving this task's result.
+        if (canceled.status !== "canceled") {
+          keepReceivingResult();
+          return;
+        }
       }
+      if (!currentMessage()) return;
+      pollingRef.current.get(message.id)?.abort();
+      pollingRef.current.delete(message.id);
+      patchMessage(conversationId, message.id, { taskStatus: "canceled", taskError: "已手动取消" });
+      setRuntime(message.id, { status: "canceled" });
+      toast.message("已取消生成");
+    } catch (error) {
+      if (currentMessage()) {
+        toast.error(publicApiError(error, "取消任务失败，将继续同步原任务结果"));
+        keepReceivingResult();
+      }
+    } finally {
+      cancellingTasksRef.current.delete(message.id);
+      if (mountedRef.current) setRuntime(message.id, { cancelling: false });
     }
-    patchMessage(currentConversation.id, message.id, { taskStatus: "canceled", taskError: "已手动取消" });
-    setRuntime(message.id, { status: "canceled", cancelling: false });
-    toast.message("已取消生成");
-  }, [currentConversation, patchMessage, pickerScope, setRuntime]);
+  }, [currentConversation, patchMessage, pickerScope, resumeTaskPolling, setRuntime]);
 
   /** 从消息附件恢复可提交的参考素材（本地仓/资产库读回文件）。 */
   const restorePayloadFromMessages = useCallback(async (userMessage: VideoWorkbenchMessage, systemMessage?: VideoWorkbenchMessage): Promise<SubmitPayload> => {
@@ -878,6 +906,13 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
 
   if (!ready) {
     return <div className="wb-page"><div className="wb-loading"><Loader2 className="spin" size={24} /><p>正在读取视频工作台…</p></div></div>;
+  }
+
+  if (loadError) {
+    return <div className="wb-page"><div className="wb-loading" role="alert">
+      <p>{loadError}</p>
+      <button type="button" className="outline-button" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>重试加载对话</button>
+    </div></div>;
   }
 
   return (

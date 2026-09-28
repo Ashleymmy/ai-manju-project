@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 import hashlib
 from typing import Any, Iterator
@@ -11,6 +11,10 @@ from uuid import UUID
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 import psycopg
+
+from .video_checkpoint import VIDEO_CHECKPOINT_KEY
+from .image_checkpoint import IMAGE_CHECKPOINT_KEY
+from .errors import recovery_attention_error
 
 
 JOB_STATUS_QUEUED = "queued"
@@ -21,6 +25,68 @@ JOB_STATUS_CANCELED = "canceled"
 TERMINAL_STATUSES = {JOB_STATUS_SUCCEEDED, JOB_STATUS_FAILED, JOB_STATUS_CANCELED}
 # Diagnostic failures must not hold up a business retry during a DB outage.
 MONITORING_DB_TIMEOUT_SECONDS = 2
+# Failed recovery is bounded separately from generation attempts and credits.
+RECOVERY_MAX_FAILURES = 10
+RECOVERY_MAX_AGE_SECONDS = 30 * 60
+RECOVERY_ACCESS_FAILURE_LIMIT = 3
+RECOVERY_INITIAL_DELAY_SECONDS = 30
+RECOVERY_MAX_DELAY_SECONDS = 5 * 60
+RECOVERY_ACCESS_CODES = {"video_recovery_http_401", "video_recovery_http_403", "video_recovery_http_404"}
+
+
+def recovery_budget_exhausted(checkpoint, now=None):
+    """Check the existing budget before resuming; never open a fresh window."""
+    recovery = checkpoint.get("recovery") if isinstance(checkpoint, dict) else None
+    if not isinstance(recovery, dict):
+        return False
+    if recovery.get("requires_attention") is True:
+        return True
+    try:
+        if int(recovery.get("failures") or 0) >= RECOVERY_MAX_FAILURES or int(recovery.get("consecutive_access_failures") or 0) >= RECOVERY_ACCESS_FAILURE_LIMIT:
+            return True
+        if recovery.get("first_failure_at"):
+            started = datetime.fromisoformat(str(recovery["first_failure_at"]).replace("Z", "+00:00"))
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            return ((now or datetime.now(timezone.utc)) - started).total_seconds() >= RECOVERY_MAX_AGE_SECONDS
+    except (TypeError, ValueError, OverflowError):
+        return True
+    return False
+
+
+def recovery_transition(checkpoint, kind, *, uncertain=False, reason="", attention=False, now=None):
+    """Private counters plus public state, preserving every existing output."""
+    now = now or datetime.now(timezone.utc)
+    checkpoint = dict(checkpoint) if isinstance(checkpoint, dict) else {}
+    recovery = dict(checkpoint.get("recovery") or {})
+    attention = attention or recovery.get("requires_attention") is True
+    count = int(recovery.get("failures") or 0)
+    if not uncertain and not attention:
+        count += 1
+        try:
+            started = datetime.fromisoformat(str(recovery["first_failure_at"]).replace("Z", "+00:00"))
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+        except (KeyError, TypeError, ValueError):
+            started = now
+        access_failures = int(recovery.get("consecutive_access_failures") or 0) + 1 if reason in RECOVERY_ACCESS_CODES else 0
+        attention = count >= RECOVERY_MAX_FAILURES or (now - started).total_seconds() >= RECOVERY_MAX_AGE_SECONDS or access_failures >= RECOVERY_ACCESS_FAILURE_LIMIT
+        recovery.update(failures=count, first_failure_at=started.isoformat(), last_failure_at=now.isoformat(),
+                        consecutive_access_failures=access_failures, reason=reason if reason in RECOVERY_ACCESS_CODES else "result_recovery_failed")
+    if attention:
+        recovery["requires_attention"] = True
+        error = recovery_attention_error(kind)
+        phase, message, retryable = error.code, error.message, False
+    else:
+        phase = f"{kind}_submission_uncertain" if uncertain else f"{kind}_recovery_pending"
+        label = "视频" if kind == "video" else "图片"
+        message = f"{label}提交结果待确认，请勿重复提交，请联系管理员核查" if uncertain else f"{label}结果正在恢复处理，请勿重复提交"
+        retryable = not uncertain
+    if recovery:
+        checkpoint["recovery"] = recovery
+        checkpoint["revision"] = int(checkpoint.get("revision") or 0) + 1
+    delay = min(RECOVERY_MAX_DELAY_SECONDS, RECOVERY_INITIAL_DELAY_SECONDS * (2 ** min(max(count - 1, 0), 4)))
+    return checkpoint, {"code": phase, "message": message, "retryable": retryable}, delay
 
 
 @dataclass
@@ -78,6 +144,89 @@ class JobStore:
                 cur.execute("SELECT * FROM jobs WHERE id = %s", (job_id,))
                 return cur.fetchone()
 
+    def get_video_checkpoint(self, job_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT status, bridge_metadata -> %s AS checkpoint FROM jobs WHERE id = %s AND type = 'video.generate' AND COALESCE(external_provider, '') = ''", (VIDEO_CHECKPOINT_KEY, job_id))
+                return cur.fetchone()
+
+    def save_video_checkpoint(self, job_id: str, checkpoint: dict[str, Any], expected_revision: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """UPDATE jobs SET bridge_metadata = jsonb_set(
+                           CASE WHEN jsonb_typeof(bridge_metadata) = 'object' THEN bridge_metadata ELSE '{}'::jsonb END,
+                           ARRAY[%s], %s::jsonb), updated_at = timezone('utc', now())
+                       WHERE id = %s AND type = 'video.generate' AND COALESCE(external_provider, '') = ''
+                         AND status IN ('queued', 'running')
+                         AND COALESCE((bridge_metadata -> %s ->> 'revision')::bigint, 0) = %s
+                       RETURNING id, status""",
+                    (VIDEO_CHECKPOINT_KEY, Jsonb(json_compatible(checkpoint)), job_id, VIDEO_CHECKPOINT_KEY, expected_revision),
+                )
+                return cur.fetchone()
+
+    def mark_video_recovery(self, job_id: str, *, uncertain: bool = False, reason: str = "", attention: bool = False, recovered_result=None) -> dict[str, Any] | None:
+        # Keep credits reserved and generation attempts unchanged while only
+        # polling/downloading/importing an existing paid task.
+        return self._mark_media_recovery(job_id, "video", uncertain=uncertain, reason=reason, attention=attention, recovered_result=recovered_result)
+
+    def get_image_checkpoint(self, job_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""SELECT status, bridge_metadata -> %s AS checkpoint FROM jobs
+                    WHERE id = %s AND type IN ('image.generate', 'image.edit') AND COALESCE(external_provider, '') = ''""",
+                            (IMAGE_CHECKPOINT_KEY, job_id))
+                return cur.fetchone()
+
+    def save_image_checkpoint(self, job_id: str, checkpoint: dict[str, Any], expected_revision: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""UPDATE jobs SET bridge_metadata = jsonb_set(
+                        CASE WHEN jsonb_typeof(bridge_metadata) = 'object' THEN bridge_metadata ELSE '{}'::jsonb END,
+                        ARRAY[%s], %s::jsonb), updated_at = timezone('utc', now())
+                    WHERE id = %s AND type IN ('image.generate', 'image.edit') AND COALESCE(external_provider, '') = ''
+                      AND status IN ('queued', 'running')
+                      AND COALESCE((bridge_metadata -> %s ->> 'revision')::bigint, 0) = %s
+                    RETURNING id, status""",
+                            (IMAGE_CHECKPOINT_KEY, Jsonb(json_compatible(checkpoint)), job_id, IMAGE_CHECKPOINT_KEY, expected_revision))
+                return cur.fetchone()
+
+    def mark_image_recovery(self, job_id: str, *, uncertain: bool = False, reason: str = "", attention: bool = False, recovered_result=None) -> dict[str, Any] | None:
+        return self._mark_media_recovery(job_id, "image", uncertain=uncertain, reason=reason, attention=attention, recovered_result=recovered_result)
+
+    def _mark_media_recovery(self, job_id, kind, *, uncertain=False, reason="", attention=False, recovered_result=None):
+        key = VIDEO_CHECKPOINT_KEY if kind == "video" else IMAGE_CHECKPOINT_KEY
+        types = ["video.generate", "video.transcode"] if kind == "video" else ["image.generate", "image.edit"]
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""SELECT status, bridge_metadata FROM jobs WHERE id = %s
+                    AND type = ANY(%s) AND COALESCE(external_provider, '') = '' FOR UPDATE""", (job_id, types))
+                row = cur.fetchone()
+                if not row or row["status"] not in {"queued", "running"}:
+                    return None
+                metadata = dict(row["bridge_metadata"]) if isinstance(row.get("bridge_metadata"), dict) else {}
+                checkpoint, error, delay = recovery_transition(metadata.get(key), kind, uncertain=uncertain, reason=reason, attention=attention)
+                if recovered_result is not None and not checkpoint.get("result"):
+                    # Last-resort preservation for non-provider processing too.
+                    # Only local output metadata, never upstream URLs/credentials.
+                    checkpoint["result"] = {"outputs": [
+                        {field: item[field] for field in ("path", "size", "content_type", "file_name", "asset_id", "width", "height") if field in item}
+                        for item in recovered_result.get("outputs", []) if isinstance(item, dict)
+                    ]}
+                if checkpoint:
+                    metadata[key] = checkpoint
+                cur.execute("""UPDATE jobs SET status = 'queued', queue_phase = %s, error = %s,
+                        bridge_metadata = %s::jsonb,
+                        worker_retry_at = CASE WHEN %s THEN now() + (%s * interval '1 second') ELSE NULL END,
+                        updated_at = timezone('utc', now()), finished_at = NULL
+                    WHERE id = %s AND status IN ('queued', 'running')
+                    RETURNING id, status, progress, attempts, queue_phase, error""",
+                            (error["code"], Jsonb(error), Jsonb(metadata), error["retryable"], delay, job_id))
+                saved = cur.fetchone()
+                if saved is not None:
+                    saved["recovery_retry_seconds"] = delay
+                return saved
+
     def count_by_status(self) -> dict[str, int]:
         with self.connect() as conn:
             with conn.cursor() as cur:
@@ -109,6 +258,43 @@ class JobStore:
                     ),
                 )
                 row = cur.fetchone() or {}
+                # Keep queue visibility separate from the lifecycle counters.
+                # A queued job can be waiting for a provider slot or retry
+                # backoff; reporting those phases makes a long "preparing"
+                # state actionable without exposing payloads or provider data.
+                cur.execute(
+                    """
+                    SELECT COALESCE(queue_phase, '') AS phase, COUNT(*) AS count
+                      FROM jobs
+                     WHERE status = %s
+                     GROUP BY COALESCE(queue_phase, '')
+                     ORDER BY phase
+                    """,
+                    (JOB_STATUS_QUEUED,),
+                )
+                queue_phase_counts = {
+                    str(item["phase"] or ""): int(item["count"] or 0)
+                    for item in cur.fetchall()
+                }
+                cur.execute(
+                    """
+                    SELECT
+                        COALESCE(MAX(EXTRACT(EPOCH FROM (now() - created_at)))
+                            FILTER (WHERE status = %s), 0) AS oldest_queued_seconds,
+                        COALESCE(MAX(EXTRACT(EPOCH FROM (now() - created_at)))
+                            FILTER (WHERE status = %s), 0) AS oldest_running_seconds,
+                        COALESCE(MAX(EXTRACT(EPOCH FROM (now() - created_at)))
+                            FILTER (WHERE status = %s AND queue_phase = 'waiting_provider_slot'), 0)
+                            AS oldest_waiting_provider_slot_seconds,
+                        COUNT(*) FILTER (WHERE status = %s AND queue_phase IN
+                            ('image_recovery_attention', 'video_recovery_attention',
+                             'image_submission_uncertain', 'video_submission_uncertain'))
+                            AS recovery_attention_count
+                      FROM jobs
+                    """,
+                    (JOB_STATUS_QUEUED, JOB_STATUS_RUNNING, JOB_STATUS_QUEUED, JOB_STATUS_QUEUED),
+                )
+                age_row = cur.fetchone() or {}
         queued = int(row.get("queued") or 0)
         running = int(row.get("running") or 0)
         succeeded = int(row.get("succeeded") or 0)
@@ -125,9 +311,18 @@ class JobStore:
             "backlog": queued + running,
             "avg_latency_seconds": float(row.get("avg_latency_seconds") or 0),
             "avg_run_seconds": float(row.get("avg_run_seconds") or 0),
+            "queue_phase_counts": queue_phase_counts,
+            "oldest_queued_seconds": max(0.0, float(age_row.get("oldest_queued_seconds") or 0)),
+            "oldest_running_seconds": max(0.0, float(age_row.get("oldest_running_seconds") or 0)),
+            "oldest_waiting_provider_slot_seconds": max(
+                0.0, float(age_row.get("oldest_waiting_provider_slot_seconds") or 0)
+            ),
+            "recovery_attention_count": int(age_row.get("recovery_attention_count") or 0),
         }
 
     def mark_running(self, job_id: str, progress: int = 5) -> dict[str, Any] | None:
+        # Lifecycle updates only need status; returning inline references on each
+        # poll/download chunk can repeatedly transfer tens of MB from PostgreSQL.
         with self.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -137,17 +332,18 @@ class JobStore:
                            queue_phase = '',
                            progress = GREATEST(progress, %s),
                            started_at = COALESCE(started_at, timezone('utc', now())),
+                           worker_retry_at = NULL,
                            finished_at = NULL,
                            updated_at = timezone('utc', now())
                      WHERE id = %s
                        AND status NOT IN (%s, %s, %s)
-                    RETURNING *
+                    RETURNING id, status, progress, attempts
                     """,
                     (JOB_STATUS_RUNNING, clamp_progress(progress), job_id, JOB_STATUS_SUCCEEDED, JOB_STATUS_FAILED, JOB_STATUS_CANCELED),
                 )
                 return cur.fetchone()
 
-    def mark_waiting_provider(self, job_id: str) -> dict[str, Any] | None:
+    def mark_waiting_provider(self, job_id: str, retry_seconds: int = 0) -> dict[str, Any] | None:
         with self.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -155,13 +351,14 @@ class JobStore:
                     UPDATE jobs
                        SET status = %s,
                            queue_phase = 'waiting_provider_slot',
+                           worker_retry_at = now() + (%s * interval '1 second'),
                            finished_at = NULL,
                            updated_at = timezone('utc', now())
                      WHERE id = %s
-                       AND status <> %s
-                    RETURNING *
+                       AND status IN (%s, %s)
+                    RETURNING id, status, progress, attempts
                     """,
-                    (JOB_STATUS_QUEUED, job_id, JOB_STATUS_CANCELED),
+                    (JOB_STATUS_QUEUED, max(0, retry_seconds), job_id, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
                 )
                 return cur.fetchone()
 
@@ -175,13 +372,13 @@ class JobStore:
                            updated_at = timezone('utc', now())
                      WHERE id = %s
                        AND status IN (%s, %s)
-                    RETURNING *
+                    RETURNING id, status, progress, attempts
                     """,
                     (clamp_progress(progress), job_id, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
                 )
                 return cur.fetchone()
 
-    def record_retry(self, job_id: str, error: dict[str, Any]) -> dict[str, Any] | None:
+    def record_retry(self, job_id: str, error: dict[str, Any], retry_seconds: int = 0) -> dict[str, Any] | None:
         with self.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -189,14 +386,15 @@ class JobStore:
                     UPDATE jobs
                        SET status = %s,
                            queue_phase = 'provider_retry_backoff',
+                           worker_retry_at = now() + (%s * interval '1 second'),
                            error = %s,
                            attempts = attempts + 1,
                            updated_at = timezone('utc', now())
                      WHERE id = %s
-                       AND status <> %s
-                    RETURNING *
+                       AND status IN (%s, %s)
+                    RETURNING id, status, progress, attempts
                     """,
-                    (JOB_STATUS_QUEUED, Jsonb(error), job_id, JOB_STATUS_CANCELED),
+                    (JOB_STATUS_QUEUED, max(0, retry_seconds), Jsonb(error), job_id, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
                 )
                 return cur.fetchone()
 
@@ -229,10 +427,10 @@ class JobStore:
                            updated_at = timezone('utc', now()),
                            finished_at = timezone('utc', now())
                      WHERE id = %s
-                       AND status <> %s
-                    RETURNING *
+                       AND status IN (%s, %s)
+                    RETURNING id, status, progress, attempts
                     """,
-                    (JOB_STATUS_SUCCEEDED, Jsonb(result), job_id, JOB_STATUS_CANCELED),
+                    (JOB_STATUS_SUCCEEDED, Jsonb(result), job_id, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
                 )
                 return cur.fetchone()
 
@@ -249,12 +447,20 @@ class JobStore:
                            updated_at = timezone('utc', now()),
                            finished_at = timezone('utc', now())
                      WHERE id = %s
-                       AND status <> %s
-                    RETURNING *
+                       AND status IN (%s, %s)
+                    RETURNING id, status, progress, attempts
                     """,
-                    (JOB_STATUS_FAILED, Jsonb(error), job_id, JOB_STATUS_CANCELED),
+                    (JOB_STATUS_FAILED, Jsonb(error), job_id, JOB_STATUS_QUEUED, JOB_STATUS_RUNNING),
                 )
                 return cur.fetchone()
+
+    def owns_reference_asset(self, asset_id: str, workspace_id: str, kind: str) -> bool:
+        # Refreshing an expired URL grants fresh read access. Trust only the
+        # persisted asset and locked Job workspace, never URL/token claims.
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM assets WHERE id=%s AND workspace_id=%s AND type=%s", (asset_id, workspace_id, kind))
+                return cur.fetchone() is not None
 
     def create_asset(self, asset: dict[str, Any]) -> dict[str, Any] | None:
         with self.connect() as conn:

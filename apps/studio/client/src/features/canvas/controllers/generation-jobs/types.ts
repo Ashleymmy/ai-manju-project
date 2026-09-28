@@ -9,6 +9,7 @@ import type {
   VideoProvider,
 } from "@/features/video";
 import type { CanvasVideoReferenceSnapshot } from "@/features/canvas/domain/video";
+import type { CanvasPendingAudioUpload } from "@/features/canvas/domain/pendingAudioUpload";
 import type {
   CanvasEdgeData,
   CanvasImageReferenceSnapshot,
@@ -20,6 +21,7 @@ import type { CanvasServiceExecutor } from "@/features/canvas/services/contracts
 import type { WorkspaceScope } from "@/shared/config";
 
 export type CanvasGenerationRequest = {
+  userId?: string;
   requestId: string;
   targetNodeId: string;
   originNodeId: string;
@@ -36,6 +38,8 @@ export type CanvasGenerationPreparation = {
   projectKey: string;
   originNodeId: string;
   targetNodeId?: string;
+  /** Targets created by one new generation intent before requests are submitted. */
+  targetNodeIds?: string[];
   /** Batch retries also show preparation on their visible root. */
   runningNodeId?: string;
   referenceNodeIds: string[];
@@ -96,6 +100,8 @@ export type CanvasAudioTargetRunInput = {
 };
 
 export type CanvasGenerationBindings = {
+  /** Stable authenticated identity used to isolate locally retained result Blobs. */
+  getUserId?(): string;
   getProjectId(): string;
   getProjectTitle(): string;
   getProjectKey(): string;
@@ -147,6 +153,11 @@ export type CanvasGenerationServices = {
   waitForImageJob: typeof import("@/features/image").waitForImageJob;
   requestAiText: typeof import("@/services/api/ai").requestAiText;
   requestAudioGeneration: typeof import("@/services/api/audio").requestAudioGeneration;
+  /** Optional so non-browser harnesses can keep an in-memory pending result. */
+  savePendingAudioUpload?: (pending: CanvasPendingAudioUpload) => Promise<void>;
+  loadPendingAudioUpload?: (key: string) => Promise<CanvasPendingAudioUpload | null>;
+  findPendingAudioUpload?: (query: import("@/features/canvas/domain/pendingAudioUpload").CanvasPendingAudioUploadQuery) => Promise<CanvasPendingAudioUpload | null>;
+  removePendingAudioUpload?: (key: string) => Promise<void>;
   createVideoGenerationTask: typeof import("@/features/video").createVideoGenerationTask;
   pollVideoGenerationTask: typeof import("@/features/video").pollVideoGenerationTask;
   videoGenerationResultToBlob: typeof import("@/features/video").videoGenerationResultToBlob;

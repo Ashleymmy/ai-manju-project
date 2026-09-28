@@ -27,6 +27,7 @@ var errModelProviderCapabilityMismatch = errors.New("selected model provider doe
 
 type ModelProviderHandler struct {
 	repo        repository.ModelProviderRepository
+	users       repository.UserRepository
 	secretBox   provider.SecretBox
 	gateSecret  string
 	sdVideo     *sdvideo.Client
@@ -88,7 +89,21 @@ func NewModelProviderHandler(repo repository.ModelProviderRepository, secretBox 
 // HTTP response, allowing server-side schedulers to reuse the same encrypted
 // provider configuration as interactive image generation.
 func (h *ModelProviderHandler) ResolveBackgroundImageJob(requestedModel string, jobTypes ...string) (BackgroundImageJobResolution, error) {
-	candidates, err := h.forUser(model.User{}).generationCandidates(model.ModelCapabilityImage, requestedModel)
+	return h.resolveBackgroundImageJob(model.User{}, requestedModel, jobTypes...)
+}
+
+// ResolveBackgroundImageJobForUser rechecks the initiating account at dispatch,
+// including any role, status or provider allowlist changes since batch creation.
+func (h *ModelProviderHandler) ResolveBackgroundImageJobForUser(userID, requestedModel string, jobTypes ...string) (BackgroundImageJobResolution, error) {
+	user, err := h.backgroundUser(userID)
+	if err != nil {
+		return BackgroundImageJobResolution{}, err
+	}
+	return h.resolveBackgroundImageJob(user, requestedModel, jobTypes...)
+}
+
+func (h *ModelProviderHandler) resolveBackgroundImageJob(user model.User, requestedModel string, jobTypes ...string) (BackgroundImageJobResolution, error) {
+	candidates, err := h.forUser(user).generationCandidates(model.ModelCapabilityImage, requestedModel)
 	if err != nil {
 		return BackgroundImageJobResolution{}, err
 	}

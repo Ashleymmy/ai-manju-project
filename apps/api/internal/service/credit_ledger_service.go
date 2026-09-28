@@ -165,10 +165,36 @@ func (s *CreditLedgerService) Grant(input GrantInput) (repository.GrantOutcome, 
 // 30-day anniversary cycle (见 model.CreditMembershipPeriodDays 注释，防月末
 // 双发窗口)。period key pins one grant per membership per period，31 天有效期。
 func (s *CreditLedgerService) GrantMonthlyMembershipCredits(membership model.UserMembership, plan model.MembershipPlan) (repository.GrantOutcome, error) {
+	if membership.Source != model.MembershipSourcePurchase || membership.OrderID == "" {
+		return s.grantMonthlyMembershipCredits(membership, plan)
+	}
+	var result repository.GrantOutcome
+	err := s.billing.WithOrderLock(membership.OrderID, func() error {
+		order, err := s.billing.GetOrderByID(membership.OrderID)
+		if err != nil {
+			return err
+		}
+		if order.UserID != membership.UserID || order.Status != model.OrderStatusPaid || order.RefundStartedAt != nil {
+			return nil
+		}
+		// Scheduler snapshots can predate a refund. Re-read under the same order
+		// lock so no monthly grant can appear after refund swept existing grants.
+		current, err := s.memberships.GetMembershipByID(membership.ID)
+		if err != nil {
+			return err
+		}
+		result, err = s.grantMonthlyMembershipCredits(current, plan)
+		return err
+	})
+	return result, err
+}
+
+// Called directly by payment fulfillment, which already owns the order lock.
+func (s *CreditLedgerService) grantMonthlyMembershipCredits(membership model.UserMembership, plan model.MembershipPlan) (repository.GrantOutcome, error) {
 	if membership.Status != model.MembershipStatusActive || s.now().Before(membership.StartedAt) || !s.now().Before(membership.ExpiresAt) {
 		return repository.GrantOutcome{}, nil
 	}
-	if plan.Code == model.PlanCodeInternal && membership.MonthlyCreditsOverride != nil {
+	if (plan.Code == model.PlanCodeInternal || membership.Source == model.MembershipSourcePurchase) && membership.MonthlyCreditsOverride != nil {
 		plan.MonthlyCredits = *membership.MonthlyCreditsOverride
 	}
 	if plan.MonthlyCredits <= 0 {
@@ -306,20 +332,49 @@ func (s *CreditLedgerService) Adjust(userID string, delta int64, operatorID stri
 // intentionally step-wise: each step carries its own idempotency key, so a
 // crash anywhere leaves a re-runnable partial state (不丢数据).
 func (s *CreditLedgerService) RefundOrder(orderID string, operatorID string) (model.Order, error) {
+	var result model.Order
+	err := s.billing.WithOrderLock(orderID, func() error {
+		var err error
+		result, err = s.refundOrderLocked(orderID, operatorID)
+		return err
+	})
+	return result, err
+}
+
+func (s *CreditLedgerService) refundOrderLocked(orderID string, operatorID string) (model.Order, error) {
 	order, err := s.billing.GetOrderByID(orderID)
 	if err != nil {
+		return model.Order{}, err
+	}
+	if order.Status == model.OrderStatusRefunded {
+		return order, nil
+	}
+	if order.Status != model.OrderStatusPaid {
+		return model.Order{}, ErrOrderNotRefundable
+	}
+	switch order.OrderType {
+	case model.OrderTypeCreditPack, model.OrderTypeMemberMonthly, model.OrderTypeMemberYearly:
+	default:
+		return model.Order{}, fmt.Errorf("unsupported order type %q", order.OrderType)
+	}
+	// Persist the refund intent before changing credits. If a later step fails,
+	// callback retries must not resume fulfillment while refund retry is pending.
+	if err := s.billing.StartOrderRefund(orderID, s.now()); err != nil {
 		return model.Order{}, err
 	}
 
 	switch order.OrderType {
 	case model.OrderTypeCreditPack:
-		pkg, err := s.billing.GetPackageByID(order.PackageID)
-		if err != nil {
+		entry, err := s.orderRecharge(order)
+		if err != nil && !errors.Is(err, repository.ErrCreditLedgerNotFound) {
 			return model.Order{}, err
 		}
-		// 允许余额转负：已消耗的积分记为负余额，后续充值冲抵。
-		if _, err := s.credits.DeductPermanentForRefund(order.UserID, pkg.Credits, order.ID, s.now()); err != nil {
-			return model.Order{}, err
+		// Only reverse what this order actually delivered, including legacy
+		// orders without snapshots. A paid but unfulfilled order owes no credits.
+		if err == nil {
+			if _, err := s.credits.DeductPermanentForRefund(order.UserID, entry.Amount, order.ID, s.now()); err != nil {
+				return model.Order{}, err
+			}
 		}
 	case model.OrderTypeMemberMonthly, model.OrderTypeMemberYearly:
 		membership, err := s.memberships.GetMembershipByOrderID(order.ID)
@@ -327,6 +382,11 @@ func (s *CreditLedgerService) RefundOrder(orderID string, operatorID string) (mo
 			return model.Order{}, err
 		}
 		if err == nil {
+			// Revoke scheduled first: activation only moves scheduled -> active,
+			// so the second guard catches any activation racing the first guard.
+			if _, err := s.memberships.UpdateMembershipStatus(membership.ID, model.MembershipStatusScheduled, model.MembershipStatusRevoked); err != nil {
+				return model.Order{}, err
+			}
 			if _, err := s.memberships.UpdateMembershipStatus(membership.ID, model.MembershipStatusActive, model.MembershipStatusRevoked); err != nil {
 				return model.Order{}, err
 			}
@@ -347,6 +407,20 @@ func (s *CreditLedgerService) RefundOrder(orderID string, operatorID string) (mo
 		return s.billing.GetOrderByID(orderID)
 	}
 	return updated, nil
+}
+
+// orderRecharge resolves immutable credit evidence, never the current package
+// offer. The ownership/type checks prevent a malformed ledger key from moving
+// a different user's balance.
+func (s *CreditLedgerService) orderRecharge(order model.Order) (model.CreditLedgerEntry, error) {
+	entry, err := s.credits.GetLedgerByIdempotencyKey("order:" + order.ID)
+	if err != nil {
+		return model.CreditLedgerEntry{}, err
+	}
+	if entry.UserID != order.UserID || entry.EntryType != model.LedgerTypeRecharge || entry.Bucket != model.CreditBucketPermanent || entry.Amount <= 0 {
+		return model.CreditLedgerEntry{}, ErrOrderNotRefundable
+	}
+	return entry, nil
 }
 
 // Overview computes the dual-balance snapshot for the member center.

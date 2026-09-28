@@ -25,7 +25,7 @@ describe("AgentPanel chat model handoff", () => {
 
   async function render(initialPrompt = "雨夜追逐", initialModel = "provider::chosen-model") {
     await act(async () => root.render(
-      <AgentPanel projectId={snapshot.projectId} open onClose={vi.fn()} snapshot={snapshot}
+      <AgentPanel userId="agent-test-user" projectId={snapshot.projectId} open onClose={vi.fn()} snapshot={snapshot}
         canUndoOps={false} onApplyOps={vi.fn()} onExecuteWorkspaceTool={vi.fn()} onUndoOps={vi.fn()}
         initialPrompt={initialPrompt} initialModel={initialModel} />
     ));
@@ -138,5 +138,14 @@ describe("AgentPanel chat model handoff", () => {
     expect(container.querySelector(".agent-stop-btn")).toBeNull();
     expect(container.textContent?.match(/当前模型暂时不可用/g)).toHaveLength(1);
     expect(mocks.requestAiText).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows when an online request is waiting behind the generation admission lane", async () => {
+    mocks.requestAiText.mockImplementationOnce((_body: unknown, _signal: AbortSignal | undefined, onWaiting?: (waiting: boolean) => void) => {
+      onWaiting?.(true);
+      return new Promise(() => undefined);
+    });
+    await render();
+    expect(container.textContent).toContain("模型并发繁忙，已进入队列");
   });
 });

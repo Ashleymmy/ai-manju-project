@@ -20,6 +20,7 @@ export type WorkbenchTaskRuntime = {
   url?: string;
   error?: string;
   cancelling?: boolean;
+  notice?: string;
 };
 
 export function MessageFeed({
@@ -155,7 +156,7 @@ function SystemTaskCard({
           <div className="wb-task-running">
             <Loader2 className="spin" size={16} />
             <div className="wb-task-progress">
-              <b>{status === "queued" ? "排队中" : "生成中"}</b>
+              <b>{runtime.notice || (status === "queued" ? "排队中" : "生成中")}</b>
               {typeof progress === "number" ? (
                 <div className="wb-progress"><i style={{ width: `${Math.max(0, Math.min(100, Math.round(progress)))}%` }} /><b>{Math.round(progress)}%</b></div>
               ) : null}

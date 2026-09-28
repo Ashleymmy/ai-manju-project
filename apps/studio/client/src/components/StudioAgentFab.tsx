@@ -54,7 +54,7 @@ export default function StudioAgentFab() {
             <button type="button" title="关闭对话" onClick={close}><X size={16} /></button>
             <span role="status"><Loader2 size={18} className="spin" />正在打开 Agent…</span>
           </div>}>
-            <AgentPanel key={user.id} mode="studio" projectId={`studio:${user.id}`} open={open} onClose={close}
+            <AgentPanel key={user.id} userId={user.id} mode="studio" projectId={`studio:${user.id}`} open={open} onClose={close}
               displayName={user.display_name || user.username || "创作者"} pagePath={path} />
           </Suspense>
         </ErrorBoundary>

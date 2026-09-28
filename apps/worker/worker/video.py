@@ -8,9 +8,11 @@ from typing import Any, Callable
 from urllib.parse import quote, urlparse
 
 import requests
+from billiard.exceptions import SoftTimeLimitExceeded
 
 from .config import Settings
-from .errors import SafeTaskError, safe_message
+from .errors import SafeTaskError, VideoSubmissionUncertainError, VideoTaskAcceptedError, VideoRecoveryPendingError, VideoReferenceError, safe_message
+from .db import JobStore
 from .generation_failover import MEDIA_REQUEST_TIMEOUT_SECONDS
 from .provider import (
     close_multipart_files,
@@ -23,7 +25,9 @@ from .provider import (
 )
 from .staged_inputs import INPUT_STORAGE_KEY_FIELD, open_staged_input, resolve_legacy_asset_path, resolve_output_dir, validate_staged_input
 from .video_h3 import h3_provider, h3_request_body, is_h3_reference_model
-from .video_references import native_video_references
+from .video_references import native_video_references, release_checkpoint_references
+from .video_checkpoint import VIDEO_CHECKPOINT_PAYLOAD_KEY, VideoCheckpoint, recovery_error
+from .http_security import HTTPPolicyError, provider_request, public_media_get, submission_redirected, trusted_media_origins
 
 
 ProgressFn = Callable[[int], None]
@@ -38,9 +42,14 @@ VIDEO_REQUEST_TIMEOUT_SECONDS = float(MEDIA_REQUEST_TIMEOUT_SECONDS)
 VIDEO_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 # Cancellation is best effort and must not hold a worker slot for minutes.
 VIDEO_CANCEL_TIMEOUT_SECONDS = 10
+# Retry transfers of an already generated video without submitting another task.
+VIDEO_DOWNLOAD_ATTEMPTS = 3
+VIDEO_DOWNLOAD_RETRY_SECONDS = 1
 # Preserve the previous native endpoint download and response traversal limits.
 NATIVE_VIDEO_MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
 NATIVE_VIDEO_RESPONSE_MAX_DEPTH = 16
+# Access failures on an existing paid task must escalate, not create anew.
+VIDEO_RECOVERY_ACCESS_STATUSES = {401, 403, 404}
 VIDEO_SUCCESS_STATUSES = {"completed", "succeeded", "success", "done"}
 VIDEO_FAILURE_STATUSES = {"failed", "failure", "cancelled", "canceled", "expired", "rejected"}
 VIDEO_REQUEST_FIELDS = ("model", "prompt", "seconds", "size", "resolution_name", "preset")
@@ -49,15 +58,28 @@ NATIVE_VIDEO_REQUEST_FIELDS = ("model", "prompt", "content", "ratio", "resolutio
 
 
 def generate_video(job_id: str, payload: dict[str, Any], settings: Settings, progress: ProgressFn) -> dict[str, Any]:
+    checkpoint = checkpoint_for_video(job_id, payload, settings)
+    checkpoint.assert_recoverable()
+    cached = checkpoint.cached_result()
+    if cached is not None:
+        release_checkpoint_references(job_id, checkpoint)
+        return cached
     provider = payload.get("provider")
-    if isinstance(provider, dict) and provider.get("video_protocol") == "seedance":
+    if not checkpoint.task_id and isinstance(provider, dict) and provider.get("video_protocol") == "seedance":
         body = provider.get("video_request_body") or {key: payload[key] for key in NATIVE_VIDEO_REQUEST_FIELDS if key in payload}
-        with native_video_references(job_id, body, payload, settings) as prepared:
-            return _generate_video(job_id, {**payload, "provider": {**provider, "video_request_body": prepared}}, settings, progress)
-    return _generate_video(job_id, payload, settings, progress)
+        with native_video_references(job_id, body, payload, settings, checkpoint=checkpoint) as prepared:
+            return _generate_video(job_id, {**payload, "provider": {**provider, "video_request_body": prepared}}, settings, progress, checkpoint)
+    return _generate_video(job_id, payload, settings, progress, checkpoint)
 
 
-def _generate_video(job_id: str, payload: dict[str, Any], settings: Settings, progress: ProgressFn) -> dict[str, Any]:
+def checkpoint_for_video(job_id: str, payload: dict[str, Any], settings: Settings) -> VideoCheckpoint:
+    checkpoint = payload.get(VIDEO_CHECKPOINT_PAYLOAD_KEY)
+    if isinstance(checkpoint, VideoCheckpoint):
+        return checkpoint
+    return VideoCheckpoint(JobStore(settings.database_url), job_id, payload.get("provider") or {})
+
+
+def _generate_video(job_id: str, payload: dict[str, Any], settings: Settings, progress: ProgressFn, checkpoint: VideoCheckpoint) -> dict[str, Any]:
     provider = payload.get("provider")
     if not provider_has_remote(provider):
         raise SafeTaskError("video provider is not configured", code="provider_not_configured", retryable=False)
@@ -81,45 +103,91 @@ def _generate_video(job_id: str, payload: dict[str, Any], settings: Settings, pr
     native = provider.get("video_protocol") == "seedance"
     if provider.get("video_request_error"):
         raise SafeTaskError("video reference mode unsupported", code="provider_bad_request", retryable=False)
-    body = h3_request_body(payload, provider, settings) if h3 else None
-    parts = [] if native or h3 else video_request_parts(payload, provider, settings)
-
-    progress(VIDEO_CREATE_PROGRESS)
-    try:
-        if h3:
-            response = requests.post(create_url, headers=create_headers, json=body, timeout=timeout)
-        elif native:
-            body = provider.get("video_request_body") or {key: payload[key] for key in NATIVE_VIDEO_REQUEST_FIELDS if key in payload}
-            body = {**body, "model": provider.get("model")}
-            response = requests.post(create_url, headers=create_headers, json=body, timeout=timeout)
-        else:
-            response = requests.post(create_url, headers=create_headers, files=parts, timeout=timeout)
-    except requests.RequestException as exc:
-        raise SafeTaskError("video provider request failed", code="provider_request_failed", retryable=True) from exc
-    finally:
-        close_multipart_files(parts)
-    ensure_video_response(response, "video provider create")
-    task = video_response_json(response, "video provider returned invalid create response")
-    task_id = video_task_id(task)
-    if not task_id:
-        raise SafeTaskError("video provider did not return a task id", code="provider_invalid_response", retryable=False)
+    if checkpoint.task_id:
+        task_id = checkpoint.task_id
+        task = {"id": task_id, "status": "queued"}
+        resumed = True
+    else:
+        resumed = False
+        task = create_video_task(job_id, payload, provider, settings, progress, checkpoint, h3=h3, native=native,
+                                 create_url=create_url, create_headers=create_headers, timeout=timeout)
+        task_id = video_task_id(task)
 
     try:
         task = wait_for_video_task(task_id, task, provider, base_url, headers, timeout, settings, progress)
-        output = download_video_result(job_id, task_id, task, provider, base_url, headers, timeout, settings, progress)
+        output = download_completed_video(job_id, task_id, task, provider, base_url, headers, timeout, settings, progress)
+        result = {"mode": "openai_compatible", "operation": "generate", "provider_task_id": task_id,
+                  "provider_status": video_status(task), "outputs": [output]}
+        checkpoint.downloaded(result)
+        if resumed:
+            release_checkpoint_references(job_id, checkpoint)
+        progress(VIDEO_COMPLETE_PROGRESS)
+        return result
     except SafeTaskError as exc:
-        if exc.code in {"job_canceled", "provider_timeout"}:
+        if exc.code == "job_canceled":
             cancel_provider_video_task(task_id, provider, base_url, headers, timeout)
-        raise
+            if resumed:
+                release_checkpoint_references(job_id, checkpoint)
+            raise
+        if exc.code == "provider_video_failed" or isinstance(exc, VideoReferenceError):
+            checkpoint.terminal_failure()
+            if resumed:
+                release_checkpoint_references(job_id, checkpoint)
+            raise
+        # Keep the accepted task alive: a later delivery polls/downloads it.
+        if isinstance(exc, VideoRecoveryPendingError):
+            raise
+        raise VideoRecoveryPendingError(exc.message, code="video_recovery_pending", retryable=True) from exc
+    except Exception as exc:
+        raise recovery_error() from exc
 
-    progress(VIDEO_COMPLETE_PROGRESS)
-    return {
-        "mode": "openai_compatible",
-        "operation": "generate",
-        "provider_task_id": task_id,
-        "provider_status": video_status(task),
-        "outputs": [output],
-    }
+
+def create_video_task(job_id, payload, provider, settings, progress, checkpoint, *, h3, native, create_url, create_headers, timeout):
+    body = h3_request_body(payload, provider, settings) if h3 else None
+    parts = [] if native or h3 else video_request_parts(payload, provider, settings)
+
+    try:
+        progress(VIDEO_CREATE_PROGRESS)
+        checkpoint.begin()
+        if h3:
+            response = provider_request("POST", create_url, headers=create_headers, json=body, timeout=timeout)
+        elif native:
+            body = provider.get("video_request_body") or {key: payload[key] for key in NATIVE_VIDEO_REQUEST_FIELDS if key in payload}
+            body = {**body, "model": provider.get("model")}
+            response = provider_request("POST", create_url, headers=create_headers, json=body, timeout=timeout)
+        else:
+            response = provider_request("POST", create_url, headers=create_headers, files=parts, timeout=timeout)
+    except requests.ConnectTimeout as exc:
+        # ConnectTimeout is safe to retry: no connection to the supplier formed.
+        checkpoint.rejected()
+        raise SafeTaskError("video provider request failed", code="provider_request_failed", retryable=True) from None
+    except (requests.RequestException, HTTPPolicyError, SoftTimeLimitExceeded) as exc:
+        raise VideoSubmissionUncertainError("视频提交结果待确认，请勿重复提交，请联系管理员核查", code="video_submission_uncertain", retryable=False) from None
+    finally:
+        close_multipart_files(parts)
+    if response.status_code >= 500 or (submission_redirected(response) and response.status_code >= 400):
+        response.close()
+        raise VideoSubmissionUncertainError("视频提交结果待确认，请勿重复提交，请联系管理员核查", code="video_submission_uncertain", retryable=False)
+    if 400 <= response.status_code < 500 and response.status_code != 408:
+        checkpoint.rejected()
+    if response.status_code == 408:
+        response.close()
+        raise VideoSubmissionUncertainError("视频提交结果待确认，请勿重复提交，请联系管理员核查", code="video_submission_uncertain", retryable=False)
+    ensure_video_response(response, "video provider create")
+    try:
+        task = video_response_json(response, "video provider returned invalid create response")
+    except SafeTaskError as exc:
+        raise VideoSubmissionUncertainError("视频提交响应不完整，请勿重复提交，请联系管理员核查", code="video_submission_uncertain", retryable=False) from exc
+    task_id = video_task_id(task)
+    if not task_id:
+        raise VideoSubmissionUncertainError("视频提交响应缺少任务编号，请勿重复提交，请联系管理员核查", code="video_submission_uncertain", retryable=False)
+    try:
+        checkpoint.accepted(task_id)
+    except SafeTaskError as exc:
+        if exc.code == "job_canceled":
+            cancel_provider_video_task(task_id, provider, str(provider.get("base_url") or "").rstrip("/") + "/", provider_auth_headers(provider), timeout)
+        raise
+    return task
 
 
 def wait_for_video_task(
@@ -139,7 +207,10 @@ def wait_for_video_task(
         if status in VIDEO_SUCCESS_STATUSES:
             return task
         if status in VIDEO_FAILURE_STATUSES:
-            raise SafeTaskError(video_task_error(task, status), code="provider_video_failed", retryable=False)
+            message = video_task_error(task, status)
+            if "timeout" in message.lower() and "processing video for content[" in message.lower():
+                raise VideoReferenceError(message, code="video_reference_timeout", retryable=False)
+            raise SafeTaskError(message, code="provider_video_failed", retryable=False)
 
         progress(video_progress(task))
         remaining = deadline - time.monotonic()
@@ -151,7 +222,9 @@ def wait_for_video_task(
         endpoint = video_endpoint(provider, "video_get", fallback, task_id)
         url = provider_request_url(base_url, endpoint, provider)
         try:
-            response = requests.get(url, headers=headers, timeout=min(timeout, max(1.0, remaining)))
+            response = provider_request("GET", url, headers=headers, timeout=min(timeout, max(1.0, remaining)))
+        except HTTPPolicyError:
+            raise recovery_error() from None
         except requests.RequestException:
             # Keep polling the accepted task within its budget instead of creating
             # duplicate videos after a temporary transport error.
@@ -159,6 +232,10 @@ def wait_for_video_task(
         if response.status_code == 429 or response.status_code >= 500:
             response.close()
             continue
+        if response.status_code in VIDEO_RECOVERY_ACCESS_STATUSES:
+            code = f"video_recovery_http_{response.status_code}"
+            response.close()
+            raise VideoRecoveryPendingError("视频结果访问暂不可用，请勿重复提交", code=code, retryable=True)
         ensure_video_response(response, "video provider status", retryable=False)
         task = video_response_json(response, "video provider returned invalid status response")
 
@@ -186,10 +263,23 @@ def download_video_result(
         download_headers = {}
     progress(VIDEO_DOWNLOAD_PROGRESS)
     try:
-        response = requests.get(url, headers=download_headers, stream=True, timeout=max(timeout, 1.0))
+        if provider.get("video_protocol") == "seedance":
+            response = public_media_get(url, stream=True, timeout=max(timeout, 1.0), trusted_origins=trusted_media_origins(provider))
+        else:
+            response = provider_request("GET", url, headers=download_headers, stream=True, timeout=max(timeout, 1.0),
+                                        allow_public_redirect=True, trusted_origins=trusted_media_origins(provider),
+                                        credential_values=(str(provider.get("api_key") or ""),))
+    except HTTPPolicyError:
+        raise recovery_error() from None
     except requests.RequestException as exc:
-        raise SafeTaskError("video provider content request failed", code="provider_request_failed", retryable=False) from exc
-    ensure_video_response(response, "video provider content", retryable=False)
+        raise SafeTaskError("video provider content request failed", code="provider_request_failed", retryable=False) from None
+    try:
+        if response.status_code in VIDEO_RECOVERY_ACCESS_STATUSES:
+            raise VideoRecoveryPendingError("视频结果访问暂不可用，请勿重复提交", code=f"video_recovery_http_{response.status_code}", retryable=True)
+        ensure_video_response(response, "video provider content", retryable=False)
+    except Exception:
+        response.close()
+        raise
 
     content_type = str(response.headers.get("Content-Type") or video_content_type(task) or "video/mp4").split(";", 1)[0].strip().lower()
     if provider.get("video_protocol") in {"seedance", "zizi_h3"} and not content_type.startswith("video/") and content_type != "application/octet-stream":
@@ -211,7 +301,7 @@ def download_video_result(
                 stream.write(bytes(getattr(response, "content", b"")))
     except requests.RequestException as exc:
         output_path.unlink(missing_ok=True)
-        raise SafeTaskError("video content download failed", code="provider_request_failed", retryable=True) from exc
+        raise SafeTaskError("video content download failed", code="provider_request_failed", retryable=True) from None
     except Exception:
         output_path.unlink(missing_ok=True)
         raise
@@ -228,6 +318,29 @@ def download_video_result(
         "size": output_path.stat().st_size,
         "file_name": output_path.name,
     }
+
+
+def download_completed_video(
+    job_id: str,
+    task_id: str,
+    task: dict[str, Any],
+    provider: dict[str, Any],
+    base_url: str,
+    headers: dict[str, str],
+    timeout: float,
+    settings: Settings,
+    progress: ProgressFn,
+) -> dict[str, Any]:
+    for attempt in range(VIDEO_DOWNLOAD_ATTEMPTS):
+        try:
+            return download_video_result(job_id, task_id, task, provider, base_url, headers, timeout, settings, progress)
+        except SafeTaskError as exc:
+            if exc.code not in {"provider_request_failed", "provider_rate_limited", "provider_temporary_failure"} or attempt + 1 >= VIDEO_DOWNLOAD_ATTEMPTS:
+                raise
+            # Check local cancellation while waiting to retry only this GET.
+            progress(VIDEO_DOWNLOAD_PROGRESS)
+            time.sleep(VIDEO_DOWNLOAD_RETRY_SECONDS)
+    raise AssertionError("unreachable download retry state")
 
 
 def video_request_parts(
@@ -404,10 +517,11 @@ def cancel_provider_video_task(task_id: str, provider: dict[str, Any], base_url:
     try:
         if provider.get("video_protocol") == "seedance" and not (provider.get("endpoint_overrides") or {}).get("video_cancel"):
             endpoint = video_endpoint(provider, "video_get", "contents/generations/tasks/{id}", task_id)
-            requests.delete(provider_request_url(base_url, endpoint, provider), headers=headers, timeout=timeout)
+            response = provider_request("DELETE", provider_request_url(base_url, endpoint, provider), headers=headers, timeout=timeout)
         else:
-            requests.post(url, headers=headers, timeout=timeout)
-    except requests.RequestException:
+            response = provider_request("POST", url, headers=headers, timeout=timeout)
+        response.close()
+    except (requests.RequestException, HTTPPolicyError):
         return
 
 

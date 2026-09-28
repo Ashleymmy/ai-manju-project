@@ -30,6 +30,44 @@ describe("text AI API", () => {
     vi.unstubAllGlobals();
   });
 
+  it("retrieves the original tool response after a lost POST response without replaying generation", async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new TypeError("connection lost"));
+    vi.mocked(fetch).mockResolvedValueOnce(apiResponse({ content: "原文", model: "original-model",
+      tool_calls: [{ id: "tool-1", function: { name: "inspect", arguments: "{}" } }], finish_reason: "tool_calls" }));
+    const result = await requestAiText({ prompt: "测试" }, undefined, undefined, { key: "receipt-1", scope: "team" });
+    expect(result).toMatchObject({ content: "原文", model: "original-model", toolCalls: [{ id: "tool-1" }], finishReason: "tool_calls" });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetch).mock.calls[0][1]?.method).toBe("POST");
+    expect(vi.mocked(fetch).mock.calls[0][1]?.headers).toMatchObject({ "Idempotency-Key": "receipt-1" });
+    const [url, options] = vi.mocked(fetch).mock.calls[1];
+    expect(new URL(String(url)).pathname).toBe("/api/ai/receipts/text/receipt-1/result");
+    expect(new URL(String(url)).searchParams.get("scope")).toBe("team");
+    expect(options?.method).not.toBe("POST");
+  });
+
+  it("only reconciles after refresh and does not regenerate when the recovery endpoint is unavailable", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(apiResponse(undefined, 404));
+    vi.mocked(fetch).mockResolvedValueOnce(apiResponse(undefined, 404));
+    await expect(requestAiText({ model: "changed-model", prompt: "changed" }, undefined, undefined,
+      { key: "original-key", scope: "personal", recoverOnly: true })).rejects.toThrow("未找到原生成回执");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetch).mock.calls[0][1]?.method).not.toBe("POST");
+    expect(String(vi.mocked(fetch).mock.calls[1][0])).toContain("/receipts/text/original-key/reconcile");
+    expect(vi.mocked(fetch).mock.calls.every(([url]) => !String(url).endsWith("/api/ai/text"))).toBe(true);
+  });
+
+  it("polls a running receipt and returns the exact original result", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(fetch).mockResolvedValueOnce(apiResponse({ receipt: { status: "running" } }, 202));
+      vi.mocked(fetch).mockResolvedValueOnce(apiResponse({ content: "原任务完成" }));
+      const result = requestAiText({}, undefined, undefined, { key: "running", recoverOnly: true });
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect((await result).content).toBe("原任务完成");
+      expect(vi.mocked(fetch).mock.calls.every(([, options]) => options?.method !== "POST")).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+
   it("keeps the Agent-capable text model list separate from ordinary text models", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(apiResponse({
       text_models: ["provider::plain-text", "provider::agent-text"],

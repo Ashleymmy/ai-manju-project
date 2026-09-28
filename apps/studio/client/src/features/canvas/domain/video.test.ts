@@ -55,6 +55,27 @@ function hydrators(
 }
 
 describe("canvas video references", () => {
+  it("reads thirty references with bounded parallelism and keeps their order", async () => {
+    const inputs: CanvasGenerationInput[] = Array.from({ length: 30 }, (_, index) => ({
+      nodeId: `image-${index}`, type: "image", title: `Image ${index}`, assetId: `asset-${index}`,
+    }));
+    let active = 0;
+    let maxActive = 0;
+    const refs = hydrators({ resolveAssetBlob: vi.fn(async input => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise(resolve => setTimeout(resolve, Number(input.assetId.split("-")[1]) % 2 ? 1 : 5));
+      active--;
+      return blob(input.assetId, "image/png");
+    }) });
+    const result = await hydrateCanvasVideoReferences(inputs, refs);
+    expect(maxActive).toBe(4);
+    expect(refs.resolveAssetBlob).toHaveBeenCalledTimes(30);
+    expect(result.references.images).toHaveLength(30);
+    expect(result.snapshot.items.map(item => item.nodeId)).toEqual(inputs.map(item => item.nodeId));
+    expect(result.references.images.map(item => item.name)).toEqual(inputs.map(item => item.title));
+  });
+
   it("maps Seedance material and Volcano assets to asset references", () => {
     expect(canvasSeedanceVideoReferences(
       [{ id: "material-1", name: "授权人物" }],

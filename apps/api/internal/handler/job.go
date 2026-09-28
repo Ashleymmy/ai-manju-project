@@ -23,11 +23,14 @@ const (
 	jobEventSucceeded = "job.succeeded"
 	jobEventFailed    = "job.failed"
 	jobEventHeartbeat = "heartbeat"
+	// Three generation types across at most 30 source IDs fit the 100-row page.
+	jobRecoveryMaxNodeIDs = 30
 )
 
 type JobHandler struct {
-	jobs    *service.JobService
-	sdVideo *sdvideo.Client
+	jobs           *service.JobService
+	sdVideo        *sdvideo.Client
+	billingEnabled bool
 }
 
 func NewJobHandler(jobs *service.JobService) *JobHandler {
@@ -35,6 +38,7 @@ func NewJobHandler(jobs *service.JobService) *JobHandler {
 }
 
 func (h *JobHandler) SetSDVideoClient(client *sdvideo.Client) { h.sdVideo = client }
+func (h *JobHandler) SetBillingEnabled(enabled bool)          { h.billingEnabled = enabled }
 
 func (h *JobHandler) Retry(c *gin.Context) {
 	user := auth.MustCurrentUser(c)
@@ -75,12 +79,27 @@ func (h *JobHandler) Retry(c *gin.Context) {
 		payload["retry_task_id"] = previous.ExternalTaskID
 	}
 	raw, _ := json.Marshal(payload)
-	created, err := h.jobs.CreateExternal(service.ExternalJobInput{UserID: user.ID, Scope: requestWorkspaceScope(c), Type: previous.Type, ExternalProvider: "sd-video", Payload: model.JSONB(raw), IdempotencyKey: "retry:" + previous.ID})
+	var billingPolicy *service.VideoBillingPolicy
+	if h.billingEnabled && service.IsAutomaticVideoDuration(model.JSONB(raw)) {
+		caps, capsErr := loadSDVideoCapabilities(c, h.sdVideo, stringFromAny(payload["model"]))
+		if capsErr == nil {
+			billingPolicy, capsErr = videoBillingPolicyFromCapabilities(caps)
+		}
+		if capsErr != nil {
+			response.Error(c, http.StatusBadRequest, service.ErrAutomaticVideoPolicyUnavailable.Error())
+			return
+		}
+	}
+	created, err := h.jobs.CreateExternal(service.ExternalJobInput{UserID: user.ID, Scope: requestWorkspaceScope(c), Type: previous.Type, ExternalProvider: "sd-video", Payload: model.JSONB(raw), IdempotencyKey: "retry:" + previous.ID, VideoBillingPolicy: billingPolicy})
 	if err != nil {
+		if errors.Is(err, service.ErrAutomaticVideoPolicyUnavailable) {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		response.Error(c, 500, "could not persist retry")
 		return
 	}
-	response.Accepted(c, jobResponse(created.Job))
+	response.Accepted(c, requestedJobResponse(c, created.Job))
 }
 
 func (h *JobHandler) Create(c *gin.Context) {
@@ -107,6 +126,10 @@ func (h *JobHandler) Create(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "payload must be valid JSON")
 		return
 	}
+	if hasJobExecutionConfiguration(payload) {
+		response.Error(c, http.StatusBadRequest, "payload contains server-only execution configuration")
+		return
+	}
 	result, err := h.jobs.Enqueue(c.Request.Context(), service.EnqueueJobInput{
 		UserID:         user.ID,
 		Scope:          firstNonEmpty(req.Scope, requestWorkspaceScope(c)),
@@ -115,6 +138,10 @@ func (h *JobHandler) Create(c *gin.Context) {
 		IdempotencyKey: c.GetHeader("Idempotency-Key"),
 	})
 	if err != nil {
+		if errors.Is(err, service.ErrAutomaticVideoPolicyUnavailable) {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		if errors.Is(err, repository.ErrInsufficientCredits) {
 			response.Error(c, http.StatusPaymentRequired, "积分余额不足，请充值后重试")
 			return
@@ -124,21 +151,35 @@ func (h *JobHandler) Create(c *gin.Context) {
 			return
 		}
 		response.ErrorWithData(c, http.StatusBadGateway, "failed to enqueue job", gin.H{
-			"job":   jobResponse(result.Job),
+			"job":   requestedJobResponse(c, result.Job),
 			"error": err.Error(),
 		})
 		return
 	}
-	response.Accepted(c, jobResponse(result.Job))
+	response.Accepted(c, requestedJobResponse(c, result.Job))
+}
+
+// Provider execution configuration is resolved by the authenticated generation
+// routes. The generic jobs endpoint must reject it before billing or enqueue.
+func hasJobExecutionConfiguration(payload model.JSONB) bool {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(payload, &fields) != nil {
+		return false
+	}
+	for key := range fields {
+		if key == "provider" || strings.HasPrefix(key, "_provider") || strings.HasPrefix(key, "provider_candidates") {
+			return true
+		}
+		switch key {
+		case "video_request_body", "generation_soft_timeout_seconds", "generation_attempt", "task_kwargs", "_task_kwargs":
+			return true
+		}
+	}
+	return false
 }
 
 func (h *JobHandler) List(c *gin.Context) {
 	user := auth.MustCurrentUser(c)
-	jobs, err := h.jobs.ListForUser(user.ID)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, err.Error())
-		return
-	}
 	workspaceID := service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID)
 	statuses := commaSeparatedSet(c.Query("status"))
 	types := commaSeparatedSet(c.Query("type"))
@@ -149,12 +190,39 @@ func (h *JobHandler) List(c *gin.Context) {
 	if limit > 100 {
 		limit = 100
 	}
+	var jobs []model.Job
+	var err error
+	if c.Query("view") == "status" {
+		keys := func(set map[string]bool) []string {
+			values := make([]string, 0, len(set))
+			for key := range set {
+				values = append(values, key)
+			}
+			return values
+		}
+		nodeIDs := keys(commaSeparatedSet(c.Query("source_node_ids")))
+		latestPerNode := c.Query("latest_per_node") == "true"
+		if len(nodeIDs) > jobRecoveryMaxNodeIDs || (latestPerNode && len(nodeIDs) == 0) {
+			response.Error(c, http.StatusBadRequest, "recovery requires between 1 and 30 source node IDs")
+			return
+		}
+		jobs, err = h.jobs.ListStatusesForUser(c.Request.Context(), user.ID, repository.JobStatusFilter{
+			WorkspaceID: workspaceID, Statuses: keys(statuses), Types: keys(types), Limit: limit,
+			ProjectID: c.Query("project_id"), SourceNodeIDs: nodeIDs, LatestPerNode: latestPerNode,
+		})
+	} else {
+		jobs, err = h.jobs.ListForUser(user.ID)
+	}
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
 	result := make([]gin.H, 0, min(limit, len(jobs)))
 	for _, job := range jobs {
 		if job.WorkspaceID != workspaceID || (len(statuses) > 0 && !statuses[job.Status]) || (len(types) > 0 && !types[job.Type]) {
 			continue
 		}
-		result = append(result, jobResponse(job))
+		result = append(result, requestedJobResponse(c, job))
 		if len(result) >= limit {
 			break
 		}
@@ -174,7 +242,7 @@ func commaSeparatedSet(value string) map[string]bool {
 
 func (h *JobHandler) Get(c *gin.Context) {
 	user := auth.MustCurrentUser(c)
-	job, err := h.jobs.GetForUser(c.Param("id"), user.ID)
+	job, err := h.getRequestedJob(c, c.Param("id"), user.ID)
 	if err != nil {
 		if errors.Is(err, repository.ErrJobNotFound) && h.sdVideo != nil && h.sdVideo.Enabled() && strings.HasPrefix(c.Param("id"), "sdv_") {
 			workspaceID := service.WorkspaceIDForScope(requestWorkspaceScope(c), user.ID)
@@ -193,7 +261,7 @@ func (h *JobHandler) Get(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	response.OK(c, jobResponse(job))
+	response.OK(c, requestedJobResponse(c, job))
 }
 
 func (h *JobHandler) Cancel(c *gin.Context) {
@@ -216,7 +284,7 @@ func (h *JobHandler) Cancel(c *gin.Context) {
 			response.Error(c, http.StatusInternalServerError, "could not cancel job")
 			return
 		}
-		response.OK(c, jobResponse(canceled))
+		response.OK(c, requestedJobResponse(c, canceled))
 		return
 	}
 	if h.sdVideo != nil && h.sdVideo.Enabled() && strings.HasPrefix(c.Param("id"), "sdv_") {
@@ -249,7 +317,7 @@ func (h *JobHandler) Cancel(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	response.OK(c, jobResponse(job))
+	response.OK(c, requestedJobResponse(c, job))
 }
 
 func (h *JobHandler) Stream(c *gin.Context) {
@@ -277,7 +345,7 @@ func (h *JobHandler) Stream(c *gin.Context) {
 			writeJobSSE(c, jobEventHeartbeat, gin.H{"type": jobEventHeartbeat})
 			flushSSE(c)
 		case <-ticker.C:
-			job, err := h.jobs.GetForUser(jobID, user.ID)
+			job, err := h.getRequestedJob(c, jobID, user.ID)
 			if err != nil {
 				writeJobSSE(c, jobEventFailed, gin.H{"type": jobEventFailed, "error": "job not found"})
 				flushSSE(c)
@@ -293,7 +361,7 @@ func (h *JobHandler) Stream(c *gin.Context) {
 			} else if job.Status == model.JobStatusFailed || job.Status == model.JobStatusCanceled {
 				eventName = jobEventFailed
 			}
-			writeJobSSE(c, eventName, gin.H{"type": eventName, "job": jobResponse(job)})
+			writeJobSSE(c, eventName, gin.H{"type": eventName, "job": requestedJobResponse(c, job)})
 			flushSSE(c)
 			if isTerminalJobStatus(job.Status) {
 				return
@@ -349,8 +417,30 @@ func jobResponse(job model.Job) gin.H {
 		"external_provider": job.ExternalProvider,
 		"external_task_id":  job.ExternalTaskID,
 		"external_status":   job.ExternalStatus,
-		"bridge_metadata":   job.BridgeMetadata,
+		"bridge_metadata":   publicJobBridgeMetadata(job.BridgeMetadata),
 	}
+}
+
+// Worker recovery checkpoints contain private execution state. The bridge's
+// public metadata remains compatible, but reserved worker keys never leave the API.
+func publicJobBridgeMetadata(raw model.JSONB) model.JSONB {
+	if len(raw) == 0 {
+		return raw
+	}
+	var metadata map[string]json.RawMessage
+	if json.Unmarshal(raw, &metadata) != nil {
+		return model.JSONB("{}")
+	}
+	for key := range metadata {
+		if strings.HasPrefix(key, "_worker_") {
+			delete(metadata, key)
+		}
+	}
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return model.JSONB("{}")
+	}
+	return encoded
 }
 
 func writeJobSSE(c *gin.Context, name string, payload any) {
@@ -367,4 +457,19 @@ func writeJobSSE(c *gin.Context, name string, payload any) {
 
 func isTerminalJobStatus(status string) bool {
 	return status == model.JobStatusSucceeded || status == model.JobStatusFailed || status == model.JobStatusCanceled
+}
+
+// Status views are opt-in: old integrations retain the full payload contract.
+func (h *JobHandler) getRequestedJob(c *gin.Context, id, userID string) (model.Job, error) {
+	if c.Query("view") == "status" {
+		return h.jobs.GetStatusForUser(c.Request.Context(), id, userID)
+	}
+	return h.jobs.GetForUser(id, userID)
+}
+
+func requestedJobResponse(c *gin.Context, job model.Job) gin.H {
+	if c.Query("view") == "status" {
+		job = repository.CompactJobStatus(job)
+	}
+	return jobResponse(job)
 }

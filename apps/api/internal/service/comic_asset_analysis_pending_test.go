@@ -44,7 +44,10 @@ func TestPendingAnalysisSurvivesUploadRequestCancellation(t *testing.T) {
 	fx.service.SetSourceStorage(store)
 	release := make(chan struct{})
 	started := make(chan context.Context, 1)
-	fx.service.SetTextGenerator(func(ctx context.Context, requested string, req provider.TextGenerationRequest) (provider.TextResponse, error) {
+	fx.service.SetTextGenerator(func(ctx context.Context, userID string, requested string, req provider.TextGenerationRequest) (provider.TextResponse, error) {
+		if userID != fx.userID {
+			t.Errorf("async analysis actor lost: %q", userID)
+		}
 		started <- ctx
 		<-release
 		return provider.TextResponse{Model: requested, Text: `{"assets":[{"class":"character","name":"Actor"}]}`}, ctx.Err()
@@ -89,7 +92,7 @@ func TestPendingAnalysisFailureRetainsSourceAndSanitizesErrors(t *testing.T) {
 			fx := newComicServiceFixture()
 			store := storage.NewLocalFSStorage(t.TempDir())
 			fx.service.SetSourceStorage(store)
-			fx.service.SetTextGenerator(func(context.Context, string, provider.TextGenerationRequest) (provider.TextResponse, error) {
+			fx.service.SetTextGenerator(func(context.Context, string, string, provider.TextGenerationRequest) (provider.TextResponse, error) {
 				switch mode {
 				case "provider":
 					return provider.TextResponse{}, errors.New("private-provider-address")

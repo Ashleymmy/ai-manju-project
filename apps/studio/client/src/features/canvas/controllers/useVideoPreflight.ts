@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 // Debounce edits; reference checks never create generation tasks.
 const VIDEO_PREFLIGHT_DEBOUNCE_MS = 200;
+// Passive inspection must never hold the editor hostage to a slow asset lookup.
+const VIDEO_PREFLIGHT_TIMEOUT_MS = 3000;
 export type VideoPreflightCheck = (nodeId: string, signal: AbortSignal) => Promise<string[]>;
 export type VideoPreflightState = { status: "idle" | "checking" | "ready" | "error"; message: string; details: string[] };
 
@@ -11,14 +13,20 @@ export function useVideoPreflight(nodeId: string, key: string, check?: VideoPref
   useEffect(() => {
     if (!nodeId || !check) { setResult(undefined); return; }
     const controller = new AbortController();
+    const deadline = setTimeout(() => {
+      controller.abort();
+      setResult({ nodeId, key, attempt, state: { status: "idle", message: "可点击生成，提交前将校验参考素材", details: [] } });
+    }, VIDEO_PREFLIGHT_TIMEOUT_MS);
     const timer = setTimeout(() => {
       void check(nodeId, controller.signal).then(details => {
-        if (!controller.signal.aborted) setResult({ nodeId, key, attempt, state: { status: "ready", message: "参考素材检查通过", details } });
+        clearTimeout(deadline);
+        if (!controller.signal.aborted) setResult({ nodeId, key, attempt, state: { status: "ready", message: "模型与引用类型检查通过，提交前校验素材规格", details } });
       }, error => {
+        clearTimeout(deadline);
         if (!controller.signal.aborted) setResult({ nodeId, key, attempt, state: { status: "error", message: error instanceof Error ? error.message : "素材检查失败，请重试", details: [] } });
       });
     }, VIDEO_PREFLIGHT_DEBOUNCE_MS);
-    return () => { clearTimeout(timer); controller.abort(); };
+    return () => { clearTimeout(timer); clearTimeout(deadline); controller.abort(); };
   }, [nodeId, key, attempt, check]);
   // Never show the previous model/reference's green status for even one render.
   const state: VideoPreflightState = !nodeId || !check ? { status: "idle", message: "", details: [] }

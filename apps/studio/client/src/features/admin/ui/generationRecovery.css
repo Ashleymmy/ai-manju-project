@@ -1,0 +1,16 @@
+.generation-recovery-panel { margin-bottom: 28px; padding: 18px; border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.generation-recovery-head, .generation-recovery-pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.generation-recovery-head h2 { font-size: 18px; font-weight: 650; margin: 0 0 6px; }
+.generation-recovery-head p, .generation-recovery-note { color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }
+.generation-recovery-head > button { flex-shrink: 0; }
+.generation-recovery-table { overflow-x: auto; margin-top: 16px; }
+.generation-recovery-table table { width: 100%; min-width: 680px; border-collapse: collapse; text-align: left; font-size: 12px; }
+.generation-recovery-table th, .generation-recovery-table td { border-bottom: 1px solid var(--border); padding: 10px 12px; vertical-align: top; }
+.generation-recovery-table th { font-weight: 600; color: var(--muted-foreground); }
+.generation-recovery-table td { max-width: 270px; overflow-wrap: anywhere; }
+.generation-recovery-table td small { display: block; margin-top: 4px; color: var(--muted-foreground); line-height: 1.5; }
+.generation-recovery-table td button { white-space: nowrap; }
+.generation-recovery-pagination { margin-top: 14px; font-size: 12px; }
+.generation-recovery-pagination > div { display: flex; gap: 8px; }
+.generation-recovery-panel [role="alert"] { color: var(--destructive); font-size: 13px; }
+.generation-recovery-panel [role="status"] { display: flex; gap: 8px; align-items: center; font-size: 13px; }

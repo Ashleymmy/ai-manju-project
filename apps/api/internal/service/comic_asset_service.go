@@ -121,18 +121,19 @@ type ComicImageJobResolution struct {
 	TaskKwargs map[string]any
 }
 
-type ComicImageJobResolver func(requestedModel string, jobType string) (ComicImageJobResolution, error)
+type ComicImageJobResolver func(userID string, requestedModel string, jobType string) (ComicImageJobResolution, error)
 
 type ComicAssetService struct {
-	repo          repository.ComicAssetRepository
-	jobs          *JobService
-	resolver      ComicImageJobResolver
-	sourceStorage storage.Storage
-	assetService  *AssetService
-	assetFolders  *AssetFolderService
-	jobInputs     *JobInputService
-	assetRefs     repository.AssetReferenceRepository
-	textGenerator ComicTextGenerator
+	repo             repository.ComicAssetRepository
+	jobs             *JobService
+	resolver         ComicImageJobResolver
+	sourceStorage    storage.Storage
+	assetService     *AssetService
+	assetFolders     *AssetFolderService
+	jobInputs        *JobInputService
+	assetRefs        repository.AssetReferenceRepository
+	textGenerator    ComicTextGenerator
+	analysisReceipts *GenerationReceiptService
 }
 
 func NewComicAssetService(repo repository.ComicAssetRepository, jobs *JobService) *ComicAssetService {
@@ -800,7 +801,7 @@ func (s *ComicAssetService) CreateBatch(projectID string, userID string, scope s
 		cacheKey := config.ModelSelector + "\x00" + jobType
 		resolution, ok := resolutionCache[cacheKey]
 		if !ok {
-			resolution, err = s.resolver(config.ModelSelector, jobType)
+			resolution, err = s.resolver(userID, config.ModelSelector, jobType)
 			if err != nil {
 				return ComicBatchDetail{}, ErrComicImageProvider
 			}
@@ -1018,6 +1019,26 @@ func (s *ComicAssetService) GetBatch(batchID string, userID string, scope string
 	return ComicBatchDetail{Batch: batch, Items: items}, nil
 }
 
+// GetBatchBySubmissionKey resolves only an already persisted batch. The original
+// account and workspace bind the opaque client key, including for team space;
+// this recovery lookup must never create a new batch or dispatch generation.
+func (s *ComicAssetService) GetBatchBySubmissionKey(projectID, userID, scope, clientKey string) (ComicBatchDetail, error) {
+	clientKey = strings.TrimSpace(clientKey)
+	if clientKey == "" {
+		return ComicBatchDetail{}, repository.ErrComicAssetBatchNotFound
+	}
+	workspaceID := WorkspaceIDForScope(scope, userID)
+	batch, items, err := s.repo.GetBatchByIdempotencyKey(comicBatchIdempotencyKey(userID, workspaceID, clientKey))
+	if err != nil {
+		return ComicBatchDetail{}, err
+	}
+	if batch.ProjectID != projectID || batch.WorkspaceID != workspaceID || batch.UserID != userID {
+		return ComicBatchDetail{}, repository.ErrComicAssetBatchNotFound
+	}
+	batch.Scope = WorkspaceScopeFromID(batch.WorkspaceID)
+	return ComicBatchDetail{Batch: batch, Items: items}, nil
+}
+
 func (s *ComicAssetService) ControlBatch(batchID string, userID string, scope string, action string) (ComicBatchDetail, error) {
 	if _, err := s.GetBatch(batchID, userID, scope); err != nil {
 		return ComicBatchDetail{}, err
@@ -1096,7 +1117,7 @@ func (s *ComicAssetService) DispatchOnce(ctx context.Context) error {
 			if len(config.ReferenceAssetIDs) > 0 {
 				jobType = model.JobTypeImageEdit
 			}
-			resolution, resolveErr := s.resolver(config.ModelSelector, jobType)
+			resolution, resolveErr := s.resolver(batch.UserID, config.ModelSelector, jobType)
 			if resolveErr != nil {
 				_ = s.repo.SyncItemFromJob(item.ID, "", model.JobStatusFailed, "", comicErrorJSON("provider_unavailable", "model provider is unavailable"))
 				continue
