@@ -33,6 +33,7 @@ export {
   listAssetExports,
   getAssetExport,
   cancelAssetExport,
+  deleteAssetExport,
   downloadAssetExport,
   startAssetExportDownload,
   getAssetContentObjectUrl,

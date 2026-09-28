@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { replaceVideoModelCapabilities } from "@/entities/model/videoCapabilities";
+import { validateVideoGenerationConfig } from "@/features/video";
 
 import {
   fragmentMediaFileName,
@@ -20,6 +22,7 @@ import {
 import type { CanvasNodeData } from "./types";
 
 describe("canvas node utilities", () => {
+  afterEach(() => replaceVideoModelCapabilities({}));
   it("keeps a registered provider asset when the original node was replaced", () => {
     const inputs = canvasGenerationInputsFromVideoSnapshot({
       items: [{
@@ -142,6 +145,22 @@ describe("canvas node utilities", () => {
     expect(sizeFromNode({ kind: "image", metadata: { size: "auto" } } as CanvasNodeData)).toBe("auto");
   });
 
+  it.each(["panorama", "not-a-ratio", "0x0"])("does not turn a legacy video size (%s) back into adaptive", size => {
+    const node = { kind: "video", metadata: { size } } as CanvasNodeData;
+    expect(videoConfigFromNode(node, "seedance-2.0").size).toBe("16:9");
+    expect(videoConfigFromNode(node, "").size).toBe("16:9");
+  });
+
+  it.each(["seedance-2.0", "sora-2"])("keeps canvas %s explicit when capability fallback prefers automatic", model => {
+    replaceVideoModelCapabilities({ [model]: { ratios: ["adaptive", "9:16"] } });
+    const node = { kind: "video", metadata: { size: "auto" } } as CanvasNodeData;
+    const config = videoConfigFromNode(node, model);
+    expect(config.size).toBe(model === "sora-2" ? "1280x720" : "16:9");
+    // Unsupported explicit ratios still fail preflight instead of sending an automatic request.
+    expect(() => validateVideoGenerationConfig(config)).toThrow("当前模型不支持所选比例");
+    expect(videoConfigFromNode({ ...node, metadata: { size: "9:16" } }, model).size).toBe(model === "sora-2" ? "720x1280" : "9:16");
+  });
+
   it("uses text-to-video without references and switches to reference mode when an @ token is added or removed", () => {
     const plain = { kind: "video", metadata: { composerContent: "镜头推进" } } as CanvasNodeData;
     const withReference = { ...plain, metadata: { ...plain.metadata, composerContent: "@[asset:image-1] 镜头推进" } } as CanvasNodeData;
@@ -152,5 +171,21 @@ describe("canvas node utilities", () => {
     expect(autoVideoSubModeForPromptChange(plain, "@[asset:image-1] 镜头推进")).toBe("reference");
     expect(autoVideoSubModeForPromptChange(withReference, "镜头推进")).toBe("text");
     expect(autoVideoSubModeForPromptChange({ ...plain, metadata: { ...plain.metadata, videoSubMode: "edit" } }, "补充文字")).toBeUndefined();
+  });
+
+  it.each(["text", "reference", "edit", "extend", "first-last", "camera"])("honors a manually selected %s mode with or without references", videoSubMode => {
+    for (const composerContent of ["", "镜头推进", "@[asset:image-1] 镜头推进"]) {
+      const node = { kind: "video", metadata: { composerContent, videoSubMode, videoSubModeManual: true } } as CanvasNodeData;
+      expect(videoSubModeFromNode(node)).toBe(videoSubMode);
+      expect(autoVideoSubModeForPromptChange(node, `${composerContent} 补充文字`)).toBeUndefined();
+    }
+  });
+
+  it("resumes automatic mode changes when references change after a manual selection", () => {
+    const node = { kind: "video", metadata: { composerContent: "镜头推进", videoSubMode: "reference", videoSubModeManual: true } } as CanvasNodeData;
+    expect(autoVideoSubModeForPromptChange(node, "@[asset:image-1] 镜头推进")).toBe("reference");
+    expect(autoVideoSubModeForPromptChange({ ...node, metadata: { ...node.metadata, composerContent: "@[asset:image-1]" } }, "")).toBe("text");
+    expect(videoSubModeFromNode({ ...node, metadata: { ...node.metadata, videoSubModeManual: false } })).toBe("text");
+    expect(videoSubModeFromNode({ ...node, metadata: { ...node.metadata, videoSubMode: "unknown" } })).toBe("text");
   });
 });

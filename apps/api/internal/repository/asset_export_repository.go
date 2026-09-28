@@ -13,6 +13,7 @@ import (
 )
 
 var ErrAssetExportNotFound = errors.New("asset export not found")
+var ErrAssetExportActive = errors.New("请先取消进行中的导出任务")
 
 const (
 	// AssetExportRepositoryWriteBatchSize keeps PostgreSQL parameter counts bounded.
@@ -38,6 +39,7 @@ type AssetExportRepository interface {
 	Touch(id string) error
 	Finalize(id string, status string, storageKey string, fileName string, size int64, errorPayload model.JSONB, expiresAt *time.Time) error
 	Cancel(id string, workspaceID string) (model.AssetExportBatch, error)
+	Delete(id string, workspaceID string) error
 	ListExpired(now time.Time, limit int) ([]model.AssetExportBatch, error)
 	MarkExpired(id string) error
 }
@@ -292,6 +294,24 @@ func (r *MemoryAssetExportRepository) MarkExpired(id string) error {
 	}
 	batch.Status, batch.StorageKey, batch.UpdatedAt = model.AssetExportStatusExpired, "", time.Now().UTC()
 	r.batches[id] = batch
+	return nil
+}
+
+func (r *MemoryAssetExportRepository) Delete(id string, workspaceID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	batch, ok := r.batches[id]
+	if !ok || batch.WorkspaceID != workspaceID {
+		return ErrAssetExportNotFound
+	}
+	if batch.Status == model.AssetExportStatusQueued || batch.Status == model.AssetExportStatusRunning {
+		return ErrAssetExportActive
+	}
+	for _, item := range r.items[id] {
+		delete(r.itemLocations, item.ID)
+	}
+	delete(r.items, id)
+	delete(r.batches, id)
 	return nil
 }
 
@@ -562,4 +582,23 @@ func (r *GormAssetExportRepository) MarkExpired(id string) error {
 		return ErrAssetExportNotFound
 	}
 	return nil
+}
+
+func (r *GormAssetExportRepository) Delete(id string, workspaceID string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var batch model.AssetExportBatch
+		if err := tx.Where("id = ? AND workspace_id = ?", id, workspaceID).Clauses(clause.Locking{Strength: "UPDATE"}).First(&batch).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrAssetExportNotFound
+			}
+			return err
+		}
+		if batch.Status == model.AssetExportStatusQueued || batch.Status == model.AssetExportStatusRunning {
+			return ErrAssetExportActive
+		}
+		if err := tx.Where("export_id = ?", id).Delete(&model.AssetExportItem{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&batch).Error
+	})
 }

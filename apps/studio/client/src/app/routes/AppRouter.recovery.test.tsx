@@ -41,11 +41,11 @@ describe("page switch error containment", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
-  function route(path: string, Component: any) {
+  function route(path: string, Component: any, layout = "studio") {
     mocks.routes.push({
       id: path,
       path,
-      layout: "studio",
+      layout,
       permission: "public",
       Component,
     });
@@ -107,6 +107,16 @@ describe("page switch error containment", () => {
     await act(async () => resolvePage({ default: () => <p>过期页面</p> }));
     expect(container.textContent).toContain("正常工作台");
     expect(container.textContent).not.toContain("过期页面");
+  });
+
+  it("uses the full viewport while a layout-free route is pending", async () => {
+    route("/standalone", lazy(() => new Promise<never>(() => {})), "none");
+    const location = memoryLocation({ path: "/standalone" });
+    await act(async () => root.render(
+      <Router hook={location.hook}><AppRouter /></Router>
+    ));
+    expect(container.querySelector(".page-loader")).not.toBeNull();
+    expect(container.querySelector(".page-loader-contained")).toBeNull();
   });
 
   it("lets navigation escape an error thrown while unmounting the previous page", async () => {

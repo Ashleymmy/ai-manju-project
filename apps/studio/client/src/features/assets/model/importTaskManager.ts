@@ -52,7 +52,8 @@ export class ImportTaskManager {
       if (owner !== this.owner) return;
       if (this.blockedTask && task?.id === this.blockedTask && task.status === "running" && !task.holder) return;
       this.blockedTask = undefined;
-      this.publish({ task });
+      // Idle records do not need to rerender the whole asset library every poll.
+      if (task?.id !== this.view.task?.id || task?.status !== this.view.task?.status || task?.leaseUntil !== this.view.task?.leaseUntil) this.publish({ task });
       if (task?.status === "running") {
         const claimed = await importTaskStorage.claim(owner, this.holder);
         if (claimed && owner === this.owner && getAuthToken() === this.authorizedToken) void this.run(claimed);

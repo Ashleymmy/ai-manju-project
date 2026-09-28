@@ -69,7 +69,7 @@ function AppRouteElement({ route }: { route: AppRoute }) {
               contained
               onGoHome={() => navigate("/dashboard")}
             >
-              <Suspense fallback={<RouteLoading contained />}>
+              <Suspense fallback={<RouteLoading contained={route.layout !== "none"} />}>
                 <Page />
               </Suspense>
             </ErrorBoundary>

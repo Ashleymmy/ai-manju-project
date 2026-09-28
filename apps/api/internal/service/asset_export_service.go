@@ -263,6 +263,29 @@ func (s *AssetExportService) OpenContent(ctx context.Context, id string, userID 
 	return AssetExportContent{Batch: batch, Object: object, Reader: reader}, nil
 }
 
+func (s *AssetExportService) Delete(ctx context.Context, id string, userID string, scope string) error {
+	workspaceID := WorkspaceIDForScope(scope, userID)
+	batch, err := s.exports.GetBatch(strings.TrimSpace(id), workspaceID)
+	if err != nil {
+		return err
+	}
+	if batch.Status == model.AssetExportStatusQueued || batch.Status == model.AssetExportStatusRunning {
+		return repository.ErrAssetExportActive
+	}
+	// Keep the record on storage failure so cleanup remains retryable. Original
+	// asset objects are never touched; only the dedicated export archive is removed.
+	if batch.StorageKey != "" {
+		store, err := s.archiveReaderStore(batch.StorageKey)
+		if err != nil {
+			return err
+		}
+		if err := store.Delete(ctx, batch.StorageKey); err != nil {
+			return err
+		}
+	}
+	return s.exports.Delete(batch.ID, workspaceID)
+}
+
 func (s *AssetExportService) StartDispatcher(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = AssetExportDispatchInterval
@@ -555,7 +578,7 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 		// A connection error can occur after the transaction committed. Never
 		// delete a potentially published archive when that outcome is unknown.
 		current, readErr := s.exports.GetBatch(batch.ID, batch.WorkspaceID)
-		if readErr == nil && current.StorageKey != storageKey {
+		if errors.Is(readErr, repository.ErrAssetExportNotFound) || readErr == nil && current.StorageKey != storageKey {
 			_ = outputStore.Delete(context.WithoutCancel(ctx), storageKey)
 		}
 		return err
@@ -569,7 +592,7 @@ func (s *AssetExportService) buildArchive(ctx context.Context, batch model.Asset
 		}
 	}
 	current, err = s.exports.GetBatch(batch.ID, batch.WorkspaceID)
-	if err == nil && current.Status == model.AssetExportStatusCanceled {
+	if errors.Is(err, repository.ErrAssetExportNotFound) || err == nil && current.Status == model.AssetExportStatusCanceled {
 		_ = outputStore.Delete(context.WithoutCancel(ctx), storageKey)
 	}
 	return err

@@ -3479,7 +3479,8 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
 }
 .node-pin-swatches {
   display: grid;
-  grid-template-columns: repeat(4, 22px);
+  /* Keep the twelve pin colors in two rows. */
+  grid-template-columns: repeat(6, 22px);
   gap: 8px;
   justify-content: start;
 }
@@ -4903,22 +4904,27 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   .inspector-group .canvas-group-color-swatch { width: 16px; height: 16px; flex-basis: 16px; }
 }
 
-/* Keep node labels and controls at their normal screen size when zooming out.
+/* Names share the group's 45% compensation floor; interaction controls stay readable.
    Independent scale preserves the existing hover/entrance transforms. */
 .real-canvas-node,
 .canvas-group-frame {
+  --canvas-label-zoom-floor: 45;
+  --canvas-label-scale: max(1, calc(100 / max(var(--canvas-zoom, 100), var(--canvas-label-zoom-floor))));
   --node-controls-scale: max(1, calc(100 / max(var(--canvas-zoom, 100), 5)));
 }
 .real-canvas-node:hover { z-index: 3; }
 .real-canvas-node.selected { z-index: 4; }
-.real-canvas-node > .node-float-label,
 .real-canvas-node > .node-toolbar-wrap,
 .real-canvas-node > .node-upload-pill {
   scale: var(--node-controls-scale);
   transform-origin: top left;
 }
 .real-canvas-node > .node-float-label {
-  top: calc(-1 * var(--node-label-gap) * var(--node-controls-scale));
+  scale: var(--canvas-label-scale);
+  transform-origin: top left;
+  top: calc(-1 * var(--node-label-gap) * var(--canvas-label-scale));
+  /* At overview zoom a resize grip can extend above its tiny node. */
+  z-index: 13;
   max-width: none;
   border-radius: 3px;
   background: #1c1c1c;
@@ -4944,11 +4950,9 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
 .real-canvas-node > .canvas-node-handle.target { left: calc(-23px * var(--node-controls-scale) - 11px); }
 .real-canvas-node > .canvas-node-handle.source { right: calc(-23px * var(--node-controls-scale) - 11px); }
 
-/* Stop compensating at the reference view's 45% zoom; below that the whole
-   toolbar shrinks with the canvas. Node labels retain their own size floor. */
+/* Group names and controls use the same compensation floor as node names. */
 .canvas-group-frame {
-  --group-controls-zoom-floor: 45;
-  --group-controls-scale: max(1, calc(100 / max(var(--canvas-zoom, 100), var(--group-controls-zoom-floor))));
+  --group-controls-scale: var(--canvas-label-scale);
   /* Member inset matches GROUP_HEADER_HEIGHT in domain/groups.ts. */
   --group-member-top-inset: 46px;
   /* Space for node labels above the first member, including a small gap. */
@@ -4961,7 +4965,7 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   --canvas-group-header-offset: 0px;
 }
 .canvas-group-frame:not(.pending) {
-  --group-frame-top-extension: max(0px, calc(var(--group-label-clearance) * var(--node-controls-scale) + var(--group-header-height) * var(--group-header-scale) - var(--group-member-top-inset)));
+  --group-frame-top-extension: max(0px, calc(var(--group-label-clearance) * var(--canvas-label-scale) + var(--group-header-height) * var(--group-header-scale) - var(--group-member-top-inset)));
   margin-top: calc(-1 * var(--group-frame-top-extension));
 }
 .canvas-group-header {

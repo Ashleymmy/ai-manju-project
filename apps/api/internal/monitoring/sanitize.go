@@ -12,6 +12,10 @@ const MaxCaptureBytes = 32 * 1024
 const AIRecordedKey = "monitoring_ai_recorded"
 const PanicStackKey = "monitoring_panic_stack"
 
+// Handlers may attach diagnostics for the monitor without adding them to responses.
+const DiagnosticDetailKey = "monitoring_diagnostic_detail"
+const DiagnosticSuggestionKey = "monitoring_diagnostic_suggestion"
+
 var secretPattern = regexp.MustCompile(`(?i)(["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret|cookie|token)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}]+)`)
 var bearerPattern = regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+`)
 var keyPattern = regexp.MustCompile(`\b(?:sk-|sess-)[A-Za-z0-9_-]{8,}`)

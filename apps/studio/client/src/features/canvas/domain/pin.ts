@@ -1,16 +1,20 @@
 import type { CanvasNodeData } from "./types";
 import { stringValue } from "./value";
 
-/** Distinct pin colors that stay readable on the dark canvas. */
+/** Two warm-to-cool rows with related hues aligned vertically and neutrals last. */
 export const CANVAS_PIN_COLORS = [
   "#E9513E",
   "#F5C14A",
   "#4ADE80",
   "#38BDF8",
   "#A78BFA",
-  "#F472B6",
-  "#FB923C",
   "#E8E4DC",
+  "#FB923C",
+  "#A3E635",
+  "#2DD4BF",
+  "#3B82F6",
+  "#F472B6",
+  "#94A3B8",
 ] as const;
 
 export type CanvasPinColor = (typeof CANVAS_PIN_COLORS)[number];

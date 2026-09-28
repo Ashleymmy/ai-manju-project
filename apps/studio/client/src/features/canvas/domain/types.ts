@@ -83,6 +83,8 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   resolution?: string;
   seconds?: string;
   videoSubMode?: string;
+  /** Honor a menu selection until the prompt gains or loses its reference inputs. */
+  videoSubModeManual?: boolean;
   storyboardScenes?: Array<Record<string, unknown>>;
   imageResolution?: string;
   /** Pixel dimensions submitted for the current image generation. */

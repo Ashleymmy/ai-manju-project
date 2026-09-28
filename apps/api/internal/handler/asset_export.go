@@ -105,13 +105,22 @@ func (h *AssetExportHandler) Content(c *gin.Context) {
 	c.DataFromReader(http.StatusOK, content.Object.Size, "application/zip", content.Reader, nil)
 }
 
+func (h *AssetExportHandler) Delete(c *gin.Context) {
+	user := auth.MustCurrentUser(c)
+	if err := h.exports.Delete(c.Request.Context(), c.Param("exportId"), user.ID, requestWorkspaceScope(c)); err != nil {
+		assetExportError(c, err)
+		return
+	}
+	response.OK(c, gin.H{"deleted": true})
+}
+
 func assetExportError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, repository.ErrAssetExportNotFound), errors.Is(err, repository.ErrAssetNotFound), errors.Is(err, repository.ErrAssetFolderNotFound):
 		response.Error(c, http.StatusNotFound, err.Error())
 	case errors.Is(err, service.ErrAssetExportExpired):
 		response.Error(c, http.StatusGone, err.Error())
-	case errors.Is(err, service.ErrAssetExportNotReady):
+	case errors.Is(err, service.ErrAssetExportNotReady), errors.Is(err, repository.ErrAssetExportActive):
 		response.Error(c, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrAssetExportSelection), errors.Is(err, service.ErrAssetCategory), errors.Is(err, service.ErrAssetSourceType), errors.Is(err, service.ErrTagMatchMode), errors.Is(err, service.ErrAssetLibrarySmartView), errors.Is(err, repository.ErrTagUsage), errors.Is(err, repository.ErrTagNotFound):
 		response.Error(c, http.StatusBadRequest, err.Error())

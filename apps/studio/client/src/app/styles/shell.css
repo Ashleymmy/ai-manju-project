@@ -5,8 +5,8 @@
 .side-head { height: 82px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--line); }
 .brand-lockup { display: flex; align-items: center; gap: 11px; min-width: 0; overflow: hidden; }
 .brand-mark { width: 34px; height: 34px; object-fit: contain; flex: 0 0 auto; }
-/* cloudto 云格横版一体标识（含云形与字标，深底版） */
-.brand-logo-full { display: block; height: 30px; width: auto; object-fit: contain; flex: 0 0 auto; }
+/* cloudto 云格横版标识整体放大，保留比例与顶栏上下留白。 */
+.brand-logo-full { display: block; height: 42px; width: auto; object-fit: contain; flex: 0 0 auto; }
 .brand-type { display: flex; flex-direction: column; min-width: 108px; line-height: 1; }
 .brand-type strong { font-size: 15px; font-weight: 800; letter-spacing: -.04em; white-space: nowrap; }
 .brand-type span { margin-top: 5px; font-family: var(--font-family-mono); font-size: var(--font-size-caption); letter-spacing: 0; color: #bebebe; white-space: nowrap; }

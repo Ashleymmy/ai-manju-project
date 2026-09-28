@@ -54,6 +54,12 @@ func RuntimeMonitoring(repo repository.RuntimeMonitoringRepository) gin.HandlerF
 			endpoint = c.Request.URL.EscapedPath()
 		}
 		message, code, reason, suggestion := capturedError(writer.body.Bytes())
+		if detail := c.GetString(monitoring.DiagnosticDetailKey); detail != "" {
+			reason = detail
+		}
+		if advice := c.GetString(monitoring.DiagnosticSuggestionKey); advice != "" {
+			suggestion = advice
+		}
 		if stack := c.GetString(monitoring.PanicStackKey); stack != "" {
 			code, reason = "internal_panic", stack
 		}

@@ -531,6 +531,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			assetExports.POST("", assetExportHandler.Create)
 			assetExports.GET("", assetExportHandler.List)
 			assetExports.GET("/:exportId", assetExportHandler.Get)
+			assetExports.DELETE("/:exportId", assetExportHandler.Delete)
 			assetExports.POST("/:exportId/cancel", assetExportHandler.Cancel)
 			assetExports.GET("/:exportId/content", assetExportHandler.Content)
 			assetExports.HEAD("/:exportId/content", assetExportHandler.Content)

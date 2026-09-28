@@ -47,7 +47,8 @@ export function useAssetOverviewQuery(
     queryFn: async () => {
       const [folders, tags] = await Promise.allSettled([
         getAssetFolders(scope),
-        listAllTags(scope, "asset"),
+        // Asset-enabled children still need their non-asset ancestors for hierarchy.
+        listAllTags(scope),
       ]);
       return { folders, tags };
     },
@@ -91,9 +92,11 @@ export function useAssetLibraryPageQuery(
 
 export function useAssetExportsQuery(
   scope: WorkspaceScope,
-  revision: number
+  revision: number,
+  enabled = true
 ) {
   return useQuery({
+    enabled,
     queryKey: [
       ...assetQueryKeys.exports(scope),
       "feature-page",

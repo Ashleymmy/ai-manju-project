@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-for (const initial of ["new", "unset", "disabled"] as const) {
+for (const initial of ["new", "unset", "disabled", "legacy-ratio"] as const) {
   test(`canvas video audio defaults and saved choice reach the request: ${initial}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1600, height: 1000 });
     const project = { id: "video-audio-qa", title: "视频音频默认值验收", scope: "personal", owner_id: "qa" };
@@ -11,7 +11,7 @@ for (const initial of ["new", "unset", "disabled"] as const) {
     let snapshot: any = {
       schema: "ai-manhua-studio-canvas", version: 3,
       nodes: initial === "new" ? [] : [{ id: "video", kind: "video", title: "视频音频验收", content: "镜头缓慢推近", x: 450, y: 250, width: 420, height: 240,
-        metadata: { prompt: "镜头缓慢推近", composerContent: "镜头缓慢推近", generationMode: "video", model, seconds: "5", size: initial === "disabled" ? "adaptive" : "auto", ...(initial === "disabled" ? { generateAudio: false } : {}) } }],
+        metadata: { prompt: "镜头缓慢推近", composerContent: "镜头缓慢推近", generationMode: "video", model, seconds: "5", size: initial === "disabled" ? "adaptive" : initial === "legacy-ratio" ? "panorama" : "auto", ...(initial === "disabled" ? { generateAudio: false } : {}) } }],
       edges: [], groups: [], zoom: 100, panX: 0, panY: 0, viewport: { x: 0, y: 0, k: 1 },
     };
     await page.addInitScript(() => {

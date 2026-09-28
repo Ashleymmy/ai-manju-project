@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ai-manju/api/internal/model"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -667,13 +668,30 @@ func syncGormAssetTagMirror(tx *gorm.DB, assetID string, now time.Time) error {
 	return tx.Model(&model.Asset{}).Where("id = ?", assetID).Updates(map[string]any{"tags": model.JSONB(payload), "updated_at": now}).Error
 }
 
+// Preserve the database cause for internal diagnostics without exposing row values.
+type tagConflictError struct{ cause error }
+
+// PostgreSQL unique violations need their constraint classified before becoming a name conflict.
+const tagUniqueViolationSQLState = "23505"
+
+func (e *tagConflictError) Error() string   { return ErrTagConflict.Error() }
+func (e *tagConflictError) Unwrap() []error { return []error{ErrTagConflict, e.cause} }
+
 func mapTagConflict(err error) error {
 	if err == nil {
 		return nil
 	}
+	var pgError *pgconn.PgError
+	if errors.As(err, &pgError) {
+		if pgError.Code == tagUniqueViolationSQLState && (pgError.ConstraintName == "idx_tag_scope_parent_name" || pgError.ConstraintName == "idx_tag_alias_name") {
+			return &tagConflictError{cause: err}
+		}
+		// Primary keys or obsolete schema constraints are not sibling-name conflicts.
+		return err
+	}
 	message := strings.ToLower(err.Error())
 	if strings.Contains(message, "duplicate key") || strings.Contains(message, "unique constraint") || strings.Contains(message, "unique failed") {
-		return ErrTagConflict
+		return &tagConflictError{cause: err}
 	}
 	return err
 }

@@ -21,7 +21,7 @@ it.each(["sdvideo/seedance-2.0-mini", "sdvideo/seedance-fast", "mt::ep-mini"])("
       selectedPanelStyle={{ display: "block" }} nodes={[node]} edges={[]} previews={{}} visiblePromptPresets={[]}
       imageToolBusy={false} storyboardBusy={false} selectedGenerationMode="video" selectedGenerationModel={model}
       selectedGenerationModelLabel="Video" generationModelOptions={[]} selectedVideoConfig={videoConfigFromNode(node, model)}
-      selectedVideoSeedance selectedVideoDurations={[4, 5, 6]} selectedVideoResolutions={["480p", "720p", "1080p"]} selectedVideoRatios={["16:9", "1:1"]}
+      selectedVideoSeedance selectedVideoDurations={[4, 5, 6]} selectedVideoResolutions={["480p", "720p", "1080p"]} selectedVideoRatios={["auto", "adaptive", "16:9", "1:1"]}
       selectedAudioConfig={null} audioVoiceOptions={[]} audioFormatOptions={[]} runningGroupId="" runningNodeIds={new Set()}
       captureFrameNodeId="" styleCategory="" promptOptimizing={false} enabledSkills={[]} actions={actions} />;
   }
@@ -31,6 +31,9 @@ it.each(["sdvideo/seedance-2.0-mini", "sdvideo/seedance-fast", "mt::ep-mini"])("
     await act(async () => root.render(<Harness />));
     const button = (text: string) => [...document.querySelectorAll("button")].find(item => item.textContent?.trim() === text)!;
     await act(async () => button("参数").click());
+    expect(button("auto")).toBeUndefined();
+    expect(button("自适应")).toBeUndefined();
+    expect(button("16:9")).toBeDefined();
     expect(button("1080p").disabled).toBe(true);
     await act(async () => button("1080p").click());
     expect(changed).not.toHaveBeenCalled();

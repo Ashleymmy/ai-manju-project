@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
+import type { CanvasNodeData } from "../client/src/features/canvas/domain/types";
 
-test("video prompt mode follows whether the prompt has an @ reference", async ({ page }) => {
+test("video mode supports direct selection, persistence and automatic reference transitions", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const project = { id: "video-submode-qa", title: "视频模式验收", scope: "personal", owner_id: "qa" };
-  const snapshot = {
+  let snapshot = {
     schema: "ai-manhua-studio-canvas",
     version: 3,
     nodes: [
@@ -43,6 +44,8 @@ test("video prompt mode follows whether the prompt has an @ reference", async ({
     panY: 0,
     viewport: { x: 0, y: 0, k: 1 },
   };
+  let savedMode = "";
+  let version = 1;
 
   await page.addInitScript(() => {
     localStorage.setItem("ai-manju:auth_token", "qa-token");
@@ -71,7 +74,14 @@ test("video prompt mode follows whether the prompt has an @ reference", async ({
       video_model_protocols: { "sdvideo/seedance-2.0": "seedance" },
       video_model_durations: { "sdvideo/seedance-2.0": [5, 10, 15] },
     };
-    else if (path === `/api/projects/${project.id}/snapshot`) data = { project_id: project.id, version: 1, data: snapshot };
+    else if (path === `/api/projects/${project.id}/snapshot`) {
+      if (request.method() === "PUT") {
+        snapshot = request.postDataJSON().data;
+        savedMode = (snapshot.nodes as CanvasNodeData[]).find(node => node.id === "video")?.metadata?.videoSubMode || "";
+        version += 1;
+      }
+      data = { project_id: project.id, version, data: snapshot };
+    }
     else if (path === `/api/projects/${project.id}`) data = { ...project, data: snapshot };
     else if (path === "/api/projects") data = { items: [project], total: 1 };
     else if (path === "/api/asset-folders") data = [];
@@ -85,8 +95,31 @@ test("video prompt mode follows whether the prompt has an @ reference", async ({
   const prompt = inspector.locator("textarea.node-card-prompt");
   await expect(inspector.getByRole("button", { name: "文生视频", exact: true })).toBeVisible();
 
+  const selectMode = async (current: string, next: string) => {
+    await inspector.getByRole("button", { name: current, exact: true }).click();
+    await page.locator(".node-pop-card").getByRole("button", { name: next, exact: true }).click();
+    await expect(inspector.getByRole("button", { name: next, exact: true })).toBeVisible();
+    await expect(inspector.locator(".inspector-submode-badge")).toHaveText(next);
+    await page.keyboard.press("Escape");
+  };
+  await selectMode("文生视频", "全能参考");
+  await expect(prompt).toHaveAttribute("placeholder", /输入文字或 @ 参考内容/);
+  await prompt.fill("先选择参考模式，再补充素材");
+  await expect(inspector.getByRole("button", { name: "全能参考", exact: true })).toBeVisible();
+  await expect.poll(() => savedMode).toBe("reference");
+
+  await page.reload();
+  await page.locator('[data-node-id="video"] .node-float-label').click();
+  await expect(inspector.getByRole("button", { name: "全能参考", exact: true })).toBeVisible();
+  await expect(prompt).toHaveValue("先选择参考模式，再补充素材");
+  await selectMode("全能参考", "视频编辑");
+  await selectMode("视频编辑", "全能参考");
+  await selectMode("全能参考", "文生视频");
+
   await inspector.getByRole("button", { name: "引用：参考图片", exact: true }).click();
   await expect(inspector.getByRole("button", { name: "全能参考", exact: true })).toBeVisible();
+  await selectMode("全能参考", "文生视频");
+  await selectMode("文生视频", "全能参考");
 
   await prompt.fill("镜头推进");
   await expect(inspector.getByRole("button", { name: "文生视频", exact: true })).toBeVisible();

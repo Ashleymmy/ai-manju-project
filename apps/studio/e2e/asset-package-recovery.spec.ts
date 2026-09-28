@@ -54,6 +54,12 @@ async function start(page: Page) {
   await page.locator('input[type="file"][accept=".zip,application/zip"]').setInputFiles(fixture());
 }
 
+const importPanel = (page: Page) => page.getByRole("region", { name: "资产导入任务", exact: true });
+async function showImports(page: Page) {
+  await page.locator(".asset-bulk-bar").getByRole("button", { name: "导入任务", exact: true }).click();
+  return importPanel(page);
+}
+
 test("navigation continues; refresh recovers a lost upload response without duplicates; a second tab follows", async ({ page, context }, testInfo) => {
   await login(page);
   let uploaded = 0;
@@ -71,27 +77,27 @@ test("navigation continues; refresh recovers a lost upload response without dupl
   await page.locator('a[href="/projects"]').first().click();
   await expect(page).toHaveURL(/\/projects/);
   await expect.poll(() => uploaded).toBe(4);
-  await page.getByRole("button", { name: "查看导入任务" }).click();
-  await expect(page.getByRole("dialog")).toContainText("refresh-recovery.zip");
-  await expect(page.getByRole("dialog")).toHaveCSS("opacity", "1");
+  await expect(page.getByRole("button", { name: "查看导入任务" })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("navigated-progress.png") });
   // The server committed upload 4 but its browser response is still pending.
   await page.reload();
   release?.();
   const other = await context.newPage();
-  await other.goto("/projects");
-  await page.getByRole("button", { name: "查看导入任务" }).click();
-  await expect(page.getByRole("dialog").getByRole("heading", { name: "导入完成", exact: true })).toBeVisible({ timeout: 40_000 });
+  await other.goto("/assets");
+  await page.locator('a[href="/assets"]').first().click();
+  await showImports(page);
+  await showImports(other);
+  await expect(importPanel(page)).toContainText("已完成", { timeout: 40_000 });
   await expect.poll(() => total(page)).toBe(FILES);
   await expect.poll(async () => (await records(page, "sources")).length).toBe(0);
-  await expect(other.getByRole("button", { name: "查看导入任务" })).toContainText(`${FILES}/${FILES}`);
+  await expect(importPanel(other)).toContainText(`${FILES}/${FILES}`);
   const folders = (await (await page.request.get(`${apiBase}/api/asset-folders`)).json()).data;
   expect(folders.filter((f: any) => f.name === "恢复测试")).toHaveLength(1);
   expect(folders.filter((f: any) => f.name === "子目录")).toHaveLength(1);
   await page.screenshot({ path: testInfo.outputPath("recovered-complete.png") });
-  await other.goto("/assets");
-  await other.getByRole("button", { name: "收起导入结果", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("暂无导入任务");
+  other.once("dialog", dialog => dialog.accept());
+  await importPanel(other).getByRole("button", { name: "删除任务", exact: true }).click();
+  await expect(importPanel(page)).toContainText("暂无导入任务");
 });
 
 test("explicit pause survives refresh and resumes only on request", async ({ page }) => {
@@ -103,15 +109,16 @@ test("explicit pause survives refresh and resumes only on request", async ({ pag
   await start(page);
   await expect.poll(() => total(page)).toBeGreaterThan(0);
   await page.getByRole("button", { name: "暂停导入", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "导入已暂停", exact: true })).toBeVisible();
+  await expect(importPanel(page)).toContainText("已暂停");
   await page.reload();
-  await expect(page.getByRole("heading", { name: "导入已暂停", exact: true })).toBeVisible();
+  await showImports(page);
+  await expect(importPanel(page)).toContainText("已暂停");
   const paused = await total(page);
   expect(paused).toBeLessThan(FILES);
   await page.waitForTimeout(4_000); // Longer than the automatic recovery poll.
   expect(await total(page)).toBe(paused);
-  await page.getByRole("button", { name: "继续 / 重试未完成项", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "导入完成", exact: true })).toBeVisible();
+  await importPanel(page).getByRole("button", { name: "继续导入", exact: true }).click();
+  await expect(importPanel(page)).toContainText("已完成");
   expect(await total(page)).toBe(FILES);
 });
 
@@ -130,7 +137,8 @@ for (const definition of ["asset-folders", "tags"]) test(`refresh after a ${defi
   await expect.poll(() => created).toBe(true);
   await page.reload();
   release?.();
-  await expect(page.getByRole("heading", { name: "导入完成", exact: true })).toBeVisible({ timeout: 40_000 });
+  await showImports(page);
+  await expect(importPanel(page)).toContainText("已完成", { timeout: 40_000 });
   const folders = (await (await page.request.get(`${apiBase}/api/asset-folders`)).json()).data;
   expect(folders.filter((f: any) => f.kind === "user")).toHaveLength(2);
   const tags = (await (await page.request.get(`${apiBase}/api/tags?usage=asset`)).json()).data;
@@ -161,11 +169,12 @@ test("changing account cannot continue the previous user's import with the new t
   const otherLibrary = await page.request.get(`${apiBase}/api/assets/library`, { headers: { Authorization: `Bearer ${other.token}` } });
   expect((await otherLibrary.json()).data.total).toBe(0);
   await page.reload();
-  await page.getByRole("button", { name: "查看导入任务" }).click();
-  await expect(page.getByRole("dialog")).toContainText("暂无导入任务");
+  await showImports(page);
+  await expect(importPanel(page)).toContainText("暂无导入任务");
   await page.evaluate(token => localStorage.setItem("ai-manju:auth_token", token), original.token);
   await page.reload();
-  await expect(page.getByRole("heading", { name: "导入完成", exact: true })).toBeVisible({ timeout: 40_000 });
+  await showImports(page);
+  await expect(importPanel(page)).toContainText("已完成", { timeout: 40_000 });
   const originalLibrary = await page.request.get(`${apiBase}/api/assets/library`, { headers: { Authorization: `Bearer ${original.token}` } });
   expect((await originalLibrary.json()).data.total).toBe(FILES);
 });

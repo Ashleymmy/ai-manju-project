@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createTag, createWorkspaceTag, listAssetTagDetails, listTagPrompts, updateTag } from "./tags";
+import { createTag, createWorkspaceTag, listAssetTagDetails, listTagPrompts, listTags, updateTag } from "./tags";
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>();
@@ -110,5 +110,20 @@ describe("tag API", () => {
       inherit_mode: "never",
       scope_type: "user",
     });
+  });
+
+  it("can locate hidden name conflicts without changing the default list", async () => {
+    await listTags("personal", { keyword: "b", parentId: "", scopeType: "workspace", includeArchived: true });
+    const [url] = vi.mocked(fetch).mock.calls[0] as [string];
+    const query = new URL(url).searchParams;
+    expect(query.get("parent")).toBe("");
+    expect(query.get("keyword")).toBe("b");
+    expect(query.get("tag_scope")).toBe("workspace");
+    expect(query.get("include_archived")).toBe("true");
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: { items: [] } })));
+    await listTags();
+    const [defaultUrl] = vi.mocked(fetch).mock.calls[1] as [string];
+    expect(new URL(defaultUrl).searchParams.has("include_archived")).toBe(false);
+    expect(new URL(defaultUrl).searchParams.has("parent")).toBe(false);
   });
 });

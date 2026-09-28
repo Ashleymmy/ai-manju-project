@@ -500,7 +500,7 @@ export function CanvasInspector({
                             key={sub.value}
                             type="button"
                             className={videoSubModeFromNode(selectedNode) === sub.value ? "node-pop-item active" : "node-pop-item"}
-                            onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), videoSubMode: sub.value } })}
+                            onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), videoSubMode: sub.value, videoSubModeManual: true } })}
                           >{sub.label}</button>
                         ))}
                       </PopoverContent>
@@ -565,10 +565,10 @@ export function CanvasInspector({
                       </div>
                       <div className="param-group"><span className="param-group-label">宽高比</span>
                         <div className="param-ratio-grid">
-                          {selectedVideoRatios.map((ratio) => (
+                          {selectedVideoRatios.filter((ratio) => !["auto", "adaptive"].includes(ratio.trim().toLowerCase())).map((ratio) => (
                             <button key={ratio} type="button" disabled={!videoOptionAvailable(selectedVideoConfig.model, "ratios", ratio)} className={selectedVideoConfig.size === ratio || sizeToRatioLabel(selectedVideoConfig.size) === ratio ? "param-ratio active" : "param-ratio"} title={!videoOptionAvailable(selectedVideoConfig.model, "ratios", ratio) ? "当前模型不支持此比例" : ratio} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: ratio } })}>
                               <i className="param-ratio-icon" style={ratioIconStyle(ratio)} />
-                              <span>{ratio === "adaptive" ? "自适应" : ratio}</span>
+                              <span>{ratio}</span>
                             </button>
                           ))}
                         </div>

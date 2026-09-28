@@ -21,7 +21,7 @@ afterEach(async () => {
 
 async function renderFailure(error: AssetExportBatch["error"]) {
   const batch: AssetExportBatch = { id: "failed-export", status: "failed", selection_mode: "folder", total: 35, succeeded: 32, failed: 3, size: 0, error };
-  await act(async () => root.render(<AssetTransferStatus batches={[batch]} progress={null} warnings={[]} importing={false} canPause={false} canRetry={false} onRetry={vi.fn()} onPause={vi.fn()} onDismiss={vi.fn()} onDownload={vi.fn()} onCancel={vi.fn()} />));
+  await act(async () => root.render(<AssetTransferStatus batches={[batch]} onDownload={vi.fn()} onCancel={vi.fn()} />));
   return container.querySelector('[role="status"]')?.textContent;
 }
 

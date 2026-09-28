@@ -110,7 +110,10 @@ test("all node kinds share unique names and controls stay readable when zoomed o
     await page.reload();
     await original.locator(".node-float-label").click({ position: { x: 1, y: 1 } });
     await expect(page.locator(".canvas-bottom-tools b")).toHaveText(`${zoom}%`);
-    await expect.poll(async () => (await original.locator(".node-float-label b").boundingBox())!.height).toBeGreaterThanOrEqual(12);
+    const titleScale = zoom / 45;
+    await expect.poll(() => original.locator(".node-float-label b").evaluate(element =>
+      element.getBoundingClientRect().height / (element as HTMLElement).offsetHeight
+    )).toBeCloseTo(titleScale, 2);
     const copy = original.getByRole("button", { name: "复制", exact: true });
     await expect.poll(async () => (await copy.boundingBox())!.height).toBeGreaterThanOrEqual(27);
     const titleBox = (await original.locator(".node-float-label").boundingBox())!;

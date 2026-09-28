@@ -23,6 +23,9 @@ export function listTags(
     usage?: "asset" | "prompt";
     keyword?: string;
     includeDescendants?: boolean;
+    includeArchived?: boolean;
+    parentId?: string;
+    scopeType?: SemanticTag["scope_type"];
     page?: number;
     pageSize?: number;
   } = {}
@@ -33,6 +36,9 @@ export function listTags(
       usage: query.usage,
       keyword: query.keyword,
       include_descendants: query.includeDescendants || undefined,
+      include_archived: query.includeArchived || undefined,
+      parent: query.parentId,
+      tag_scope: query.scopeType,
       page: query.page || 1,
       page_size: query.pageSize || 100,
     },

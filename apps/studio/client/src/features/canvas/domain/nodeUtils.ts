@@ -54,6 +54,8 @@ export function isCanvasImageResolutionAvailable(value: CanvasImageResolution): 
 
 /** 视频节点使用明确比例；旧的自适应设置回退到横屏。 */
 export const CANVAS_VIDEO_DEFAULT_RATIO = "16:9";
+/** OpenAI-compatible video providers express the same landscape default in pixels. */
+export const CANVAS_VIDEO_DEFAULT_SIZE = "1280x720";
 
 export function canvasImageParamDefaults() {
   return {
@@ -176,6 +178,9 @@ export function nodeInlineEditPlaceholder(kind: CanvasNodeKind) {
 
 export function videoSubModeFromNode(node: CanvasNodeData): VideoSubMode {
   const value = stringValue(node.metadata?.videoSubMode);
+  if (node.metadata?.videoSubModeManual && VIDEO_SUBMODES.some((sub) => sub.value === value)) {
+    return value as VideoSubMode;
+  }
   const hasReferences = extractCanvasMentionTokens(promptTextFromNode(node)).length > 0;
   // Text/reference are the automatic pair; repair stale saved values from older nodes.
   if (value === "text" || value === "reference" || !VIDEO_SUBMODES.some((sub) => sub.value === value)) {
@@ -261,7 +266,7 @@ export function imageCountFromNode(node: CanvasNodeData) {
 
 export function videoConfigFromNode(node: CanvasNodeData, fallbackModel: string): VideoGenerationConfig {
   const size = stringValue(node.metadata?.size).trim().toLowerCase();
-  return normalizeVideoGenerationConfig({
+  const config = normalizeVideoGenerationConfig({
     model: modelFromNode(node, fallbackModel),
     size: !size || size === "auto" || size === "adaptive" ? CANVAS_VIDEO_DEFAULT_RATIO : size,
     resolution: stringValue(node.metadata?.resolution) || "720p",
@@ -270,6 +275,11 @@ export function videoConfigFromNode(node: CanvasNodeData, fallbackModel: string)
     generateAudio: node.metadata?.generateAudio ?? true,
     watermark: Boolean(node.metadata?.watermark),
   });
+  // Legacy/unsupported ratios can normalize back to automatic after the input fallback.
+  if (config.size === "auto" || config.size === "adaptive") {
+    return { ...config, size: !config.model || isSeedanceVideoModel(config.model) ? CANVAS_VIDEO_DEFAULT_RATIO : CANVAS_VIDEO_DEFAULT_SIZE };
+  }
+  return config;
 }
 
 export function audioConfigFromNode(node: CanvasNodeData, fallbackModel: string) {

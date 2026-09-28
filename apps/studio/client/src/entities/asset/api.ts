@@ -375,6 +375,12 @@ export function cancelAssetExport(
   );
 }
 
+export function deleteAssetExport(exportId: string, scope: WorkspaceScope = "personal") {
+  return request<{ deleted: boolean }>(`/api/asset-exports/${encodeURIComponent(exportId)}`, {
+    method: "DELETE", query: { scope },
+  });
+}
+
 export async function downloadAssetExport(
   exportId: string,
   scope: WorkspaceScope = "personal"

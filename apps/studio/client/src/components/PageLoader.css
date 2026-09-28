@@ -21,7 +21,41 @@
   position: relative;
   inset: auto;
   z-index: auto;
-  min-height: 50vh;
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Only the pending route fills the shell; loaded pages keep their existing layout. */
+.studio-app:has(> .main-stage > .page-loader-contained) {
+  min-height: 100dvh;
+}
+.main-stage:has(> .page-loader-contained) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.main-stage:has(> .page-loader-contained) > :not(.page-loader-contained) {
+  flex-shrink: 0;
+}
+/* Canvas feature CSS may not have arrived yet when its route suspends. */
+.canvas-focus-direct:has(> .main-stage > .page-loader-contained) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.canvas-focus-direct > .main-stage:has(> .page-loader-contained) {
+  grid-column: 1 / -1;
+  min-height: 100dvh;
+}
+@media (max-width: 760px) {
+  .studio-app:has(> .main-stage > .page-loader-contained) {
+    display: flex;
+    flex-direction: column;
+  }
+  .studio-app:has(> .main-stage > .page-loader-contained) > .side-rail {
+    flex-shrink: 0;
+  }
 }
 .page-loader-text {
   margin: 0;

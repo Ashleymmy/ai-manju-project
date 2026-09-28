@@ -2,14 +2,17 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/ai-manju/api/internal/auth"
+	"github.com/ai-manju/api/internal/monitoring"
 	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/response"
 	"github.com/ai-manju/api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type TagHandler struct {
@@ -279,6 +282,15 @@ func (h *TagHandler) BulkAssetTags(c *gin.Context) {
 }
 
 func tagError(c *gin.Context, err error) {
+	var pgError *pgconn.PgError
+	if errors.As(err, &pgError) {
+		// Do not capture Detail: PostgreSQL embeds conflicting row values there.
+		c.Set(monitoring.DiagnosticDetailKey, fmt.Sprintf("SQLSTATE=%s; table=%s; constraint=%s", pgError.Code, pgError.TableName, pgError.ConstraintName))
+		c.Set(monitoring.DiagnosticSuggestionKey, "核对标签表约束及迁移版本。标签名称应按 scope_key、parent_id、normalized_name 联合唯一；若是主键或旧索引冲突，不应当作同级重名处理。")
+	} else if errors.Is(err, repository.ErrTagConflict) {
+		c.Set(monitoring.DiagnosticDetailKey, "同一归属和父级下存在同名标签或别名，已归档记录也保留名称。")
+		c.Set(monitoring.DiagnosticSuggestionKey, "查询当前用户可见范围内的同级标签，包含归档记录；检查重复提交或过期列表，不要删除其他用户数据。")
+	}
 	switch {
 	case errors.Is(err, repository.ErrTagNotFound), errors.Is(err, repository.ErrTagAliasNotFound), errors.Is(err, repository.ErrAssetNotFound):
 		response.Error(c, http.StatusNotFound, err.Error())
@@ -291,6 +303,10 @@ func tagError(c *gin.Context, err error) {
 		errors.Is(err, service.ErrTagStatus), errors.Is(err, service.ErrTagMatchMode):
 		response.Error(c, http.StatusBadRequest, err.Error())
 	default:
-		response.Error(c, http.StatusInternalServerError, err.Error())
+		if pgError != nil {
+			response.Error(c, http.StatusInternalServerError, "标签操作暂时失败，请稍后重试")
+		} else {
+			response.Error(c, http.StatusInternalServerError, err.Error())
+		}
 	}
 }

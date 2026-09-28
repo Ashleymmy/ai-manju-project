@@ -1918,7 +1918,7 @@ export default function CanvasWorkspaceViewContent() {
       const updated = updateCanvasNodeComposer(node, content);
       const autoVideoSubMode = autoVideoSubModeForPromptChange(node, content);
       return autoVideoSubMode
-        ? { ...updated, metadata: { ...(updated.metadata || {}), videoSubMode: autoVideoSubMode } }
+        ? { ...updated, metadata: { ...(updated.metadata || {}), videoSubMode: autoVideoSubMode, videoSubModeManual: false } }
         : updated;
     });
     nodesRef.current = nextNodes;
