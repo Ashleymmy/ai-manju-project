@@ -67,6 +67,21 @@ async function render() { await act(async () => root.render(<QueryClientProvider
 async function edit() { await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="重新编辑提示词和参考素材"]')!.click()); }
 
 describe("视频历史消息重新编辑", () => {
+  it("does not offer phantom conversations after cloud load fails and can retry", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mocks.load.mockRejectedValueOnce(new Error("temporary outage")).mockResolvedValueOnce(conversations());
+
+    await render();
+    expect(container.querySelector(".wb-main")).toBeNull();
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(mocks.write).not.toHaveBeenCalled();
+
+    await act(async () => container.querySelector<HTMLButtonElement>(".wb-loading button")!.click());
+    expect(mocks.load).toHaveBeenCalledTimes(2);
+    expect(container.querySelector(".wb-main")).not.toBeNull();
+    expect(container.textContent).toContain("原任务");
+  });
+
   it.each(["succeeded", "failed"] as const)("keeps the original result when cancel returns %s", async status => {
     vi.useFakeTimers();
     const history = conversations();

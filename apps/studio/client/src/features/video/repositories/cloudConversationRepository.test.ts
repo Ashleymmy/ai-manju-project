@@ -2,20 +2,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   legacy: [] as unknown[], cache: new Map<string, unknown>(),
+  legacyReadFailure: false, cacheReadFailure: false, cacheWriteFailure: false, legacyWriteFailure: false,
   api: { conversations: vi.fn(), messages: vi.fn(), createConversation: vi.fn(), renameConversation: vi.fn(), deleteConversation: vi.fn(), createMessage: vi.fn(), updateMessage: vi.fn() },
 }));
 vi.mock("@/entities/sd-video", () => ({ createSDVideoClient: () => mocks.api }));
 vi.mock("@/entities/asset", () => ({ uploadAsset: vi.fn() }));
 vi.mock("./conversationRepository", () => ({
-  conversationStore: { getItem: async (key: string) => mocks.cache.get(key), setItem: async (key: string, value: unknown) => mocks.cache.set(key, value) },
-  loadVideoWorkbenchConversations: async () => mocks.legacy,
+  conversationStore: {
+    getItem: async (key: string) => { if (mocks.cacheReadFailure) throw new Error("cache unreadable"); return mocks.cache.get(key); },
+    setItem: async (key: string, value: unknown) => { if (mocks.cacheWriteFailure) throw new Error("cache unwritable"); mocks.cache.set(key, value); },
+  },
+  loadVideoWorkbenchConversations: async () => { if (mocks.legacyReadFailure) throw new Error("legacy unreadable"); return mocks.legacy; },
   normalizeConversations: (items: unknown) => Array.isArray(items) ? items : [],
-  queueVideoWorkbenchWrite: vi.fn(async () => undefined),
+  queueVideoWorkbenchWrite: vi.fn(async () => { if (mocks.legacyWriteFailure) throw new Error("legacy unwritable"); }),
 }));
 import { createCloudConversationRepository } from "./cloudConversationRepository";
 
 beforeEach(() => {
   vi.clearAllMocks(); mocks.cache.clear(); mocks.legacy = [];
+  mocks.legacyReadFailure = false; mocks.cacheReadFailure = false;
+  mocks.cacheWriteFailure = false; mocks.legacyWriteFailure = false;
   mocks.api.conversations.mockResolvedValue([]);
   mocks.api.messages.mockResolvedValue([]);
   mocks.api.createConversation.mockResolvedValue({ version: 1 });
@@ -25,6 +31,38 @@ beforeEach(() => {
 const conversation = (id: string) => ({ id, title: "title", messages: [], createdAt: 1, updatedAt: 1 });
 
 describe("cloud video conversations", () => {
+  it("loads and saves cloud conversations when local history and cache are unreadable", async () => {
+    const localDraft = conversation("unread-local-draft");
+    mocks.cache.set("cloud:personal:user-a", { items: [localDraft], draftIds: [localDraft.id] });
+    mocks.legacyReadFailure = true;
+    mocks.cacheReadFailure = true;
+    mocks.cacheWriteFailure = true;
+    mocks.api.conversations.mockResolvedValue([{ id: "remote", title: "title", version: 1 }]);
+    const warn = vi.fn();
+    const repository = createCloudConversationRepository("user-a", "personal", warn);
+
+    expect((await repository.load()).map(item => item.id)).toEqual(["remote"]);
+    await repository.write([conversation("remote"), conversation("new")]);
+
+    expect(mocks.api.conversations).toHaveBeenCalledOnce();
+    expect(mocks.api.createConversation).toHaveBeenCalledWith("new", "title");
+    expect(mocks.cache.get("cloud:personal:user-a")).toMatchObject({ draftIds: [localDraft.id] });
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("keeps cloud writes available when local cache writes fail after loading", async () => {
+    const warn = vi.fn();
+    const repository = createCloudConversationRepository("user-a", "personal", warn);
+    await repository.load();
+    mocks.cacheWriteFailure = true;
+    mocks.legacyWriteFailure = true;
+
+    await repository.write([conversation("new")]);
+
+    expect(mocks.api.createConversation).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
   it("does not claim or upload legacy conversations", async () => {
     mocks.legacy = [conversation("legacy")];
     const repository = createCloudConversationRepository("user-a");

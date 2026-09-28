@@ -102,6 +102,8 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   const [framesEnabled, setFramesEnabled] = useState(false);
   const [view, setView] = useState<WorkbenchView>("generator");
   const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [taskRuntime, setTaskRuntime] = useState<Record<string, WorkbenchTaskRuntime>>({});
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerScope, setPickerScope] = useState<WorkspaceScope>("personal");
@@ -150,20 +152,24 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
   /* ---------- 初始化：模型目录 + 本地对话 ---------- */
   useEffect(() => {
     mountedRef.current = true;
-    const repository = createCloudConversationRepository(ownerId);
-    repositoryRef.current = repository;
     let active = true;
+    setReady(false);
+    setLoadError("");
+    const repository = createCloudConversationRepository(ownerId, "personal", () => {
+      if (active) toast.warning("本机对话缓存不可用；正在尝试云端会话，本地旧对话和未同步草稿可能暂时无法显示");
+    });
+    repositoryRef.current = repository;
     void (async () => {
       try {
         const catalog = await fetchVideoModelCatalog();
-        if (!mountedRef.current) return;
+        if (!active) return;
         setModels(catalog.videoModels);
         setLabels(catalog.modelLabels || {});
         setProviderNames(catalog.modelProviderNames || {});
         const selected = catalog.defaultVideoModel || catalog.videoModels[0] || "";
         if (selected) setConfig((current) => normalizeVideoGenerationConfig({ ...current, model: resolveModel(catalog.videoModels, current.model) || selected }));
       } catch (error) {
-        if (mountedRef.current) toast.error(publicApiError(error, "读取视频模型失败"));
+        if (active) toast.error(publicApiError(error, "读取视频模型失败"));
       }
       try {
         const stored = await repository.load();
@@ -181,20 +187,15 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
       } catch (error) {
         if (!active) return;
         console.warn("读取视频对话失败", error);
-        toast.error(publicApiError(error, "服务端对话加载失败，请刷新后重试"));
-        const fallback = [createVideoWorkbenchConversation()];
-        conversationsRef.current = fallback;
-        if (mountedRef.current) {
-          setConversations(fallback);
-          setCurrentId(fallback[0].id);
-        }
+        setLoadError(publicApiError(error, "服务端对话加载失败，请重试"));
       } finally {
-        if (mountedRef.current) setReady(true);
+        if (active) setReady(true);
       }
     })();
     return () => {
       active = false;
       repository.dispose();
+      if (repositoryRef.current === repository) repositoryRef.current = null;
       mountedRef.current = false;
       pollingRef.current.forEach((controller) => controller.abort());
       pollingRef.current.clear();
@@ -203,7 +204,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
       Object.values(resultUrlsRef.current).forEach((url) => { if (url.startsWith("blob:")) URL.revokeObjectURL(url); });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [ownerId, loadAttempt]);
 
   /* ---------- 对话持久化 ---------- */
   const commitConversations = useCallback((next: VideoWorkbenchConversation[]) => {
@@ -905,6 +906,13 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
 
   if (!ready) {
     return <div className="wb-page"><div className="wb-loading"><Loader2 className="spin" size={24} /><p>正在读取视频工作台…</p></div></div>;
+  }
+
+  if (loadError) {
+    return <div className="wb-page"><div className="wb-loading" role="alert">
+      <p>{loadError}</p>
+      <button type="button" className="outline-button" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>重试加载对话</button>
+    </div></div>;
   }
 
   return (
