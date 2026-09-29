@@ -85,8 +85,14 @@ class SupabaseStorage:
 
     def _client(self):
         ca = os.getenv("STUDIO_SUPABASE_CA_FILE") or None
+        from .monitoring import begin_provider_request, observe_provider_response
+        def observe_request(request):
+            begin_provider_request(request.method, str(request.url))
+        def observe_response(response):
+            observe_provider_response(response, streamed=True)
         return httpx.Client(transport=self.transport, headers=self._headers(),
                             verify=ssl.create_default_context(cafile=ca), timeout=REQUEST_TIMEOUT,
+                            event_hooks={"request": [observe_request], "response": [observe_response]},
                             follow_redirects=False, trust_env=False)
 
     def _target(self, key):
@@ -109,6 +115,9 @@ class SupabaseStorage:
     @staticmethod
     def _check(response):
         if 200 <= response.status_code < 300: return
+        from .monitoring import begin_provider_request, observe_failed_response
+        begin_provider_request(response.request.method, str(response.request.url))
+        observe_failed_response(response, streamed=not response.is_stream_consumed)
         status = SupabaseStorage._status(response)
         raise SafeTaskError(f"Storage request failed (HTTP {status})", code="storage_unavailable",
                             retryable=status in {408, 429} or status >= 500)

@@ -99,6 +99,9 @@ def download_original_image(output: dict[str, Any], settings: Settings, provider
     deadline = time.monotonic() + IMAGE_DOWNLOAD_TIMEOUT_SECONDS
     try:
         with public_media_get(url, stream=True, timeout=IMAGE_PROBE_TIMEOUT_SECONDS, trusted_origins=trusted_media_origins(provider)) as response:
+            if response.status_code >= 400:
+                from .monitoring import observe_failed_response
+                observe_failed_response(response, streamed=True)
             response.raise_for_status()
             settings.asset_storage_dir.mkdir(parents=True, exist_ok=True)
             content_type = str(response.headers.get("Content-Type") or "image/png").split(";", 1)[0].strip().lower()

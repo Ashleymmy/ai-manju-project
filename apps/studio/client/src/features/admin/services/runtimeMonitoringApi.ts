@@ -43,6 +43,25 @@ export type MonitoringRow = {
   retryable: boolean;
   created_at: string;
   provider?: string;
+  diagnostics_restricted?: boolean;
+  diagnostics?: {
+    stage?: string;
+    page_path?: string;
+    exception_name?: string;
+    exception_message?: string;
+    stack?: string;
+    timeout_ms?: number;
+    online?: boolean;
+    response_received?: boolean;
+    response_body?: string;
+    provider_response_received?: boolean;
+    provider_url?: string;
+    provider_method?: string;
+    provider_request_id?: string;
+    provider_body?: string;
+    provider_code?: string;
+    report_request_id?: string;
+  };
 };
 export type MonitoringReport = {
   generated_at: string;

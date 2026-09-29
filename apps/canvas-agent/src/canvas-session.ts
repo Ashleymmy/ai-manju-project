@@ -244,6 +244,7 @@ function configNodeOp(id: string, input: Record<string, unknown>, x: number, y: 
         width: typeof input.width === "number" ? input.width : undefined,
         height: typeof input.height === "number" ? input.height : undefined,
         metadata: cleanRecord({
+            agentGenerationFlowId: id,
             generationMode: mode,
             composerContent: prompt,
             prompt,
@@ -274,7 +275,7 @@ function generationFlowOps(input: Record<string, unknown>, state: CanvasSnapshot
     const referenceNodeIds = Array.isArray(input.referenceNodeIds) ? input.referenceNodeIds.filter((id): id is string => typeof id === "string") : [];
     const tokens = [`@[node:${textId}]`, ...referenceNodeIds.map((id) => `@[node:${id}]`)];
     const configInput = { ...input, prompt: tokens.join("\n") };
-    return [
+    const ops = [
         textNodeOp({ id: textId, text: prompt, title: String(input.title || "提示词") }, x, y),
         configNodeOp(configId, configInput, x + 420, y),
         { type: "connect_nodes", fromNodeId: textId, toNodeId: configId },
@@ -282,6 +283,10 @@ function generationFlowOps(input: Record<string, unknown>, state: CanvasSnapshot
         { type: "select_nodes", ids: [configId] },
         ...(input.autoRun ? [runGenerationOp(configId, mode, tokens.join("\n"))] : []),
     ];
+    // The browser assigns a row using its live graph, just as it does for online tools.
+    return ops.map(op => op.type === "add_node"
+        ? { ...op, metadata: { ...("metadata" in op ? op.metadata : {}), agentGenerationFlowId: configId } }
+        : op);
 }
 
 function runGenerationOp(nodeId: string, mode: "text" | "image" | "video" | "audio", prompt?: string) {

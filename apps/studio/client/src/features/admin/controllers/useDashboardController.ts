@@ -3,9 +3,11 @@ import { useCallback } from "react";
 
 import { adminQueryKeys } from "../model/queryKeys";
 import { fetchAdminBillingDashboard } from "../services/adminMemberApi";
+import { useDashboardDetailsController } from "./useDashboardDetailsController";
 
 /** 模块6 运营看板控制器：7 项核心指标（GMV 金额一律 cents，面板 formatCents）。 */
 export function useDashboardController(active: boolean) {
+  const details = useDashboardDetailsController(active);
   const dashboardQuery = useQuery({
     queryKey: adminQueryKeys.billingDashboard(),
     queryFn: fetchAdminBillingDashboard,
@@ -15,10 +17,11 @@ export function useDashboardController(active: boolean) {
 
   const reload = useCallback(async () => {
     if (!active) return;
-    await dashboardQuery.refetch();
-  }, [active, dashboardQuery]);
+    await Promise.allSettled([dashboardQuery.refetch(), details.reload()]);
+  }, [active, dashboardQuery, details]);
 
   return {
+    details,
     dashboard: dashboardQuery.data ?? null,
     isError: active && dashboardQuery.isError,
     isPending: active && dashboardQuery.isPending,

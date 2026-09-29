@@ -33,6 +33,10 @@ import {
   type MonitoringRow,
 } from "../services/runtimeMonitoringApi";
 import { formatDuration, formatTime } from "../model/format";
+import {
+  monitoringDetailFields,
+  monitoringAdditionalFields,
+} from "../model/monitoringDetail";
 import "./monitoring.css";
 
 export const MONITOR_SOURCES: Record<string, string> = {
@@ -65,6 +69,7 @@ export function MonitoringPanel({
   controller: MonitoringController;
 }) {
   const [detail, setDetail] = useState<MonitoringRow | null>(null);
+  const additionalFields = detail ? monitoringAdditionalFields(detail) : [];
   const [exporting, setExporting] = useState(false);
   const [search, setSearch] = useState("");
   const [model, setModel] = useState("");
@@ -435,7 +440,10 @@ export function MonitoringPanel({
                       </td>
                       {c.canViewAll && (
                         <td>
-                          {row.display_name || row.username || row.user_id || "未登录 / 系统"}
+                          {row.display_name ||
+                            row.username ||
+                            row.user_id ||
+                            "未登录 / 系统"}
                           <small>{row.username}</small>
                         </td>
                       )}
@@ -532,36 +540,55 @@ export function MonitoringPanel({
           </DialogHeader>
           {detail && (
             <>
-              <dl>
-                {Object.entries({
-                  用户:
-                    detail.display_name ||
-                    detail.username ||
-                    detail.user_id ||
-                    "未登录 / 系统",
-                  状态: MONITOR_STATUSES[detail.status] || detail.status,
-                  操作: detail.operation,
-                  模型: detail.model,
-                  错误码: detail.error_code,
-                  错误信息: detail.message,
-                  诊断详情: detail.detail,
-                  处理建议: detail.suggestion,
-                  接口: `${detail.method || ""} ${detail.endpoint || ""}`.trim(),
-                  "HTTP 状态": detail.http_status || "",
-                  上游状态: detail.provider_status || "",
-                  请求编号: detail.request_id,
-                  任务编号: detail.job_id,
-                  项目编号: detail.project_id,
-                  节点编号: detail.node_id,
-                  尝试次数: detail.attempt || "",
-                  耗时: formatDuration(detail.duration_ms),
-                }).map(([key, value]) => (
-                  <div key={key}>
-                    <dt>{key}</dt>
-                    <dd>{value || "未记录"}</dd>
-                  </div>
-                ))}
+              <dl aria-label="运行记录字段">
+                <div>
+                  <dt>用户</dt>
+                  <dd>
+                    {detail.display_name ||
+                      detail.username ||
+                      detail.user_id ||
+                      "未登录 / 系统"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>状态</dt>
+                  <dd>{MONITOR_STATUSES[detail.status] || detail.status}</dd>
+                </div>
+                {monitoringDetailFields(detail).map(
+                  ({ label, value, wide }) => (
+                    <div
+                      key={label}
+                      className={
+                        wide ? "runtime-monitor-field-wide" : undefined
+                      }
+                    >
+                      <dt>{label}</dt>
+                      <dd>{value}</dd>
+                    </div>
+                  )
+                )}
               </dl>
+              {additionalFields.length > 0 && (
+                <dl
+                  aria-label="补充诊断信息"
+                  className="runtime-monitor-diagnostics"
+                >
+                  {additionalFields.map(({ label, value, wide }) => (
+                    <div
+                      key={label}
+                      className={
+                        wide ? "runtime-monitor-field-wide" : undefined
+                      }
+                    >
+                      <dt>{label}</dt>
+                      <dd>{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+              <p className="runtime-monitor-diagnostic-note">
+                字段完整保留；未记录的信息不推测补填。响应摘要已脱敏并限制长度，处理建议仅供排查参考。
+              </p>
               <button
                 className="outline-button"
                 onClick={() => void copyDetail()}

@@ -12,7 +12,7 @@ from .assets import register_result_assets
 from .config import load_settings
 from .db import JOB_STATUS_CANCELED, JOB_STATUS_FAILED, JOB_STATUS_SUCCEEDED, TERMINAL_STATUSES, JobStore, json_compatible, RECOVERY_MAX_DELAY_SECONDS, recovery_budget_exhausted
 from .errors import SafeTaskError, VideoTaskAcceptedError, VideoSubmissionUncertainError, VideoRecoveryPendingError, VideoReferenceError, error_payload, job_canceled_error
-from .monitoring import attempt_event
+from .monitoring import attempt_event, reset_request_diagnostic
 from .generation_failover import PROVIDER_CANDIDATES_FIELD, generation_attempt, is_provider_failure, unavailable_error
 from .image_output_validation import validate_canvas_image_outputs
 from .image_requirements import ImageParameterError
@@ -148,6 +148,7 @@ def execute_job(
 ) -> dict[str, Any]:
     store = JobStore(settings.database_url)
     attempt_started = monotonic()
+    reset_request_diagnostic()
     with store.job_lock(job_id) as lock:
         if not lock.acquired:
             return {"job_id": job_id, "status": "already_locked"}
@@ -323,6 +324,15 @@ def execute_job(
                 log_job("job_succeeded", job_id, asset_type=asset_type)
                 return {"job_id": job_id, "status": JOB_STATUS_SUCCEEDED, "result": result}
             except Exception as exc:
+                # Persist before recovery/uncertain-submission branches return.
+                # This observer never changes retries, credits or paid submissions.
+                payload_error = error_payload(exc)
+                record_error = getattr(store, "record_monitoring_error", None)
+                if callable(record_error):
+                    try:
+                        record_error(attempt_event(job, payload, {**payload_error, "message": str(exc)}, int((monotonic() - attempt_started) * 1000), exc))
+                    except Exception:
+                        log_job("monitoring_write_failed", job_id)
                 if (isinstance(exc, (ImageRecoveryPendingError, ImageSubmissionUncertainError))
                         or (isinstance(exc, ResultPersistencePendingError) and asset_type == "image")
                         or (image_checkpoint is not None and image_checkpoint.active)):
@@ -382,14 +392,6 @@ def execute_job(
                     cleanup_job_inputs(payload, job, job_id)
                     log_job("job_skipped", job_id, status=current["status"])
                     return {"job_id": job_id, "status": current["status"]}
-                payload_error = error_payload(exc)
-                record_error = getattr(store, "record_monitoring_error", None)
-                if callable(record_error):
-                    try:
-                        record_error(attempt_event(job, payload, {**payload_error, "message": str(exc)}, int((monotonic() - attempt_started) * 1000)))
-                    except Exception:
-                        # Diagnostics must never replace a generation outcome or retry.
-                        log_job("monitoring_write_failed", job_id)
                 if not generation_completed and isinstance(exc, SafeTaskError) and not isinstance(exc, (VideoTaskAcceptedError, VideoSubmissionUncertainError)) and exc.code == "provider_rate_limited" and provider_throttle_can_wait(job):
                     delay = max(PROVIDER_THROTTLE_RETRY_SECONDS, exc.retry_after_seconds or 0)
                     if gate is not None:

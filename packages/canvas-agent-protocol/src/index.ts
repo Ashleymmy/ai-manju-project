@@ -1,6 +1,9 @@
 /** Wire protocol shared by the online Canvas Agent, local Agent and web canvas. */
 export const CANVAS_AGENT_PROTOCOL_VERSION = "1.0" as const;
 
+/** Keep online and local Agents from inventing coordinates for ordinary generation. */
+export const CANVAS_AGENT_PLACEMENT_INSTRUCTIONS = "新建生成流程由画布自动接在上一组下方并左对齐，组内按提示词、配置、结果从左到右排列。普通生成不要自行指定坐标或移动已有节点；只有用户明确要求调整位置时才调用 canvas_move_nodes。";
+
 export type CanvasAgentPosition = { x: number; y: number };
 export type CanvasAgentViewport = { x: number; y: number; k: number };
 export type CanvasAgentNodeType = "image" | "text" | "config" | "video" | "audio";

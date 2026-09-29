@@ -90,14 +90,19 @@ def provider_request(method, url, *, allow_public_redirect=False, trusted_origin
     method = method.upper()
     submitted = method not in {"GET", "HEAD"}
     for hop in range(MAX_MEDIA_REDIRECTS + 1):
+        # Local import keeps diagnostics independent of transport policy.
+        from .monitoring import begin_provider_request, observe_provider_response, observe_provider_exception
+        begin_provider_request(method, url)
         try:
             response = getattr(requests, method.lower())(url, allow_redirects=False, **kwargs)
-        except requests.RequestException:
+        except requests.RequestException as exc:
+            observe_provider_exception(exc)
             if submitted and hop:
                 # A subsequent GET connect failure does not mean the original
                 # paid POST failed to connect. Preserve uncertain submission.
                 raise HTTPPolicyError("provider submission redirect did not complete") from None
             raise
+        observe_provider_response(response, streamed=bool(kwargs.get("stream")))
         if response.status_code not in REDIRECT_STATUSES:
             if submitted and hop:
                 setattr(response, SUBMISSION_REDIRECT_FLAG, True)
@@ -150,6 +155,7 @@ def pinned_socket(connection, allow_private):
             raise HTTPPolicyError("media request address is not permitted") from None
     # Use socket.connect with the vetted sockaddr; no second DNS lookup.
     last_timeout = False
+    last_error = None
     for family, socktype, protocol, _, destination in addresses:
         channel = socket.socket(family, socktype, protocol)
         try:
@@ -160,10 +166,11 @@ def pinned_socket(connection, allow_private):
             return channel
         except OSError as exc:
             last_timeout = isinstance(exc, socket.timeout)
+            last_error = exc
             channel.close()
     if last_timeout:
-        raise ConnectTimeoutError(connection, "media connection timed out") from None
-    raise NewConnectionError(connection, "media connection failed") from None
+        raise ConnectTimeoutError(connection, "media connection timed out") from last_error
+    raise NewConnectionError(connection, "media connection failed") from last_error
 
 
 class PinnedMediaAdapter(HTTPAdapter):
@@ -195,6 +202,8 @@ class PinnedMediaAdapter(HTTPAdapter):
 
 
 def _send_public_once(url, *, trusted_origins=(), **kwargs):
+    from .monitoring import begin_provider_request, observe_provider_response, observe_provider_exception
+    begin_provider_request("GET", url)
     session = requests.Session()
     session.trust_env = False
     adapter = PinnedMediaAdapter(allow_private=origin(url) in trusted_origins)
@@ -202,10 +211,12 @@ def _send_public_once(url, *, trusted_origins=(), **kwargs):
     session.mount("https://", adapter)
     try:
         response = session.get(url, allow_redirects=False, **kwargs)
-    except HTTPPolicyError:
+    except HTTPPolicyError as exc:
+        observe_provider_exception(exc)
         session.close()
         raise
-    except requests.RequestException:
+    except requests.RequestException as exc:
+        observe_provider_exception(exc)
         session.close()
         # requests/urllib3 transport errors may embed signed URL query strings.
         raise requests.RequestException("media download connection failed") from None
@@ -213,9 +224,12 @@ def _send_public_once(url, *, trusted_origins=(), **kwargs):
         session.close()
         raise
     original_close = response.close
+    observe_provider_response(response, streamed=bool(kwargs.get("stream")))
 
     def close():
         try:
+            # Read only an already buffered error body, never consume media.
+            observe_provider_response(response, streamed=True)
             original_close()
         finally:
             session.close()

@@ -21,6 +21,7 @@ import (
 
 	"github.com/ai-manju/api/internal/httpsecurity"
 	"github.com/ai-manju/api/internal/model"
+	"github.com/ai-manju/api/internal/monitoring"
 )
 
 var ErrProviderNotConfigured = errors.New("model provider is not configured; please contact an administrator")
@@ -53,6 +54,7 @@ type OpenAICompatibleClient struct {
 }
 
 type ProviderHTTPError struct {
+	RequestID  string
 	Method     string
 	URL        string
 	StatusCode int
@@ -1370,6 +1372,7 @@ func (c *OpenAICompatibleClient) ProxyBlob(ctx context.Context, method string, p
 
 	res, err := doProviderRequest(client, req)
 	if err != nil {
+		observeProviderExchange(req, res, nil, err)
 		return nil, "", err
 	}
 	// Content endpoints may redirect to a signed CDN URL. Start a new,
@@ -1389,18 +1392,21 @@ func (c *OpenAICompatibleClient) ProxyBlob(ctx context.Context, method string, p
 			}
 			res, err = mediaClient.Do(mediaReq)
 			if err != nil {
+				observeProviderExchange(mediaReq, res, nil, err)
 				return nil, "", httpsecurity.ErrMediaTarget
 			}
+			req = mediaReq
 		}
 	}
 	defer res.Body.Close()
 
 	responseBody, err := readProviderBinaryResponse(res, maxProviderBinaryResponseBytes)
+	observeProviderExchange(req, res, responseBody, err)
 	if err != nil {
 		return nil, "", err
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, "", &ProviderHTTPError{Method: method, URL: u, StatusCode: res.StatusCode, Body: string(responseBody), SubmissionRedirected: req.Method == http.MethodPost && res.Request != nil && (res.Request.Method != req.Method || res.Request.URL.String() != req.URL.String())}
+		return nil, "", &ProviderHTTPError{RequestID: monitoring.UpstreamRequestID(res.Header), Method: method, URL: u, StatusCode: res.StatusCode, Body: string(responseBody), SubmissionRedirected: req.Method == http.MethodPost && res.Request != nil && (res.Request.Method != req.Method || res.Request.URL.String() != req.URL.String())}
 	}
 	// Some speech suppliers report errors in a successful JSON envelope.
 	if json.Valid(responseBody) {
@@ -1694,16 +1700,18 @@ func (c *OpenAICompatibleClient) doJSONURLWithClient(ctx context.Context, client
 
 	res, err := doProviderRequest(client, req)
 	if err != nil {
+		observeProviderExchange(req, res, nil, err)
 		return err
 	}
 	defer res.Body.Close()
 
 	responseBody, err := io.ReadAll(io.LimitReader(res.Body, maxProviderResponseBytes))
+	observeProviderExchange(req, res, responseBody, err)
 	if err != nil {
 		return err
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return &ProviderHTTPError{Method: method, URL: u, StatusCode: res.StatusCode, Body: string(responseBody), SubmissionRedirected: req.Method == http.MethodPost && res.Request != nil && (res.Request.Method != req.Method || res.Request.URL.String() != req.URL.String())}
+		return &ProviderHTTPError{RequestID: monitoring.UpstreamRequestID(res.Header), Method: method, URL: u, StatusCode: res.StatusCode, Body: string(responseBody), SubmissionRedirected: req.Method == http.MethodPost && res.Request != nil && (res.Request.Method != req.Method || res.Request.URL.String() != req.URL.String())}
 	}
 
 	if target == nil || len(responseBody) == 0 {
@@ -2084,16 +2092,18 @@ func (c *OpenAICompatibleClient) doMultipartWithClient(ctx context.Context, clie
 
 	res, err := doProviderRequest(client, req)
 	if err != nil {
+		observeProviderExchange(req, res, nil, err)
 		return err
 	}
 	defer res.Body.Close()
 
 	responseBody, err := io.ReadAll(io.LimitReader(res.Body, maxProviderResponseBytes))
+	observeProviderExchange(req, res, responseBody, err)
 	if err != nil {
 		return err
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return &ProviderHTTPError{Method: http.MethodPost, URL: u, StatusCode: res.StatusCode, Body: string(responseBody), SubmissionRedirected: req.Method == http.MethodPost && res.Request != nil && (res.Request.Method != req.Method || res.Request.URL.String() != req.URL.String())}
+		return &ProviderHTTPError{RequestID: monitoring.UpstreamRequestID(res.Header), Method: http.MethodPost, URL: u, StatusCode: res.StatusCode, Body: string(responseBody), SubmissionRedirected: req.Method == http.MethodPost && res.Request != nil && (res.Request.Method != req.Method || res.Request.URL.String() != req.URL.String())}
 	}
 
 	if target == nil || len(responseBody) == 0 {

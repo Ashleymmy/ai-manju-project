@@ -235,10 +235,17 @@
 .runtime-monitor-dialog dl > div {
   min-width: 0;
 }
-.runtime-monitor-dialog dl > div:nth-child(6),
-.runtime-monitor-dialog dl > div:nth-child(7),
-.runtime-monitor-dialog dl > div:nth-child(8) {
+.runtime-monitor-dialog dl > .runtime-monitor-field-wide {
   grid-column: 1 / -1;
+}
+.runtime-monitor-dialog .runtime-monitor-diagnostics {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+.runtime-monitor-diagnostic-note {
+  color: var(--text-muted, #a3a3a3);
+  font-size: 12px;
+  line-height: 1.7;
 }
 .runtime-monitor-dialog dt {
   color: #737373;

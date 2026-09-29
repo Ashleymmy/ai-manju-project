@@ -271,6 +271,8 @@ import {
   type CanvasAgentOp,
   type CanvasAgentSnapshot,
 } from "@/lib/canvas-agent";
+import { canvasAgentGenerationFootprint } from "@/lib/canvas-agent-placement";
+import { fitCanvasViewport, zoomCanvasViewportAtPoint } from "@/features/canvas/domain/history";
 import { createZip, readZip } from "@/lib/zip";
 import {
   buildCanvasSnapshot,
@@ -3428,6 +3430,26 @@ export default function CanvasWorkspaceViewContent() {
       closeContextMenu: () => setContextMenu(null),
       persistSnapshot,
     });
+
+    if (projectSessionController.canonicalKey !== projectKey || projectSessionController.switching) {
+      throw new Error("画布已切换，原画布的生成指令未继续");
+    }
+    const previousNodeIds = new Set(before.nodes.map(node => node.id));
+    const newFlowNodeIds = nextNodes.filter(node => !previousNodeIds.has(node.id)
+      && typeof node.metadata?.agentGenerationFlowId === "string").map(node => node.id);
+    const stageRect = stageRef.current?.getBoundingClientRect();
+    if (newFlowNodeIds.length && stageRect) {
+      const agentRect = stageRef.current?.closest(".canvas-workspace")
+        ?.querySelector(".agent-panel:not(.closing)")?.getBoundingClientRect();
+      const available = { width: agentRect ? Math.max(1, Math.min(stageRect.width, agentRect.left - stageRect.left)) : stageRect.width,
+        height: stageRect.height };
+      const footprint = canvasAgentGenerationFootprint(nextAgentSnapshot.nodes.filter(node => newFlowNodeIds.includes(node.id)));
+      const fitted = fitCanvasViewport(footprint, available, CANVAS_STAGE_OFFSET);
+      // Keep the current zoom when it fits, and account for the floating Agent panel.
+      stageInteractionController.applyCanvasViewport(zoomCanvasViewportAtPoint(fitted,
+        { x: available.width / 2, y: (available.height - CANVAS_STAGE_OFFSET) / 2 },
+        Math.min(viewportRef.current.zoom, fitted.zoom)));
+    }
 
     const generationResults: CanvasAgentGenerationResult[] = [];
     for (const op of generationOps) {

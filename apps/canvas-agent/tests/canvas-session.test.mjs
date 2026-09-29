@@ -92,3 +92,25 @@ test("reconnecting the same client replaces the old stream without deleting the 
     assert.deepEqual(newResponse.events("agent_event"), [{ ok: true }]);
     newResponse.end();
 });
+
+test("local generation flows carry the same browser placement identity for every media type", async () => {
+    const session = new CanvasSession();
+    const response = connect(session, "placement");
+    try {
+        for (const mode of ["image", "video", "audio", "text"]) {
+            const pending = session.callTool(`canvas_generate_${mode}`, { prompt: "Scene", x: -900, y: 500 }, "placement");
+            await new Promise(resolve => setImmediate(resolve));
+            const request = response.events("tool_call").at(-1);
+            const added = request.input.ops.filter(op => op.type === "add_node");
+            const config = added.find(op => op.nodeType === "config");
+            session.resolveResult({ requestId: request.requestId, result: { ok: true } }, "placement");
+            await pending;
+            assert.equal(added.length, 2);
+            assert.ok(config.id);
+            assert.ok(added.every(op => op.metadata.agentGenerationFlowId === config.id));
+            assert.equal(config.metadata.generationMode, mode);
+        }
+    } finally {
+        response.end();
+    }
+});

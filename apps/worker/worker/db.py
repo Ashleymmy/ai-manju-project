@@ -406,11 +406,11 @@ class JobStore:
                 cur.execute(
                     """INSERT INTO runtime_errors
                        (id,user_id,source,request_id,job_id,project_id,node_id,operation,model,
-                        error_code,message,detail,suggestion,attempt,retryable,duration_ms,created_at)
+                        error_code,message,detail,suggestion,attempt,retryable,duration_ms,created_at,diagnostics,provider_status)
                        VALUES (%(id)s,%(user_id)s,%(source)s,%(request_id)s,%(job_id)s,%(project_id)s,
                         %(node_id)s,%(operation)s,%(model)s,%(error_code)s,%(message)s,%(detail)s,
-                        %(suggestion)s,%(attempt)s,%(retryable)s,%(duration_ms)s,%(created_at)s)
-                       ON CONFLICT (id) DO NOTHING""", event,
+                        %(suggestion)s,%(attempt)s,%(retryable)s,%(duration_ms)s,%(created_at)s,%(diagnostics)s,%(provider_status)s)
+                       ON CONFLICT (id) DO NOTHING""", {**event, "diagnostics": Jsonb(event.get("diagnostics") or {}), "provider_status": event.get("provider_status", 0)},
                 )
 
     def set_result(self, job_id: str, result: dict[str, Any]) -> dict[str, Any] | None:

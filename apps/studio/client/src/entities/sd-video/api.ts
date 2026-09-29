@@ -9,11 +9,11 @@ export type VideoMessageRecord = {
   created_at: number | string; attachments: unknown[]; metadata: Record<string, unknown>;
 };
 
-/** 身份在 repository 实例生命周期内固定，旧账号的排队请求不能携带新账号 Token。 */
+/** 固定本地令牌快照，凭证变化或实例销毁后拒绝旧请求；Cookie 登录由统一请求层携带并交给服务端验证。 */
 export function createSDVideoClient(scope: WorkspaceScope, signal: AbortSignal) {
   const token = getAuthToken();
   async function call<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
-    if (signal.aborted || !token || getAuthToken() !== token) throw new DOMException("Session changed", "AbortError");
+    if (signal.aborted || getAuthToken() !== token) throw new DOMException("Session changed", "AbortError");
     return request<T>(`/api/sd-video${path}`, { ...options, signal, query: { ...options.query, scope } });
   }
   async function all<T>(path: string): Promise<T[]> {

@@ -1,4 +1,3 @@
-import { GenerationPrice } from "@/features/member";
 import {
   ArrowUp,
   ChevronDown,
@@ -7,7 +6,7 @@ import {
   Plus,
   Sparkles,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
@@ -35,6 +34,7 @@ export default function ChatComposer() {
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [input, setInput] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   // 步骤 2 的加载覆盖层开关：发送后一直覆盖到画布页接力
   const [isLoading, setIsLoading] = useState(false);
   const modelsQuery = useQuery({
@@ -71,7 +71,10 @@ export default function ChatComposer() {
       closeMenu();
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeMenu();
+      if (event.key === "Escape") {
+        closeMenu();
+        inputRef.current?.focus();
+      }
     };
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);
@@ -178,17 +181,25 @@ export default function ChatComposer() {
       </section>
 
       {/* 创作输入区：与 studio 输入表面同一质感 */}
-      <section className="chat-composer">
+      <section
+        className="chat-composer"
+        data-keep-expanded={Boolean(input.length || showModelDropdown || isListening || isLoading)}
+        onClick={(event) => {
+          // 点击面板留白也能进入输入；内部按钮保留自己的焦点和操作。
+          if (event.target === event.currentTarget) inputRef.current?.focus();
+        }}
+      >
         <textarea
+          ref={inputRef}
+          aria-label="创作想法"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="输入你的创作想法…（Enter 发送，Shift+Enter 换行）"
+          placeholder="输入你的创作想法，让故事从这里开始…"
           disabled={isLoading}
         />
         <div className="chat-composer-bar">
-          <span className="chat-composer-hint">{input.length ? `${input.length} 字符` : ""}</span>
-          <div className="chat-composer-actions">
+          <div className="chat-composer-settings">
             <div className="chat-model" {...{ [CHAT_OPEN_MENU_ATTR]: "model" }}>
               <button
                 className="chat-tool-btn chat-model-trigger"
@@ -201,7 +212,7 @@ export default function ChatComposer() {
                   if (!showModelDropdown && user && !modelsQuery.isFetching) void modelsQuery.refetch();
                 }}
               >
-                <Sparkles size={12} />
+                <Sparkles size={14} />
                 <span>{selectedModelLabel}</span>
                 <ChevronDown size={12} className={showModelDropdown ? "rotated" : ""} />
               </button>
@@ -218,6 +229,7 @@ export default function ChatComposer() {
                       onClick={() => {
                         setSelectedModel(model);
                         setShowModelDropdown(false);
+                        inputRef.current?.focus();
                       }}
                     >
                       <Sparkles size={12} />
@@ -230,16 +242,19 @@ export default function ChatComposer() {
                 </div>
               )}
             </div>
-
+            {input.length > 0 && <span className="chat-composer-hint">{input.length} 字符</span>}
+          </div>
+          <div className="chat-composer-actions">
+            <span className="chat-composer-shortcuts"><kbd>Enter</kbd> 发送<span>·</span><kbd>Shift + Enter</kbd> 换行</span>
             <button
               className={isListening ? "chat-tool-btn chat-mic listening" : "chat-tool-btn chat-mic"}
               title={isListening ? "停止语音识别" : "语音输入"}
+              aria-label={isListening ? "停止语音识别" : "语音输入"}
               onClick={handleVoiceInput}
             >
-              <Mic size={14} />
+              <Mic size={16} />
             </button>
 
-            <GenerationPrice kind="free" />
             <button
               className="chat-send"
               type="button"

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ai-manju/api/internal/auth"
 	"github.com/ai-manju/api/internal/model"
+	"github.com/ai-manju/api/internal/monitoring"
 	"github.com/ai-manju/api/internal/provider"
 	"github.com/ai-manju/api/internal/providerhub"
 	"github.com/ai-manju/api/internal/repository"
@@ -1271,6 +1272,8 @@ func clampProviderConcurrency(value int) int {
 }
 
 func writeProviderError(c *gin.Context, baseURL string, err error) {
+	diagnostics, _ := requestProviderDiagnostics(c, err)
+	c.Set(monitoring.DiagnosticsKey, diagnostics)
 	errorInfo := describeProviderError(baseURL, err)
 	status := errorInfo.HTTPStatus
 	if errors.Is(err, provider.ErrProviderNotConfigured) || errors.Is(err, provider.ErrProviderDisabled) || errors.Is(err, provider.ErrUnsupportedImageUpload) {

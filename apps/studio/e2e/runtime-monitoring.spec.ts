@@ -70,6 +70,17 @@ test("real API isolation, filtering, details, export and responsive monitoring",
         detail: "api_key=NEVERVISIBLE",
         endpoint: "/canvas/qa?token=NEVERVISIBLE",
         code: "render_error",
+        request_id: `original-${label}-${nonce}`,
+        method: "GET",
+        duration_ms: 15002,
+        diagnostics: {
+          stage: "request_timeout",
+          page_path: "/member/plans",
+          exception_name: "AbortError",
+          exception_message: "The operation was aborted",
+          timeout_ms: 15000,
+          response_received: false,
+        },
       },
     });
     expect(result.status()).toBe(201);
@@ -111,6 +122,11 @@ test("real API isolation, filtering, details, export and responsive monitoring",
   await page.getByRole("button", { name: /^查看详情/ }).click();
   await expect(page.getByRole("dialog")).toContainText("[redacted]");
   await expect(page.getByRole("dialog")).not.toContainText("NEVERVISIBLE");
+  await expect(page.getByRole("dialog")).toContainText("未收到 HTTP 响应");
+  await expect(page.getByRole("dialog")).toContainText(
+    `original-ALICE-${nonce}`
+  );
+  await expect(page.getByRole("dialog")).toContainText("AbortError");
   await page.screenshot({
     path: info.outputPath("detail.png"),
     animations: "disabled",
@@ -126,6 +142,8 @@ test("real API isolation, filtering, details, export and responsive monitoring",
   expect(csv).toContain("ALICE");
   expect(csv).not.toContain("BOB");
   expect(csv).not.toContain("NEVERVISIBLE");
+  expect(csv).toContain("request_timeout");
+  expect(csv).toContain(`original-ALICE-${nonce}`);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
     path: info.outputPath("mobile.png"),

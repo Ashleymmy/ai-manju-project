@@ -757,6 +757,8 @@ def should_omit_gpt_image_2_edit_field(key: str) -> bool:
 
 def provider_error_message(prefix: str, response: requests.Response) -> str:
     detail = provider_error_detail(response)
+    from .monitoring import observe_provider_response
+    observe_provider_response(response, streamed=True)
     if not detail:
         return f"{prefix} (status {response.status_code})"
     return f"{prefix} (status {response.status_code}): {detail}"

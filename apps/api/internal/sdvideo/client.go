@@ -22,6 +22,7 @@ import (
 
 	"github.com/ai-manju/api/internal/config"
 	"github.com/ai-manju/api/internal/model"
+	"github.com/ai-manju/api/internal/monitoring"
 )
 
 var ErrDisabled = errors.New("sd-video gateway is disabled")
@@ -226,15 +227,18 @@ func (c *Client) UploadInput(ctx context.Context, user model.User, workspaceID, 
 	req.Header.Set("Content-Type", firstNonEmpty(contentType, "application/octet-stream"))
 	resp, err := c.client.Do(req)
 	if err != nil {
+		monitoring.ObserveFailure(req, resp, "", err)
 		return "", err
 	}
 	defer resp.Body.Close()
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if readErr != nil {
+		monitoring.ObserveFailure(req, resp, string(raw), readErr)
 		return "", readErr
 	}
 	var uploaded TaskResponse
 	if json.Unmarshal(raw, &uploaded) != nil || resp.StatusCode < 200 || resp.StatusCode >= 300 || !uploaded.Success {
+		monitoring.ObserveFailure(req, resp, string(raw), nil)
 		return "", &Error{StatusCode: resp.StatusCode, Message: "reference upload rejected"}
 	}
 	digest := sha256.Sum256(body)
@@ -276,11 +280,13 @@ func (c *Client) downloadLimited(ctx context.Context, user model.User, workspace
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
+		monitoring.ObserveFailure(req, resp, "", err)
 		return nil, "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+		monitoring.ObserveFailure(req, resp, string(body), nil)
 		return nil, "", &Error{StatusCode: resp.StatusCode, Message: string(body)}
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
@@ -300,19 +306,32 @@ func (c *Client) doJSON(ctx context.Context, method, path string, user model.Use
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
+		monitoring.ObserveFailure(req, resp, "", err)
 		return TaskResponse{}, err
 	}
 	defer resp.Body.Close()
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
 	if readErr != nil {
+		monitoring.ObserveFailure(req, resp, string(body), readErr)
 		return TaskResponse{}, readErr
 	}
 	var envelope TaskResponse
 	if json.Unmarshal(body, &envelope) != nil {
+		monitoring.ObserveFailure(req, resp, string(body), nil)
 		return TaskResponse{}, &Error{StatusCode: resp.StatusCode, Message: string(body)}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 || !envelope.Success {
+		monitoring.ObserveFailure(req, resp, string(body), nil)
 		return envelope, &Error{StatusCode: resp.StatusCode, Message: string(envelope.Error)}
+	}
+	var task struct {
+		Status string `json:"status"`
+	}
+	if json.Unmarshal(envelope.Data, &task) == nil {
+		switch strings.ToLower(task.Status) {
+		case "failed", "error", "expired", "timeout":
+			monitoring.ObserveFailure(req, resp, string(body), nil)
+		}
 	}
 	return envelope, nil
 }

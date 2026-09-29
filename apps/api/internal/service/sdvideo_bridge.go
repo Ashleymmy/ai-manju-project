@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/ai-manju/api/internal/model"
+	"github.com/ai-manju/api/internal/monitoring"
 	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/sdvideo"
 )
@@ -41,6 +42,11 @@ type SDVideoBridge struct {
 	interval     time.Duration
 	batchSize    int
 	lastProgress atomic.Int64
+	monitoring   repository.RuntimeMonitoringRepository
+}
+
+func (b *SDVideoBridge) SetMonitoringRepository(repo repository.RuntimeMonitoringRepository) {
+	b.monitoring = repo
 }
 
 func NewSDVideoBridge(jobs *JobService, users repository.UserRepository, client *sdvideo.Client, assets *AssetService, interval time.Duration, batchSize int) *SDVideoBridge {
@@ -97,7 +103,11 @@ func (b *SDVideoBridge) RunOnce(ctx context.Context) (int, error) {
 			if (latest.BridgeState == "done" && !repository.IsUncertainSubmission(latest)) || latest.BridgeState == "canceled" {
 				return nil
 			}
-			if reconcileErr := b.reconcile(ctx, latest); reconcileErr != nil {
+			attemptContext, observation := monitoring.WithObservation(ctx)
+			started := time.Now()
+			reconcileErr := b.reconcile(attemptContext, latest)
+			b.recordObservation(latest, observation, started)
+			if reconcileErr != nil {
 				var remote *sdvideo.Error
 				if latest.ExternalTaskID == "" && errors.As(reconcileErr, &remote) && (remote.StatusCode == 400 || remote.StatusCode == 404 || remote.StatusCode == 422) {
 					if _, err := b.jobs.SetError(latest.ID, model.JSONB(`{"code":"sd_video_request_rejected","message":"video request validation failed"}`)); err != nil {

@@ -1,0 +1,435 @@
+/* Scoped to the contents below each panel header. The surrounding admin
+   workspace, navigation, page headings and side status keep their own styles. */
+.admin-report-content {
+  --report-control-height: 36px;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 14px;
+}
+.admin-report-content .admin-report-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  align-items: end;
+  gap: 12px;
+  margin: 0;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+.admin-report-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.admin-report-filters input,
+.admin-report-filters select {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: var(--report-control-height);
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  box-shadow: none;
+}
+.admin-report-content .admin-report-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--report-control-height);
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--foreground);
+  background: var(--card);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.admin-report-button:hover:not(:disabled) {
+  background: var(--muted);
+}
+.admin-report-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.admin-report-filters :is(input, select, button):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.admin-report-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.admin-report-content .admin-report-filters--ledger {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.admin-ledger-filter-heading,
+.admin-ledger-filter-footer {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.admin-ledger-filter-heading h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.admin-ledger-filter-heading > span,
+.admin-ledger-filter-help {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.admin-ledger-filter-help {
+  flex: 1 1 260px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.admin-ledger-filter-help > span {
+  display: block;
+}
+.admin-ledger-filter-help button {
+  padding: 0 4px;
+  color: var(--foreground);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.admin-report-content .admin-report-button--primary {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.admin-report-content .admin-report-button--primary:hover {
+  background: color-mix(in srgb, var(--primary) 88%, var(--background));
+}
+.admin-ledger-filter-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--destructive);
+  font-size: 13px;
+}
+.admin-ledger-applied {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 16px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.admin-ledger-filter-tag {
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--foreground);
+  background: var(--muted);
+  overflow-wrap: anywhere;
+}
+.admin-ledger-applied small {
+  font-size: inherit;
+}
+.admin-ledger-content .admin-report-table td small,
+.admin-ledger-secondary {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  margin-top: 5px;
+}
+.admin-ledger-user-name {
+  font-weight: 500;
+}
+.admin-ledger-type {
+  display: inline-block;
+  white-space: nowrap;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.admin-ledger-reference {
+  display: block;
+  margin-bottom: 4px;
+}
+.admin-ledger-content .admin-report-table tr:hover td {
+  background: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+.admin-report-content .admin-report-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
+  gap: 22px 18px;
+  margin: 0;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--border);
+}
+.admin-report-stats > div {
+  min-width: 0;
+}
+.admin-report-stats span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+.admin-report-stats strong {
+  display: block;
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.admin-report-stats small {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+.admin-report-content .admin-report-listhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 20px 0 12px;
+}
+.admin-report-listhead h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+.admin-report-listhead > span,
+.admin-report-note {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.admin-report-note {
+  margin: 14px 0 0;
+}
+.admin-report-content .admin-report-table {
+  width: 100%;
+  overflow-x: auto;
+  margin: 0;
+}
+.admin-report-content .admin-report-table table {
+  width: 100%;
+  min-width: 820px;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+.admin-report-table th {
+  padding: 10px 8px;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  background: var(--muted);
+}
+.admin-report-table td {
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  max-width: 240px;
+}
+.admin-report-table td:first-child {
+  min-width: 145px;
+}
+.admin-report-content .member-pagination {
+  padding: 16px 0;
+  margin: 0;
+  gap: 12px;
+}
+.admin-report-content .member-pagination > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.admin-report-content .usage-tabs {
+  margin-top: 24px;
+  margin-bottom: 0;
+}
+.admin-report-content .usage-kpis {
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+}
+.admin-report-content .usage-kpis > div {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+.admin-report-content .usage-group-head,
+.admin-report-content .usage-detail-heading {
+  margin: 0;
+  padding: 20px 0 12px;
+  font-size: 14px;
+}
+.admin-report-content .usage-group-head h3 {
+  font-size: 14px;
+  font-weight: 650;
+}
+.admin-report-content .usage-table-scroll {
+  border: 0;
+  border-radius: 0;
+}
+.admin-report-content .usage-table-scroll table {
+  font-size: 13px;
+}
+.admin-report-content .usage-table-scroll th {
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+.admin-report-content .usage-table-scroll :is(th, td) {
+  padding: 12px 8px;
+  border-color: var(--border);
+}
+.admin-report-content .usage-table-scroll th {
+  padding-block: 10px;
+}
+.admin-report-content .usage-note {
+  color: var(--muted-foreground);
+}
+.admin-report-filters .admin-report-wide {
+  grid-column: span 2;
+}
+.admin-dashboard-details {
+  min-width: 0;
+}
+.admin-dashboard-detail-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.admin-dashboard-detail-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--report-control-height);
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted-foreground);
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+}
+.admin-dashboard-detail-tabs button[aria-pressed="true"],
+.admin-dashboard-detail-tabs button:hover {
+  color: var(--foreground);
+  background: var(--muted);
+}
+.admin-dashboard-detail-tabs button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.admin-report-content .admin-dashboard-detail-filters {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+  border-bottom: 0;
+  padding: 16px 0 12px;
+}
+.admin-dashboard-detail-scope {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 14px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.admin-dashboard-detail-table small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.admin-dashboard-detail-table tr:hover td {
+  background: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+.admin-dashboard-detail-good {
+  color: #6ee7b7;
+}
+.admin-dashboard-detail-bad {
+  color: #ed777b;
+}
+.admin-dashboard-detail-muted {
+  color: var(--muted-foreground);
+}
+.admin-dashboard-detail-dialog {
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+.admin-dashboard-detail-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 24px;
+  margin: 0;
+}
+.admin-dashboard-detail-fields > div {
+  min-width: 0;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.admin-dashboard-detail-fields dt,
+.admin-dashboard-detail-parameters h4 {
+  margin: 0 0 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 400;
+}
+.admin-dashboard-detail-fields dd {
+  margin: 0;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+.admin-dashboard-detail-parameters pre {
+  max-height: 240px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 650px) {
+  .admin-report-content .admin-report-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .admin-report-content .admin-report-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .admin-report-filter-actions {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 420px) {
+  .admin-dashboard-detail-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .admin-report-content .admin-report-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .admin-report-filters .admin-report-wide {
+    grid-column: auto;
+  }
+}

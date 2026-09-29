@@ -44,6 +44,9 @@ func cleanRuntimeError(e model.RuntimeError) model.RuntimeError {
 	e.Message, e.Detail, e.Suggestion = monitoring.SafeText(e.Message), monitoring.SafeText(e.Detail), monitoring.SafeText(e.Suggestion)
 	e.Endpoint, e.Model, e.Operation = monitoring.SafeText(e.Endpoint), monitoring.SafeText(e.Model), monitoring.SafeText(e.Operation)
 	e.ErrorCode = monitoring.SafeText(e.ErrorCode)
+	if len(e.Diagnostics) > 0 {
+		e.Diagnostics = monitoring.ReadDiagnostics(e.Diagnostics).JSON()
+	}
 	if e.CreatedAt.IsZero() {
 		e.CreatedAt = time.Now().UTC()
 	}

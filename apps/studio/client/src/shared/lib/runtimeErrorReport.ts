@@ -1,4 +1,5 @@
 import { apiUrl, getAuthToken } from "@/shared/api/http";
+import type { RequestFailureDiagnostic } from "./requestDiagnostics";
 
 // No persistent queue: diagnostics must never cross login sessions.
 const MAX_TEXT = 3000;
@@ -45,7 +46,8 @@ export function safeRuntimeText(value: string) {
 export function reportRuntimeError(
   error: unknown,
   code = "client_error",
-  stack = ""
+  stack = "",
+  request?: RequestFailureDiagnostic
 ) {
   if (Date.now() - windowStart >= RATE_WINDOW_MS) {
     sent = 0;
@@ -53,6 +55,13 @@ export function reportRuntimeError(
     seen.clear();
   }
   if (!owner || token !== getAuthToken() || sent >= MAX_PER_WINDOW) return;
+  if (
+    error &&
+    typeof error === "object" &&
+    "runtimeReported" in error &&
+    error.runtimeReported
+  )
+    return;
   if (
     error &&
     typeof error === "object" &&
@@ -75,7 +84,7 @@ export function reportRuntimeError(
         ? error
         : "页面出现未处理异常"
   );
-  const key = `${code}:${message}`;
+  const key = `${code}:${message}:${request?.requestId || ""}`;
   if (Date.now() - (seen.get(key) || 0) < DEDUP_WINDOW_MS) return;
   seen.set(key, Date.now());
   sent++;
@@ -99,9 +108,38 @@ export function reportRuntimeError(
       detail: safeRuntimeText(
         stack || (error instanceof Error ? error.stack || "" : "")
       ),
-      endpoint: location.pathname,
+      endpoint: request?.path || location.pathname,
+      request_id: request?.requestId,
+      method: request?.method,
+      http_status: request?.httpStatus,
+      duration_ms: request?.durationMs,
+      diagnostics: Object.fromEntries(
+        Object.entries(
+          request?.diagnostics || {
+            stage: "client_exception",
+            page_path: location.pathname,
+            exception_name: error instanceof Error ? error.name : "",
+            exception_message: error instanceof Error ? error.message : message,
+            stack: stack || (error instanceof Error ? error.stack || "" : ""),
+          }
+        ).map(([key, value]) => [
+          key,
+          typeof value === "string" ? safeRuntimeText(value) : value,
+        ])
+      ),
     }),
   })
     .catch(() => {})
     .finally(() => window.clearTimeout(timer));
+}
+
+export function reportRequestFailure(request: RequestFailureDiagnostic) {
+  reportRuntimeError(
+    `${request.message}: ${request.path}`,
+    request.diagnostics.stage === "gateway_response"
+      ? "gateway_error"
+      : "network_error",
+    request.diagnostics.stack,
+    request
+  );
 }

@@ -58,6 +58,8 @@ describe("AgentPanel selected references", () => {
 
   it("retains accumulated references after deselection and re-adds a removed node on click", async () => {
     await render({ ...snapshot, selectedNodeIds: ["a", "b", "a"] });
+    expect(draft()).toBeNull();
+    await render({ ...snapshot, selectedNodeIds: ["a", "b", "a"] }, ["a", "b", "a"]);
     expect(draft()?.querySelectorAll("img")).toHaveLength(2);
     await click('[aria-label="移除引用：Image a"]');
     expect(draft()?.querySelectorAll("img")).toHaveLength(1);
@@ -87,6 +89,7 @@ describe("AgentPanel selected references", () => {
 
   it("does not accumulate programmatic output selection, deleted nodes or hidden-panel clicks", async () => {
     await render();
+    await render(snapshot, ["a"]);
     await render({ ...snapshot, selectedNodeIds: ["b"] });
     expect(draft()?.querySelectorAll("img")).toHaveLength(1);
     await render({ ...snapshot, selectedNodeIds: ["b"] }, ["b"], false);
@@ -99,6 +102,7 @@ describe("AgentPanel selected references", () => {
   it("sends image bytes with the node ID and freezes references through tool confirmation", async () => {
     mocks.requestAiText.mockResolvedValueOnce(toolReply);
     await render();
+    await render(snapshot, ["a"]);
     await send();
     expect(mocks.getAssetContentBlob).toHaveBeenCalledWith("asset-a", "team", 640, expect.any(AbortSignal));
     const content = mocks.requestAiText.mock.calls[0][0].messages.at(-1).content;
@@ -116,6 +120,7 @@ describe("AgentPanel selected references", () => {
 
   it("does not send a removed reference", async () => {
     await render();
+    await render(snapshot, ["a"]);
     await click('[aria-label="移除引用：Image a"]');
     await send();
     expect(mocks.getAssetContentBlob).not.toHaveBeenCalled();
@@ -141,6 +146,7 @@ describe("AgentPanel selected references", () => {
   it("reports unavailable images without silently sending an unreferenced request", async () => {
     mocks.getAssetContentBlob.mockRejectedValue(new Error("Unavailable"));
     await render();
+    await render(snapshot, ["a"]);
     await send();
     expect(mocks.requestAiText).not.toHaveBeenCalled();
     expect(container.textContent).toContain("无法读取引用图片");
@@ -151,12 +157,46 @@ describe("AgentPanel selected references", () => {
     let resolve!: (blob: Blob) => void;
     mocks.getAssetContentBlob.mockReturnValue(new Promise<Blob>(done => { resolve = done; }));
     await render();
+    await render(snapshot, ["a"]);
     await send();
     await click(".agent-stop-btn");
     await render({ ...snapshot, projectId: "other", nodes: [], selectedNodeIds: [] });
     await act(async () => resolve(new Blob(["image"], { type: "image/png" })));
     expect(mocks.getAssetContentBlob.mock.calls[0][3].aborted).toBe(true);
     expect(mocks.requestAiText).not.toHaveBeenCalled();
+    expect(draft()).toBeNull();
+  });
+
+  it("opens with no implicit reference and sends no unchosen media", async () => {
+    await render();
+    expect(draft()).toBeNull();
+    await render({ ...snapshot, selectedNodeIds: ["b"] });
+    expect(draft()).toBeNull();
+    await send("Discuss an idea");
+    expect(mocks.getAssetContentBlob).not.toHaveBeenCalled();
+    expect(mocks.requestAiText.mock.calls[0][0].messages.at(-1).content).not.toContain("本次引用");
+    expect(container.querySelector('[aria-label="消息引用"]')).toBeNull();
+  });
+
+  it("does not import existing selections on first open or reattach removed references on reopen", async () => {
+    await render(snapshot, undefined, false);
+    await render(snapshot, undefined, true);
+    expect(draft()).toBeNull();
+    await render(snapshot, ["a"]);
+    await click('[aria-label="移除引用：Image a"]');
+    await render(snapshot, undefined, false);
+    await render(snapshot, undefined, true);
+    expect(draft()).toBeNull();
+    await render(snapshot, ["a"]);
+    await render({ ...snapshot, selectedNodeIds: ["b"] }, ["b"], false);
+    await render({ ...snapshot, selectedNodeIds: ["b"] }, undefined, true);
+    expect([...draft()!.querySelectorAll("img")].map(image => image.alt)).toEqual(["Image a"]);
+  });
+
+  it("starts another project without carrying or importing selected references", async () => {
+    await render();
+    await render(snapshot, ["a"]);
+    await render({ ...snapshot, projectId: "other", selectedNodeIds: ["b"] });
     expect(draft()).toBeNull();
   });
 });

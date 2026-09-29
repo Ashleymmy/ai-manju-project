@@ -2,8 +2,13 @@ import { useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   reportRuntimeError,
+  reportRequestFailure,
   setRuntimeErrorOwner,
 } from "@/shared/lib/runtimeErrorReport";
+import {
+  REQUEST_FAILURE_EVENT,
+  type RequestFailureDiagnostic,
+} from "@/shared/lib/requestDiagnostics";
 
 export function RuntimeErrorReporter() {
   const { user } = useAuth();
@@ -14,27 +19,18 @@ export function RuntimeErrorReporter() {
     const onRejection = (event: PromiseRejectionEvent) =>
       reportRuntimeError(event.reason, "unhandled_rejection");
     const onNetwork = (event: Event) => {
-      const detail = (
-        event as CustomEvent<{
-          message: string;
-          path: string;
-          requestId: string;
-        }>
-      ).detail;
-      reportRuntimeError(
-        `${detail.message}: ${detail.path}`,
-        "network_error",
-        `Request ID: ${detail.requestId}`
+      reportRequestFailure(
+        (event as CustomEvent<RequestFailureDiagnostic>).detail
       );
     };
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onRejection);
-    window.addEventListener("ai-manju:network-error", onNetwork);
+    window.addEventListener(REQUEST_FAILURE_EVENT, onNetwork);
     return () => {
       setRuntimeErrorOwner("");
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onRejection);
-      window.removeEventListener("ai-manju:network-error", onNetwork);
+      window.removeEventListener(REQUEST_FAILURE_EVENT, onNetwork);
     };
   }, [user?.id]);
   return null;

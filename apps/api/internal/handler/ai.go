@@ -1655,11 +1655,15 @@ func buildAIRequestLog(c *gin.Context, input aiRequestLogInput) (model.AIRequest
 	errorMessage := ""
 	errorReason := ""
 	errorSuggestion := ""
+	diagnostics, observedStatus := requestProviderDiagnostics(c, input.Err)
 	if input.Err != nil {
 		status = model.AIRequestStatusError
 		errorInfo := describeProviderError(input.Config.BaseURL, input.Err)
 		httpStatus = errorInfo.HTTPStatus
 		providerStatus = errorInfo.ProviderStatus
+		if observedStatus > 0 {
+			providerStatus = observedStatus
+		}
 		errorMessage = errorInfo.Message
 		errorReason = errorInfo.Reason
 		errorSuggestion = errorInfo.Suggestion
@@ -1687,6 +1691,7 @@ func buildAIRequestLog(c *gin.Context, input aiRequestLogInput) (model.AIRequest
 		EstimatedUnits:  estimatedUnits(operation, input.InputCount, input.OutputCount),
 		ErrorMessage:    monitoring.SafeText(errorMessage),
 		ErrorReason:     monitoring.SafeText(errorReason),
+		Diagnostics:     diagnostics,
 		ErrorSuggestion: monitoring.SafeText(errorSuggestion),
 		CreatedAt:       startedAt,
 	}
@@ -1756,12 +1761,12 @@ func describeProviderError(baseURL string, err error) providerErrorInfo {
 	info := providerErrorInfo{
 		HTTPStatus: http.StatusBadGateway,
 		Message:    "模型服务暂不可用",
-		Reason:     strings.TrimSpace(err.Error()),
 		Suggestion: "请稍后重试；如果持续失败，请联系管理员检查模型服务配置。",
 	}
 	if err == nil {
 		return info
 	}
+	info.Reason = strings.TrimSpace(err.Error())
 	if errors.Is(err, provider.ErrProviderNotConfigured) || errors.Is(err, provider.ErrProviderDisabled) || errors.Is(err, provider.ErrUnsupportedImageUpload) {
 		info.HTTPStatus = http.StatusBadRequest
 	}

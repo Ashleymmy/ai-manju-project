@@ -91,6 +91,9 @@ func (h *AdminMonitoringHandler) Get(c *gin.Context) {
 			continue
 		}
 		entry.ErrorMessage, entry.ErrorReason, entry.ErrorSuggestion = monitoring.SafeText(entry.ErrorMessage), monitoring.SafeText(entry.ErrorReason), monitoring.SafeText(entry.ErrorSuggestion)
+		if len(entry.Diagnostics) > 0 {
+			entry.Diagnostics = monitoring.ReadDiagnostics(entry.Diagnostics).JSON()
+		}
 		filtered = append(filtered, entry)
 	}
 	recentRequests = filtered

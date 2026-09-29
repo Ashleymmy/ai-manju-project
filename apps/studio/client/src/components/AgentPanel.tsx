@@ -1,5 +1,5 @@
-import { GenerationPrice } from "@/features/member";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CANVAS_AGENT_PLACEMENT_INSTRUCTIONS } from "@ai-manju/canvas-agent-protocol";
 import { AgentReferenceStrip } from "@/features/canvas/agent/AgentReferenceStrip";
 import { AgentDocumentStrip } from "@/features/canvas/agent/AgentDocumentStrip";
 import { AGENT_DOCUMENT_ACCEPT, describeAgentDocuments } from "@/features/canvas/agent/documents";
@@ -78,7 +78,7 @@ const ONLINE_AGENT_MAX_STEPS = 4;
 const ONLINE_AGENT_HISTORY_LIMIT = 8;
 // 部分输入法确认候选词时只提供兼容键码，没有 isComposing 标记。
 const IME_COMPOSITION_KEY_CODE = 229;
-const ONLINE_AGENT_PROMPT = "你是 AI-Manju 的在线画布助手。首轮必须调用工具：只读问题调用 canvas_get_state，需要改动画布时调用对应画布工具。需要生成内容时调用 canvas_generate_text、canvas_generate_image、canvas_generate_video、canvas_generate_audio 或 canvas_create_generation_flow。不要输出伪造的 JSON ops，不要编造执行结果。涉及已有节点时只能使用当前画布快照中的真实 id；信息不足时先向用户说明。工具返回后必须依据真实结果回答。";
+const ONLINE_AGENT_PROMPT = "你是 AI-Manju 的在线画布助手。首轮必须调用工具：只读问题调用 canvas_get_state，需要改动画布时调用对应画布工具。需要生成内容时调用 canvas_generate_text、canvas_generate_image、canvas_generate_video、canvas_generate_audio 或 canvas_create_generation_flow。不要输出伪造的 JSON ops，不要编造执行结果。涉及已有节点时只能使用当前画布快照中的真实 id；信息不足时先向用户说明。工具返回后必须依据真实结果回答。" + CANVAS_AGENT_PLACEMENT_INSTRUCTIONS;
 // The global dialog has no active canvas and must not imply access to project data or tools.
 const STUDIO_AGENT_PROMPT = "你是 AI-Manju 的创作助手，帮助用户讨论创意、分析剧本、规划分镜和优化提示词。当前是独立对话，没有连接任何画布，也没有画布操作或生成工具；不要声称读取或修改了项目，不要编造执行结果。需要项目内容时请用户提供；需要操作画布时请用户进入对应画布继续。";
 const ONLINE_AGENT_TOOLS: ResponseFunctionTool[] = CANVAS_AGENT_TOOLS.map((item) => ({
@@ -138,8 +138,9 @@ export default function AgentPanel({
   const [activity, setActivity] = useState("未连接");
   const [messages, setMessageState] = useState<AgentMessage[]>([]);
   const [prompt, setPrompt] = useState("");
-  const [referenceNodeIds, setReferenceNodeIds] = useState<string[]>(() => open ? [...new Set(snapshot.selectedNodeIds)] : []);
-  const referenceSessionRef = useRef<{ projectId: string; open: boolean } | null>(null);
+  // Opening a canvas or panel must not turn restored selection into attachments.
+  // References are added only by explicit node selection or the reference picker.
+  const [referenceNodeIds, setReferenceNodeIds] = useState<string[]>([]);
   const lastReferenceSelectionRef = useRef(referenceSelection);
   const availableReferences = useMemo(() => canvasAgentReferences(snapshot, assetScope), [snapshot, assetScope]);
   const referenceById = new Map(availableReferences.map(reference => [reference.nodeId, reference]));
@@ -247,14 +248,6 @@ export default function AgentPanel({
     setReferenceNodeIds([]);
     localTurnReferencesRef.current = [];
   }, [storageProjectId]);
-
-  useEffect(() => {
-    const previous = referenceSessionRef.current;
-    referenceSessionRef.current = { projectId, open };
-    if (open && (!previous?.open || previous.projectId !== projectId)) {
-      setReferenceNodeIds(ids => [...new Set([...ids, ...snapshot.selectedNodeIds])]);
-    }
-  }, [open, projectId, snapshot.selectedNodeIds]);
 
   useEffect(() => {
     if (lastReferenceSelectionRef.current === referenceSelection) return;
@@ -1066,7 +1059,6 @@ export default function AgentPanel({
           setOpenMenu(null);
         }
       }}>
-      <span title="Agent 对话免费；图片和视频任务按对应模型计费"><GenerationPrice kind="free" /></span>
       <div className="agent-panel-resizer" onPointerDown={startResize} />
 
       {/* 顶部工具栏：左侧切换对话，右侧历史记录 / 文件 / 设置 / 关闭 */}

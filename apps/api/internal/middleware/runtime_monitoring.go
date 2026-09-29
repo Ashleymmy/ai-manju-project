@@ -29,7 +29,7 @@ type errorCaptureWriter struct {
 }
 
 func (w *errorCaptureWriter) Write(data []byte) (int, error) {
-	if w.Status() >= http.StatusBadRequest && strings.Contains(w.Header().Get("Content-Type"), "json") {
+	if w.Status() >= http.StatusBadRequest && (strings.Contains(w.Header().Get("Content-Type"), "json") || strings.HasPrefix(w.Header().Get("Content-Type"), "text/")) {
 		remaining := monitoring.MaxCaptureBytes - w.body.Len()
 		if remaining > 0 {
 			w.body.Write(data[:min(len(data), remaining)])
@@ -41,6 +41,8 @@ func (w *errorCaptureWriter) WriteString(data string) (int, error) { return w.Wr
 
 func RuntimeMonitoring(repo repository.RuntimeMonitoringRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		requestContext, observation := monitoring.WithObservation(c.Request.Context())
+		c.Request = c.Request.WithContext(requestContext)
 		started := time.Now().UTC()
 		writer := &errorCaptureWriter{ResponseWriter: c.Writer}
 		c.Writer = writer
@@ -54,6 +56,30 @@ func RuntimeMonitoring(repo repository.RuntimeMonitoringRepository) gin.HandlerF
 			endpoint = c.Request.URL.EscapedPath()
 		}
 		message, code, reason, suggestion := capturedError(writer.body.Bytes())
+		diagnostic := monitoring.Diagnostics{Stage: "api_response", ResponseReceived: monitoring.Bool(true), ResponseBody: monitoring.ErrorBody(writer.body.String())}
+		if raw, exists := c.Get(monitoring.DiagnosticsKey); exists {
+			if data, ok := raw.(model.JSONB); ok {
+				diagnostic = monitoring.ReadDiagnostics(data)
+				diagnostic.ResponseReceived = monitoring.Bool(true)
+			}
+		}
+		providerStatus := 0
+		var envelope struct {
+			Data struct {
+				ProviderStatus int `json:"provider_status"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(writer.body.Bytes(), &envelope) == nil {
+			providerStatus = envelope.Data.ProviderStatus
+		}
+		if observed, status := observation.Read(); observed.Stage != "" {
+			if observed.ExceptionName == "" {
+				observed.ExceptionName, observed.ExceptionMessage = diagnostic.ExceptionName, diagnostic.ExceptionMessage
+			}
+			diagnostic, providerStatus = observed, status
+			diagnostic.ResponseReceived = monitoring.Bool(true)
+		}
+		diagnostic.ResponseBody = monitoring.ErrorBody(writer.body.String())
 		if detail := c.GetString(monitoring.DiagnosticDetailKey); detail != "" {
 			reason = detail
 		}
@@ -76,7 +102,7 @@ func RuntimeMonitoring(repo repository.RuntimeMonitoringRepository) gin.HandlerF
 		}
 		event := model.RuntimeError{ID: "runtime_" + hex.EncodeToString(id), UserID: user.ID, Source: "api", RequestID: response.RequestID(c),
 			Endpoint: endpoint, Method: c.Request.Method, Operation: c.Request.Method + " " + endpoint, HTTPStatus: writer.Status(), DurationMS: time.Since(started).Milliseconds(),
-			ErrorCode: code, Message: message, Detail: reason, Suggestion: suggestion, CreatedAt: started}
+			ErrorCode: code, Message: message, Detail: reason, Suggestion: suggestion, Diagnostics: diagnostic.JSON(), ProviderStatus: providerStatus, CreatedAt: started}
 		ctx, cancel := context.WithTimeout(context.Background(), monitoringWriteTimeout)
 		defer cancel()
 		if err := repo.Record(ctx, event); err != nil {

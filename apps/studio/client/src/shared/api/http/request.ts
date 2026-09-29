@@ -1,12 +1,22 @@
 import { API_BASE_URL } from "../../config/api";
+import {
+  REQUEST_FAILURE_EVENT,
+  RESPONSE_DIAGNOSTIC_LIMIT,
+  type RequestFailureDiagnostic,
+} from "../../lib/requestDiagnostics";
 
 export { API_BASE_URL };
 
 export type ApiEnvelope<T> =
   | { success: true; data: T; request_id?: string }
-  | { success: false; error?: string; request_id?: string };
+  | {
+      success: false;
+      error?: string | { message?: string; code?: string };
+      request_id?: string;
+    };
 
 export class ApiError extends Error {
+  runtimeReported = false;
   constructor(
     message: string,
     public readonly status: number,
@@ -85,17 +95,65 @@ export async function request<T>(
     ...init
   } = options;
   const controller = new AbortController();
+  const started = performance.now();
+  let timedOut = false;
+  let received: Response | undefined;
+  let observedRequestId = "";
   const effectiveTimeoutMs =
     Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 0;
   const timer =
     effectiveTimeoutMs > 0
-      ? window.setTimeout(() => controller.abort(), effectiveTimeoutMs)
+      ? window.setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, effectiveTimeoutMs)
       : undefined;
   const onExternalAbort = () => controller.abort();
   signal?.addEventListener("abort", onExternalAbort, { once: true });
-  const id = requestId();
+  if (signal?.aborted) controller.abort();
+  const id =
+    Object.entries(headers).find(
+      ([key]) => key.toLowerCase() === "x-request-id"
+    )?.[1] || requestId();
   const token = getAuthToken();
   const isFormData = body instanceof FormData;
+  const emitFailure = (
+    message: string,
+    error: unknown,
+    stage: RequestFailureDiagnostic["diagnostics"]["stage"],
+    responseBody?: string
+  ) => {
+    if (
+      signal?.aborted ||
+      token !== getAuthToken() ||
+      path.startsWith("/api/monitoring") ||
+      typeof window.dispatchEvent !== "function"
+    )
+      return;
+    const detail: RequestFailureDiagnostic = {
+      message,
+      path: path.split(/[?#]/)[0],
+      method: (init.method || "GET").toUpperCase(),
+      requestId: observedRequestId || id,
+      httpStatus: received?.status || 0,
+      durationMs: Math.max(0, Math.round(performance.now() - started)),
+      diagnostics: {
+        stage,
+        page_path: typeof location === "undefined" ? "" : location.pathname,
+        response_received: Boolean(received),
+        timeout_ms: effectiveTimeoutMs,
+        online: typeof navigator === "undefined" ? undefined : navigator.onLine,
+        exception_name: error instanceof Error ? error.name : "",
+        exception_message:
+          error instanceof Error ? error.message : String(error || ""),
+        stack: error instanceof Error ? error.stack || "" : "",
+        ...(responseBody
+          ? { response_body: responseBody.slice(0, RESPONSE_DIAGNOSTIC_LIMIT) }
+          : {}),
+      },
+    };
+    window.dispatchEvent(new CustomEvent(REQUEST_FAILURE_EVENT, { detail }));
+  };
 
   try {
     const response = await fetch(apiUrl(path, query), {
@@ -119,10 +177,12 @@ export async function request<T>(
         ...headers,
       },
     });
-    const responseRequestId =
+    received = response;
+    let responseRequestId =
       response.headers.get("X-Request-Id") ||
       response.headers.get("x-request-id") ||
       id;
+    observedRequestId = responseRequestId;
     const raw = await response.text();
     let parsed: unknown = undefined;
     try {
@@ -132,18 +192,31 @@ export async function request<T>(
     }
     // Gateways can return HTML/text (not an API envelope). Inspecting `error`
     // with `in` on that string would turn an HTTP 504 into a fake network error.
-    const envelope = parsed && typeof parsed === "object"
-      ? parsed as Partial<ApiEnvelope<T>>
-      : undefined;
+    const envelope =
+      parsed && typeof parsed === "object"
+        ? (parsed as Partial<ApiEnvelope<T>>)
+        : undefined;
+    if (
+      !response.headers.get("X-Request-Id") &&
+      typeof envelope?.request_id === "string"
+    ) {
+      responseRequestId = observedRequestId = envelope.request_id;
+    }
 
     if (response.status === 401) {
       clearAuthToken();
       window.dispatchEvent(new CustomEvent("ai-manju:auth-unauthorized"));
     }
     if (!response.ok || envelope?.success === false) {
+      const upstreamError =
+        envelope && "error" in envelope ? envelope.error : undefined;
       const message =
-        (envelope && "error" in envelope && envelope.error) ||
-        `请求失败（${response.status}）`;
+        (typeof upstreamError === "string"
+          ? upstreamError
+          : upstreamError?.message) || `请求失败（${response.status}）`;
+      // A reverse proxy can fail before the API middleware receives a request.
+      if (!envelope || typeof envelope.success !== "boolean")
+        emitFailure(message, undefined, "gateway_response", raw);
       throw new ApiError(message, response.status, responseRequestId, parsed);
     }
     return envelope && envelope.success === true
@@ -151,16 +224,38 @@ export async function request<T>(
       : (parsed as T);
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    const message =
-      error instanceof DOMException && error.name === "AbortError"
+    const message = signal?.aborted
+      ? "请求已取消"
+      : timedOut
+        ? "请求超时"
+        : received
+          ? "响应读取失败"
+          : "无法连接 API 服务";
+    emitFailure(
+      message,
+      error,
+      timedOut
+        ? "request_timeout"
+        : received
+          ? "response_read"
+          : "request_transport"
+    );
+    // Public cancellation wording stays compatible; diagnostics distinguish
+    // the actual timeout, transport failure and caller cancellation.
+    const publicMessage =
+      timedOut ||
+      signal?.aborted ||
+      (error instanceof Error && error.name === "AbortError")
         ? "请求超时或已取消"
-        : "无法连接 API 服务";
-    if (typeof window.dispatchEvent === "function" && !signal?.aborted && token === getAuthToken() && !path.startsWith("/api/monitoring")) {
-      window.dispatchEvent(new CustomEvent("ai-manju:network-error", {
-        detail: { message, path: path.split("?")[0], requestId: id },
-      }));
-    }
-    throw new ApiError(message, 0, id, error);
+        : message;
+    const failure = new ApiError(
+      publicMessage,
+      received?.status || 0,
+      observedRequestId || id,
+      error
+    );
+    failure.runtimeReported = true;
+    throw failure;
   } finally {
     if (timer !== undefined) window.clearTimeout(timer);
     signal?.removeEventListener("abort", onExternalAbort);

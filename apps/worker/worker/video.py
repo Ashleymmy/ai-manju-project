@@ -275,6 +275,8 @@ def download_video_result(
         raise SafeTaskError("video provider content request failed", code="provider_request_failed", retryable=False) from None
     try:
         if response.status_code in VIDEO_RECOVERY_ACCESS_STATUSES:
+            from .monitoring import observe_failed_response
+            observe_failed_response(response, streamed=True)
             raise VideoRecoveryPendingError("视频结果访问暂不可用，请勿重复提交", code=f"video_recovery_http_{response.status_code}", retryable=True)
         ensure_video_response(response, "video provider content", retryable=False)
     except Exception:

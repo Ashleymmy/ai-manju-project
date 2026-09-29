@@ -190,6 +190,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	aiHandler.SetAssetService(assetService)
 	if cfg.StorageDriver != "postgres" && cfg.SDVideoBridgeEnabled && sdVideoClient.Enabled() {
 		bridge := service.NewSDVideoBridge(jobService, repos.userRepo, sdVideoClient, assetService, time.Duration(cfg.SDVideoBridgeIntervalSec)*time.Second, cfg.SDVideoBridgeBatchSize)
+		bridge.SetMonitoringRepository(runtimeRepo)
 		bridge.Start(context.Background())
 	}
 	aiHandler.SetJobInputService(jobInputService)

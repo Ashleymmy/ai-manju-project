@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,15 +43,18 @@ func TestRuntimeMonitoringRepositoryParity(t *testing.T) {
 			repo = NewRuntimeMonitoringRepository(jobs, calls)
 			now := time.Now().UTC()
 			ctx := context.Background()
+			diagnostic := model.JSONB(`{"stage":"provider_response","provider_body":"{\"error\":{\"message\":\"actual failure\"},\"prompt\":\"PRIVATE\"}","provider_request_id":"upstream-id","provider_url":"https://host?token=SECRET"}`)
 			for _, user := range []string{"qa_a", "qa_b"} {
-				e := model.RuntimeError{ID: "runtime_qa_" + user, UserID: user, Source: "api", Message: "api_key=SECRET", CreatedAt: now}
+				e := model.RuntimeError{ID: "runtime_qa_" + user, UserID: user, Source: "api", Message: "api_key=SECRET", Diagnostics: diagnostic, ProviderStatus: 422, CreatedAt: now,
+					Operation: "generate", Model: "selected-model", ErrorCode: "provider_rejected", Detail: "actual service detail", Suggestion: "review response", Method: "POST", Endpoint: "/api/generate", HTTPStatus: 502,
+					RequestID: "original-request", JobID: "job-trace", ProjectID: "project-trace", NodeID: "node-trace", Attempt: 2, DurationMS: 1250, Retryable: true}
 				if err := repo.Record(ctx, e); err != nil {
 					t.Fatal(err)
 				}
 				if err := repo.Record(ctx, e); err != nil {
 					t.Fatal(err)
 				}
-				if err := calls.CreateAIRequestLog(model.AIRequestLog{ID: "runtime_qa_call_" + user, UserID: user, CreatedAt: now}); err != nil {
+				if err := calls.CreateAIRequestLog(model.AIRequestLog{ID: "runtime_qa_call_" + user, UserID: user, Diagnostics: diagnostic, CreatedAt: now}); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := jobs.Create(model.Job{ID: "runtime_qa_job_" + user, UserID: user, IdempotencyKey: "runtime_qa_" + user, Status: model.JobStatusFailed, Payload: model.JSONB(`{"asset_registration":{"source_node_id":"n","source_project_id":"p"}}`), Error: model.JSONB(`{"message":"failed"}`)}); err != nil {
@@ -67,6 +71,26 @@ func TestRuntimeMonitoringRepositoryParity(t *testing.T) {
 			}
 			if facts.Errors[0].Message != "api_key=[redacted]" {
 				t.Fatal(facts.Errors[0].Message)
+			}
+			for _, raw := range []model.JSONB{facts.Errors[0].Diagnostics, facts.Calls[0].Diagnostics} {
+				if !strings.Contains(string(raw), "actual failure") || !strings.Contains(string(raw), "upstream-id") || strings.Contains(string(raw), "SECRET") || strings.Contains(string(raw), "PRIVATE") {
+					t.Fatal(string(raw))
+				}
+			}
+			if facts.Errors[0].ProviderStatus != 422 {
+				t.Fatal("lost upstream status")
+			}
+			stored := facts.Errors[0]
+			for _, field := range []struct{ actual, expected string }{
+				{stored.Operation, "generate"}, {stored.Model, "selected-model"}, {stored.ErrorCode, "provider_rejected"}, {stored.Detail, "actual service detail"}, {stored.Suggestion, "review response"},
+				{stored.Method, "POST"}, {stored.Endpoint, "/api/generate"}, {stored.RequestID, "original-request"}, {stored.JobID, "job-trace"}, {stored.ProjectID, "project-trace"}, {stored.NodeID, "node-trace"},
+			} {
+				if field.actual != field.expected {
+					t.Fatalf("original detail lost: got %q, want %q", field.actual, field.expected)
+				}
+			}
+			if stored.HTTPStatus != 502 || stored.Attempt != 2 || stored.DurationMS != 1250 || !stored.Retryable {
+				t.Fatal("original numeric details lost", stored)
 			}
 			empty, err := repo.Facts(ctx, now.Add(-24*time.Hour), now.Add(-23*time.Hour), "qa_a")
 			if err != nil || len(empty.Errors)+len(empty.Calls)+len(empty.Jobs) != 0 {

@@ -230,40 +230,44 @@
 
 /* ---- 创作输入区 ---- */
 .chat-composer {
-  /* 切角画在 ::before 上，避免 clip-path 裁掉向上展开的模型菜单 */
+  /* 收起与展开共享尺寸，完整展开时保留原有输入区和工具栏排布。 */
+  --chat-composer-control-size: 36px;
+  --chat-composer-input-height: 80px;
+  --chat-composer-bar-gap: 12px;
+  --chat-composer-motion: .2s var(--ease-out);
+  /* 保持菜单可溢出；响应式工具栏按输入框自身宽度收起快捷键提示。 */
   position: relative;
+  z-index: 2;
+  container-type: inline-size;
   overflow: visible;
-  padding: 16px;
+  padding: 20px 20px 14px;
+  border: 1px solid rgba(239, 235, 222, 0.13);
+  border-radius: 14px;
+  background: linear-gradient(135deg, #1c2223, #181d1e);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025), 0 8px 24px rgba(0, 0, 0, 0.1);
+  transition: border-color .18s ease, box-shadow .18s ease, padding var(--chat-composer-motion);
 }
-.chat-composer::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  border: 1px solid var(--line);
-  background: #1a2022;
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
-  transition: border-color .18s ease, box-shadow .18s ease;
-}
-.chat-composer:focus-within::before {
-  border-color: rgba(239, 235, 222, 0.3);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+.chat-composer:focus-within {
+  border-color: rgba(239, 235, 222, 0.32);
+  box-shadow: 0 0 0 3px rgba(239, 235, 222, 0.035), 0 10px 28px rgba(0, 0, 0, 0.16);
 }
 .chat-composer > * {
   position: relative;
   z-index: 1;
 }
 .chat-composer textarea {
+  display: block;
   width: 100%;
-  min-height: 96px;
-  padding: 4px;
+  height: var(--chat-composer-input-height);
+  min-height: 0;
+  padding: 2px 2px 16px;
   border: 0;
   outline: none;
   resize: none;
   background: transparent;
   color: var(--foreground);
-  font: 13px/1.8 "Noto Sans SC", sans-serif;
+  font: 13px/1.85 var(--font-family-ui);
+  transition: height var(--chat-composer-motion), padding var(--chat-composer-motion);
 }
 .chat-composer textarea::placeholder {
   color: var(--muted-foreground);
@@ -273,28 +277,94 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
+  height: calc(var(--chat-composer-control-size) + var(--chat-composer-bar-gap) + 1px);
+  padding-top: var(--chat-composer-bar-gap);
+  border-top: 1px solid rgba(239, 235, 222, 0.07);
+  transition: height var(--chat-composer-motion), padding var(--chat-composer-motion), border-color var(--chat-composer-motion);
+}
+/* 焦点进入即展开；草稿、模型菜单、录音或发送中不会被意外收起。 */
+.chat-composer[data-keep-expanded="false"]:not(:focus-within) {
+  padding-top: 12px;
+  padding-bottom: 12px;
+  cursor: text;
+}
+.chat-composer[data-keep-expanded="false"]:not(:focus-within) textarea {
+  height: var(--chat-composer-control-size);
+  padding: 6px calc(var(--chat-composer-control-size) + 12px) 6px 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.chat-composer[data-keep-expanded="false"]:not(:focus-within) .chat-composer-bar {
+  height: 0;
+  padding-top: 0;
+  border-top-color: transparent;
+}
+.chat-composer[data-keep-expanded="false"]:not(:focus-within) :is(.chat-composer-settings, .chat-composer-shortcuts, .chat-mic) {
+  visibility: hidden;
+  pointer-events: none;
+}
+.chat-composer[data-keep-expanded="false"]:not(:focus-within) .chat-composer-actions {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  /* 空白收起状态没有可发送内容，点击箭头区域等同于进入输入。 */
+  pointer-events: none;
+}
+.chat-composer-settings {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
 }
 .chat-composer-hint {
-  color: #979797;
-  font: var(--font-size-caption) var(--font-family-mono);
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
 }
 .chat-composer-actions {
   display: flex;
   align-items: center;
-  gap: 7px;
+  flex-shrink: 0;
+  gap: 8px;
+}
+.chat-composer-shortcuts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 10px;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+}
+.chat-composer-shortcuts kbd {
+  padding: 2px 5px;
+  border: 1px solid rgba(239, 235, 222, 0.1);
+  border-radius: 4px;
+  font: inherit;
+  line-height: 1.25;
+}
+.chat-composer-shortcuts > span {
+  margin: 0 2px;
+}
+@container (max-width: 640px) {
+  .chat-composer-shortcuts { display: none; }
+}
+@container (max-width: 400px) {
+  .chat-composer-hint { display: none; }
 }
 .chat-model {
   position: relative;
+  min-width: 0;
   overflow: visible;
 }
 .chat-model-menu {
   bottom: calc(100% + 8px);
-  right: 0;
+  left: 0;
   z-index: 60;
-  transform-origin: bottom center;
-  width: min(340px, calc(100vw - 48px));
+  transform-origin: bottom left;
+  width: min(340px, 100cqw);
   max-height: min(320px, 45dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -312,7 +382,7 @@
   font-size: var(--font-size-control);
 }
 .chat-model-trigger {
-  max-width: min(320px, calc(100vw - 154px));
+  max-width: min(320px, 100%);
 }
 .chat-model-trigger span {
   overflow: hidden;
@@ -327,10 +397,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 30px;
-  padding: 0 10px;
+  min-height: var(--chat-composer-control-size);
+  padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);
   color: #d7d3c9;
   cursor: pointer;
@@ -344,6 +414,10 @@
   background: rgba(255, 255, 255, 0.07);
   color: #f4f0e7;
 }
+.chat-tool-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
 .chat-tool-btn svg:last-child {
   transition: transform .18s ease;
 }
@@ -351,7 +425,7 @@
   transform: rotate(180deg);
 }
 .chat-mic {
-  width: 30px;
+  width: var(--chat-composer-control-size);
   padding: 0;
   justify-content: center;
 }
@@ -365,12 +439,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 36px;
-  width: 36px;
-  height: 36px;
+  flex: 0 0 var(--chat-composer-control-size);
+  width: var(--chat-composer-control-size);
+  height: var(--chat-composer-control-size);
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--primary);
   color: var(--primary-foreground);
   cursor: pointer;
@@ -405,6 +479,9 @@
   cursor: progress;
 }
 @media (prefers-reduced-motion: reduce) {
+  .chat-composer,
+  .chat-composer textarea,
+  .chat-composer-bar { transition: none; }
   .chat-send .spin { animation: none; }
 }
 

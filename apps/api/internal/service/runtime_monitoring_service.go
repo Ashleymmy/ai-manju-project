@@ -21,11 +21,12 @@ type MonitoringFilter struct {
 }
 type MonitoringRow struct {
 	model.RuntimeError
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	Status      string `json:"status"`
-	Provider    string `json:"provider,omitempty"`
-	MaxAttempts int    `json:"max_attempts"`
+	Username              string `json:"username"`
+	DisplayName           string `json:"display_name"`
+	Status                string `json:"status"`
+	Provider              string `json:"provider,omitempty"`
+	MaxAttempts           int    `json:"max_attempts"`
+	DiagnosticsRestricted bool   `json:"diagnostics_restricted,omitempty"`
 }
 type MonitoringGroup struct {
 	Key   string `json:"key"`
@@ -85,7 +86,7 @@ func (s *RuntimeMonitoringService) Report(ctx context.Context, f MonitoringFilte
 		if call.Status == model.AIRequestStatusSuccess && (call.Operation == "image_generation" || call.Operation == "image_edit") {
 			continue
 		}
-		rows = append(rows, MonitoringRow{RuntimeError: model.RuntimeError{ID: call.ID, UserID: call.UserID, Source: "ai", RequestID: call.RequestID, Operation: call.Operation, Endpoint: call.Endpoint, Model: call.Model, HTTPStatus: call.HTTPStatus, ProviderStatus: call.ProviderStatus, DurationMS: call.DurationMS, ErrorCode: call.ErrorReason, Message: call.ErrorMessage, Detail: call.ErrorReason, Suggestion: call.ErrorSuggestion, CreatedAt: call.CreatedAt}, Username: call.Username, DisplayName: call.UserDisplayName, Status: call.Status, Provider: call.ProviderHost})
+		rows = append(rows, MonitoringRow{RuntimeError: model.RuntimeError{ID: call.ID, UserID: call.UserID, Source: "ai", RequestID: call.RequestID, Operation: call.Operation, Endpoint: call.Endpoint, Model: call.Model, HTTPStatus: call.HTTPStatus, ProviderStatus: call.ProviderStatus, DurationMS: call.DurationMS, ErrorCode: call.ErrorReason, Message: call.ErrorMessage, Detail: call.ErrorReason, Diagnostics: call.Diagnostics, Suggestion: call.ErrorSuggestion, CreatedAt: call.CreatedAt}, Username: call.Username, DisplayName: call.UserDisplayName, Status: call.Status, Provider: call.ProviderHost})
 	}
 	for _, job := range facts.Jobs {
 		payload, problem := map[string]any{}, map[string]any{}
@@ -118,8 +119,35 @@ func (s *RuntimeMonitoringService) Report(ctx context.Context, f MonitoringFilte
 		rows = append(rows, MonitoringRow{RuntimeError: model.RuntimeError{ID: job.ID, UserID: job.UserID, Source: "job", JobID: job.ID, RequestID: monitorString(payload, "request_id"), ProjectID: monitorString(payload, "source_project_id"), NodeID: monitorString(payload, "source_node_id"), Model: monitorString(payload, "model"), Operation: job.Type, Message: monitorString(problem, "message"), ErrorCode: monitorString(problem, "code"), Detail: monitorString(problem, "reason"), Suggestion: monitorString(problem, "suggestion"), DurationMS: duration, Attempt: job.Attempts, Retryable: retryable, CreatedAt: created}, Status: status, MaxAttempts: job.MaxAttempts, Provider: job.ExternalProvider})
 	}
 	users := map[string]model.User{}
+	// Final job errors may deliberately contain only a public message. Attach
+	// the actually recorded last attempt; never infer a response from wording.
+	latestAttempt := map[string]model.RuntimeError{}
+	for _, event := range facts.Errors {
+		key := event.UserID + ":" + event.JobID
+		if event.Source == "worker" && event.JobID != "" && (latestAttempt[key].ID == "" || event.CreatedAt.After(latestAttempt[key].CreatedAt)) {
+			latestAttempt[key] = event
+		}
+	}
 	for i := range rows {
 		row := &rows[i]
+		if row.Source == "job" && row.Status == "error" {
+			if attempt, ok := latestAttempt[row.UserID+":"+row.JobID]; ok {
+				if f.Admin {
+					row.Diagnostics, row.ProviderStatus = attempt.Diagnostics, attempt.ProviderStatus
+					if row.Detail == "" {
+						row.Detail = attempt.Detail
+					}
+					if row.RequestID == "" {
+						row.RequestID = attempt.RequestID
+					}
+				} else {
+					row.DiagnosticsRestricted = len(attempt.Diagnostics) > 0
+				}
+			}
+		}
+		if len(row.Diagnostics) > 0 {
+			row.Diagnostics = monitoring.ReadDiagnostics(row.Diagnostics).JSON()
+		}
 		row.CreatedAt = row.CreatedAt.UTC()
 		if row.Source == "ai" {
 			row.ErrorCode = ""
@@ -141,6 +169,10 @@ func (s *RuntimeMonitoringService) Report(ctx context.Context, f MonitoringFilte
 		row.Model, row.Endpoint, row.Operation = monitoring.SafeText(row.Model), monitoring.SafeText(row.Endpoint), monitoring.SafeText(row.Operation)
 		row.ErrorCode = monitoring.SafeText(row.ErrorCode)
 		if !f.Admin {
+			if row.Source != "client" {
+				row.DiagnosticsRestricted = row.DiagnosticsRestricted || len(row.Diagnostics) > 0
+				row.Diagnostics = nil
+			}
 			row.Provider = ""
 			if row.Source == "worker" || row.ErrorCode == "internal_panic" {
 				row.Detail = ""

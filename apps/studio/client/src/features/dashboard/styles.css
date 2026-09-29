@@ -1,14 +1,5 @@
 /* 工作台（今日片场）样式：统计侧栏、广告位预留、积分消耗面板、最近项目。 */
 
-.dashboard-project-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 24px;
-}
-.dashboard-project-actions + .desk-layout {
-  margin-top: 16px;
-}
-
 .text-button {
   display: inline-flex;
   align-items: center;

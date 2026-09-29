@@ -11,6 +11,7 @@ import (
 
 	"github.com/ai-manju/api/internal/auth"
 	"github.com/ai-manju/api/internal/model"
+	"github.com/ai-manju/api/internal/monitoring"
 	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -161,6 +162,30 @@ func TestRuntimeMonitoringCSVFormulaProtection(t *testing.T) {
 	if !strings.Contains(csv, "' =HYPERLINK") || !strings.Contains(csv, "'\t+cmd") {
 		t.Fatal(csv)
 	}
+}
+
+func TestClientDiagnosticUsesOriginalRequestAndRejectsForgedUpstream(t *testing.T) {
+	h, repo := monitoringFixture(t)
+	body := `{"id":"original","message":"请求超时","endpoint":"/api/member/pricing?token=SECRET","request_id":"original-id","method":"GET","http_status":504,"duration_ms":15003,"diagnostics":{"stage":"request_timeout","page_path":"/member/plans?token=SECRET","exception_name":"AbortError","exception_message":"The operation was aborted","timeout_ms":15000,"response_received":false,"provider_body":"FORGED","provider_request_id":"FORGED"}}`
+	w := monitoringRequest(h, model.User{ID: "alice"}, "POST", "/api/monitoring/client-errors", body)
+	if w.Code != 201 {
+		t.Fatal(w.Body.String())
+	}
+	facts, _ := repo.Facts(context.Background(), time.Now().Add(-time.Hour), time.Now().Add(time.Hour), "alice")
+	for _, e := range facts.Errors {
+		if e.Source != "client" {
+			continue
+		}
+		d := monitoring.ReadDiagnostics(e.Diagnostics)
+		if e.RequestID != "original-id" || e.Endpoint != "/api/member/pricing" || e.DurationMS != 15003 || e.Method != "GET" || e.HTTPStatus != 0 {
+			t.Fatal(e)
+		}
+		if d.PagePath != "/member/plans" || d.TimeoutMS != 15000 || d.ExceptionName != "AbortError" || d.ProviderBody != "" || d.ProviderRequestID != "" {
+			t.Fatal(d)
+		}
+		return
+	}
+	t.Fatal("missing client record")
 }
 
 func TestRuntimeMonitoringAllPagesAndBucketTotals(t *testing.T) {

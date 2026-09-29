@@ -23,7 +23,7 @@ import (
 const monitoringMaxHours = 24 * 30
 const monitoringDefaultPageSize = 30
 const monitoringMaxPageSize = 100
-const monitoringClientBodyBytes = 16 * 1024
+const monitoringClientBodyBytes = 32 * 1024
 const monitoringClientPerMinute = 30
 const monitoringMaxActiveClients = 10000
 
@@ -140,11 +140,16 @@ func (h *RuntimeMonitoringHandler) ClientError(c *gin.Context) {
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, monitoringClientBodyBytes)
 	var input struct {
-		ID       string `json:"id"`
-		Message  string `json:"message"`
-		Detail   string `json:"detail"`
-		Endpoint string `json:"endpoint"`
-		Code     string `json:"code"`
+		ID          string                 `json:"id"`
+		Message     string                 `json:"message"`
+		Detail      string                 `json:"detail"`
+		Endpoint    string                 `json:"endpoint"`
+		Code        string                 `json:"code"`
+		RequestID   string                 `json:"request_id"`
+		Method      string                 `json:"method"`
+		HTTPStatus  int                    `json:"http_status"`
+		DurationMS  int64                  `json:"duration_ms"`
+		Diagnostics monitoring.Diagnostics `json:"diagnostics"`
 	}
 	if c.ShouldBindJSON(&input) != nil || !monitoringClientID.MatchString(input.ID) || strings.TrimSpace(input.Message) == "" {
 		response.Error(c, 400, "无效的客户端错误记录")
@@ -175,8 +180,27 @@ func (h *RuntimeMonitoringHandler) ClientError(c *gin.Context) {
 	if !strings.HasPrefix(endpoint, "/") || strings.HasPrefix(endpoint, "//") {
 		endpoint = "/"
 	}
-	event := model.RuntimeError{ID: "client_" + actor.ID + "_" + input.ID, UserID: actor.ID, Source: "client", Operation: "browser", Endpoint: endpoint, RequestID: response.RequestID(c), Message: monitoring.SafeText(input.Message), Detail: monitoring.SafeText(input.Detail), ErrorCode: "client_error", CreatedAt: now}
-	if input.Code == "unhandled_rejection" || input.Code == "render_error" || input.Code == "network_error" {
+	// Client observations cannot assert a provider response or its status.
+	d := monitoring.Diagnostics{PagePath: input.Diagnostics.PagePath, ExceptionName: input.Diagnostics.ExceptionName,
+		ExceptionMessage: input.Diagnostics.ExceptionMessage, Stack: input.Diagnostics.Stack, Online: input.Diagnostics.Online,
+		TimeoutMS: input.Diagnostics.TimeoutMS, ResponseReceived: input.Diagnostics.ResponseReceived,
+		ResponseBody: input.Diagnostics.ResponseBody, ReportRequestID: response.RequestID(c)}
+	if monitoringOption(input.Diagnostics.Stage, "request_timeout", "request_transport", "response_read", "gateway_response", "client_exception") {
+		d.Stage = input.Diagnostics.Stage
+	}
+	event := model.RuntimeError{ID: "client_" + actor.ID + "_" + input.ID, UserID: actor.ID, Source: "client", Operation: "browser", Endpoint: endpoint, Message: monitoring.SafeText(input.Message), Detail: monitoring.SafeText(input.Detail), Diagnostics: d.JSON(), ErrorCode: "client_error", CreatedAt: now}
+	if monitoringClientID.MatchString(input.RequestID) {
+		event.RequestID = input.RequestID
+	}
+	if monitoringOption(strings.ToUpper(input.Method), "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS") {
+		event.Method = strings.ToUpper(input.Method)
+		event.Operation = event.Method + " " + endpoint
+	}
+	if input.HTTPStatus >= 100 && input.HTTPStatus <= 599 && d.ResponseReceived != nil && *d.ResponseReceived {
+		event.HTTPStatus = input.HTTPStatus
+	}
+	event.DurationMS = max(0, input.DurationMS)
+	if input.Code == "unhandled_rejection" || input.Code == "render_error" || input.Code == "network_error" || input.Code == "gateway_error" {
 		event.ErrorCode = input.Code
 	}
 	if err := h.repo.Record(c.Request.Context(), event); err != nil {
@@ -197,9 +221,9 @@ func monitoringCSV(rows []service.MonitoringRow) string {
 	var b bytes.Buffer
 	b.WriteString("\ufeff")
 	w := csv.NewWriter(&b)
-	_ = w.Write([]string{"时间", "用户ID", "账号", "来源", "状态", "操作", "模型", "HTTP状态", "上游状态", "错误码", "错误信息", "诊断详情", "处理建议", "请求ID", "任务ID", "项目ID", "节点ID", "尝试次数", "耗时毫秒"})
+	_ = w.Write([]string{"时间", "用户ID", "账号", "来源", "状态", "操作", "模型", "HTTP状态", "上游状态", "错误码", "错误信息", "诊断详情", "处理建议", "请求ID", "任务ID", "项目ID", "节点ID", "尝试次数", "耗时毫秒", "采集诊断"})
 	for _, r := range rows {
-		cells := []string{r.CreatedAt.Format(time.RFC3339), r.UserID, r.Username, r.Source, r.Status, r.Operation, r.Model, fmt.Sprint(r.HTTPStatus), fmt.Sprint(r.ProviderStatus), r.ErrorCode, r.Message, r.Detail, r.Suggestion, r.RequestID, r.JobID, r.ProjectID, r.NodeID, fmt.Sprint(r.Attempt), fmt.Sprint(r.DurationMS)}
+		cells := []string{r.CreatedAt.Format(time.RFC3339), r.UserID, r.Username, r.Source, r.Status, r.Operation, r.Model, fmt.Sprint(r.HTTPStatus), fmt.Sprint(r.ProviderStatus), r.ErrorCode, r.Message, r.Detail, r.Suggestion, r.RequestID, r.JobID, r.ProjectID, r.NodeID, fmt.Sprint(r.Attempt), fmt.Sprint(r.DurationMS), string(r.Diagnostics)}
 		for i, cell := range cells {
 			trimmed := strings.TrimLeft(cell, " \t\r\n")
 			if trimmed != "" && strings.ContainsAny(trimmed[:1], "=+-@") {

@@ -1,3 +1,5 @@
+import { placeCanvasAgentGenerationFlows } from "./canvas-agent-placement";
+
 export const CANVAS_AGENT_PROTOCOL_VERSION = "1.0" as const;
 
 export type CanvasAgentViewport = { x: number; y: number; k: number };
@@ -195,7 +197,7 @@ export function summarizeCanvasAgentOps(ops: readonly CanvasAgentOp[] = []) {
   return Array.from(counts).map(([type, count]) => `${opLabel(type)} ${count}`).join("，");
 }
 
-export function applyCanvasAgentOps(snapshot: CanvasAgentSnapshot, ops: readonly CanvasAgentOp[] = []) {
+export function applyCanvasAgentOps(snapshot: CanvasAgentSnapshot, ops: readonly CanvasAgentOp[] = []): CanvasAgentSnapshot {
   let nodes = snapshot.nodes;
   let connections = snapshot.connections;
   let selectedNodeIds = snapshot.selectedNodeIds;
@@ -255,7 +257,8 @@ export function applyCanvasAgentOps(snapshot: CanvasAgentSnapshot, ops: readonly
     if (op.type === "set_viewport") viewport = normalizeViewport(op.viewport, viewport);
   });
 
-  return { ...snapshot, protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION, nodes, connections, selectedNodeIds, viewport };
+  return { ...snapshot, protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION,
+    nodes: placeCanvasAgentGenerationFlows(snapshot.nodes, nodes), connections, selectedNodeIds, viewport };
 }
 
 export function canvasAgentToolToOps(
@@ -330,7 +333,7 @@ function generationFlowOps(input: Record<string, unknown>, snapshot: CanvasAgent
   const configId = `config-${crypto.randomUUID()}`;
   const referenceNodeIds = stringValues(input.referenceNodeIds);
   const composer = [`@[node:${textId}]`, ...referenceNodeIds.map((id) => `@[node:${id}]`)].join("\n");
-  return [
+  const ops: CanvasAgentOp[] = [
     textNodeOp({ text: prompt, title: stringValue(input.title) || "提示词" }, x, y, textId),
     configNodeOp(configId, { ...input, prompt: composer }, x + 420, y),
     { type: "connect_nodes", fromNodeId: textId, toNodeId: configId },
@@ -338,6 +341,9 @@ function generationFlowOps(input: Record<string, unknown>, snapshot: CanvasAgent
     { type: "select_nodes", ids: [configId] },
     ...(input.autoRun ? [runGenerationOp(configId, mode, composer)] : []),
   ];
+  return ops.map(op => op.type === "add_node"
+    ? { ...op, metadata: { ...op.metadata, agentGenerationFlowId: configId } }
+    : op);
 }
 
 function textNodeOp(input: Record<string, unknown>, x: number, y: number, id?: string): CanvasAgentOp {
@@ -358,6 +364,7 @@ function configNodeOp(id: string, input: Record<string, unknown>, x: number, y: 
     width: finiteNumber(input.width),
     height: finiteNumber(input.height),
     metadata: definedFields({
+      agentGenerationFlowId: id,
       generationMode: mode,
       composerContent: prompt,
       prompt,

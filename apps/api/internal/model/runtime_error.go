@@ -22,6 +22,7 @@ type RuntimeError struct {
 	ErrorCode      string    `json:"error_code" gorm:"index"`
 	Message        string    `json:"message"`
 	Detail         string    `json:"detail"`
+	Diagnostics    JSONB     `json:"diagnostics,omitempty" gorm:"type:jsonb"`
 	Suggestion     string    `json:"suggestion"`
 	Attempt        int       `json:"attempt"`
 	Retryable      bool      `json:"retryable"`

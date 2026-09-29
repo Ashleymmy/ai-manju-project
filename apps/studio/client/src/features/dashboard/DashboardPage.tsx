@@ -203,14 +203,6 @@ export default function DashboardPage() {
     <div className="page-content dashboard-page">
       {/* 创作对话框（原聊天台主页核心交互，现嵌在工作台顶部） */}
       <ChatComposer />
-      <div className="dashboard-project-actions">
-        <button
-          className="outline-button"
-          onClick={() => navigate("/projects")}
-        >
-          打开项目归档 <ArrowUpRight size={16} />
-        </button>
-      </div>
       <div className="desk-layout">
         <AdSlot />
         <StatStrip data={data} />

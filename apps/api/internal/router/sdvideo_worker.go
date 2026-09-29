@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ai-manju/api/internal/config"
+	"github.com/ai-manju/api/internal/repository"
 	"github.com/ai-manju/api/internal/sdvideo"
 	"github.com/ai-manju/api/internal/service"
 	"github.com/ai-manju/api/internal/storage"
@@ -35,6 +36,7 @@ func RunSDVideoBridge(ctx context.Context, cfg config.Config) error {
 	assets.SetFolderService(folders)
 	jobs := service.NewJobService(repos.jobRepo, nil, "", cfg.JobMaxAttempts)
 	worker := service.NewSDVideoBridge(jobs, repos.userRepo, client, assets, time.Duration(cfg.SDVideoBridgeIntervalSec)*time.Second, cfg.SDVideoBridgeBatchSize)
+	worker.SetMonitoringRepository(repository.NewRuntimeMonitoringRepository(repos.jobRepo, repos.monitoringRepo))
 	address := os.Getenv("SD_VIDEO_BRIDGE_HEALTH_ADDR")
 	if address == "" {
 		address = "127.0.0.1:3103"

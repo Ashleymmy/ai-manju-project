@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ai-manju/api/internal/model"
+	"github.com/ai-manju/api/internal/monitoring"
 	"gorm.io/gorm"
 )
 
@@ -94,6 +95,9 @@ func NewMemoryMonitoringRepository() *MemoryMonitoringRepository {
 }
 
 func (r *MemoryMonitoringRepository) CreateAIRequestLog(log model.AIRequestLog) error {
+	if len(log.Diagnostics) > 0 {
+		log.Diagnostics = monitoring.ReadDiagnostics(log.Diagnostics).JSON()
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -322,6 +326,9 @@ func NewGormMonitoringRepository(db *gorm.DB) *GormMonitoringRepository {
 }
 
 func (r *GormMonitoringRepository) CreateAIRequestLog(log model.AIRequestLog) error {
+	if len(log.Diagnostics) > 0 {
+		log.Diagnostics = monitoring.ReadDiagnostics(log.Diagnostics).JSON()
+	}
 	now := time.Now().UTC()
 	if log.CreatedAt.IsZero() {
 		log.CreatedAt = now

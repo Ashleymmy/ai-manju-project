@@ -398,6 +398,7 @@ type AIRequestLog struct {
 	EstimatedUnits  int       `json:"estimated_units"`
 	ErrorMessage    string    `json:"error_message"`
 	ErrorReason     string    `json:"error_reason"`
+	Diagnostics     JSONB     `json:"diagnostics,omitempty" gorm:"type:jsonb"`
 	ErrorSuggestion string    `json:"error_suggestion"`
 	CreatedAt       time.Time `json:"created_at" gorm:"index"`
 	UpdatedAt       time.Time `json:"updated_at"`
