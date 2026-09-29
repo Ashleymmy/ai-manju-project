@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Loader2, RefreshCcw } from "lucide-react";
 import { isAdminTierRole, isReadOnlyAdminRole } from "@/entities/auth";
@@ -13,6 +13,9 @@ import {
   type GenerationRecoveryRow,
 } from "../services/generationRecoveryApi";
 import "./generationRecovery.css";
+
+/** Keep five complete records visible while allowing ten records on each page. */
+const RECOVERY_VISIBLE_ROWS = 5;
 
 const RECOVERY_PHASE_LABELS: Record<string, string> = {
   image_submission_uncertain: "图片提交待确认",
@@ -38,8 +41,9 @@ function RecoveryPanelContent({ readOnly }: { readOnly: boolean }) {
   const [message, setMessage] = useState("");
   const inFlight = useRef(new Set<string>());
   const mounted = useRef(false);
+  const tableViewportRef = useRef<HTMLDivElement>(null);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const queryKey = [...GENERATION_RECOVERY_QUERY_KEY, offset];
+  const queryKey = [...GENERATION_RECOVERY_QUERY_KEY, GENERATION_RECOVERY_PAGE_SIZE, offset];
   const query = useQuery({
     queryKey,
     queryFn: ({ signal }) => fetchGenerationRecovery(offset, signal),
@@ -52,6 +56,24 @@ function RecoveryPanelContent({ readOnly }: { readOnly: boolean }) {
   const total = query.data?.total ?? 0;
   const page = Math.floor(offset / GENERATION_RECOVERY_PAGE_SIZE) + 1;
   const pages = Math.max(1, Math.ceil(total / GENERATION_RECOVERY_PAGE_SIZE));
+  useLayoutEffect(() => {
+    const viewport = tableViewportRef.current;
+    const table = viewport?.querySelector("table");
+    if (!viewport || !table) return;
+    const measure = () => {
+      const rows = Array.from(table.tBodies[0]?.rows ?? []).slice(0, RECOVERY_VISIBLE_ROWS);
+      // Measure to the fifth row's bottom, including collapsed table borders.
+      const lastRow = rows.at(-1);
+      const height = lastRow ? lastRow.getBoundingClientRect().bottom - table.getBoundingClientRect().top : 0;
+      // Include the horizontal scrollbar on narrow screens; never crop the fifth row.
+      const scrollbarHeight = viewport.offsetHeight - viewport.clientHeight;
+      if (height > 0) viewport.style.setProperty("--recovery-visible-height", `${Math.ceil(height + scrollbarHeight)}px`);
+    };
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(table);
+    return () => observer?.disconnect();
+  }, [query.data]);
   useEffect(() => {
     if (query.data && offset > 0 && offset >= query.data.total) {
       setOffset(Math.max(0, Math.ceil(query.data.total / GENERATION_RECOVERY_PAGE_SIZE) - 1) * GENERATION_RECOVERY_PAGE_SIZE);
@@ -93,7 +115,7 @@ function RecoveryPanelContent({ readOnly }: { readOnly: boolean }) {
     {message ? <p role="status">{message}</p> : null}
     {query.isError ? <p role="alert">{publicApiError(query.error, "恢复列表读取失败")} <button type="button" className="outline-button small" onClick={() => void query.refetch()}>重新加载恢复列表</button></p> : null}
     {query.isPending ? <p role="status"><Loader2 size={17} className="spin" /> 正在读取待恢复任务…</p> : query.data ? <>
-      {query.data.items.length ? <div className="generation-recovery-table"><table>
+      {query.data.items.length ? <div key={offset} ref={tableViewportRef} className="generation-recovery-table" tabIndex={0} role="region" aria-label="待恢复任务列表，可滚动查看"><table>
         <caption className="sr-only">可核查和恢复的原生成任务</caption>
         <thead><tr><th scope="col">原任务 / 用户</th><th scope="col">模型 / Provider</th><th scope="col">恢复状态</th><th scope="col">更新时间</th>{!readOnly ? <th scope="col">操作</th> : null}</tr></thead>
         <tbody>{query.data.items.map(row => <tr key={row.id}>
@@ -107,7 +129,7 @@ function RecoveryPanelContent({ readOnly }: { readOnly: boolean }) {
         </tr>)}</tbody>
       </table></div> : <p className="generation-recovery-note">当前没有待恢复任务。</p>}
       <footer className="generation-recovery-pagination">
-        <span>共 {total} 条 · 第 {page} / {pages} 页</span>
+        <span>共 {total} 条 · 每页 {GENERATION_RECOVERY_PAGE_SIZE} 条 · 第 {page} / {pages} 页{query.data.items.length > RECOVERY_VISIBLE_ROWS ? <small>列表内滚动查看本页其余任务</small> : null}</span>
         <div><button type="button" className="outline-button small" disabled={offset === 0 || query.isFetching} onClick={() => setOffset(Math.max(0, offset - GENERATION_RECOVERY_PAGE_SIZE))}><ChevronLeft size={14} /> 上一页</button>
           <button type="button" className="outline-button small" disabled={offset + GENERATION_RECOVERY_PAGE_SIZE >= total || query.isFetching} onClick={() => setOffset(offset + GENERATION_RECOVERY_PAGE_SIZE)}>下一页 <ChevronRight size={14} /></button></div>
       </footer>

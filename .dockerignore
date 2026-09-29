@@ -38,6 +38,8 @@ packages/*
 !packages/canvas-agent-protocol/**
 !packages/provider-hub
 !packages/provider-hub/**
+!packages/ui-tokens
+!packages/ui-tokens/**
 
 .next
 **/.next

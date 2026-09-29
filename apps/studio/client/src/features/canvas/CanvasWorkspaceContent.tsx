@@ -4651,7 +4651,8 @@ export default function CanvasWorkspaceViewContent() {
             mentionLibrary: editingInlineNodeId === node.id ? mentionLibrary : undefined,
             previews,
             isSelected: selectedNodeIds.has(node.id),
-            isSelectedSingle: selectedId === node.id,
+            // Groups also retain a primary node; only a single-node selection owns its toolbar.
+            isSelectedSingle: !selectedGroupId && selectedNodeIds.size === 1 && selectedId === node.id,
             isHovered: hoveredId === node.id,
             isConnectionTarget: connectionTargetId === node.id,
             isGrouped: groups.some(group => group.nodeIds.includes(node.id)),

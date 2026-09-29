@@ -1,0 +1,174 @@
+@import "../../../../../../packages/ui-tokens/corners.css";
+
+/* Route permission opts in the entire document, including body portals.
+ * Admin and canvas routes never match, even after user-page CSS has been lazy-loaded.
+ * Only shape is owned here. A named important layer keeps lazy styles and
+ * legacy inline radii from changing the common scale; layout stays local. */
+@layer user-corners {
+  body:has([data-ui-surface="user"]) {
+    --radius: var(--ui-radius-surface);
+  }
+
+  body:has([data-ui-surface="user"]) :where(
+    .rounded, .rounded-sm, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-3xl
+  ) {
+    border-radius: var(--ui-radius-surface) !important;
+  }
+
+  body:has([data-ui-surface="user"]) :where(
+    button, select, textarea,
+    input:not([type="range"]):not([type="radio"]):not([type="checkbox"]):not([type="color"]),
+    [data-slot="button"], [data-slot="input"], [data-slot="select-trigger"],
+    .side-link, .ln-row, .auth-register-link, .asset-detail-actions > a,
+    .vermilion-button, .outline-button, .primary-button, .create-button,
+    .full-outline, .create-asset-project-button,
+    .option-select, .setting-select, .counter, .stepper, .param-stepper,
+    .tag-search, .asset-taxonomy-search, .shortcut-binding, .tag-select,
+    .wb-picker-search, .video-duration-input-value,
+    [data-slot="dropdown-menu-item"], [data-slot="context-menu-item"],
+    [data-slot="select-item"], [data-slot="command-item"], [data-slot="tabs-trigger"]
+  ) {
+    border-radius: var(--ui-radius-control) !important;
+  }
+
+  /* Remove the old printed-ticket cuts from actions and cards. */
+  body:has([data-ui-surface="user"]) :where(
+    .create-button, .vermilion-button, .outline-button, .create-asset-project-button,
+    .project-card, .asset-card, .tool-surface, .queue-aside
+  ) {
+    clip-path: none !important;
+  }
+
+  /* The same surface scale across workbenches, libraries and account pages. */
+  body:has([data-ui-surface="user"]) :where(
+    [data-slot="card"],
+    .project-card, .asset-card, .library-asset, .reference-card, .reference-thumb,
+    .history-card, .result-thumb, .candidate, .template-card, .queue-card,
+    .tool-surface, .tool-steps, .abstract-card, .stat-strip, .credit-panel, .ad-slot,
+    .credit-summary > div,
+    .image-workbench, .result-stage, .reference-manager, .workbench-preset-strip,
+    .edit-toolbar, .history-preview-stage, .crop-dialog-stage,
+    .library-workspace, .asset-detail, .asset-tag-index, .asset-bulk-bar,
+    .asset-tag-action, .asset-taxonomy, .asset-taxonomy-subpanel, .asset-transfer-panel,
+    .asset-bulk-preview > div, .detail-image, .detail-media, .detail-audio,
+    .prompt-workspace, .prompt-filters, .prompt-preview, .system-prompt-cover,
+    .tag-workspace, .tag-editor, .tag-relations, .tag-bulk-toolbar,
+    .settings-workspace, .settings-panel, .quality-note, .preferences-side,
+    .preset-settings-list, .notification-list, .sync-result > div,
+    .queue-aside, .status-item, .video-state-card, .video-history-empty,
+    .queue-aside code, .tool-surface code,
+    .script-intake, .candidate-review, .batch-console, .comic-generation-panel,
+    .comic-asset-row, .comic-batch-card, .comic-batch-items > div,
+    .comic-projects-preview, .comic-projects-panel, .comic-main-area,
+    .comic-project-item, .comic-info-banner, .comic-asset-editor, .comic-lets-create-badge,
+    .comic-reference-block, .file-upload-area, .template-upload-box,
+    .comic-batch-item, .comic-output-preview,
+    .director-workspace, .director-frame-shell, .director-embed-side,
+    .director-export-card, .inspector-preview, .shot-thumb,
+    .member-card, .member-activity-banner, .member-plan, .member-pack, .member-stat,
+    .member-recharge, .member-checkout, .member-pending-order, .member-table,
+    .member-rules, .member-invite-hero, .member-gift-cover, .member-gift-cover-placeholder,
+    .profile-account-card, .profile-metric-card, .profile-preset-editor,
+    .auth-card, .auth-notice, .auth-submit-error, .chat-composer, .chat-new-card,
+    .wb-sidebar, .wb-feed-column, .wb-bubble, .wb-composer, .wb-params,
+    .wb-history, .wb-history-row, .wb-toolkit, .wb-toolkit-card, .wb-task-running, .wb-task-error,
+    .wb-task-video, .wb-att, .wb-frame-empty, .wb-frame-filled, .wb-shelf-item,
+    .wb-seedance-card, .wb-picker-error,
+    .agent-composer, .agent-quick-card, .agent-msg-content, .agent-pending-tool,
+    .agent-setup-note, .studio-agent-loading, .studio-agent-dialog .agent-panel,
+    .canvas-workspace .agent-panel, .canvas-incoming-refs, .canvas-incoming-ref-slot,
+    .canvas-node, .real-canvas-node, .canvas-group-frame, .inspector-panel,
+    .node-card-preview, .node-pop-card, .node-generation-status,
+    .canvas-top-tools, .canvas-bottom-tools, .canvas-bg-controls,
+    .canvas-head-actions, .tool-cluster, .canvas-agent-pills, .canvas-pin-rail,
+    .canvas-group-pending-actions, .canvas-connected-preview, .canvas-minimap,
+    .canvas-video-preflight, .canvas-generation-history-detail,
+    .canvas-generation-history-hero, .canvas-seedance-list article,
+    .canvas-material-assets article, .canvas-material-section pre,
+    .canvas-image-tool-error, .public-prompt-note, .dialog-error, .dialog-warning,
+    .skill-create-form, .skill-item, .preset-manager-item, .preset-item,
+    .style-preset-card, .storyboard-timeline-hint, .skill-manage-bar,
+    .segmented, .scope-switch, .seg-switch, .ratio-buttons, .wb-segments,
+    .canvas-generation-history-views, .user-pop-balances, .side-foot-float
+  ) {
+    border-radius: var(--ui-radius-surface) !important;
+  }
+
+  body:has([data-ui-surface="user"]) :where(
+    [data-slot="dialog-content"], [data-slot="alert-dialog-content"],
+    .comic-create-dialog, .member-dialog, .studio-command-panel,
+    .canvas-image-tool-dialog, .canvas-image-mask-dialog, .canvas-annotation-dialog,
+    .canvas-generation-history-dialog, .canvas-seedance-dialog,
+    .canvas-material-dialog, .history-preview-dialog, .edit-dialog,
+    .video-compact-dialog, .video-asset-dialog, .cover-picker-dialog
+  ) {
+    border-radius: var(--ui-radius-dialog) !important;
+  }
+
+  /* Menus opened via a portal follow the same surface radius. */
+  body:has([data-ui-surface="user"]) :where(
+    [data-slot="popover-content"], [data-slot="hover-card-content"],
+    [data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"],
+    [data-slot="context-menu-content"], [data-slot="context-menu-sub-content"],
+    [data-slot="select-content"], [data-slot="tooltip-content"], [data-sonner-toast],
+    .canvas-context-menu, .canvas-submenu-panel, .canvas-connection-create-menu,
+    .canvas-switcher-popover, .canvas-mention-menu, .canvas-more-menu,
+    .agent-thread-menu, .agent-ref-menu, .agent-model-menu, .agent-files-menu,
+    .agent-plus-menu, .agent-confirm-menu, .wb-mention-menu, .chat-menu, .user-pop,
+    .comic-analysis-model-menu, .node-hover-toolbar, .preview-detail-pager
+  ) {
+    border-radius: var(--ui-radius-surface) !important;
+  }
+
+  body:has([data-ui-surface="user"]) :where(
+    .status-chip, .state-ribbon, .asset-category, .library-asset > i,
+    .candidate-tags span, .preview-tags span, .template-card-tags i,
+    .alias-list span, .comic-reference-chips span, .member-pill, .state-machine span,
+    .member-plan-badge, .profile-role-badge, .wb-history-status, .wb-picker-status,
+    .wb-seedance-status, .generation-price-compact, .user-pop-badge,
+    .result-stage-tag, .reference-card span, .asset-tag-chip,
+    .canvas-seedance-selected > span, .canvas-seedance-tags i,
+    .node-chip, .canvas-batch-badge, .video-submode-badge
+  ) {
+    border-radius: var(--ui-radius-detail) !important;
+  }
+
+  /* Preserve purpose-built round controls: connections, swatches, switches,
+   * floating avatars and media overlay actions, rather than turning them into boxes. */
+  body:has([data-ui-surface="user"]) :where(
+    .switch, .agent-switch, [data-slot="switch"], [data-slot="switch-thumb"],
+    [data-slot="radio-group-item"], [role="slider"],
+    .canvas-connection-handle, .canvas-group-connection-handle,
+    .canvas-agent-fab, .studio-agent-fab, .agent-icon-btn, .agent-send-btn,
+    .node-send-button, .node-send-button-compact,
+    .canvas-group-color-swatch, .node-pin-swatch, .canvas-pin-rail-dot,
+    .canvas-annotation-colors button, .canvas-image-crop-handle, .crop-dialog-handle,
+    .canvas-connected-preview-remove, .preview-detail-pager button,
+    .result-stage-zoom, .result-stage-remove, .result-thumb-remove,
+    .reference-card button, .reference-thumb-actions button, .asset-tag-chip button,
+    .wb-frame-remove, .wb-shelf-remove, .wb-lightbox-close,
+    .shortcut-row .shortcut-binding button
+  ) {
+    border-radius: var(--ui-radius-round) !important;
+  }
+
+  /* Child media follows the outer shape without clipping node connectors or menus. */
+  body:has([data-ui-surface="user"]) :where(
+    .real-canvas-node img, .real-canvas-node video, .real-canvas-node .prompt-body,
+    .real-canvas-node .node-loading-overlay, .node-card-preview img,
+    .node-card-preview video, .reference-thumb img, .detail-image img
+  ) {
+    border-radius: calc(var(--ui-radius-surface) - 1px) !important;
+  }
+  body:has([data-ui-surface="user"]) :where(
+    .project-visual, .library-asset-preview, .candidate > div:first-child,
+    .real-canvas-node .node-bar, .canvas-group-header
+  ) {
+    border-radius: calc(var(--ui-radius-surface) - 1px) calc(var(--ui-radius-surface) - 1px) 0 0 !important;
+  }
+
+  /* Joined panes share one outer silhouette instead of exposing square backgrounds. */
+  body:has([data-ui-surface="user"]) :where(.library-tree, .tag-tree, .settings-nav) {
+    border-radius: var(--ui-radius-surface) 0 0 var(--ui-radius-surface) !important;
+  }
+}

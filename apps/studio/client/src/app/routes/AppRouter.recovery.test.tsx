@@ -9,6 +9,9 @@ vi.mock("./routes", () => ({ appRoutes: mocks.routes }));
 vi.mock("@/components/AuthGuard", () => ({
   default: ({ children }: { children: ReactNode }) => children,
 }));
+vi.mock("../layouts/CanvasLayout", () => ({
+  default: ({ children }: { children: ReactNode }) => children,
+}));
 vi.mock("../layouts/StudioLayout", () => ({
   default: ({ children }: { children: ReactNode }) => (
     <>
@@ -62,6 +65,45 @@ describe("page switch error containment", () => {
     );
   }
 
+  it("excludes canvas and admin shapes across navigation and lazy loading", async () => {
+    route("/image", () => <p>图片工作台</p>, "none");
+    route("/admin", () => <p>管理后台</p>, "none");
+    mocks.routes[1].permission = "super_admin";
+    route(
+      "/admin/model-hub",
+      lazy(() => new Promise(() => {})),
+      "none"
+    );
+    mocks.routes[2].permission = "super_admin";
+    route("/monitoring", () => <p>用户运行监控</p>, "none");
+    mocks.routes[3].permission = "authenticated";
+    route("/canvas/project-1", () => <p>画布</p>, "canvas");
+    const location = memoryLocation({ path: "/image" });
+    await act(async () =>
+      root.render(
+        <Router hook={location.hook}>
+          <AppRouter />
+        </Router>
+      )
+    );
+    const surfaces = () =>
+      [...container.querySelectorAll("[data-ui-surface]")].map(element =>
+        element.getAttribute("data-ui-surface")
+      );
+    expect(surfaces()).toEqual(["user"]);
+    await act(async () => location.navigate("/admin"));
+    expect(surfaces()).toEqual(["admin"]);
+    await act(async () => location.navigate("/admin/model-hub"));
+    expect(surfaces()).toEqual(["admin"]);
+    expect(container.textContent).toContain("加载");
+    await act(async () => location.navigate("/monitoring"));
+    expect(surfaces()).toEqual(["user"]);
+    await act(async () => location.navigate("/canvas/project-1"));
+    expect(surfaces()).toEqual(["canvas"]);
+    await act(async () => location.navigate("/image"));
+    expect(surfaces()).toEqual(["user"]);
+  });
+
   it("keeps navigation available during lazy loading and page failure, and retries without remounting the shell", async () => {
     let broken = true;
     function Image() {
@@ -100,8 +142,12 @@ describe("page switch error containment", () => {
     expect(container.querySelector("nav")).toBe(nav);
     await click("加载页");
     expect(container.querySelector("nav")).not.toBeNull();
-    expect(container.querySelector('main [role="status"]')?.textContent).toContain("正在加载");
-    expect(container.querySelector('main .page-loader-contained')).not.toBeNull();
+    expect(
+      container.querySelector('main [role="status"]')?.textContent
+    ).toContain("正在加载");
+    expect(
+      container.querySelector("main .page-loader-contained")
+    ).not.toBeNull();
     // Navigate away before a slow page resolves; its late completion must not replace the current route.
     await click("工作台");
     await act(async () => resolvePage({ default: () => <p>过期页面</p> }));
@@ -110,11 +156,19 @@ describe("page switch error containment", () => {
   });
 
   it("uses the full viewport while a layout-free route is pending", async () => {
-    route("/standalone", lazy(() => new Promise<never>(() => {})), "none");
+    route(
+      "/standalone",
+      lazy(() => new Promise<never>(() => {})),
+      "none"
+    );
     const location = memoryLocation({ path: "/standalone" });
-    await act(async () => root.render(
-      <Router hook={location.hook}><AppRouter /></Router>
-    ));
+    await act(async () =>
+      root.render(
+        <Router hook={location.hook}>
+          <AppRouter />
+        </Router>
+      )
+    );
     expect(container.querySelector(".page-loader")).not.toBeNull();
     expect(container.querySelector(".page-loader-contained")).toBeNull();
   });

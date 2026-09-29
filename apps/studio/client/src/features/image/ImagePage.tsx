@@ -5,6 +5,7 @@ import {
   ArrowUp,
   BookOpen,
   Check,
+  ChevronRight,
   Clapperboard,
   Crop,
   Expand,
@@ -711,7 +712,29 @@ export function ImageWorkbenchView() {
           <h3>生成设定</h3>
         </div>
         <label className="prompt-editor"><span>SHOT PROMPT</span><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} /><small>{prompt.length} 字符</small></label>
-        <div className="workbench-preset-strip"><span>提示词</span><button onClick={() => setPromptLibraryOpen(true)}><BookOpen size={13} /> 提示词库</button>{visiblePromptPresets.map((preset) => <button key={preset.id} title={preset.prompt} onClick={() => setPrompt(preset.prompt)}>{priorityLabel(preset.priority)} · {preset.title}</button>)}</div>
+        <div className="workbench-preset-strip" role="group" aria-label="提示词快捷选择">
+          <div className="workbench-preset-heading">
+            <span className="workbench-preset-label">常用提示词</span>
+            <button type="button" className="workbench-preset-library" onClick={() => setPromptLibraryOpen(true)}>
+              <BookOpen size={14} aria-hidden="true" />
+              <span>提示词库</span>
+              <ChevronRight size={13} aria-hidden="true" />
+            </button>
+          </div>
+          {visiblePromptPresets.length ? (
+            <div className="workbench-preset-items">
+              {visiblePromptPresets.map((preset) => (
+                <button type="button" className="workbench-preset-chip" key={preset.id}
+                  title={`${priorityLabel(preset.priority)} · ${preset.title}\n${preset.prompt}`}
+                  aria-pressed={Boolean(preset.prompt.trim()) && prompt.trim() === preset.prompt.trim()}
+                  onClick={() => setPrompt(preset.prompt)}>
+                  <span>{preset.title}</span>
+                  <Check size={12} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          ) : <p className="workbench-preset-empty">在提示词库中保存常用内容，即可快捷选用</p>}
+        </div>
         <div className="reference-manager">
           <div className="reference-manager-head"><span>参考图 {references.length}/{MAX_REFERENCE_IMAGES}</span><div><button onClick={() => referenceInputRef.current?.click()}><Upload size={13} /> 上传</button><button onClick={() => setAssetPickerOpen((value) => !value)}><ImagePlus size={13} /> 从资产库</button>{references.length > 0 && <button onClick={() => { references.forEach((item) => URL.revokeObjectURL(item.previewUrl)); setReferences([]); }}>清空</button>}</div></div>
           {references.length ? <div className="reference-strip">{references.map((reference, index) => <div className="reference-thumb" key={reference.id}><img src={reference.previewUrl} alt={reference.file.name} /><span>{index + 1}</span><div className="reference-thumb-actions"><button title="前移" disabled={index === 0} onClick={() => moveReference(reference.id, -1)}><ArrowUp size={12} /></button><button title="后移" disabled={index === references.length - 1} onClick={() => moveReference(reference.id, 1)}><ArrowDown size={12} /></button><button title="移除" onClick={() => removeReference(reference.id)}><X size={12} /></button></div></div>)}</div> : <p className="reference-empty">粘贴、上传或从资产库选择参考图后，会自动走图生图编辑链路。</p>}

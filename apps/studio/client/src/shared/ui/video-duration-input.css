@@ -9,3 +9,31 @@
 .video-duration-input button { margin-top: 8px; padding: 3px 8px; border: 1px solid #444; border-radius: 6px; color: inherit; background: transparent; font-size: 11px; cursor: pointer; }
 .video-duration-input button.active { border-color: currentColor; background: #ffffff12; }
 .video-duration-input :disabled { cursor: default; opacity: .5; }
+
+/* Scrubber presentation is opt-in; existing canvas duration controls keep their layout. */
+.video-duration-input--scrubber { --duration-thumb-size: 20px; --duration-track-size: 6px; --duration-value-width: 54px; }
+.video-duration-input-rail { position: relative; padding-top: 30px; }
+.video-duration-input-value-lane { position: absolute; inset: 0 calc(var(--duration-thumb-size) / 2) auto; pointer-events: none; }
+.video-duration-input-value {
+  position: absolute;
+  left: clamp(calc(var(--duration-value-width) / 2), var(--duration-position), calc(100% - var(--duration-value-width) / 2));
+  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
+  width: var(--duration-value-width);
+  min-height: 26px;
+  border: 1px solid rgba(239,235,222,.16);
+  border-radius: 7px;
+  background: #303936;
+  color: #f1eee4;
+  font-size: var(--font-size-small);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.video-duration-input--scrubber input[type="range"] { appearance: none; height: 30px; margin: 0; padding: 0; border: 0; background: transparent; cursor: grab; }
+.video-duration-input--scrubber input[type="range"]:active:not(:disabled) { cursor: grabbing; }
+.video-duration-input--scrubber input[type="range"]:disabled { cursor: default; }
+.video-duration-input--scrubber input[type="range"]::-webkit-slider-runnable-track { height: var(--duration-track-size); border-radius: 999px; background: linear-gradient(to right, #d8dccf 0 var(--duration-progress), #444d48 var(--duration-progress) 100%); }
+.video-duration-input--scrubber input[type="range"]::-moz-range-track { height: var(--duration-track-size); border-radius: 999px; background: linear-gradient(to right, #d8dccf 0 var(--duration-progress), #444d48 var(--duration-progress) 100%); }
+.video-duration-input--scrubber input[type="range"]::-webkit-slider-thumb { appearance: none; width: var(--duration-thumb-size); height: var(--duration-thumb-size); margin-top: calc((var(--duration-track-size) - var(--duration-thumb-size)) / 2); border: 3px solid #dce0d3; border-radius: 50%; background: #f5f3eb; box-shadow: 0 1px 5px #0006; }
+.video-duration-input--scrubber input[type="range"]::-moz-range-thumb { box-sizing: border-box; width: var(--duration-thumb-size); height: var(--duration-thumb-size); border: 3px solid #dce0d3; border-radius: 50%; background: #f5f3eb; box-shadow: 0 1px 5px #0006; }

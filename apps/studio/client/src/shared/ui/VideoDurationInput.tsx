@@ -1,9 +1,11 @@
+import type { CSSProperties } from "react";
 import "./video-duration-input.css";
 
 type Props = {
   value: string;
   durations: ReadonlyArray<string | number>;
   disabled?: boolean;
+  presentation?: "default" | "scrubber";
   onChange: (seconds: string) => void;
 };
 
@@ -11,7 +13,7 @@ type Props = {
 const trackEnd = 100;
 const trackMiddle = trackEnd / 2;
 
-export function VideoDurationInput({ value, durations, disabled, onChange }: Props) {
+export function VideoDurationInput({ value, durations, disabled, presentation = "default", onChange }: Props) {
   const values = [...new Set(durations.map(Number).filter(duration => Number.isFinite(duration) && duration > 0))].sort((a, b) => a - b);
   const min = values[0];
   const max = values[values.length - 1];
@@ -20,19 +22,22 @@ export function VideoDurationInput({ value, durations, disabled, onChange }: Pro
   const supportsAuto = durations.some(duration => Number(duration) === -1);
   const current = Number(value) > 0 ? Number(value) : min;
   const snap = (seconds: number) => values.reduce((best, item) => Math.abs(item - seconds) <= Math.abs(best - seconds) ? item : best);
-  const toPosition = (seconds: number) => seconds <= middle
-    ? (seconds - min) / (middle - min) * trackMiddle
-    : trackMiddle + (seconds - middle) / (max - middle) * trackMiddle;
-  const fromPosition = (position: number) => position <= trackMiddle
-    ? min + position / trackMiddle * (middle - min)
-    : middle + (position - trackMiddle) / trackMiddle * (max - middle);
-  const useSlider = values.length > 1 && min < middle;
-  return <div className="video-duration-input">
-    {useSlider ? <><input
+  // Narrow/discrete ranges cannot place max / 2 below their minimum on the rail.
+  const splitTrack = min < middle;
+  const toPosition = (seconds: number) => !splitTrack ? (seconds - min) / (max - min) * trackEnd
+    : seconds <= middle ? (seconds - min) / (middle - min) * trackMiddle
+      : trackMiddle + (seconds - middle) / (max - middle) * trackMiddle;
+  const fromPosition = (position: number) => !splitTrack ? min + position / trackEnd * (max - min)
+    : position <= trackMiddle ? min + position / trackMiddle * (middle - min)
+      : middle + (position - trackMiddle) / trackMiddle * (max - middle);
+  const scrubber = presentation === "scrubber";
+  const useSlider = values.length > 1 && (splitTrack || scrubber);
+  const position = useSlider ? toPosition(snap(current)) : 0;
+  const slider = useSlider ? <input
       type="range" aria-label="视频时长" disabled={disabled}
       min={0} max={trackEnd} step="any"
-      value={toPosition(snap(current))} aria-valuemin={min} aria-valuemax={max} aria-valuenow={snap(current)}
-      aria-valuetext={automatic ? "自动" : `${value} 秒`}
+      value={position} aria-valuemin={min} aria-valuemax={max} aria-valuenow={snap(current)}
+      aria-valuetext={automatic ? "自动" : `${snap(current)} 秒`}
       onChange={event => onChange(String(snap(fromPosition(Number(event.target.value)))))}
       onKeyDown={event => {
         const index = values.indexOf(snap(current));
@@ -41,13 +46,21 @@ export function VideoDurationInput({ value, durations, disabled, onChange }: Pro
           : ["ArrowLeft", "ArrowDown"].includes(event.key) ? values[Math.max(0, index - 1)] : undefined;
         if (next !== undefined) { event.preventDefault(); onChange(String(next)); }
       }}
-    />
+    /> : null;
+  return <div className={`video-duration-input${scrubber ? " video-duration-input--scrubber" : ""}`}>
+    {useSlider ? <>
+    {scrubber ? <div className="video-duration-input-rail" style={{ "--duration-position": `${position}%`, "--duration-progress": `${automatic ? 0 : position}%` } as CSSProperties}>
+      <div className="video-duration-input-value-lane" aria-hidden="true">
+        <span className="video-duration-input-value">{automatic ? "自动" : `${snap(current)} 秒`}</span>
+      </div>
+      {slider}
+    </div> : slider}
     <div className="video-duration-input-caption">
       <span>{min}s</span>
-      <span>{middle}s</span>
+      <span>{splitTrack ? `${middle}s` : ""}</span>
       <span>{max}s</span>
     </div>
-    {!values.includes(middle) ? <p className="video-duration-input-note">拖动吸附至模型支持的时长</p> : null}
+    {!values.includes(middle) || !splitTrack ? <p className="video-duration-input-note">拖动吸附至模型支持的时长</p> : null}
     </> : values.length ? <div className="video-duration-input-choices">
       {values.map(seconds => <button key={seconds} type="button" disabled={disabled}
         className={current === seconds && !automatic ? "active" : ""} aria-pressed={current === seconds && !automatic}

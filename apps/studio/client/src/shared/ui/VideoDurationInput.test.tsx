@@ -59,3 +59,32 @@ it("offers only live discrete choices and replaces them when capabilities are un
     expect(container.querySelector("input")?.hasAttribute("max")).toBe(false);
   } finally { await act(async () => root.unmount()); }
 });
+
+it.each([[5, 10], [8, 10]])("scrubs discrete or narrow catalog ranges %j without submitting unsupported seconds", async (...durations) => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const onChange = vi.fn();
+  function Example() {
+    const [value, setValue] = useState(String(durations[0]));
+    return <VideoDurationInput presentation="scrubber" value={value} durations={durations}
+      onChange={seconds => { onChange(seconds); setValue(seconds); }} />;
+  }
+  try {
+    await act(async () => root.render(<Example />));
+    const range = container.querySelector<HTMLInputElement>('input[type="range"]')!;
+    expect(range).not.toBeNull();
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    for (const [position, expected] of [[100, durations[1]], [0, durations[0]], [50, durations[1]]]) {
+      await act(async () => {
+        setValue.call(range, String(position));
+        range.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(onChange).toHaveBeenLastCalledWith(String(expected));
+      expect(range.getAttribute("aria-valuenow")).toBe(String(expected));
+      expect(container.querySelector(".video-duration-input-value")?.textContent).toBe(`${expected} 秒`);
+    }
+    await act(async () => range.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })));
+    expect(onChange).toHaveBeenLastCalledWith(String(durations[0]));
+  } finally { await act(async () => root.unmount()); }
+});

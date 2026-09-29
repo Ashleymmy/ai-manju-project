@@ -57,26 +57,43 @@ function AppRouteElement({ route }: { route: AppRoute }) {
   const [location, navigate] = useLocation();
   const Page = route.Component;
   return (
-    <ProtectedRoute route={route}>
-      <ErrorBoundary
-        resetKey={`${route.id}:${location}`}
-        onGoHome={() => navigate("/dashboard")}
-      >
-        <Suspense fallback={<RouteLoading />}>
-          <RouteLayoutBoundary layout={route.layout}>
-            <ErrorBoundary
-              resetKey={`${route.id}:${location}`}
-              contained
-              onGoHome={() => navigate("/dashboard")}
-            >
-              <Suspense fallback={<RouteLoading contained={route.layout !== "none"} />}>
-                <Page />
-              </Suspense>
-            </ErrorBoundary>
-          </RouteLayoutBoundary>
-        </Suspense>
-      </ErrorBoundary>
-    </ProtectedRoute>
+    <>
+      {/* Canvas keeps its existing shapes; user-page opt-in includes body portals. */}
+      <span
+        hidden
+        data-ui-surface={
+          route.permission === "super_admin"
+            ? "admin"
+            : route.layout === "canvas"
+              ? "canvas"
+              : "user"
+        }
+      />
+      <ProtectedRoute route={route}>
+        <ErrorBoundary
+          resetKey={`${route.id}:${location}`}
+          onGoHome={() => navigate("/dashboard")}
+        >
+          <Suspense fallback={<RouteLoading />}>
+            <RouteLayoutBoundary layout={route.layout}>
+              <ErrorBoundary
+                resetKey={`${route.id}:${location}`}
+                contained
+                onGoHome={() => navigate("/dashboard")}
+              >
+                <Suspense
+                  fallback={
+                    <RouteLoading contained={route.layout !== "none"} />
+                  }
+                >
+                  <Page />
+                </Suspense>
+              </ErrorBoundary>
+            </RouteLayoutBoundary>
+          </Suspense>
+        </ErrorBoundary>
+      </ProtectedRoute>
+    </>
   );
 }
 
@@ -89,6 +106,7 @@ export default function AppRouter() {
         </Route>
       ))}
       <Route>
+        <span hidden data-ui-surface="user" />
         <ErrorBoundary>
           <Suspense fallback={<RouteLoading />}>
             <NotFoundRoute />

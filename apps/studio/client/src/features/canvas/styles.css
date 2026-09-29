@@ -4930,7 +4930,7 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
   background: #1c1c1c;
 }
 .real-canvas-node > .node-float-label > b { font-size: 12px; }
-.real-canvas-node > .node-toolbar-wrap { top: calc(-34px * var(--node-controls-scale)); }
+.real-canvas-node > .node-toolbar-wrap { top: calc(-34px * var(--node-controls-scale) - var(--node-toolbar-group-lift, 0px)); }
 .real-canvas-node > .node-upload-pill { top: calc(-36px * var(--node-controls-scale)); }
 .real-canvas-node > .canvas-node-favorite,
 .real-canvas-node > .canvas-batch-child-tools,

@@ -36,9 +36,11 @@
   transition: background 0.13s ease, color 0.13s ease;
 }
 
-.wb-segments button:hover:not(:disabled) { color: #e5e4db; }
-.wb-segments button.active { background: rgba(255, 255, 255, 0.85); color: #fff; }
+.wb-segments button:hover:not(:disabled):not(.active) { color: #e5e4db; }
+/* Keep the legacy asset-panel selectors consistent when both style files load. */
+.wb-segments button.active { background: #e3e6df; color: #1b2420; font-weight: 600; }
 .wb-segments button:disabled { opacity: 0.35; cursor: default; }
+.wb-segments button.active:disabled { background: #343c37; color: #bfc8c1; opacity: 1; }
 
 .wb-picker-search {
   display: flex;

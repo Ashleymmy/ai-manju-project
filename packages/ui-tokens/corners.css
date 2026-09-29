@@ -1,0 +1,8 @@
+/* Shared by Studio and the embedded director desk. Keep user-facing corners subtle. */
+:root {
+  --ui-radius-detail: 4px;
+  --ui-radius-control: 6px;
+  --ui-radius-surface: 8px;
+  --ui-radius-dialog: 10px;
+  --ui-radius-round: 999px;
+}

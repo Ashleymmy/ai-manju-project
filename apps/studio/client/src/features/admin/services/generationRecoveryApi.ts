@@ -1,7 +1,7 @@
 import { request } from "@/shared/api/http";
 
 /** Keep recovery lists bounded; each page describes existing tasks only. */
-export const GENERATION_RECOVERY_PAGE_SIZE = 30;
+export const GENERATION_RECOVERY_PAGE_SIZE = 10;
 export const GENERATION_RECOVERY_QUERY_KEY = ["admin", "generation-recovery"] as const;
 
 export type GenerationRecoveryRow = {

@@ -13,6 +13,7 @@ COPY apps/studio ./apps/studio
 COPY apps/director-desk ./apps/director-desk
 COPY packages/canvas-agent-protocol ./packages/canvas-agent-protocol
 COPY packages/provider-hub ./packages/provider-hub
+COPY packages/ui-tokens ./packages/ui-tokens
 RUN pnpm install --frozen-lockfile --filter ai-manhua-studio... --filter @ai-manju/director-desk... --filter @ai-manju/canvas-agent-protocol...
 
 ARG VITE_API_URL=/

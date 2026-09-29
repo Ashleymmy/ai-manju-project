@@ -1,0 +1,41 @@
+@import "../../../../packages/ui-tokens/corners.css";
+
+/* The embedded user workspace shares Studio's scale. Full-bleed viewports,
+ * crop guides, range thumbs and circular gizmos retain their geometry. */
+@layer user-corners {
+  :where(button, select, textarea, .ui-field, .inspector-axis-input,
+    input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="color"])) {
+    border-radius: var(--ui-radius-control) !important;
+  }
+  :where(
+    .ui-panel, .panel-card:not(.right-inspector), .ui-card, .sub-panel,
+    .camera-preview-card, .asset-import-item, .object-row, .ui-segmented, .mode-toggle,
+    .director-home-empty, .director-home-card, .director-home-guide,
+    .director-home-release, .director-home-contributors, .director-home-controls,
+    .director-home-control-group, .director-home-mac-gestures, .director-home-tools-guide,
+    .director-home-steps li, .director-home-card-icon, .boot-placeholder,
+    .top-bar-left, .top-bar-center, .top-bar-actions,
+    .left-sidebar, .right-sidebar, .director-sidebar,
+    .performance-settings-popover, .viewport-sensitivity-popover,
+    .performance-settings-status, .performance-benchmark-result, .viewport-sensitivity-note,
+    .model-library-panel, .model-library-thumb, .capture-preview, .capture-status,
+    .capture-list-placeholder, .viewport-error-card, .inspector-preview-card,
+    .inspector-dropdown-menu, .panorama-empty-card, .camera-motion-intro,
+    .camera-motion-empty, .camera-motion-playback, .motion-monitor, .motion-batch-selection,
+    .motion-preview-option, .camera-preview-hud, .pilot-keyboard-help,
+    .viewport-toolbar, .viewport-toolbar-menu, .viewport-toolbar-submenu,
+    .viewport-toolbar-crowd-panel, .viewport-aspect-panel, .viewport-aspect-frame-shell
+  ) {
+    border-radius: var(--ui-radius-surface) !important;
+  }
+  :where([role="dialog"], .character-import-dialog) {
+    border-radius: var(--ui-radius-dialog) !important;
+  }
+  :where(.role-label, .pilot-status, .viewport-toolbar-label) {
+    border-radius: var(--ui-radius-detail) !important;
+  }
+  :where(.viewport-gizmo-hit-button, .motion-waypoint-insert,
+    .panorama-thumbnail-delete, .model-library-card-delete, .director-home-card-delete) {
+    border-radius: var(--ui-radius-round) !important;
+  }
+}

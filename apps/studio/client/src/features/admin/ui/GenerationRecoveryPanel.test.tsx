@@ -19,7 +19,7 @@ function row(overrides: Partial<GenerationRecoveryRow> = {}): GenerationRecovery
     ...overrides,
   };
 }
-const page = (items = [row()], total = items.length, offset = 0) => ({ items, total, limit: 30, offset });
+const page = (items = [row()], total = items.length, offset = 0) => ({ items, total, limit: 10, offset });
 
 describe("admin generation recovery", () => {
   let root: Root, container: HTMLDivElement, client: QueryClient;
@@ -97,15 +97,53 @@ describe("admin generation recovery", () => {
   });
 
   it("paginates bounded reads without carrying the prior page into a new action", async () => {
-    vi.mocked(fetchGenerationRecovery).mockImplementation(async offset => offset === 30 ? page([row({ id: "job-page-2" })], 31, 30) : page([row()], 31));
+    const records = Array.from({ length: 12 }, (_, index) => row({ id: `job-${index + 1}` }));
+    vi.mocked(fetchGenerationRecovery).mockImplementation(async (offset = 0) => page(records.slice(offset, offset + 10), 12, offset));
     await render();
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(10);
+    expect(container.textContent).toContain("共 12 条 · 每页 10 条 · 第 1 / 2 页");
     expect(button("上一页")?.disabled).toBe(true);
+    const firstViewport = container.querySelector<HTMLDivElement>(".generation-recovery-table")!;
+    firstViewport.scrollTop = 200;
     await act(async () => button("下一页")!.click());
     await flush();
-    expect(fetchGenerationRecovery).toHaveBeenLastCalledWith(30, expect.any(AbortSignal));
+    expect(fetchGenerationRecovery).toHaveBeenLastCalledWith(10, expect.any(AbortSignal));
     expect(container.textContent).toContain("第 2 / 2 页");
-    expect(resumeButton()).toBeNull();
-    expect(resumeButton("job-page-2")).not.toBeNull();
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(2);
+    expect(resumeButton("job-1")).toBeNull();
+    expect(resumeButton("job-11")).not.toBeNull();
+    expect(button("下一页")?.disabled).toBe(true);
+    expect(container.querySelector<HTMLDivElement>(".generation-recovery-table")!.scrollTop).toBe(0);
+    await act(async () => button("上一页")!.click());
+    await flush();
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(10);
+    expect(resumeButton("job-11")).toBeNull();
+    expect(container.querySelector<HTMLDivElement>(".generation-recovery-table")!.scrollTop).toBe(0);
+    expect(resumeGenerationRecovery).not.toHaveBeenCalled();
+  });
+
+  it.each([10, 11])("uses a ten-record page boundary when the total is %i", async total => {
+    vi.mocked(fetchGenerationRecovery).mockResolvedValue(page(Array.from({ length: 10 }, (_, index) => row({ id: `job-${index}` })), total));
+    await render();
+    expect(button("下一页")?.disabled).toBe(total === 10);
+    expect(container.textContent).toContain(`第 1 / ${total === 10 ? 1 : 2} 页`);
+  });
+
+  it("returns to the remaining page when a refresh removes the last page", async () => {
+    const records = Array.from({ length: 12 }, (_, index) => row({ id: `job-${index + 1}` }));
+    let total = 12;
+    vi.mocked(fetchGenerationRecovery).mockImplementation(async (offset = 0) => page(records.slice(0, total).slice(offset, offset + 10), total, offset));
+    await render();
+    await act(async () => button("下一页")!.click());
+    await flush();
+    total = 10;
+    await act(async () => button("刷新恢复列表")!.click());
+    await flush();
+    await flush();
+    expect(fetchGenerationRecovery).toHaveBeenLastCalledWith(0, expect.any(AbortSignal));
+    expect(container.textContent).toContain("共 10 条 · 每页 10 条 · 第 1 / 1 页");
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(10);
+    expect(button("上一页")?.disabled).toBe(true);
     expect(button("下一页")?.disabled).toBe(true);
   });
 

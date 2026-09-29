@@ -8,9 +8,9 @@ beforeEach(() => vi.resetAllMocks());
 describe("original generation recovery API", () => {
   it("requests a bounded page and passes cancellation to the status read", async () => {
     const controller = new AbortController();
-    await fetchGenerationRecovery(30, controller.signal);
+    await fetchGenerationRecovery(10, controller.signal);
     expect(request).toHaveBeenCalledWith("/api/admin/generation-recovery", {
-      query: { limit: 30, offset: 30 }, signal: controller.signal,
+      query: { limit: 10, offset: 10 }, signal: controller.signal,
     });
   });
 

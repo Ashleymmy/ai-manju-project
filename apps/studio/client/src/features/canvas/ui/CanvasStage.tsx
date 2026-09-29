@@ -25,7 +25,7 @@ import type {
   ReactNode,
   RefObject,
 } from "react";
-import { useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { useOutsidePress } from "@/shared/lib/useOutsidePress";
 import MetaBallOrb from "@/components/MetaBallOrb";
 import {
@@ -58,6 +58,9 @@ import {
   type CanvasBottomToolbarProps,
   type CanvasTopToolbarProps,
 } from "./CanvasToolbar";
+
+// Screen-space gap keeps a member's toolbar clear of clickable group headers at any zoom.
+const NODE_TOOLBAR_GROUP_GAP = 8;
 
 type CanvasContextMenuState = {
   x: number;
@@ -305,6 +308,45 @@ export function CanvasStage({
   useOutsidePress(Boolean(contextMenu), event => event.composedPath().includes(contextMenuRef.current!), () => setContextMenu(null));
   // This menu opens on pointerup; the same gesture's trailing click must not dismiss it.
   useOutsidePress(Boolean(pendingConnectionCreate), event => event.composedPath().includes(connectionMenuRef.current!), cancelPendingConnectionCreate, false);
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    const toolbar = grid?.querySelector<HTMLElement>(".node-toolbar-wrap");
+    const node = toolbar?.closest<HTMLElement>(".real-canvas-node");
+    if (!grid || !toolbar || !node) return;
+    const headers = [...grid.querySelectorAll<HTMLElement>(".canvas-group-header")];
+    if (!headers.length) return;
+    const placeToolbar = () => {
+      toolbar.style.removeProperty("--node-toolbar-group-lift");
+      const worldScale = zoom / 100;
+      if (worldScale <= 0) return;
+      const nodeRect = node.getBoundingClientRect();
+      const controlsScale = worldScale * (parseFloat(getComputedStyle(toolbar).scale) || 1);
+      // Layout dimensions ignore the toolbar's entrance animation, so it does not jump afterwards.
+      const bottom = nodeRect.top + (node.clientTop + toolbar.offsetTop) * worldScale;
+      const height = toolbar.offsetHeight * controlsScale;
+      const width = toolbar.offsetWidth * controlsScale;
+      const left = nodeRect.left + (node.clientLeft + toolbar.offsetLeft) * worldScale - width / 2;
+      let lift = 0;
+      const headerRects = headers.map(header => header.getBoundingClientRect()).sort((a, b) => b.top - a.top);
+      for (const header of headerRects) {
+        if (left < header.right && left + width > header.left
+          && bottom - lift > header.top - NODE_TOOLBAR_GROUP_GAP
+          && bottom - lift - height < header.bottom + NODE_TOOLBAR_GROUP_GAP) {
+          lift = bottom - header.top + NODE_TOOLBAR_GROUP_GAP;
+        }
+      }
+      if (lift > 0) toolbar.style.setProperty("--node-toolbar-group-lift", `${lift / worldScale}px`);
+    };
+    placeToolbar();
+    // Price text and responsive group headers can change size after the initial render.
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(placeToolbar);
+    observer?.observe(toolbar);
+    headers.forEach(header => observer?.observe(header));
+    return () => {
+      observer?.disconnect();
+      toolbar.style.removeProperty("--node-toolbar-group-lift");
+    };
+  }, [gridRef, zoom, groups, renderedNodes, nodeCardProps]);
   return (
         <section
           ref={stageRef}

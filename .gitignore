@@ -34,6 +34,7 @@ apps/*
 packages/*
 !packages/canvas-agent-protocol/
 !packages/provider-hub/
+!packages/ui-tokens/
 ui重构参考/
 demo/
 !packages/provider-hub/demo/

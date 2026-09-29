@@ -4,8 +4,14 @@
   --tag-options-height: 240px;
   --tag-control-height: 34px;
   --tag-toggle-width: 28px;
+  /* A compact section heading, one step above the 13px tag controls. */
+  --tag-title-size: 15px;
+  /* Reserve room for text and the clear action without resizing while typing. */
+  --tag-search-width: 240px;
   margin: 20px 0 16px;
-  border-block: 1px solid var(--line);
+  border: 1px solid rgba(239,235,222,.16);
+  border-radius: var(--ui-radius-surface, 8px);
+  overflow: hidden;
   background: rgba(255,255,255,.02);
   color: #d5dfe2;
   font-size: var(--font-size-small);
@@ -13,13 +19,15 @@
 }
 .asset-taxonomy button { cursor: pointer; color: inherit; font: inherit; letter-spacing: 0; }
 .asset-taxonomy button:disabled { opacity: .4; cursor: default; }
-.asset-taxonomy button:focus-visible, .asset-taxonomy input:focus-visible { outline: 2px solid #83bdce; outline-offset: -2px; }
+.asset-taxonomy button:focus-visible { outline: 2px solid #83bdce; outline-offset: -2px; }
 .asset-taxonomy-head { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
-.asset-taxonomy-title { color: #e7edef; font-weight: 600; margin-right: auto; white-space: nowrap; }
-.asset-taxonomy-search { display: flex; align-items: center; gap: 8px; width: 200px; min-width: 0; height: var(--tag-control-height); padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: #1b2022; color: #97a8af; }
-.asset-taxonomy-search input { width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; color: #e7edef; font: inherit; }
+.asset-taxonomy-title { margin: 0 auto 0 0; color: #e7edef; font-family: var(--font-family-ui); font-size: var(--tag-title-size); font-weight: var(--font-weight-emphasis); line-height: 1.5; letter-spacing: 0; white-space: nowrap; }
+.asset-taxonomy-search { display: flex; align-items: center; gap: 8px; width: var(--tag-search-width); max-width: 100%; min-width: 0; height: var(--tag-control-height); padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: #1b2022; color: #97a8af; }
+.asset-taxonomy-search:focus-within { border-color: #83bdce; box-shadow: 0 0 0 2px rgba(131,189,206,.12); }
+.asset-taxonomy-search input { flex: 1 1 0; width: 0; min-width: 0; height: 100%; margin: 0; padding: 0; border: 0; outline: none; box-shadow: none; background: transparent; color: #e7edef; font: inherit; }
 .asset-taxonomy-search svg { flex-shrink: 0; }
 .asset-taxonomy-search .asset-taxonomy-tool { width: 22px; height: 26px; }
+.asset-taxonomy-search .asset-taxonomy-tool:disabled { visibility: hidden; }
 .asset-taxonomy-controls { display: flex; align-items: center; gap: 6px; }
 .asset-taxonomy-match { display: flex; padding: 3px; border-radius: 6px; background: #1b2022; }
 .asset-taxonomy-match button, .asset-taxonomy-clear { min-height: 28px; padding: 3px 9px; border: 0; border-radius: 4px; background: transparent; }

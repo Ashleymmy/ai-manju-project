@@ -15,6 +15,7 @@ export function AssetTagFilter({ tags, selectedIds, match, onToggle, onClear, on
 }) {
   const subpanelId = useId();
   const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
   const [activeTagId, setActiveTagId] = useState("");
   const rootTriggers = useRef(new Map<string, HTMLButtonElement>());
   const branches = useMemo(() => assetTagBranches(tags), [tags]);
@@ -60,13 +61,14 @@ export function AssetTagFilter({ tags, selectedIds, match, onToggle, onClear, on
   };
   return <section className="asset-taxonomy" aria-label="分类标签">
     <div className="asset-taxonomy-head">
-      <span className="asset-taxonomy-title">分类标签</span>
+      <h2 className="asset-taxonomy-title">分类标签</h2>
       <div className="asset-taxonomy-search">
         <Search size={14} aria-hidden="true" />
-        <input aria-label="搜索分类标签" placeholder="搜索标签" value={query}
+        <input ref={searchRef} aria-label="搜索分类标签" placeholder="搜索标签" value={query}
           onChange={event => setQuery(event.target.value)} />
-        {query && <button type="button" className="asset-taxonomy-tool" title="清空标签搜索"
-          aria-label="清空标签搜索" onClick={() => setQuery("")}><X size={14} /></button>}
+        <button type="button" className="asset-taxonomy-tool" title="清空标签搜索"
+          aria-label="清空标签搜索" disabled={!query} aria-hidden={!query}
+          onClick={() => { setQuery(""); searchRef.current?.focus(); }}><X size={14} /></button>
       </div>
       <div className="asset-taxonomy-controls">
         <div className="asset-taxonomy-match" role="group" aria-label="标签匹配方式">
