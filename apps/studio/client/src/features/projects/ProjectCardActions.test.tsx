@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   success: vi.fn(),
   warning: vi.fn(),
   error: vi.fn(),
+  memberOverview: vi.fn(),
 }));
 
 vi.mock("wouter", () => ({ useLocation: () => ["/", mocks.navigate] }));
@@ -51,7 +52,7 @@ vi.mock("@/entities/comic", () => ({ listComicProjects: async () => [] }));
 vi.mock("@/entities/job", () => ({ getJobs: async () => [] }));
 vi.mock("@/features/chat", () => ({ ChatComposer: () => null }));
 vi.mock("@/features/member", () => ({
-  useMemberOverviewQuery: () => ({}),
+  useMemberOverviewQuery: mocks.memberOverview,
   useMemberConsumptionsQuery: () => ({ data: { items: [] } }),
   formatCredits: String,
 }));
@@ -131,6 +132,7 @@ describe.each([
 
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.memberOverview.mockReturnValue({});
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("prompt", vi.fn().mockReturnValue(null));
     vi.stubGlobal("confirm", vi.fn().mockReturnValue(false));
@@ -182,6 +184,24 @@ describe.each([
     container.remove();
     vi.unstubAllGlobals();
   });
+
+  if (name === "dashboard") {
+    it("uses actual output sheets instead of billing task counts and never substitutes missing data", async () => {
+      const overview = { monthly_usage: { image_count: 2, video_seconds: 10, total_credits: 100 } };
+      mocks.memberOverview.mockReturnValue({ data: { ...overview, monthly_creation: { image_count: 7 } } });
+      await mount();
+      const imageValue = () => container.querySelector(".creation-stat-image .creation-stat-value")?.textContent;
+      expect(imageValue()).toBe("7张");
+
+      mocks.memberOverview.mockReturnValue({ data: overview });
+      await mount();
+      expect(imageValue()).toBe("—张");
+
+      mocks.memberOverview.mockReturnValue({ data: { ...overview, monthly_creation: { image_count: 0 } } });
+      await mount();
+      expect(imageValue()).toBe("0张");
+    });
+  }
 
   it("provides four independent tools per card and preserves card navigation", async () => {
     await mount();

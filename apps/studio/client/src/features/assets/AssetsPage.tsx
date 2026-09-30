@@ -3,14 +3,16 @@ import {
   Archive,
   ArrowDown,
   ArrowUp,
+  AudioLines,
   ChevronRight,
+  Download,
   FolderInput,
   FolderOpen,
   Image as ImageIcon,
-  Layers3,
   Loader2,
   Music2,
   Pencil,
+  Play,
   Plus,
   RefreshCcw,
   Search,
@@ -20,8 +22,9 @@ import {
   Trash2,
   Upload,
   Video,
-  WandSparkles,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -76,10 +79,12 @@ import {
 import SeedanceAssetPanel from "@/components/SeedanceAssetPanel";
 import { semanticTagPath } from "@/features/tags";
 import { publicApiError } from "@/shared/api/errors";
+import { VideoThumbnail } from "@/shared/ui/VideoThumbnail";
 import type { WorkspaceScope } from "@/shared/config";
 
 import { importTaskManager, useImportTask } from "./model/importTaskManager";
 import { isAssetPackageFile } from "./model/assetPackageFile";
+import { useAssetGridSize } from "./model/useAssetGridSize";
 import { isAssetFavorited, nextAssetReaction } from "./model/reactions";
 import { formatTrashCountdown, isTrashCountdownUrgent, remainingTrashDays } from "./model/trashRetention";
 import { AssetSelectionArea } from "./ui/AssetSelectionArea";
@@ -125,6 +130,8 @@ const assetCategoryOptions: Array<Option<AssetCategory | "">> = [
 const DEFAULT_UPLOAD_CATEGORY: AssetCategory = "other";
 /** Limit concurrent transfers so uploads leave bandwidth for previews. */
 const ASSET_UPLOAD_CONCURRENCY = 3;
+/** Use the same page limit for requests, selection and pagination. */
+const ASSET_LIBRARY_PAGE_SIZE = 50;
 
 /** 移动素材的目标列表最多显示两级；侧栏仍可浏览完整目录树。 */
 const ASSET_MOVE_FOLDER_MAX_LEVELS = 2;
@@ -183,6 +190,7 @@ function formatStatus(status?: string) {
 }
 
 export function AssetLibraryView() {
+  const gridSize = useAssetGridSize();
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -190,7 +198,9 @@ export function AssetLibraryView() {
   const [scope, setScope] = useState<WorkspaceScope>(() => initialScopeFromSearch());
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
-  const [assets, setAssets] = useState<Asset[]>([]);
+  const [assetRecords, setAssets] = useState<Asset[]>([]);
+  const [linkedAssetId, setLinkedAssetId] = useState("");
+  const assets = assetRecords.filter(asset => asset.id !== linkedAssetId);
   const [folders, setFolders] = useState<AssetFolder[]>([]);
   const [tags, setTags] = useState<SemanticTag[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -241,7 +251,7 @@ export function AssetLibraryView() {
   lightboxUrlRef.current = lightboxUrl;
   const selectedIdsFromUi = selectedIds.filter(id => assets.some(asset => asset.id === id));
   const selectedAssets = assets.filter(asset => selectedIdsFromUi.includes(asset.id));
-  const selected = selectedAssets.length === 1 ? selectedAssets[0] : assets.find((asset) => asset.id === selectedId) || assets[0];
+  const selected = selectedAssets.length === 1 ? selectedAssets[0] : assetRecords.find((asset) => asset.id === selectedId) || assets[0];
   const assetTags = useMemo(() => tags.filter(tag => tag.asset_enabled), [tags]);
   const activeFolder = folders.find((folder) => folder.id === activeFolderId);
   // Linked canvas archives can be removed; fixed system destinations cannot.
@@ -297,7 +307,7 @@ export function AssetLibraryView() {
     includeTagDescendants: true,
     sort: sortOrder,
     page,
-    pageSize: 30,
+    pageSize: ASSET_LIBRARY_PAGE_SIZE,
   }), [activeFolderId, assetType, category, createdFrom, createdTo, debouncedKeyword, page, selectedTagIds, smartViewQuery, sortOrder, sourceType, tagMatch]);
   useEffect(() => { setSelectedIds([]); }, [scope, query, smartView]);
   const overviewQuery = useAssetOverviewQuery(scope, refreshKey);
@@ -354,7 +364,7 @@ export function AssetLibraryView() {
 
   useEffect(() => {
     setPage(1);
-  }, [activeFolderId, assetType, category, createdFrom, createdTo, debouncedKeyword, selectedTagIds, smartView, sortOrder, sourceType, tagMatch]);
+  }, [scope, activeFolderId, assetType, category, createdFrom, createdTo, debouncedKeyword, selectedTagIds, smartView, sortOrder, sourceType, tagMatch]);
 
   useEffect(() => {
     if (!overviewQuery.data) return;
@@ -384,9 +394,10 @@ export function AssetLibraryView() {
       toast.info("链接指向的资产不存在或不可访问");
     }
     if (deepLinkId) setSelectedId(deepLinkId);
-    setAssets(items);
+    setAssets(result.linkedAsset ? [...items, result.linkedAsset] : items);
+    setLinkedAssetId(result.linkedAsset?.id || "");
     setTotal(result.total || 0);
-    setSelectedId((current) => items.some((item) => item.id === current) ? current : items[0]?.id || "");
+    setSelectedId((current) => items.some((item) => item.id === current) || result.linkedAsset?.id === current ? current : items[0]?.id || "");
     setSelectedIds((ids) => ids.filter((id) => items.some((asset) => asset.id === id)));
   }, [
     libraryQuery.data,
@@ -917,7 +928,7 @@ export function AssetLibraryView() {
           <button type="button" onClick={() => void deleteFolder()} disabled={!canDeleteActiveFolder} title={activeFolder && !canDeleteActiveFolder ? "系统固定目录不可删除" : undefined}><Trash2 size={14} /> 删除当前文件夹</button>
         </div>
       </aside>
-      <section className="asset-browser" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (smartView !== "seedance") void handleFiles(event.dataTransfer.files); }}>{smartView === "seedance" ? <SeedanceAssetPanel scope={scope} /> : <>
+      <section className="asset-browser" style={gridSize.gridStyle} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (smartView !== "seedance") void handleFiles(event.dataTransfer.files); }}>{smartView === "seedance" ? <SeedanceAssetPanel scope={scope} /> : <>
         <div className="asset-browser-top"><div><button className="breadcrumb">{scope === "personal" ? "个人素材" : "团队素材"} <ChevronRight size={13} /></button><h2>{activeFolder?.name || smartViews.find((item) => item.value === smartView)?.label}</h2></div><div className="tag-search"><Search size={15} /><input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索资产名称、来源或标签" /></div></div>
         <div className="asset-filter-bar">
           <select value={category} onChange={(event) => setCategory(event.target.value as AssetCategory | "")}>{assetCategoryOptions.map((item) => <option key={item.value || "all"} value={item.value}>{item.label}</option>)}</select>
@@ -951,10 +962,20 @@ export function AssetLibraryView() {
           onCancel={batch => { void cancelAssetExport(batch.id, scope).then(reloadExports).catch(error => toast.error(publicApiError(error, "取消失败"))); }}
         />
         {showImportTasks && !importTask.open && <AssetImportTaskPanel />}
-        <p className="asset-selection-hint">按住鼠标左键拖动框选 · Ctrl / ⌘ / Shift 可追加选择 · 双击预览</p>
+        <div className="asset-grid-toolbar">
+          <p className="asset-selection-hint">按住鼠标左键拖动框选 · Ctrl / ⌘ / Shift 可追加选择 · 双击预览</p>
+          <div className="asset-grid-size" role="group" aria-label="资产缩略图大小" data-keep-asset-selection="true">
+            <button type="button" aria-label="放大资产缩略图" title="放大缩略图，每行显示更少资产" disabled={!gridSize.canZoomIn} onClick={gridSize.zoomIn}><ZoomIn size={16} /></button>
+            <output aria-live="polite" aria-label="每行资产列数">{gridSize.columns} 列</output>
+            <button type="button" aria-label="缩小资产缩略图" title="缩小缩略图，每行显示更多资产" disabled={!gridSize.canZoomOut} onClick={gridSize.zoomOut}><ZoomOut size={16} /></button>
+          </div>
+        </div>
+        <div className="asset-grid-scroll" key={JSON.stringify([scope, smartView, query])} ref={gridSize.containerRef} data-keep-asset-selection="true" role="region" aria-label="资产列表" tabIndex={0}>
         {loading ? <div className="empty-output"><Loader2 className="spin" size={26} /><p>正在读取资产…</p></div> : assets.length ? <AssetSelectionArea key={`${scope}:${page}:${activeFolderId}:${smartView}`} selectedIds={selectedIds} onSelectionChange={setSelectedIds}><div className="asset-thumb-grid">{assets.map((asset) => {
           const favorited = isAssetFavorited(asset.user_state?.reaction);
           const trashDays = smartView === "trash" ? remainingTrashDays(asset) : 0;
+          const AssetTypeIcon = asset.type === "image" ? ImageIcon : asset.type === "video" ? Video : Music2;
+          const assetTypeName = asset.type === "image" ? "图片" : asset.type === "video" ? "视频" : "音频";
           return (
             <article key={asset.id} data-asset-id={asset.id} className={`library-asset${selected?.id === asset.id ? " selected" : ""}${selectedIds.includes(asset.id) ? " bulk-selected" : ""}`}>
               <label className="asset-check"><input type="checkbox" aria-label={`选择资产 ${asset.name}`} checked={selectedIds.includes(asset.id)} onChange={() => toggleSelectedAsset(asset.id)} /></label>
@@ -976,9 +997,15 @@ export function AssetLibraryView() {
                 onClick={event => { setSelectedId(asset.id); if (event.ctrlKey || event.metaKey || event.shiftKey) toggleSelectedAsset(asset.id); else setSelectedIds([asset.id]); }}
                 onDoubleClick={() => void openAssetPreview(asset)}
               >
-                {asset.type === "image" ? <AssetThumbnail id={asset.id} scope={scope} name={asset.name} /> : <div className="empty-output">{asset.type === "video" ? <Video size={22} /> : <Music2 size={22} />}</div>}
+                <span className={`asset-card-media is-${asset.type}`}>
+                  {asset.type === "image" ? <AssetThumbnail id={asset.id} scope={scope} name={asset.name} /> : asset.type === "video" ? <>
+                    <VideoThumbnail src={getAssetMediaUrl(asset.id, scope)} alt={`${asset.name}的视频封面`} fallback={<span className="asset-media-placeholder"><Video size={30} /><small>视频封面暂不可用</small></span>} />
+                    <span className="asset-video-mark" aria-label="视频"><Play size={13} fill="currentColor" /></span>
+                  </> : <span className="asset-media-placeholder"><AudioLines size={36} /><small>音频素材</small></span>}
+                </span>
                 <span className="asset-category">{asset.category || asset.type}</span>
-                <div>
+                <div className="asset-card-caption">
+                  <span className="asset-type-icon" role="img" aria-label={assetTypeName} title={assetTypeName}><AssetTypeIcon size={15} aria-hidden="true" /></span>
                   <b title={asset.name}>{asset.name}</b>
                   {smartView === "trash" ? (
                     <small className={isTrashCountdownUrgent(trashDays) ? "asset-trash-countdown urgent" : "asset-trash-countdown"}>
@@ -990,13 +1017,34 @@ export function AssetLibraryView() {
             </article>
           );
         })}</div></AssetSelectionArea> : <div className="empty-output"><Archive size={26} /><p>当前筛选下没有资产<br />可直接把文件拖入此区域上传。</p></div>}
-        <div className="batch-actions"><button className="outline-button small" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button><span>{page} / {Math.max(1, Math.ceil(total / 30))}</span><button className="outline-button small" disabled={page * 30 >= total} onClick={() => setPage((value) => value + 1)}>下一页</button></div>
+        </div>
+        <div className="batch-actions asset-pagination" data-keep-asset-selection="true"><span className="asset-page-count">共 {total} 项 · 每页 {ASSET_LIBRARY_PAGE_SIZE} 项</span><button className="outline-button small" disabled={loading || page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button><span aria-label="资产页码">{page} / {Math.max(1, Math.ceil(total / ASSET_LIBRARY_PAGE_SIZE))}</span><button className="outline-button small" disabled={loading || page * ASSET_LIBRARY_PAGE_SIZE >= total} onClick={() => setPage((value) => value + 1)}>下一页</button></div>
       </>}</section>
       <>{bulkTagTarget && <AssetBulkTagsDialog assetIds={bulkTagTarget.ids} scope={bulkTagTarget.scope} tags={assetTags} onClose={() => setBulkTagTarget(null)} onSave={async (tagIds, action, affectedIds) => {
         await bulkUpdateAssetTags(affectedIds, tagIds, action, bulkTagTarget.scope);
         toast.success(`已为 ${affectedIds.length} 项资产${action === "add" ? "添加" : "移除"}标签`);
         refresh();
-      }} />}</><aside className="asset-detail" data-keep-asset-selection="true">{selectedAssets.length > 1 ? <AssetBulkDetailsPanel key={`${scope}:${smartView}:${selectedIdsFromUi.slice().sort().join(",")}`} assets={selectedAssets} scope={scope} readOnly={smartView === "trash"} onSaveCategory={saveBulkCategory} onEditTags={() => setBulkTagTarget({ ids: [...selectedIdsFromUi], scope })} /> : selected ? <><div className="detail-head"><div><p className="eyebrow">ASSET / {selected.id.slice(-8)}</p><h3 title={selected.name}>{selected.name}</h3></div><button className="icon-button subtle" onClick={() => void deleteOrRestore([selected.id])}>{smartView === "trash" ? <Archive size={16} /> : <Trash2 size={16} />}</button></div>{selected.type === "video" ? (detailMediaUrl ? <video className="detail-image detail-media" src={detailMediaUrl} controls preload="metadata" /> : <div className="empty-output"><Video size={28} /><p>读取视频预览…</p></div>) : selected.type === "audio" ? (detailMediaUrl ? <div className="detail-audio"><Music2 size={22} /><audio src={detailMediaUrl} controls preload="metadata" /></div> : <div className="empty-output"><Music2 size={28} /><p>读取音频预览…</p></div>) : <AssetThumbnail key={`${scope}:${selected.id}`} id={selected.id} scope={scope} name={selected.name} className="detail-image" onDoubleClick={() => void openAssetPreview(selected)} />}<div className="detail-tabs">{["详情", "标签", "血缘", "使用", "导出"].map((tab) => <button className={detailTab === tab ? "active" : ""} onClick={() => setDetailTab(tab)} key={tab}>{tab}</button>)}</div>{detailTab === "详情" ? <div className="asset-metadata"><div className="asset-meta-edit"><span>名称</span><input value={detailName} onChange={(event) => setDetailName(event.target.value)} placeholder="资产名称" /><span>分类</span><select value={detailCategory} onChange={(event) => setDetailCategory(event.target.value as AssetCategory | "")}><option value="">不指定分类</option>{assetCategoryOptions.filter((item) => item.value).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><button className="outline-button small" onClick={() => void saveMeta()}>保存</button></div><div><span>来源</span><b>{selected.source_type || "unknown"}</b></div><div><span>体积</span><b>{selected.size ? `${(selected.size / 1024 / 1024).toFixed(2)} MB` : "—"}</b></div>{smartView === "trash" ? <div><span>自动清除</span><b>{formatTrashCountdown(remainingTrashDays(selected))}</b></div> : null}<div><span>标签</span><b>{selected.tags?.join(" · ") || "未绑定"}</b></div><label className="asset-note-editor"><span>备注</span><textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /><button onClick={() => void saveNote()}>保存备注</button></label></div> : detailTab === "标签" ? <AssetTagManager assetId={selected.id} scope={scope} allTags={tags} refreshKey={refreshKey} /> : detailTab === "血缘" ? <div className="lineage-detail"><div className="lineage-flow"><span>{selected.source_type || "来源未知"}</span><i /><strong>{selected.name}</strong></div>{lineage ? <>{lineage.parents?.length ? <div className="lineage-group"><p className="field-label">上游来源 {lineage.parents.length}</p>{lineage.parents.map((entry, index) => <button key={entry.id || index} onClick={() => entry.parent_asset_id && setSelectedId(entry.parent_asset_id)}><b>{entry.parent_asset_id?.slice(-8) || "—"}</b><span>{entry.relation_type || "derived"}</span></button>)}</div> : <small className="lineage-empty">没有上游来源记录</small>}{lineage.children?.length ? <div className="lineage-group"><p className="field-label">下游产物 {lineage.children.length}</p>{lineage.children.map((entry, index) => <button key={entry.id || index} onClick={() => entry.child_asset_id && setSelectedId(entry.child_asset_id)}><b>{entry.child_asset_id?.slice(-8) || "—"}</b><span>{entry.relation_type || "derived"}</span></button>)}</div> : <small className="lineage-empty">没有派生产物记录</small>}</> : <small className="lineage-empty">读取血缘中…</small>}</div> : detailTab === "使用" ? <div className="usage-list"><div><b>生成调用</b><small>{selected.usage_stats?.generation_use_count || 0} 次</small></div><div><b>有效引用</b><small>{selected.usage_stats?.active_reference_count || 0} 处</small></div><div><b>下载导出</b><small>{(selected.usage_stats?.download_count || 0) + (selected.usage_stats?.export_count || 0)} 次</small></div>{usageEvents.length > 0 && <div className="usage-events"><p className="field-label">最近事件</p>{usageEvents.slice(0, 8).map((event) => <div key={event.id}><span>{event.event_type}</span><small>{event.source_type || "—"}{event.created_at ? ` · ${new Date(event.created_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}</small></div>)}</div>}</div> :<div className="export-list">{exportBatches.slice(0, 5).map((batch) => <div key={batch.id}><span className={`status-chip ${batch.status}`}>{formatStatus(batch.status)}</span><b>{batch.succeeded}/{batch.total}</b><small>{batch.file_name || batch.id.slice(-8)}</small>{batch.status === "succeeded" || batch.status === "partial_failed" ? <button onClick={() => void startAssetExportDownload(batch.id, scope).catch(error => toast.error(publicApiError(error, "下载失败")))}>下载</button> : batch.status === "queued" || batch.status === "running" ? <button onClick={() => void cancelAssetExport(batch.id, scope).then(reloadExports)}>取消</button> : null}</div>)}</div>}<div className="asset-detail-actions"><button onClick={() => void toggleReaction("favorite")}><Star size={15} fill={selected.user_state?.reaction === "favorite" ? "currentColor" : "none"} /> {selected.user_state?.reaction === "favorite" ? "取消收藏" : "收藏"}</button><button onClick={() => void toggleReaction("dislike")}><ThumbsDown size={15} /> {selected.user_state?.reaction === "dislike" ? "取消踩" : "踩"}</button><button onClick={() => void getAssetContentObjectUrl(selected.id, scope).then((url) => fetch(url).then((resp) => resp.blob()).then((blob) => { downloadBlob(blob, assetDownloadFileName(selected, blob.type || selected.content_type)); URL.revokeObjectURL(url); }))}><Archive size={15} /> 下载</button></div><div className="asset-detail-actions"><button onClick={() => void sendToNewCanvas()}><Layers3 size={15} /> 发送到新画布</button><button onClick={() => setSendPanelOpen((value) => !value)}><FolderOpen size={15} /> 发送到已有画布</button>{selected.type === "image" && <button onClick={openInImageWorkbench}><WandSparkles size={15} /> 在生图工作台打开</button>}</div>{sendPanelOpen && <div className="asset-send-panel"><select value={sendProjectId} onChange={(event) => setSendProjectId(event.target.value)}>{sendProjects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}{!sendProjects.length && <option value="">暂无画布项目</option>}</select><button className="outline-button small" disabled={!sendProjectId} onClick={() => void sendToExistingCanvas()}>加入画布</button></div>}</> : <div className="empty-output"><p>选择一项资产查看详情</p></div>}</aside>
+      }} />}</><aside className="asset-detail" data-keep-asset-selection="true">{selectedAssets.length > 1 ? <AssetBulkDetailsPanel key={`${scope}:${smartView}:${selectedIdsFromUi.slice().sort().join(",")}`} assets={selectedAssets} scope={scope} readOnly={smartView === "trash"} onSaveCategory={saveBulkCategory} onEditTags={() => setBulkTagTarget({ ids: [...selectedIdsFromUi], scope })} /> : selected ? <><div className="detail-head"><div><p className="eyebrow">ASSET / {selected.id.slice(-8)}</p><h3 title={selected.name}>{selected.name}</h3></div><button className="icon-button subtle" onClick={() => void deleteOrRestore([selected.id])}>{smartView === "trash" ? <Archive size={16} /> : <Trash2 size={16} />}</button></div>{selected.type === "video" ? (detailMediaUrl ? <video className="detail-image detail-media" src={detailMediaUrl} controls preload="metadata" /> : <div className="empty-output"><Video size={28} /><p>读取视频预览…</p></div>) : selected.type === "audio" ? (detailMediaUrl ? <div className="detail-audio"><Music2 size={22} /><audio src={detailMediaUrl} controls preload="metadata" /></div> : <div className="empty-output"><Music2 size={28} /><p>读取音频预览…</p></div>) : <AssetThumbnail key={`${scope}:${selected.id}`} id={selected.id} scope={scope} name={selected.name} className="detail-image" onDoubleClick={() => void openAssetPreview(selected)} />}<div className="detail-tabs">{["详情", "标签", "血缘", "使用", "导出"].map((tab) => <button className={detailTab === tab ? "active" : ""} onClick={() => setDetailTab(tab)} key={tab}>{tab}</button>)}</div>{detailTab === "详情" ? <div className="asset-metadata"><div className="asset-meta-edit"><span>名称</span><input value={detailName} onChange={(event) => setDetailName(event.target.value)} placeholder="资产名称" /><span>分类</span><select value={detailCategory} onChange={(event) => setDetailCategory(event.target.value as AssetCategory | "")}><option value="">不指定分类</option>{assetCategoryOptions.filter((item) => item.value).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><button className="outline-button small" onClick={() => void saveMeta()}>保存</button></div><div><span>来源</span><b>{selected.source_type || "unknown"}</b></div><div><span>体积</span><b>{selected.size ? `${(selected.size / 1024 / 1024).toFixed(2)} MB` : "—"}</b></div>{smartView === "trash" ? <div><span>自动清除</span><b>{formatTrashCountdown(remainingTrashDays(selected))}</b></div> : null}<div><span>标签</span><b>{selected.tags?.join(" · ") || "未绑定"}</b></div><label className="asset-note-editor"><span>备注</span><textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /><button onClick={() => void saveNote()}>保存备注</button></label></div> : detailTab === "标签" ? <AssetTagManager assetId={selected.id} scope={scope} allTags={tags} refreshKey={refreshKey} /> : detailTab === "血缘" ? <div className="lineage-detail"><dl className="asset-lineage-summary"><div><dt>来源</dt><dd>{sourceTypeOptions.find(item => item.value && item.value === selected.source_type)?.label || selected.source_type || "未知"}</dd></div><div><dt>当前资产</dt><dd>{selected.name}</dd></div></dl>{lineage ? <>{lineage.parents?.length ? <div className="lineage-group"><p className="field-label">上游来源 {lineage.parents.length}</p>{lineage.parents.map((entry, index) => <button key={entry.id || index} onClick={() => entry.parent_asset_id && setSelectedId(entry.parent_asset_id)}><b>{entry.parent_asset_id?.slice(-8) || "—"}</b><span>{entry.relation_type || "derived"}</span></button>)}</div> : <small className="lineage-empty">没有上游来源记录</small>}{lineage.children?.length ? <div className="lineage-group"><p className="field-label">下游产物 {lineage.children.length}</p>{lineage.children.map((entry, index) => <button key={entry.id || index} onClick={() => entry.child_asset_id && setSelectedId(entry.child_asset_id)}><b>{entry.child_asset_id?.slice(-8) || "—"}</b><span>{entry.relation_type || "derived"}</span></button>)}</div> : <small className="lineage-empty">没有派生产物记录</small>}</> : <small className="lineage-empty">读取血缘中…</small>}</div> : detailTab === "使用" ? <div className="usage-list"><div><b>生成调用</b><small>{selected.usage_stats?.generation_use_count || 0} 次</small></div><div><b>有效引用</b><small>{selected.usage_stats?.active_reference_count || 0} 处</small></div><div><b>下载导出</b><small>{(selected.usage_stats?.download_count || 0) + (selected.usage_stats?.export_count || 0)} 次</small></div>{usageEvents.length > 0 && <div className="usage-events"><p className="field-label">最近事件</p>{usageEvents.slice(0, 8).map((event) => <div key={event.id}><span>{event.event_type}</span><small>{event.source_type || "—"}{event.created_at ? ` · ${new Date(event.created_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}</small></div>)}</div>}</div> :<div className="export-list" aria-label="最近导出记录">
+  {exportBatches.slice(0, 5).map((batch) => (
+    <div className="asset-export-record" key={batch.id}>
+      <span className={`status-chip ${batch.status}`}>{formatStatus(batch.status)}</span>
+      <span className="asset-export-count" aria-label={`已导出 ${batch.succeeded} 项，共 ${batch.total} 项`}>
+        {batch.succeeded} / {batch.total} 项
+      </span>
+      <span className="asset-export-filename" title={batch.file_name || batch.id}>
+        {batch.file_name || batch.id.slice(-8)}
+      </span>
+      {batch.status === "succeeded" || batch.status === "partial_failed" ? (
+        <button onClick={() => void startAssetExportDownload(batch.id, scope).catch(error => toast.error(publicApiError(error, "下载失败")))}>
+          <Download size={14} aria-hidden="true" />下载
+        </button>
+      ) : batch.status === "queued" || batch.status === "running" ? (
+        <button onClick={() => void cancelAssetExport(batch.id, scope).then(reloadExports)}>取消</button>
+      ) : null}
+    </div>
+  ))}
+  {!exportBatches.length && <p className="asset-export-empty">暂无导出记录</p>}
+</div>}<div className="asset-detail-actions"><button onClick={() => void toggleReaction("favorite")}><Star size={15} fill={selected.user_state?.reaction === "favorite" ? "currentColor" : "none"} /> {selected.user_state?.reaction === "favorite" ? "取消收藏" : "收藏"}</button><button onClick={() => void toggleReaction("dislike")}><ThumbsDown size={15} /> {selected.user_state?.reaction === "dislike" ? "取消踩" : "踩"}</button><button onClick={() => void getAssetContentObjectUrl(selected.id, scope).then((url) => fetch(url).then((resp) => resp.blob()).then((blob) => { downloadBlob(blob, assetDownloadFileName(selected, blob.type || selected.content_type)); URL.revokeObjectURL(url); }))}><Download size={15} /> 下载</button></div><div className="asset-detail-actions asset-detail-destinations"><button onClick={() => void sendToNewCanvas()}>发送到新画布</button><button onClick={() => setSendPanelOpen((value) => !value)}>发送到已有画布</button>{selected.type === "image" && <button onClick={openInImageWorkbench}>在生图工作台打开</button>}</div>{sendPanelOpen && <div className="asset-send-panel"><select value={sendProjectId} onChange={(event) => setSendProjectId(event.target.value)}>{sendProjects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}{!sendProjects.length && <option value="">暂无画布项目</option>}</select><button className="outline-button small" disabled={!sendProjectId} onClick={() => void sendToExistingCanvas()}>加入画布</button></div>}</> : <div className="empty-output"><p>选择一项资产查看详情</p></div>}</aside>
     </div>
     <AssetPreviewLightbox asset={lightboxAsset} url={lightboxUrl} onClose={closeLightbox} />
   </div>;

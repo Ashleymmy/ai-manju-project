@@ -1,6 +1,6 @@
 import { RetryImage } from "@/shared/ui/RetryImage";
 import { Film } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { API_BASE_URL } from "@/shared/config";
 
 /** Only Studio assets have authenticated posters; never send credentials to an external URL. */
@@ -17,10 +17,10 @@ export function videoPosterUrl(source: string) {
 }
 
 /** Browsing a history list must never fetch each original video. */
-export function VideoThumbnail({ src, alt = "视频封面" }: { src: string; alt?: string }) {
+export function VideoThumbnail({ src, alt = "视频封面", fallback }: { src: string; alt?: string; fallback?: ReactNode }) {
   const poster = videoPosterUrl(src);
   const [failed, setFailed] = useState<string>();
   return poster && failed !== poster
     ? <RetryImage src={poster} alt={alt} loading="lazy" decoding="async" onError={() => setFailed(poster)} />
-    : <Film size={24} aria-label={alt} />;
+    : <>{fallback ?? <Film size={24} aria-label={alt} />}</>;
 }

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"hash/fnv"
 	"time"
@@ -154,33 +155,44 @@ func (r *GormCreditRepository) ListLedger(userID string, entryType string, page 
 }
 
 func (r *GormCreditRepository) ListLedgerGlobal(userID string, entryType string, start time.Time, end time.Time, page int, pageSize int) ([]model.CreditLedgerEntry, int64, error) {
+	items, summary, err := r.ListLedgerGlobalWithSummary(userID, entryType, start, end, page, pageSize)
+	return items, summary.Total, err
+}
+
+func (r *GormCreditRepository) ListLedgerGlobalWithSummary(userID string, entryType string, start time.Time, end time.Time, page int, pageSize int) ([]model.CreditLedgerEntry, LedgerSummary, error) {
 	if page < 1 {
 		page = 1
 	}
 	entries := make([]model.CreditLedgerEntry, 0)
-	base := r.db.Model(&model.CreditLedgerEntry{})
-	if userID != "" {
-		base = base.Where("user_id = ?", userID)
+	var summary LedgerSummary
+	// Count, sums and rows share a read snapshot even while new ledger entries arrive.
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		base := tx.Model(&model.CreditLedgerEntry{})
+		if userID != "" {
+			base = base.Where("user_id = ?", userID)
+		}
+		if entryType != "" {
+			base = base.Where("entry_type = ?", entryType)
+		}
+		if !start.IsZero() {
+			base = base.Where("created_at >= ?", start)
+		}
+		if !end.IsZero() {
+			base = base.Where("created_at <= ?", end)
+		}
+		if err := base.Session(&gorm.Session{}).Select(`COUNT(*) AS total,
+			COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS increase,
+			COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0) AS decrease`).
+			Scan(&summary).Error; err != nil {
+			return err
+		}
+		return base.Order("created_at DESC, id DESC").
+			Offset((page - 1) * pageSize).Limit(pageSize).Find(&entries).Error
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		return nil, LedgerSummary{}, err
 	}
-	if entryType != "" {
-		base = base.Where("entry_type = ?", entryType)
-	}
-	if !start.IsZero() {
-		base = base.Where("created_at >= ?", start)
-	}
-	if !end.IsZero() {
-		base = base.Where("created_at <= ?", end)
-	}
-	// Count 用单独 session，避免与列表查询互相污染
-	var total int64
-	if err := base.Session(&gorm.Session{}).Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-	err := base.
-		Order("created_at DESC, id DESC").
-		Offset((page - 1) * pageSize).Limit(pageSize).
-		Find(&entries).Error
-	return entries, total, err
+	return entries, summary, nil
 }
 
 func (r *GormCreditRepository) ListConsumptionsGlobal(userID string, taskType string, status string, start time.Time, end time.Time, page int, pageSize int) ([]model.TaskConsumption, int64, error) {

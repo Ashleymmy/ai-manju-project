@@ -22,6 +22,12 @@ func TestMemberOverviewAndDetails(t *testing.T) {
 	engine := service.NewCreditLedgerService(credits, memberships, billing)
 	invites := service.NewInviteService(repository.NewMemoryInviteRepository(), engine, billing)
 	memberHandler := NewMemberHandler(engine, credits, memberships, billing, invites, config.Config{FrontendURL: "http://localhost:3100"})
+	jobs := repository.NewMemoryJobRepository()
+	memberHandler.SetJobRepository(jobs)
+	if _, err := jobs.Create(model.Job{ID: "actual_images", IdempotencyKey: "actual_images", UserID: "user_mc", Type: model.JobTypeImageGenerate, Status: model.JobStatusSucceeded,
+		Result: model.JSONB(`{"outputs":[{"asset_id":"a"},{"asset_id":"b"},{"asset_id":"c"}]}`)}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := memberships.SeedPlans([]model.MembershipPlan{
 		{ID: "plan_198", Code: model.PlanCodeMember198, Name: "198 会员", PriceMonthCents: 19800, MonthlyCredits: 19800, Enabled: true},
@@ -80,7 +86,7 @@ func TestMemberOverviewAndDetails(t *testing.T) {
 		t.Fatalf("overview = %d %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{`"permanent_balance":400`, `"limited_available":0`, `"198 会员"`, `"image_count":2`} {
+	for _, want := range []string{`"permanent_balance":400`, `"limited_available":0`, `"198 会员"`, `"image_count":2`, `"monthly_creation":{"image_count":3}`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("overview body missing %s: %s", want, body)
 		}

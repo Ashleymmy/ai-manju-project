@@ -67,6 +67,19 @@ export type AdminLedgerEntry = {
   created_at: string;
 };
 
+/** Server-side totals for the full applied ledger filter, never just the page. */
+export type AdminLedgerSummary = { increase: number; decrease: number };
+
+export function normalizeAdminLedgerSummary(raw: unknown): AdminLedgerSummary | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { increase, decrease } = raw as Record<string, unknown>;
+  if (
+    typeof increase !== "number" || !Number.isSafeInteger(increase) || increase < 0 ||
+    typeof decrease !== "number" || !Number.isSafeInteger(decrease) || decrease < 0
+  ) return null;
+  return { increase, decrease };
+}
+
 /** 模块3 订单行（model.Order）。 */
 export type AdminOrder = {
   id: string;

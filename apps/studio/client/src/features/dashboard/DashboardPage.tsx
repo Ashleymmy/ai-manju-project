@@ -1,8 +1,12 @@
 import {
   ArrowUpRight,
   ChevronRight,
+  Coins,
+  Image as ImageIcon,
   Megaphone,
   Plus,
+  Sparkles,
+  Video,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -10,14 +14,7 @@ import { useProjectSummaries } from "@/entities/project";
 import { useAuth } from "@/contexts/AuthContext";
 import { ProjectCoverPickerDialog } from "@/components/ProjectCoverPickerDialog";
 import { ChatComposer } from "@/features/chat";
-import {
-  formatCredits,
-  formatDateTime,
-  taskTypeLabel,
-  useMemberConsumptionsQuery,
-  useMemberOverviewQuery,
-  type ConsumptionItem,
-} from "@/features/member";
+import { formatCredits, useMemberOverviewQuery } from "@/features/member";
 import {
   createAndOpenProject,
   ProjectCard,
@@ -32,10 +29,8 @@ import {
   useWorkspaceDashboardData,
   type WorkspaceData,
 } from "./useWorkspaceDashboardData";
+import { CreationBudgetPopover } from "./CreationBudgetPopover";
 import "./styles.css";
-
-/** 积分消耗面板展示的最近消耗条数（与积分明细页共用第 1 页缓存，渲染层再截断）。 */
-const CONSUMPTION_PANEL_ROWS = 5;
 
 function StatStrip({ data }: { data?: WorkspaceData }) {
   const jobCount = data?.jobs.total;
@@ -93,94 +88,74 @@ function AdSlot() {
   );
 }
 
-/** 单条消耗的积分文案：已扣费显示实扣（负向），冻结中显示冻结额，失败/取消未扣费。 */
-function consumptionCreditsLabel(item: ConsumptionItem) {
-  if (item.charge_state === "charged") {
-    return `-${formatCredits(item.credits_settled ?? item.credits_quoted)}`;
-  }
-  if (item.status === "reserved") {
-    return `冻结 ${formatCredits(item.credits_quoted)}`;
-  }
-  return "未扣费";
-}
-
 /**
- * 积分消耗面板：本月消耗总览（overview.monthly_usage）+ 最近消耗记录，
- * 数据来自 GET /api/member/overview 与 /api/member/consumptions，非静态 UI。
+ * 工作台强调本月创作成果，积分支出仍可在明细页查询。
+ * 图片张数使用成功任务的实际产出，不能拿计费任务次数代替。
  */
-function CreditConsumptionPanel() {
+function CreationOverviewPanel() {
   const [, navigate] = useLocation();
   const overviewQuery = useMemberOverviewQuery();
-  const consumptionsQuery = useMemberConsumptionsQuery("", 1);
   const overview = overviewQuery.data;
   const monthly = overview?.monthly_usage;
+  const imageCount = overview?.monthly_creation?.image_count;
   const available =
     (overview?.limited_available ?? 0) + (overview?.permanent_available ?? 0);
-  const items = (consumptionsQuery.data?.items ?? []).slice(
-    0,
-    CONSUMPTION_PANEL_ROWS
-  );
+  const loadFailed = !overview && overviewQuery.isError;
 
   return (
-    <aside className="credit-panel">
-      <div className="section-line">
-        <span className="eyebrow">积分消耗</span>
-        <button onClick={() => navigate("/member/usage")}>
-          积分明细 <ArrowUpRight size={15} />
+    <aside className="credit-panel" aria-label="本月创作概览">
+      <div className="creation-overview-head">
+        <h3><Sparkles className="creation-overview-emblem" size={16} strokeWidth={1.7} aria-hidden="true" /> 本月创作</h3>
+        <button className="creation-overview-link" onClick={() => navigate("/assets")}>
+          查看作品 <ArrowUpRight size={14} aria-hidden="true" />
         </button>
       </div>
-      <div className="credit-summary">
-        <div>
-          <span>本月已消耗</span>
-          <strong>
-            {overview ? formatCredits(monthly?.total_credits) : "—"}
-          </strong>
-          <small>
-            {overview
-              ? `图片 ${formatCredits(monthly?.image_count)} 张 · 视频 ${formatCredits(monthly?.video_seconds)} 秒`
-              : overviewQuery.isError
-                ? "总览加载失败"
-                : "正在读取总览…"}
-          </small>
-        </div>
-        <div>
-          <span>剩余可用</span>
-          <strong>{overview ? formatCredits(available) : "—"}</strong>
-          <small>
-            {overview
-              ? `限时 ${formatCredits(overview.limited_available)} · 永久 ${formatCredits(overview.permanent_available)}`
-              : "限时 + 永久积分"}
-          </small>
-        </div>
-      </div>
-      <div className="credit-list">
-        {consumptionsQuery.isPending ? (
-          <p className="credit-state">正在读取消耗记录…</p>
-        ) : consumptionsQuery.isError ? (
-          <p className="credit-state">消耗记录加载失败，请稍后重试</p>
-        ) : items.length === 0 ? (
-          <p className="credit-state">
-            暂无消耗记录，生成任务成功后会在这里留下扣费记录
-          </p>
-        ) : (
-          items.map(item => (
-            <div className="credit-row" key={item.id}>
-              <div className="credit-row-main">
-                <b>{taskTypeLabel(item.task_type)}</b>
-                <span>
-                  {item.model || "—"} · {formatDateTime(item.created_at)}
-                </span>
-              </div>
-              <span
-                className={`credit-row-num ${
-                  item.charge_state === "charged" ? "is-charged" : ""
-                }`}
-              >
-                {consumptionCreditsLabel(item)}
-              </span>
-            </div>
-          ))
+      <div className="creation-overview-note" aria-live="polite">
+        <p>
+          {monthly
+            ? "让每个灵感，都有自己的画面。"
+            : loadFailed
+              ? "创作数据暂时未能加载"
+              : overview
+                ? "本月创作数据暂未同步"
+                : "正在读取创作数据…"}
+        </p>
+        {loadFailed && (
+          <button className="creation-overview-link" onClick={() => void overviewQuery.refetch()}>
+            重新加载
+          </button>
         )}
+      </div>
+      <div className="creation-stats">
+        <button className="creation-stat creation-stat-image" onClick={() => navigate("/image")} aria-label="打开图片生成" title={imageCount == null ? "图片张数暂未同步" : "本月成功生成的图片张数"}>
+          <span className="creation-stat-label"><ImageIcon size={16} aria-hidden="true" /> 图片生成</span>
+          <span className="creation-stat-value">
+            <strong>{imageCount != null ? formatCredits(imageCount) : "—"}</strong>
+            <small>张</small>
+          </span>
+          <ArrowUpRight className="creation-stat-arrow" size={15} aria-hidden="true" />
+        </button>
+        <button className="creation-stat creation-stat-video" onClick={() => navigate("/video")} aria-label="打开视频生成">
+          <span className="creation-stat-label"><Video size={16} aria-hidden="true" /> 视频生成</span>
+          <span className="creation-stat-value">
+            <strong>{monthly ? formatCredits(monthly.video_seconds) : "—"}</strong>
+            <small>秒</small>
+          </span>
+          <ArrowUpRight className="creation-stat-arrow" size={15} aria-hidden="true" />
+        </button>
+      </div>
+      <div className="creation-overview-footer">
+        <span className="creation-available">
+          <Coins className="creation-balance-emblem" size={14} strokeWidth={1.7} aria-hidden="true" />
+          <span>可用积分</span>
+          <strong>{overview ? formatCredits(available) : "—"}</strong>
+        </span>
+        <div className="creation-overview-actions">
+          <CreationBudgetPopover available={overview && !overviewQuery.isError ? available : undefined} />
+          <button className="creation-overview-link" onClick={() => navigate("/member/usage")}>
+            积分明细 <ArrowUpRight size={13} aria-hidden="true" />
+          </button>
+        </div>
       </div>
     </aside>
   );
@@ -206,7 +181,7 @@ export default function DashboardPage() {
       <div className="desk-layout">
         <AdSlot />
         <StatStrip data={data} />
-        <CreditConsumptionPanel />
+        <CreationOverviewPanel />
       </div>
       <section className="section-head">
         <div>

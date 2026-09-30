@@ -56,6 +56,7 @@ import {
   COMIC_OPTIMIZE_DIRECTION,
   COMIC_PROJECT_ANALYSIS_INSTRUCTION,
   COMIC_REFERENCE_LIMIT,
+  COMIC_WORKFLOW_STEPS,
 } from "../model/constants";
 import {
   useComicBatchQuery,
@@ -196,7 +197,7 @@ export function ComicAssetsView() {
   const referenceCandidates = referenceAssetsQuery.data || [];
 
   const activeRevision = useMemo(() => activeComicRevision(analysis), [analysis]);
-  const candidates = activeRevision?.candidate.assets || projectDetail?.assets || [];
+  const candidates = activeRevision?.candidate.assets || [];
   const projectAssets = projectDetail?.assets || [];
   const visibleProjectAssets = filterComicAssets(
     projectAssets,
@@ -818,7 +819,7 @@ export function ComicAssetsView() {
   const stageAction = stage === 1
     ? <button className="vermilion-button" disabled={busy} onClick={() => void analyze()}>{busy ? "分析中…" : "开始分析"} <ChevronRight size={16} /></button>
     : stage === 2
-      ? <button className="vermilion-button" disabled={busy || !analysis} onClick={() => void confirm()}>确认当前版本 <Check size={16} /></button>
+      ? <button className="vermilion-button" disabled={busy || !activeRevision} onClick={() => void confirm()}>确认当前版本 <Check size={16} /></button>
       : <button className="vermilion-button" onClick={() => { leaveCurrentView(); setStage(1); }}><Plus size={16} /> 新建分析</button>;
 
   return <div className="feature-page comic-page">
@@ -896,7 +897,17 @@ export function ComicAssetsView() {
           </div>
         ) : (
           <>
-            <div className="workflow-steps">{[[1, "上传剧本"], [2, "审阅候选"], [3, "项目资产"]].map(([number, label]) => <button key={number} className={stage === number ? "active" : stage > Number(number) ? "done" : ""} onClick={() => Number(number) <= stage && setStage(Number(number))}><i>{stage > Number(number) ? <Check size={12} /> : `0${number}`}</i><span>{label}</span></button>)}</div>
+            <div className="workflow-steps" aria-label="资产项目步骤">{COMIC_WORKFLOW_STEPS.map(({ number, label }) => {
+              const available = number === 1 || (number === 2 ? Boolean(activeRevision) : Boolean(projectDetail));
+              const reason = number === 2 ? "先解析剧本或找回分析记录" : "确认候选后可查看项目资产";
+              return <button type="button" key={number} aria-label={label} aria-current={stage === number ? "step" : undefined}
+                disabled={!available} title={available ? label : reason}
+                className={stage === number ? "active" : available && stage > number ? "done" : ""}
+                onClick={() => setStage(number)}>
+                <i>{available && stage > number ? <Check size={12} /> : `0${number}`}</i>
+                <span>{label}{!available && <small>{reason}</small>}</span>
+              </button>;
+            })}</div>
 
     {stage === 1 && <section className="script-intake">
       <div className="script-drop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.dataTransfer.files[0]) { const transfer = new DataTransfer(); transfer.items.add(event.dataTransfer.files[0]); if (fileInputRef.current) fileInputRef.current.files = transfer.files; setFileName(event.dataTransfer.files[0].name); } }}><Upload size={26} /><h2>将剧本放进分镜室</h2><p>支持 TXT / MD / DOCX 剧本走 AI 分析，或直接导入 XLSX 资产表。首轮分析会带上你填写的方向，不再让模型完全自由发挥。</p><button className="outline-button" onClick={() => fileInputRef.current?.click()}><Upload size={16} /> {fileName || "选择 / 拖入剧本文件"}</button></div>
@@ -945,8 +956,8 @@ export function ComicAssetsView() {
             </div>
           </div>
           <div className="script-intake-actions">
-            <button className="outline-button">取消</button>
-            <button className="vermilion-button">解析并预览</button>
+            <button className="outline-button" onClick={() => setStage(projectDetail ? 3 : 2)}>{projectDetail ? "返回项目资产" : "返回候选"}</button>
+            <button className="vermilion-button" disabled={busy} onClick={() => void analyze()}>{busy ? "分析中…" : "解析并预览"}</button>
           </div>
         </div>
       </aside>
@@ -957,6 +968,7 @@ export function ComicAssetsView() {
       <div className="candidate-grid">{candidates.map((candidate) => <article key={`${candidate.code}-${candidate.name}`} className={selected.includes(candidate.name) ? "candidate selected" : "candidate"}><div><div className="empty-output"><ImageIcon size={24} /></div><span>{candidate.archive_status || "待审"}</span><button onClick={() => toggle(candidate.name)}>{selected.includes(candidate.name) ? <Check size={15} /> : <Plus size={15} />}</button></div><h3>{candidate.name}</h3><p>{COMIC_CLASS_LABELS[candidate.class] || candidate.class} · {candidate.state}</p><div className="candidate-tags"><span>{candidate.code || "AUTO"}</span></div><button className="prompt-link" onClick={() => toast.message(candidate.source_prompt || candidate.visual_description || "暂无提示词")}>查看提示词 <ArrowUpRight size={14} /></button></article>)}</div>
       <aside className="approval-panel"><p className="eyebrow">VERSION REVIEW</p><h3>当前 v{activeRevision?.version || 1}</h3><p>只有点击“确认当前版本”后才会创建正式项目；这里的勾选仅用于辅助审阅。</p>
         <div className="revision-history"><p className="field-label">全部版本</p>{(analysis?.revisions || []).map((revision) => <button key={revision.id} className={revision.id === analysis?.session.active_revision_id ? "selected" : ""} disabled={busy} onClick={() => void switchRevision(revision.id)}><b>v{revision.version}</b><span>{revision.source === "initial" ? "首轮" : revision.source === "ai" ? "AI 修订" : "手动"} · {revision.candidate.assets.length} 项</span>{revision.id === analysis?.session.active_revision_id && <Check size={13} />}</button>)}</div>
+        {stageAction}
       </aside>
     </section>}
 

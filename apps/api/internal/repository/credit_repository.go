@@ -89,6 +89,14 @@ type ConsumptionStats struct {
 	AgentCalls          int64 // settled 且 task_type=agent_skill 的次数
 }
 
+// LedgerSummary aggregates every matching ledger row before pagination.
+// Total is returned through the existing page envelope; decreases are magnitudes.
+type LedgerSummary struct {
+	Total    int64 `json:"-"`
+	Increase int64 `json:"increase"`
+	Decrease int64 `json:"decrease"`
+}
+
 // CreditRepository is the transactional core of the credit ledger. Every
 // mutation method is atomic and owns its full transaction; the Memory
 // implementation reproduces identical semantics under one mutex so the same
@@ -118,6 +126,8 @@ type CreditRepository interface {
 	// 空串不筛；start/end 零值不筛（start → created_at>=，end → created_at<=）；
 	// 排序 created_at DESC, id DESC，分页与总数口径同 ListLedger。
 	ListLedgerGlobal(userID string, entryType string, start time.Time, end time.Time, page int, pageSize int) ([]model.CreditLedgerEntry, int64, error)
+	// ListLedgerGlobalWithSummary returns rows, count and sums from one read snapshot.
+	ListLedgerGlobalWithSummary(userID string, entryType string, start time.Time, end time.Time, page int, pageSize int) ([]model.CreditLedgerEntry, LedgerSummary, error)
 
 	GetConsumptionByJobID(jobID string) (model.TaskConsumption, error)
 	ListConsumptions(userID string, status string, page int, pageSize int) ([]model.TaskConsumption, int64, error)
@@ -372,9 +382,15 @@ func paginateMemorySlice[T any](items []T, page int, pageSize int) ([]T, int64) 
 }
 
 func (r *MemoryCreditRepository) ListLedgerGlobal(userID string, entryType string, start time.Time, end time.Time, page int, pageSize int) ([]model.CreditLedgerEntry, int64, error) {
+	items, summary, err := r.ListLedgerGlobalWithSummary(userID, entryType, start, end, page, pageSize)
+	return items, summary.Total, err
+}
+
+func (r *MemoryCreditRepository) ListLedgerGlobalWithSummary(userID string, entryType string, start time.Time, end time.Time, page int, pageSize int) ([]model.CreditLedgerEntry, LedgerSummary, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	filtered := make([]model.CreditLedgerEntry, 0)
+	var summary LedgerSummary
 	for _, entry := range r.ledger {
 		if userID != "" && entry.UserID != userID {
 			continue
@@ -389,6 +405,11 @@ func (r *MemoryCreditRepository) ListLedgerGlobal(userID string, entryType strin
 			continue
 		}
 		filtered = append(filtered, entry)
+		if entry.Amount > 0 {
+			summary.Increase += entry.Amount
+		} else if entry.Amount < 0 {
+			summary.Decrease -= entry.Amount
+		}
 	}
 	// 与 Gorm 版排序逐一致：created_at DESC, id DESC
 	sort.SliceStable(filtered, func(i, j int) bool {
@@ -398,7 +419,8 @@ func (r *MemoryCreditRepository) ListLedgerGlobal(userID string, entryType strin
 		return filtered[i].ID > filtered[j].ID
 	})
 	items, total := paginateMemorySlice(filtered, page, pageSize)
-	return items, total, nil
+	summary.Total = total
+	return items, summary, nil
 }
 
 func (r *MemoryCreditRepository) ListConsumptionsGlobal(userID string, taskType string, status string, start time.Time, end time.Time, page int, pageSize int) ([]model.TaskConsumption, int64, error) {

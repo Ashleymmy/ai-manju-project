@@ -56,6 +56,7 @@ beforeEach(() => {
     items: [{ id: filters.userId || "all", amount: -15 }],
     total: 100,
     page_size: 20,
+    summary: { increase: 5000, decrease: 1200 },
   }));
   mocks.users.mockReset().mockResolvedValue({ items: [alice, bob], total: 2 });
   client = new QueryClient({
@@ -124,6 +125,7 @@ it("hides prior results during a new query and resets all conditions", async () 
   expect(latest.isPending).toBe(true);
   expect(latest.items).toEqual([]);
   expect(latest.total).toBe(0);
+  expect(latest.ledgerStats).toBeNull();
   await act(async () => latest.resetFilters());
   await settle();
   expect(latest.page).toBe(1);
@@ -184,4 +186,37 @@ it("allows applying an unchanged query to refresh server results", async () => {
   mocks.ledger.mockClear();
   await act(async () => latest.applyFilters());
   expect(mocks.ledger).toHaveBeenCalledTimes(1);
+});
+
+it("uses all matching server totals across pages, not each page's rows", async () => {
+  mocks.ledger.mockImplementation(async filters => ({
+    items: [{ id: `page-${filters.page}`, amount: filters.page === 2 ? 400 : -15 }],
+    total: 100,
+    page_size: 20,
+    summary: filters.entryType === "consume"
+      ? { increase: 0, decrease: 900 }
+      : { increase: 5000, decrease: 1200 },
+  }));
+  await render();
+  expect(latest.ledgerStats).toEqual({ increase: 5000, decrease: 1200 });
+  await act(async () => latest.setPage(2));
+  await settle();
+  expect(latest.items[0].amount).toBe(400);
+  expect(latest.ledgerStats).toEqual({ increase: 5000, decrease: 1200 });
+  await act(async () => latest.updateDraft({ entryType: "consume" }));
+  await act(async () => latest.applyFilters());
+  await settle();
+  expect(latest.ledgerStats).toEqual({ increase: 0, decrease: 900 });
+});
+
+it("keeps rows usable but never substitutes page amounts when totals are missing", async () => {
+  mocks.ledger.mockResolvedValue({ items: [{ id: "old-api", amount: 123 }], total: 2, page_size: 20 });
+  await render();
+  expect(latest.items).toHaveLength(1);
+  expect(latest.ledgerStats).toBeNull();
+  mocks.ledger.mockRejectedValueOnce(new Error("summary query failed"));
+  await act(async () => latest.reload());
+  await settle();
+  expect(latest.isError).toBe(true);
+  expect(latest.ledgerStats).toBeNull();
 });

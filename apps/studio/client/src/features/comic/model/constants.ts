@@ -8,6 +8,13 @@ import type { WorkspaceScope } from "@/shared/config";
 export const COMIC_DEFAULT_INSTRUCTION =
   "请逐场检查剧本，不要遗漏有视觉特征或连续性要求的角色、场景和道具。";
 
+/** Navigation depends on loaded data, never on the currently displayed step. */
+export const COMIC_WORKFLOW_STEPS = [
+  { number: 1, label: "上传剧本" },
+  { number: 2, label: "审阅候选" },
+  { number: 3, label: "项目资产" },
+] as const;
+
 export const COMIC_PROJECT_ANALYSIS_INSTRUCTION =
   "按剧本出现顺序完整拆解人物、场景、道具和必要 UI；不同服装、造型或受损状态分别建项；保留身份关系、外观、服装、材质、随身道具、场景时间空间和光线细节；剧本未明确的信息标记为未明确，不得自行补写。";
 

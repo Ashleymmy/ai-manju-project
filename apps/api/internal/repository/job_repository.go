@@ -37,6 +37,9 @@ type JobRepository interface {
 	SetResult(id string, result model.JSONB) (model.Job, error)
 	SetError(id string, errorPayload model.JSONB) (model.Job, error)
 	ListByUser(userID string) ([]model.Job, error)
+	// CountImageOutputsInRange counts actual successful image outputs by completion
+	// time in [start, end), independently of billing or the requested image count.
+	CountImageOutputsInRange(context.Context, string, time.Time, time.Time) (int64, error)
 	// CountActiveByUserAndTypes 统计用户处于排队/运行中的指定类型任务数
 	// （会员权益门禁的并发准入）。active = queued / running。
 	CountActiveByUserAndTypes(userID string, types []string) (int64, error)

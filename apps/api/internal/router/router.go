@@ -111,6 +111,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	billingHandler := handler.NewBillingHandler(paymentService, repos.billingRepo, repos.membershipRepo, cfg.AppEnv != "production")
 	// WP-M10 用户端会员中心。
 	memberHandler := handler.NewMemberHandler(creditEngine, repos.creditRepo, repos.membershipRepo, repos.billingRepo, inviteService, cfg)
+	memberHandler.SetJobRepository(repos.jobRepo)
 	// WP-M14 兑换码中心。
 	redemptionService := service.NewRedemptionService(repos.redemptionRepo, repos.membershipRepo, creditEngine)
 	redemptionHandler := handler.NewRedemptionHandler(repos.redemptionRepo, redemptionService)

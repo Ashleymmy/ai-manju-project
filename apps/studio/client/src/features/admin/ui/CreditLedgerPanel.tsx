@@ -17,7 +17,7 @@ import {
 import { AdminPagination, AdminQueryState } from "./components/adminBits";
 import "./report-content.css";
 
-/** 流水筛选集中在内容区；统计明确区分全部匹配记录与本页金额。 */
+/** 顶部数量和积分汇总都使用全部匹配流水；分页只影响下方列表。 */
 export function CreditLedgerPanel({
   controller,
 }: {
@@ -52,8 +52,8 @@ export function CreditLedgerPanel({
     total,
     totalPages,
   } = controller;
-  const netChange = ledgerStats.increase - ledgerStats.decrease;
-  const statsUnavailable = isPending || isError;
+  const netChange = ledgerStats ? ledgerStats.increase - ledgerStats.decrease : 0;
+  const statsUnavailable = isPending || isError || !ledgerStats;
 
   return (
     <section className="real-admin-section">
@@ -244,25 +244,25 @@ export function CreditLedgerPanel({
             <small>当前筛选条件下的全部记录</small>
           </div>
           <div>
-            <span>本页增加</span>
+            <span>增加合计</span>
             <strong className="member-cell-num is-positive">
-              {isPending || isError
+              {statsUnavailable
                 ? "—"
-                : `+${formatCredits(ledgerStats.increase)}`}
+                : `+${formatCredits(ledgerStats!.increase)}`}
             </strong>
-            <small>本页增加的积分</small>
+            <small>筛选范围内的累计增加</small>
           </div>
           <div>
-            <span>本页扣减</span>
+            <span>扣减合计</span>
             <strong className="member-cell-num is-negative">
-              {isPending || isError
+              {statsUnavailable
                 ? "—"
-                : `-${formatCredits(ledgerStats.decrease)}`}
+                : `-${formatCredits(ledgerStats!.decrease)}`}
             </strong>
-            <small>本页扣减的积分</small>
+            <small>筛选范围内的累计扣减</small>
           </div>
           <div>
-            <span>本页净变动</span>
+            <span>净变动</span>
             <strong
               className={`member-cell-num ${netChange > 0 ? "is-positive" : netChange < 0 ? "is-negative" : ""}`}
             >
@@ -270,9 +270,14 @@ export function CreditLedgerPanel({
                 ? "—"
                 : `${netChange > 0 ? "+" : ""}${formatCredits(netChange)}`}
             </strong>
-            <small>本页增加减去扣减</small>
+            <small>增加合计减去扣减合计</small>
           </div>
         </div>
+        {!isPending && !isError && !ledgerStats && (
+          <p className="admin-ledger-filter-help" role="status">
+            积分汇总暂不可用，请稍后刷新。下方流水仍可查看。
+          </p>
+        )}
         <div className="admin-report-listhead">
           <h3>流水记录</h3>
           <span>

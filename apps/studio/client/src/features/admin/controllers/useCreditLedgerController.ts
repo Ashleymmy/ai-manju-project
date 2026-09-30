@@ -9,7 +9,6 @@ import {
   type LedgerFilterDraft,
 } from "../model/ledgerFilters";
 import {
-  aggregateLedgerAmounts,
   ADMIN_LIST_PAGE_SIZE,
   type AdminMemberUser,
 } from "../model/memberAdmin";
@@ -90,7 +89,9 @@ export function useCreditLedgerController(active: boolean) {
     active && (listQuery.isPending || listQuery.isPlaceholderData);
   const items =
     isPending || listQuery.isError ? [] : listQuery.data?.items || [];
-  const ledgerStats = useMemo(() => aggregateLedgerAmounts(items), [items]);
+  // Missing server totals must not silently fall back to this page's amounts.
+  const ledgerStats =
+    isPending || listQuery.isError ? null : listQuery.data?.summary ?? null;
   const total =
     isPending || listQuery.isError ? 0 : (listQuery.data?.total ?? 0);
   const pageSize = listQuery.data?.page_size ?? ADMIN_LIST_PAGE_SIZE;

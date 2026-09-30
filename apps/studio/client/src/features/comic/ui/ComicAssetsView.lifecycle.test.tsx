@@ -3,7 +3,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ComicAsset, ComicAssetProject, ComicBatchDetail, ComicProjectDetail } from "@/entities/comic";
+import type { ComicAnalysisDetail, ComicAsset, ComicAssetProject, ComicBatchDetail, ComicProjectDetail } from "@/entities/comic";
 
 const mocks = vi.hoisted(() => ({
   token: "account-one",
@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   optimize: vi.fn(), approve: vi.fn(), bulkApprove: vi.fn(),
   createBatch: vi.fn(), control: vi.fn(), retryItem: vi.fn(), retryFailed: vi.fn(),
   history: vi.fn(), resumeAnalysis: vi.fn(),
+  analyzeSource: vi.fn(), confirmAnalysis: vi.fn(),
   success: vi.fn(), error: vi.fn(), warning: vi.fn(),
 }));
 
@@ -38,6 +39,8 @@ vi.mock("../controllers/project", () => ({
   removeComicProject: mocks.removeProject, downloadComicSource: vi.fn(),
   createEmptyComicProject: vi.fn(),
 }));
+vi.mock("../controllers/source", () => ({ analyzeComicSource: mocks.analyzeSource }));
+vi.mock("../controllers/analysis", async original => ({ ...await original<object>(), confirmComicAnalysis: mocks.confirmAnalysis }));
 vi.mock("../controllers/assets", () => ({
   createComicProjectAsset: mocks.createAsset, removeComicProjectAsset: mocks.removeAsset,
   saveComicAssetDraft: mocks.saveAsset, loadComicPromptTemplate: mocks.preview,
@@ -91,6 +94,13 @@ function project(id: string): ComicProjectDetail {
   };
 }
 
+function analysisDetail(): ComicAnalysisDetail {
+  return {
+    session: { id: "recovered-session", title: "候选分析", style_preset: "", status: "active", active_revision_id: "rev-1", confirmed_revision_id: "", project_id: "", source_file_name: "source.txt" },
+    revisions: [{ id: "rev-1", version: 1, source: "initial", instruction: "", requested_model: "text", response_model: "text", candidate: { assets: [asset("candidate")] } }],
+  };
+}
+
 function batch(projectId: string, id = `${projectId}-batch`): ComicBatchDetail {
   return {
     batch: {
@@ -123,6 +133,8 @@ describe("comic asset view operation ownership", () => {
   }
   async function render() { await act(async () => root.render(<ComicAssetsView />)); }
   async function open(id: string) { await click(`${id}项目`); }
+  function step(label: string) { return container.querySelector<HTMLButtonElement>(`.workflow-steps button[aria-label="${label}"]`)!; }
+  async function navigateStep(label: string) { await act(async () => step(label).click()); }
   function expectNewProject() {
     expect(container.querySelector(".batch-header h2")?.textContent).toBe("new项目");
     expect(container.querySelector(".comic-asset-row b")?.textContent).toBe("new资产");
@@ -149,6 +161,72 @@ describe("comic asset view operation ownership", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals();
+  });
+
+  it("lets an empty existing project return from upload without reloading, while explaining unavailable review", async () => {
+    oldProject.assets = [];
+    await render(); await open("old");
+    expect(step("审阅候选").disabled).toBe(true);
+    expect(step("审阅候选").textContent).toContain("先解析剧本或找回分析记录");
+    await navigateStep("上传剧本");
+    expect(container.querySelector(".script-intake")).not.toBeNull();
+    expect(step("项目资产").disabled).toBe(false);
+    await navigateStep("项目资产");
+    expect(container.querySelector(".batch-header h2")?.textContent).toBe("old项目");
+    expect(mocks.load).toHaveBeenCalledTimes(1);
+    await navigateStep("上传剧本"); await click("返回项目资产");
+    expect(step("项目资产").getAttribute("aria-current")).toBe("step");
+    expect(mocks.analyzeSource).not.toHaveBeenCalled();
+  });
+
+  it("preserves project asset drafts when visiting upload and returning", async () => {
+    await render(); await open("old"); await click("编辑", row("old资产"));
+    const editor = row("old资产").querySelector(".comic-prompt-editor") as HTMLTextAreaElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, "切换前未保存的草稿");
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await navigateStep("上传剧本"); await navigateStep("项目资产");
+    expect((row("old资产").querySelector(".comic-prompt-editor") as HTMLTextAreaElement).value).toBe("切换前未保存的草稿");
+    expect(mocks.saveAsset).not.toHaveBeenCalled();
+  });
+
+  it("keeps recovered candidates reachable after going back and exposes confirmation to create the project", async () => {
+    const detail = analysisDetail();
+    mocks.resumeAnalysis.mockResolvedValueOnce(detail);
+    mocks.confirmAnalysis.mockResolvedValueOnce(oldProject);
+    await render(); await click("找回分析记录"); await click("继续查看");
+    expect(step("项目资产").disabled).toBe(true);
+    await navigateStep("上传剧本"); await navigateStep("审阅候选");
+    expect(container.querySelector(".candidate-review")?.textContent).toContain("candidate资产");
+    await click("确认当前版本");
+    expect(mocks.confirmAnalysis).toHaveBeenCalledWith(detail, detail.revisions[0], "personal");
+    expect(step("项目资产").getAttribute("aria-current")).toBe("step");
+    await navigateStep("上传剧本"); await navigateStep("审阅候选"); await navigateStep("项目资产");
+    expect(container.querySelector(".batch-header h2")?.textContent).toBe("old项目");
+    await open("new");
+    expect(step("审阅候选").disabled).toBe(true);
+    expect(container.querySelector(".candidate-review")).toBeNull();
+  });
+
+  it("connects parse and preview to the real source controller, then allows returning to its candidates", async () => {
+    const detail = analysisDetail();
+    mocks.analyzeSource.mockResolvedValueOnce({ kind: "analysis", detail, candidateCount: 1 });
+    await render(); await open("old"); await navigateStep("上传剧本");
+    const file = new File(["剧本文本"], "script.txt", { type: "text/plain" });
+    const titleInput = container.querySelector('input[placeholder="例如：雨幕收容所"]') as HTMLInputElement;
+    await act(async () => {
+      Object.defineProperty(container.querySelector('input[type="file"]'), "files", { configurable: true, value: [file] });
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(titleInput, "新剧本分析");
+      titleInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click("解析并预览");
+    expect(mocks.analyzeSource).toHaveBeenCalledWith(expect.objectContaining({ file, title: "新剧本分析", scope: "personal" }));
+    expect(step("审阅候选").getAttribute("aria-current")).toBe("step");
+    expect(step("项目资产").disabled).toBe(true);
+    await navigateStep("上传剧本"); await click("返回候选");
+    expect(container.querySelector(".candidate-review")?.textContent).toContain("candidate资产");
+    expect(mocks.createBatch).not.toHaveBeenCalled();
   });
 
   it.each([

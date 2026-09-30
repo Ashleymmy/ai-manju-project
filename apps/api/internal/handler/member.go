@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ type MemberHandler struct {
 	invites     *service.InviteService
 	cfg         config.Config
 	providers   *ModelProviderHandler
+	jobs        repository.JobRepository
 }
 
 func NewMemberHandler(engine *service.CreditLedgerService, credits repository.CreditRepository, memberships repository.MembershipRepository, billing repository.BillingRepository, invites *service.InviteService, cfg config.Config) *MemberHandler {
@@ -33,6 +35,10 @@ func NewMemberHandler(engine *service.CreditLedgerService, credits repository.Cr
 
 func (h *MemberHandler) SetModelProviderHandler(providers *ModelProviderHandler) {
 	h.providers = providers
+}
+
+func (h *MemberHandler) SetJobRepository(jobs repository.JobRepository) {
+	h.jobs = jobs
 }
 
 // Quote uses the same server-side price calculation as job reservation. The
@@ -133,6 +139,16 @@ func (h *MemberHandler) Overview(c *gin.Context) {
 			"video_seconds": stats.VideoSeconds,
 			"agent_calls":   stats.AgentCalls,
 			"total_credits": stats.TotalCreditsSettled,
+		}
+	}
+	// Creation output is independent of chargeable task counts: a free image
+	// still counts, and requesting four images but receiving two counts as two.
+	if h.jobs != nil {
+		count, err := h.jobs.CountImageOutputsInRange(c.Request.Context(), user.ID, monthStart, monthStart.AddDate(0, 1, 0))
+		if err == nil {
+			payload["monthly_creation"] = gin.H{"image_count": count}
+		} else {
+			log.Printf("user_id=%s event=member_image_output_count_failed error=%q", user.ID, err)
 		}
 	}
 	response.OK(c, payload)

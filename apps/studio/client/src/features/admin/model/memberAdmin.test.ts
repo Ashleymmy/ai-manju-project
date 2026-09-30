@@ -19,6 +19,7 @@ import {
   inviteRewardStatusTone,
   memberLevelLabel,
   normalizeAdminPaged,
+  normalizeAdminLedgerSummary,
   normalizeConsumptionStats,
   parseConfigValue,
   timeRangeStartIso,
@@ -61,6 +62,13 @@ describe("admin member module labels", () => {
 });
 
 describe("ledger aggregation and consumption stats", () => {
+  it("distinguishes real zero totals from missing or invalid summaries", () => {
+    expect(normalizeAdminLedgerSummary({ increase: 0, decrease: 0 })).toEqual({ increase: 0, decrease: 0 });
+    expect(normalizeAdminLedgerSummary({ increase: 1200, decrease: 300 })).toEqual({ increase: 1200, decrease: 300 });
+    for (const invalid of [undefined, null, {}, { increase: 0 }, { increase: "1200", decrease: 0 }, { increase: -1, decrease: 0 }, { increase: Infinity, decrease: 0 }, { increase: 0, decrease: NaN }]) {
+      expect(normalizeAdminLedgerSummary(invalid)).toBeNull();
+    }
+  });
   it("aggregates page items into increase / decrease totals", () => {
     expect(aggregateLedgerAmounts([{ amount: 500 }, { amount: -120 }, { amount: 0 }, { amount: -30 }])).toEqual({
       increase: 500,

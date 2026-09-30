@@ -4,7 +4,6 @@ export type ProjectCardData = {
   id?: string;
   title: string;
   code: string;
-  chapter: string;
   image: string;
   state: string;
   color: "blue" | "red" | "sand";
@@ -19,11 +18,6 @@ export function projectToCard(
     id: project.id,
     title: project.title,
     code: `PRJ-${project.id.slice(-4).toUpperCase()}`,
-    chapter:
-      new Date(project.updated_at).toLocaleDateString("zh-CN", {
-        month: "numeric",
-        day: "numeric",
-      }) + " 更新",
     image: "",
     state: "进行中",
     color: (["blue", "red", "sand"] as const)[index % 3],

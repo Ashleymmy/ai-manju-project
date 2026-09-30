@@ -21,6 +21,10 @@ export { useMemberOverviewQuery } from "./controllers/useMemberOverview";
 export { useMemberConsumptionsQuery } from "./controllers/useMemberConsumptions";
 // 供生成页成本估算（图片/视频生成按钮旁显示约扣积分）。
 export { usePricingQuery } from "./controllers/usePricing";
+// 工作台创作预估复用生成时的实时报价，避免在前端另算单价。
+export { fetchGenerationQuote } from "./services/memberApi";
+export type { CreditQuote } from "./services/memberApi";
+export { PRICE_REFRESH_INTERVAL_MS } from "./model/constants";
 export {
   estimateImageCredits,
   estimateVideoCredits,

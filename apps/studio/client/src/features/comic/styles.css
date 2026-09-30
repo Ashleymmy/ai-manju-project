@@ -378,3 +378,10 @@
   font-size: 12px;
   font-weight: 600;
 }
+
+/* Explain unavailable steps without trapping navigation in an earlier view. */
+.comic-page .workflow-steps button > span { display: grid; gap: 4px; }
+.comic-page .workflow-steps button small { font-size: 11px; font-weight: 400; line-height: 1.4; }
+.comic-page .workflow-steps button:disabled { cursor: not-allowed; color: #8d979c; background: #181d1f; }
+.comic-page .workflow-steps button:disabled i { opacity: 0.55; }
+.comic-page .workflow-steps button:focus-visible { outline: 2px solid #a9c6ed; outline-offset: -3px; }

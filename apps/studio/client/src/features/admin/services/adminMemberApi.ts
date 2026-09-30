@@ -9,6 +9,7 @@ import { request } from "@/shared/api/http";
 import {
   ADMIN_LIST_PAGE_SIZE,
   normalizeAdminPaged,
+  normalizeAdminLedgerSummary,
   normalizeConsumptionStats,
   type AdminAuditLog,
   type AdminBillingConfig,
@@ -68,7 +69,7 @@ export type AdminLedgerFilters = {
 };
 
 export function listAdminLedger(filters: AdminLedgerFilters) {
-  return request<Partial<AdminPaged<AdminLedgerEntry>>>("/api/admin/billing/ledger", {
+  return request<Partial<AdminPaged<AdminLedgerEntry>> & { summary?: unknown }>("/api/admin/billing/ledger", {
     query: {
       user_id: filters.userId || undefined,
       entry_type: filters.entryType || undefined,
@@ -77,7 +78,10 @@ export function listAdminLedger(filters: AdminLedgerFilters) {
       page: filters.page ?? 1,
       page_size: filters.pageSize ?? ADMIN_LIST_PAGE_SIZE,
     },
-  }).then(raw => normalizeAdminPaged<AdminLedgerEntry>(raw));
+  }).then(raw => ({
+    ...normalizeAdminPaged<AdminLedgerEntry>(raw),
+    summary: normalizeAdminLedgerSummary(raw?.summary),
+  }));
 }
 
 /* ---- 模块3 订单 ---- */

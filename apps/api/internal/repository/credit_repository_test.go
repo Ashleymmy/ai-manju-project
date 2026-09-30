@@ -49,6 +49,55 @@ func runCreditRepositorySemantics(t *testing.T, factory creditRepoFactory, ids f
 	t.Helper()
 	epoch := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
+	t.Run("LedgerSummaryUsesAllMatchingRowsBeforePagination", func(t *testing.T) {
+		repo := factory()
+		userID := ids("summary-user")
+		otherID := ids("summary-other")
+		for i, amount := range []int64{100, -25, 50} {
+			entryType := model.LedgerTypeAdminAdd
+			if amount < 0 {
+				entryType = model.LedgerTypeAdminSubtract
+			}
+			if _, err := repo.AdjustPermanent(userID, amount, entryType, "test", ids(fmt.Sprintf("summary-%d", i)), epoch.Add(time.Duration(i)*time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := repo.AdjustPermanent(otherID, 900, model.LedgerTypeAdminAdd, "test", ids("summary-other"), epoch); err != nil {
+			t.Fatal(err)
+		}
+		for _, page := range []int{1, 2, 3, 4} {
+			items, summary, err := repo.ListLedgerGlobalWithSummary(userID, "", time.Time{}, time.Time{}, page, 1)
+			if err != nil || summary != (LedgerSummary{Total: 3, Increase: 150, Decrease: 25}) {
+				t.Fatalf("page %d: summary=%+v err=%v", page, summary, err)
+			}
+			wantLen := 1
+			if page == 4 {
+				wantLen = 0
+			}
+			if len(items) != wantLen {
+				t.Fatalf("page %d rows=%d want %d", page, len(items), wantLen)
+			}
+		}
+		for _, tc := range []struct {
+			name, user, kind string
+			start, end       time.Time
+			want             LedgerSummary
+		}{
+			{"type", userID, model.LedgerTypeAdminSubtract, time.Time{}, time.Time{}, LedgerSummary{Total: 1, Decrease: 25}},
+			{"inclusive time and type", userID, model.LedgerTypeAdminSubtract, epoch.Add(time.Hour), epoch.Add(time.Hour), LedgerSummary{Total: 1, Decrease: 25}},
+			{"time", userID, "", epoch.Add(time.Hour), epoch.Add(2 * time.Hour), LedgerSummary{Total: 2, Increase: 50, Decrease: 25}},
+			{"user", otherID, "", time.Time{}, time.Time{}, LedgerSummary{Total: 1, Increase: 900}},
+			{"empty", ids("summary-missing"), "", time.Time{}, time.Time{}, LedgerSummary{}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				_, got, err := repo.ListLedgerGlobalWithSummary(tc.user, tc.kind, tc.start, tc.end, 1, 1)
+				if err != nil || got != tc.want {
+					t.Fatalf("got %+v err=%v want %+v", got, err, tc.want)
+				}
+			})
+		}
+	})
+
 	seedGrant := func(t *testing.T, repo CreditRepository, userID string, source string, amount int64, expiresAt time.Time, periodKey string) model.CreditGrant {
 		t.Helper()
 		outcome, err := repo.CreateGrantWithLedger(model.CreditGrant{

@@ -24,6 +24,10 @@ export type MemberOverview = {
     video_seconds: number;
     total_credits: number;
   };
+  /** Actual image outputs from successful jobs completed this month, including free jobs. */
+  monthly_creation?: {
+    image_count: number;
+  };
 };
 
 /** 积分流水类型（后端 LedgerType*，文档 7 类型 + 退款回滚）。 */

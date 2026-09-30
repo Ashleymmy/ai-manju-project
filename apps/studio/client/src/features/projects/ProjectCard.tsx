@@ -8,7 +8,6 @@ export function ProjectCard({
   id,
   title,
   code,
-  chapter,
   image,
   state,
   color,
@@ -40,9 +39,8 @@ export function ProjectCard({
       <div className="project-info">
         <div>
           <h3>{title}</h3>
-          <p>{chapter}</p>
         </div>
-        <span>{time}</span>
+        <span title={`更新于 ${time}`}>{time}</span>
       </div>
     </button>
   );

@@ -49,12 +49,12 @@ func (h *AdminBillingHandler) ListLedger(c *gin.Context) {
 	if !ok {
 		return
 	}
-	items, total, err := h.credits.ListLedgerGlobal(c.Query("user_id"), c.Query("entry_type"), start, end, page, pageSize)
+	items, summary, err := h.credits.ListLedgerGlobalWithSummary(c.Query("user_id"), c.Query("entry_type"), start, end, page, pageSize)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	response.OK(c, gin.H{"items": items, "total": total, "page": page, "page_size": pageSize})
+	response.OK(c, gin.H{"items": items, "total": summary.Total, "page": page, "page_size": pageSize, "summary": summary})
 }
 
 // ListOrders GET /api/admin/billing/orders?user_id=&status=&order_type=&page=&page_size=

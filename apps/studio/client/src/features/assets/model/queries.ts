@@ -9,6 +9,7 @@ import {
   getAssetUsageEvents,
   getTrashedAssetLibrary,
   listAssetExports,
+  type Asset,
   type AssetLibraryQuery,
 } from "@/entities/asset";
 import {
@@ -75,17 +76,19 @@ export function useAssetLibraryPageQuery(
           ? await getTrashedAssetLibrary(scope, query, signal)
           : await getAssetLibrary(scope, query, signal);
       const items = [...(result.items || [])];
+      // Keep linked details separate: never add a 51st card or displace a page item.
+      let linkedAsset: Asset | null = null;
       if (
         deepLinkAssetId &&
         !items.some(asset => asset.id === deepLinkAssetId)
       ) {
         try {
-          items.unshift(await getAsset(deepLinkAssetId, scope));
+          linkedAsset = await getAsset(deepLinkAssetId, scope);
         } catch {
-          return { ...result, items, deepLinkMissing: true };
+          return { ...result, items, linkedAsset, deepLinkMissing: true };
         }
       }
-      return { ...result, items, deepLinkMissing: false };
+      return { ...result, items, linkedAsset, deepLinkMissing: false };
     },
   });
 }
