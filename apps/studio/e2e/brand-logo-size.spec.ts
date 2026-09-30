@@ -24,7 +24,7 @@ for (const width of [1920, 1280, 900, 761, 390]) {
     await expect(page.locator(".topbar")).toBeVisible();
     const notice = page.getByRole("button", { name: "知道了", exact: true });
     if (await notice.isVisible()) await notice.click();
-    const logo = page.getByRole("img", { name: "cloudto 云格", includeHidden: true });
+    const logo = page.getByRole("img", { name: "cloudto 云途", includeHidden: true });
     const header = page.locator(".topbar"), actions = page.locator(".top-actions");
     if (width > 760) {
       await expect(logo).toBeVisible();

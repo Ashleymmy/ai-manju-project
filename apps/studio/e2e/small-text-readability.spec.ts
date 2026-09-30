@@ -70,7 +70,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 1280, height: 80
     if (viewport.width > 1100) {
       await expect(page.locator(".ln-label").first()).toHaveCSS("font-size", "13px");
       await expect(page.locator('.ln-row[href="/dashboard"]')).toHaveCSS("font-weight", "500");
-      const brand = page.getByRole("img", { name: "cloudto 云格", exact: true });
+      const brand = page.getByRole("img", { name: "cloudto 云途", exact: true });
       await expect(brand).toBeVisible();
       await expect.poll(() => brand.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
       await page.locator('.ln-row[href="/dashboard"]').hover();

@@ -68,7 +68,7 @@ import { StudioCommandPalette } from "./StudioCommandPalette";
 import { createAndOpenProject } from "@/features/projects";
 */
 
-// 站内标识已切换到 cloudto 云格资产包（/public/cloudto/），不再引用旧 /logo.png。
+// 站内标识已切换到 cloudto 云途资产包（/public/cloudto/），不再引用旧 /logo.png。
 const railGroupsStorageKey = "ai-manju:rail-open-groups";
 
 type Icon = typeof Grid2X2;
@@ -236,11 +236,11 @@ function normalizeShellPath(locationPath: string) {
 function BrandMark() {
   return (
     <div className="brand-lockup">
-      {/* cloudto 云格横版标识（云形 + 字标一体，深底版） */}
+      {/* cloudto 云途横版标识（云形 + 字标一体，深底版） */}
       <img
         className="brand-logo-full"
-        src="/cloudto/logos/svg/logo-horizontal-on-dark.svg"
-        alt="cloudto 云格"
+        src="/cloudto/logos/svg/logo-horizontal-on-dark.svg?v=yuntu"
+        alt="cloudto 云途"
       />
     </div>
   );
