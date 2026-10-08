@@ -102,3 +102,26 @@
   .admin-table .admin-invite-row,
   .admin-table .admin-audit-row { min-width: 900px; }
 }
+/* Header action groups keep the primary action level with the small secondary buttons. */
+.admin-panel-head .monitor-actions { flex-wrap: wrap; justify-content: flex-end; }
+.monitor-actions button.vermilion-button { min-height: 34px; padding: 0 13px; font-size: var(--font-size-small); }
+
+/* Seedance asset list: tag strip, empty state and pagination below the shared report filters. */
+.seedance-tag-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.seedance-tag-label { margin-right: 2px; color: #9c9c9c; font: var(--font-size-caption) var(--font-family-mono); }
+.seedance-tag-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: 999px; background: #222; color: #d4d4d4; font-size: var(--font-size-small); }
+.seedance-tag-chip > i { width: 8px; height: 8px; border-radius: 50%; }
+.seedance-tag-chip > button { display: inline-grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 50%; background: transparent; color: #8f8f8f; cursor: pointer; }
+.seedance-tag-chip > button:hover:not(:disabled) { background: rgba(255,255,255,.1); color: #f2f2f2; }
+.seedance-tag-add { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 11px; border: 1px dashed rgba(255,255,255,.26); border-radius: 999px; background: transparent; color: #bdbdbd; cursor: pointer; font-size: var(--font-size-small); }
+.seedance-tag-add:hover:not(:disabled) { border-color: rgba(255,255,255,.5); color: #f2f2f2; }
+.seedance-tag-line button:disabled { cursor: not-allowed; opacity: .5; }
+.seedance-board { margin-top: 18px; }
+.seedance-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 180px; padding: 24px; background: rgba(255,255,255,.015); color: #8d8d8d; text-align: center; }
+.seedance-empty p { margin: 4px 0 0; color: #cfcfcf; font-size: var(--font-size-small); }
+.seedance-empty small { color: #8d8d8d; font-size: var(--font-size-caption); }
+.seedance-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; }
+.seedance-pagination > small { color: #9c9c9c; font: var(--font-size-caption) var(--font-family-mono); }
+.seedance-pagination-actions { display: flex; align-items: center; gap: 8px; }
+.seedance-pagination-actions .outline-button { gap: 4px; }
+.seedance-page-indicator { min-width: 52px; color: #d4d4d4; font: var(--font-size-small) var(--font-family-mono); text-align: center; }

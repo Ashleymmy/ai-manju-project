@@ -220,11 +220,29 @@
   gap: 12px;
   color: var(--text-muted, #737373);
 }
+/* Only the body scrolls, so the title, time/source line and close button stay visible. */
 .runtime-monitor-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   width: min(760px, calc(100vw - 32px));
   max-width: 760px;
   max-height: 85dvh;
-  overflow: auto;
+  overflow: hidden;
+  padding: 0;
+}
+.runtime-monitor-dialog-head {
+  flex: none;
+  padding: 24px 56px 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.runtime-monitor-dialog-body {
+  display: grid;
+  gap: 16px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 24px 24px;
 }
 .runtime-monitor-dialog dl {
   display: grid;

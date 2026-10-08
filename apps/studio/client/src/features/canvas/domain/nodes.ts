@@ -56,6 +56,18 @@ export function imageSrcFromNode(
   return looksLikeImageSource(candidate) ? candidate : "";
 }
 
+/** Full-size source for a server thumbnail URL, so a failed preview can fall back to the original once. */
+export function originalImageSourceForThumbnail(source: string) {
+  try {
+    const url = new URL(source);
+    if (!url.searchParams.has("thumbnail")) return "";
+    url.searchParams.delete("thumbnail");
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
 export function normalizeCanvasNode(value: unknown): CanvasNodeData | null {
   if (!isRecord(value)) return null;
   const id = stringValue(value.id);

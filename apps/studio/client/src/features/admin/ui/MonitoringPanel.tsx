@@ -530,7 +530,7 @@ export function MonitoringPanel({
         }}
       >
         <DialogContent className="runtime-monitor-dialog">
-          <DialogHeader>
+          <DialogHeader className="runtime-monitor-dialog-head">
             <DialogTitle>运行记录详情</DialogTitle>
             <DialogDescription>
               {detail
@@ -539,7 +539,7 @@ export function MonitoringPanel({
             </DialogDescription>
           </DialogHeader>
           {detail && (
-            <>
+            <div className="runtime-monitor-dialog-body">
               <dl aria-label="运行记录字段">
                 <div>
                   <dt>用户</dt>
@@ -596,7 +596,7 @@ export function MonitoringPanel({
                 <Copy size={16} />
                 复制诊断信息
               </button>
-            </>
+            </div>
           )}
         </DialogContent>
       </Dialog>

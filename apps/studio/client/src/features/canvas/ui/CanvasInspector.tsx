@@ -1,4 +1,4 @@
-import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
+import { CanvasGenerationPrice, CanvasImageRequestSize } from "./CanvasGenerationPrice";
 import { IMAGE_GENERATION_COUNTS } from "@/shared/config/generation";
 import { imageModelSupportsDetail } from "@/entities/model/imageProtocol";
 import { videoModelCapabilities, videoOptionAvailable } from "@/entities/model/videoCapabilities";
@@ -56,7 +56,7 @@ import {
   videoSubModePlaceholder,
 } from "@/features/canvas/domain/nodeUtils";
 import { imageSrcFromNode } from "@/features/canvas/domain/nodes";
-import { canvasImageGenerationSettings, canvasImageGenerationSettingsIssue } from "@/features/canvas/domain/imageGenerationSettings";
+import { canvasImageGenerationSettingsIssue } from "@/features/canvas/domain/imageGenerationSettings";
 import type {
   CanvasEdgeData,
   CanvasGenerationMode,
@@ -513,11 +513,11 @@ export function CanvasInspector({
                             <button key={value} type="button" disabled={!isCanvasImageResolutionAvailable(value)} title={isCanvasImageResolutionAvailable(value) ? value : `${value}：当前生图模型暂只支持 1K`} className={imageResolutionFromNode(selectedNode) === value ? "active" : ""} onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), imageResolution: value } })}>{value}</button>
                           ))}
                         </div>
-                        <span className="param-group-label">请求尺寸：{canvasImageGenerationSettings(selectedNode).size.replace("x", " × ")} px</span>
+                        <CanvasImageRequestSize node={selectedNode} />
                       </div>
                       <div className="param-group"><span className="param-group-label">比例</span>
                         <div className="param-ratio-grid">
-                          <button type="button" className={sizeFromNode(selectedNode) === "auto" ? "param-ratio active" : "param-ratio"} title="沿用当前图片比例；空节点默认 1:1" onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: "auto" } })}>
+                          <button type="button" className={sizeFromNode(selectedNode) === "auto" ? "param-ratio active" : "param-ratio"} title="跟随第一张 @ 引用的参考图比例；没有参考图时沿用当前图片比例，空节点为 1:1" onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: "auto" } })}>
                             <i className="param-ratio-icon" style={ratioIconStyle("auto")} />
                             <span>自适应</span>
                           </button>

@@ -2,10 +2,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
+  Inbox,
+  Link2,
   Loader2,
+  Plus,
   RefreshCcw,
+  RotateCcw,
   Search,
-  Trash2,
+  Upload,
+  X,
 } from "lucide-react";
 
 import {
@@ -35,6 +40,7 @@ import {
   SEEDANCE_PAGE_SIZE,
   SEEDANCE_TAG_DEFAULT_COLOR,
 } from "../model/seedance";
+import "./report-content.css";
 
 export function SeedanceAssetsPanel({
   controller,
@@ -117,6 +123,10 @@ export function SeedanceAssetsPanel({
     urlDraft: seedanceUrlDraft,
     urlErrors: seedanceUrlErrors,
   } = controller;
+  const seedanceSyncing = busy === "seedance-sync" || busy === "seedance-poll";
+  const seedanceFiltered = Boolean(
+    seedanceSearch.trim() || seedanceStatus || seedanceType || seedanceTagId
+  );
 
   return (
     <>
@@ -131,140 +141,181 @@ export function SeedanceAssetsPanel({
                 : "readiness loading"}
             </small>
           </div>
-          <div>
+          <div className="monitor-actions">
             <button
               className="outline-button small"
               onClick={() => void syncSeedance("poll")}
+              disabled={seedanceSyncing}
+              title="刷新处理中素材的注册状态"
             >
-              <RefreshCcw size={15} /> 轮询
+              {busy === "seedance-poll" ? <Loader2 className="spin" size={14} /> : <RefreshCcw size={14} />} 轮询
             </button>
             <button
               className="outline-button small"
               onClick={openSeedanceUploadDialog}
               disabled={seedanceUploadBusy || seedanceUrlBusy}
+              title="上传本地图片或视频并注册"
             >
-              上传
+              <Upload size={14} /> 上传
             </button>
             <button
               className="outline-button small"
               onClick={openSeedanceUrlDialog}
               disabled={seedanceUploadBusy || seedanceUrlBusy}
+              title="通过公网地址注册素材"
             >
-              注册 URL
+              <Link2 size={14} /> 注册 URL
             </button>
             <button
               className="vermilion-button"
               onClick={() => void syncSeedance("sync")}
+              disabled={seedanceSyncing}
+              title="与 Seedance 同步全部素材"
             >
-              <Database size={16} /> 同步
+              {busy === "seedance-sync" ? <Loader2 className="spin" size={14} /> : <Database size={14} />} 同步
             </button>
           </div>
         </div>
-        <div className="filter-line">
-          <label className="tag-search">
-            <Search size={15} />
-            <input
-              value={seedanceSearch}
-              onChange={event => setSeedanceSearch(event.target.value)}
-              onKeyDown={event => {
-                if (event.key === "Enter") void loadSeedanceAssets();
-              }}
-              placeholder="搜索名称 / AssetID"
-            />
-          </label>
-          <select
-            value={seedanceStatus}
-            onChange={event => setSeedanceStatus(event.target.value)}
-          >
-            <option value="">全部状态</option>
-            {["queued", "Creating", "Processing", "Active", "Failed"].map(
-              item => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              )
-            )}
-          </select>
-          <select
-            value={seedanceType}
-            onChange={event => setSeedanceType(event.target.value)}
-          >
-            <option value="">全部类型</option>
-            <option value="Image">图片</option>
-            <option value="Video">视频</option>
-          </select>
-          <select
-            value={seedanceTagId}
-            onChange={event => setSeedanceTagId(event.target.value)}
-          >
-            <option value="">全部标签</option>
-            {seedanceTags.map(tag => (
-              <option key={tag.id} value={tag.id}>
-                {tag.name}
-              </option>
-            ))}
-          </select>
-          <button
-            className="outline-button small"
-            onClick={() => void loadSeedanceAssets()}
-            disabled={seedanceListLoading}
-          >
-            {seedanceListLoading ? (
-              <Loader2 className="spin" size={15} />
-            ) : (
-              <Search size={15} />
-            )} {" "}
-            查询
-          </button>
-          <button
-            className="outline-button small"
-            onClick={() => {
-              setSeedanceSearch("");
-              setSeedanceStatus("");
-              setSeedanceType("");
-              setSeedanceTagId("");
-              void loadSeedanceAssets({});
+        <div className="admin-report-content">
+          <form
+            className="admin-report-filters admin-report-filters--seedance"
+            aria-label="Seedance 素材筛选"
+            onSubmit={event => {
+              event.preventDefault();
+              void loadSeedanceAssets();
             }}
-            disabled={seedanceListLoading}
           >
-            清空
-          </button>
-        </div>
-        <div className="filter-line">
-          <div className="segmented">
-            <button
-              onClick={openCreateSeedanceTagDialog}
-              disabled={busy.startsWith("seedance-")}
-            >
-              新建标签
-            </button>
-            {seedanceTags.map(tag => (
-              <span
-                key={tag.id}
-                className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-sm"
+            <label>
+              素材状态
+              <select
+                value={seedanceStatus}
+                onChange={event => setSeedanceStatus(event.target.value)}
               >
-                <span
-                  className="h-2.5 w-2.5 rounded-full"
-                  style={{
-                    backgroundColor: tag.color || SEEDANCE_TAG_DEFAULT_COLOR,
-                  }}
-                />
-                <span>{tag.name}</span>
-                <button
-                  type="button"
-                  className="icon-button subtle"
-                  aria-label={`删除标签 ${tag.name}`}
-                  title={`删除标签 ${tag.name}`}
-                  disabled={busy.startsWith("seedance-")}
-                  onClick={() => openRemoveSeedanceTagDialog(tag)}
-                >
-                  <Trash2 size={13} />
-                </button>
-              </span>
-            ))}
-          </div>
+                <option value="">全部状态</option>
+                {["queued", "Creating", "Processing", "Active", "Failed"].map(
+                  item => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  )
+                )}
+              </select>
+            </label>
+            <label>
+              素材类型
+              <select
+                value={seedanceType}
+                onChange={event => setSeedanceType(event.target.value)}
+              >
+                <option value="">全部类型</option>
+                <option value="Image">图片</option>
+                <option value="Video">视频</option>
+              </select>
+            </label>
+            <label>
+              素材标签
+              <select
+                value={seedanceTagId}
+                onChange={event => setSeedanceTagId(event.target.value)}
+              >
+                <option value="">全部标签</option>
+                {seedanceTags.map(tag => (
+                  <option key={tag.id} value={tag.id}>
+                    {tag.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              关键词
+              <input
+                value={seedanceSearch}
+                onChange={event => setSeedanceSearch(event.target.value)}
+                placeholder="搜索名称 / AssetID"
+              />
+            </label>
+            <div className="admin-report-filter-actions">
+              <button
+                className="admin-report-button"
+                type="submit"
+                disabled={seedanceListLoading}
+              >
+                {seedanceListLoading ? (
+                  <Loader2 className="spin" size={16} />
+                ) : (
+                  <Search size={16} />
+                )}
+                查询
+              </button>
+              <button
+                className="admin-report-button"
+                type="button"
+                onClick={() => {
+                  setSeedanceSearch("");
+                  setSeedanceStatus("");
+                  setSeedanceType("");
+                  setSeedanceTagId("");
+                  void loadSeedanceAssets({});
+                }}
+                disabled={seedanceListLoading || !seedanceFiltered}
+                title="清空搜索与筛选条件"
+              >
+                <RotateCcw size={16} /> 重置
+              </button>
+            </div>
+          </form>
+        </div>
+        <div className="seedance-tag-line">
+          <span className="seedance-tag-label">标签</span>
+          {seedanceTags.map(tag => (
+            <span key={tag.id} className="seedance-tag-chip">
+              <i
+                style={{
+                  backgroundColor: tag.color || SEEDANCE_TAG_DEFAULT_COLOR,
+                }}
+              />
+              <span>{tag.name}</span>
+              <button
+                type="button"
+                aria-label={`删除标签 ${tag.name}`}
+                title={`删除标签 ${tag.name}`}
+                disabled={busy.startsWith("seedance-")}
+                onClick={() => openRemoveSeedanceTagDialog(tag)}
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            className="seedance-tag-add"
+            onClick={openCreateSeedanceTagDialog}
+            disabled={busy.startsWith("seedance-")}
+          >
+            <Plus size={13} /> 新建标签
+          </button>
         </div>
         <div className="seedance-board">
+          {!seedancePageState.items.length ? (
+            <div className="seedance-empty">
+              {seedanceListLoading ? (
+                <>
+                  <Loader2 className="spin" size={20} />
+                  <p>正在加载 Seedance 素材…</p>
+                </>
+              ) : (
+                <>
+                  <Inbox size={22} />
+                  <p>{seedanceFiltered ? "没有匹配的 Seedance 素材" : "还没有 Seedance 素材"}</p>
+                  <small>
+                    {seedanceFiltered
+                      ? "可以调整筛选条件，或点击“重置”查看全部素材"
+                      : "点击右上角“上传”或“注册 URL”添加素材，也可以“同步”拉取已有素材"}
+                  </small>
+                </>
+              )}
+            </div>
+          ) : null}
           {seedancePageState.items.map((asset, index) => (
             <article key={asset.id}>
               <span className="seedance-index">
@@ -305,33 +356,33 @@ export function SeedanceAssetsPanel({
             </article>
           ))}
         </div>
-        {!seedanceListLoading && !seedancePageState.items.length ? (
-          <div className="empty-output">
-            <p>没有匹配的 Seedance 素材</p>
-          </div>
-        ) : null}
-        <div className="filter-line">
+        <div className="seedance-pagination">
           <small>
-            已加载 {controller.assets.length} / {seedanceTotal} 条 · 第 {seedancePageState.page} / {seedancePageState.pageCount} 页
+            已加载 {controller.assets.length} / {seedanceTotal} 条
           </small>
-          <button
-            className="outline-button small"
-            disabled={seedancePageState.page <= 1}
-            onClick={() => setSeedancePage(page => Math.max(1, page - 1))}
-          >
-            <ChevronLeft size={15} /> 上一页
-          </button>
-          <button
-            className="outline-button small"
-            disabled={seedancePageState.page >= seedancePageState.pageCount}
-            onClick={() =>
-              setSeedancePage(page =>
-                Math.min(seedancePageState.pageCount, page + 1)
-              )
-            }
-          >
-            下一页 <ChevronRight size={15} />
-          </button>
+          <div className="seedance-pagination-actions">
+            <button
+              className="outline-button small"
+              disabled={seedancePageState.page <= 1}
+              onClick={() => setSeedancePage(page => Math.max(1, page - 1))}
+            >
+              <ChevronLeft size={14} /> 上一页
+            </button>
+            <span className="seedance-page-indicator">
+              {seedancePageState.page} / {seedancePageState.pageCount}
+            </span>
+            <button
+              className="outline-button small"
+              disabled={seedancePageState.page >= seedancePageState.pageCount}
+              onClick={() =>
+                setSeedancePage(page =>
+                  Math.min(seedancePageState.pageCount, page + 1)
+                )
+              }
+            >
+              下一页 <ChevronRight size={14} />
+            </button>
+          </div>
         </div>
       </section>
 

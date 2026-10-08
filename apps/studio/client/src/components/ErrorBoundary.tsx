@@ -1,3 +1,4 @@
+import { hotRecovery } from "@/shared/lib/devHotRecovery";
 import { isModuleLoadError } from "@/shared/lib/moduleLoadError";
 import { reportRuntimeError } from "@/shared/lib/runtimeErrorReport";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
@@ -23,6 +24,9 @@ interface State {
 }
 
 class ErrorBoundary extends Component<Props, State> {
+  private unsubscribeHotUpdates?: () => void;
+  private autoRetriedUpdateId = 0;
+
   constructor(props: Props) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -32,7 +36,29 @@ class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
+  componentDidMount() {
+    // A later hot update usually carries the fix for the error on screen.
+    this.unsubscribeHotUpdates = hotRecovery.subscribe(() => {
+      if (this.state.hasError) this.retry();
+    });
+  }
+
+  componentWillUnmount() {
+    this.unsubscribeHotUpdates?.();
+  }
+
   componentDidCatch(error: Error, info: ErrorInfo) {
+    if (hotRecovery.isHotUpdateError()) {
+      // Development-only: remount once per update with fresh hook state and keep the noise out of runtime monitoring.
+      const updateId = hotRecovery.updateId();
+      if (this.autoRetriedUpdateId !== updateId) {
+        this.autoRetriedUpdateId = updateId;
+        this.retry();
+        return;
+      }
+      this.setState({ report: savePageError(error, info.componentStack || ""), copyStatus: "" });
+      return;
+    }
     reportRuntimeError(error, "render_error", `${error.stack || ""}\n${info.componentStack || ""}`);
     this.setState({
       report: savePageError(error, info.componentStack || ""),

@@ -7,7 +7,7 @@ import { videoConfigFromNode } from "../domain/nodeUtils";
 import type { CanvasNodeData } from "../domain/types";
 import { CanvasInspector, type CanvasInspectorProps } from "./CanvasInspector";
 
-vi.mock("./CanvasGenerationPrice", () => ({ CanvasGenerationPrice: () => null }));
+vi.mock("./CanvasGenerationPrice", () => ({ CanvasGenerationPrice: () => null, CanvasImageRequestSize: () => null }));
 afterEach(() => { replaceVideoModelCapabilities({}); vi.unstubAllGlobals(); });
 
 it.each(["sdvideo/seedance-2.0-mini", "sdvideo/seedance-fast", "mt::ep-mini"])("makes 1080p visibly disabled and unclickable for %s", async model => {

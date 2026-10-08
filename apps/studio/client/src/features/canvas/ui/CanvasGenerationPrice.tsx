@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 import { GenerationPrice } from "@/features/member";
-import { canvasImageGenerationSettings } from "../domain/imageGenerationSettings";
+import { canvasImageAutoReferenceSize, canvasImageGenerationSettings } from "../domain/imageGenerationSettings";
 import { generationModeFromNode, imageCountFromNode, modelFromNode, promptTextFromNode, videoConfigFromNode } from "../domain/nodeUtils";
 import { extractCanvasMentionTokens, type CanvasMentionReference } from "../domain/mentions";
 import type { CanvasNodeData, CanvasEdgeData } from "../domain/types";
@@ -36,5 +36,15 @@ export function CanvasGenerationPrice({ node, edit = false, panorama = false, co
   const tasks = retry ? node.metadata?.isBatchRoot
     ? context.nodes.filter(item => (item.id === node.id || node.metadata?.batchChildIds?.includes(item.id)) && item.metadata?.status === "error").length : 1
     : imageCountFromNode(node);
-  return <GenerationPrice model={modelFromNode(node, context.imageModel)} {...canvasImageGenerationSettings(node, panorama ? "2:1" : undefined, modelFromNode(node, context.imageModel))} references={edit ? 1 : retry ? node.metadata?.referenceInputs?.length ?? 0 : refs.filter(ref => ref.kind === "image").length} tasks={edit ? 1 : tasks} compact={compact} />;
+  const autoReference = edit || retry || panorama ? undefined : canvasImageAutoReferenceSize(node, context.references(node.id), context.nodes);
+  return <GenerationPrice model={modelFromNode(node, context.imageModel)} {...canvasImageGenerationSettings(node, panorama ? "2:1" : undefined, modelFromNode(node, context.imageModel), typeof autoReference === "object" ? autoReference : undefined)} references={edit ? 1 : retry ? node.metadata?.referenceInputs?.length ?? 0 : refs.filter(ref => ref.kind === "image").length} tasks={edit ? 1 : tasks} compact={compact} />;
+}
+
+/** The parameter panel shows the size submission will request, including auto ratio from references. */
+export function CanvasImageRequestSize({ node }: { node: CanvasNodeData }) {
+  const context = useContext(CanvasPricingContext);
+  const reference = canvasImageAutoReferenceSize(node, context.references(node.id), context.nodes);
+  if (reference === "unknown") return <span className="param-group-label">请求尺寸：按参考图比例（提交时读取）</span>;
+  const size = canvasImageGenerationSettings(node, undefined, undefined, reference).size.replace("x", " × ");
+  return <span className="param-group-label">请求尺寸：{size} px{reference ? "（跟随参考图）" : ""}</span>;
 }

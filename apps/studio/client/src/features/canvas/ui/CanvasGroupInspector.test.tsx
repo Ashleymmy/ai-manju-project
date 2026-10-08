@@ -9,6 +9,7 @@ import { CanvasInspector, type CanvasInspectorProps } from "./CanvasInspector";
 // Pricing is unrelated to selection and must not issue quote requests in this UI test.
 vi.mock("./CanvasGenerationPrice", () => ({
   CanvasGenerationPrice: () => <span>积分报价</span>,
+  CanvasImageRequestSize: () => <span>请求尺寸</span>,
 }));
 
 describe("group inspector with imported members", () => {

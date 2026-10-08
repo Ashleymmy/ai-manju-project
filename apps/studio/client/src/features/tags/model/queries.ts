@@ -30,14 +30,18 @@ export function useTagPromptBindingsQuery(
   });
 }
 
+/** Assets per page in the tag library's related-asset preview. */
+export const TAG_ASSET_PAGE_SIZE = 24;
+
 export function useTagAssetsQuery(
   scope: WorkspaceScope,
   tagId: string,
-  page: number
+  page: number,
+  enabled: boolean
 ) {
   return useQuery({
-    enabled: Boolean(tagId),
-    queryKey: assetQueryKeys.tagAssets(scope, tagId, page, 24),
-    queryFn: ({ signal }) => listTagAssets(scope, tagId, page, 24, signal),
+    enabled: Boolean(tagId) && enabled,
+    queryKey: assetQueryKeys.tagAssets(scope, tagId, page, TAG_ASSET_PAGE_SIZE),
+    queryFn: ({ signal }) => listTagAssets(scope, tagId, page, TAG_ASSET_PAGE_SIZE, signal),
   });
 }

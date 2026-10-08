@@ -47,3 +47,20 @@
   font-size: var(--font-size-caption);
   line-height: 1.7;
 }
+.skill-workspace .prompt-filters > .field-label { margin: 18px 0 6px; padding: 0 8px; }
+.skill-workspace .prompt-filters > button { align-items: center; margin-top: 2px; }
+.skill-workspace .prompt-filters > button.selected { background: rgba(255, 255, 255, 0.08); font-weight: 600; }
+.skill-workspace .prompt-filters hr { margin: 16px 0 0; }
+.skill-workspace .prompt-filters > .skill-side-hint { margin-top: 14px; padding: 0 8px; }
+.skill-preview-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.skill-preview-actions > button { width: 100%; }
+.skill-preview-secondary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.skill-preview-actions .outline-button { min-height: 36px; padding: 0 10px; font-size: var(--font-size-small); }
+.skill-preview-actions .skill-danger-button { color: #ff8b78; }
+.skill-preview-actions .skill-danger-button:hover:not(:disabled) { border-color: rgba(255, 139, 120, 0.5); background: rgba(255, 139, 120, 0.08); }
+.skill-preview-meta { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+@media (max-width: 760px) {
+  .skill-workspace .prompt-filters { align-items: center; }
+  .skill-workspace .prompt-filters > button { margin-top: 0; }
+  .skill-workspace .prompt-filters > .skill-side-hint { display: none; }
+}

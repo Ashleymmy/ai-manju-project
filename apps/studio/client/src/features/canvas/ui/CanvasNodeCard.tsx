@@ -53,6 +53,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type MutableRefObject,
   type PointerEvent,
+  type ReactNode,
   type RefObject,
   type SetStateAction,
   useState,
@@ -71,7 +72,7 @@ import {
   nodeInlineEditPlaceholder,
 } from "@/features/canvas/domain/nodeUtils";
 import { CANVAS_PIN_COLORS, normalizeCanvasPinColor } from "@/features/canvas/domain/pin";
-import { imageSrcFromNode } from "@/features/canvas/domain/nodes";
+import { imageSrcFromNode, originalImageSourceForThumbnail } from "@/features/canvas/domain/nodes";
 import { isGeneratedCanvasText } from "@/features/canvas/domain/text";
 import "./nodeToolbar.css";
 import type { CanvasNodeData, CanvasNodeKind } from "@/features/canvas/domain/types";
@@ -257,6 +258,36 @@ const CANVAS_NODE_KIND_PRESENTATION = {
   config: { icon: SlidersHorizontal, label: "配置节点" },
   director: { icon: Clapperboard, label: "导演台节点" },
 } as const;
+
+/** A failed server thumbnail falls back to the original once before showing the error state. */
+function CanvasNodeImage({ src, nodeId, title, fitCanvasMediaNodeFrame }: {
+  src: string;
+  nodeId: string;
+  title: string;
+  fitCanvasMediaNodeFrame: (nodeId: string, naturalWidth: number, naturalHeight: number) => void;
+}) {
+  const original = originalImageSourceForThumbnail(src);
+  const image = (source: string, fallback?: ReactNode) => (
+    <RetryImage
+      src={source}
+      alt={title}
+      draggable={false}
+      showRetryButton
+      fallback={fallback}
+      onLoad={(event) => {
+        const loaded = event.currentTarget;
+        fitCanvasMediaNodeFrame(nodeId, loaded.naturalWidth, loaded.naturalHeight);
+      }}
+      ref={(loaded) => {
+        if (!loaded?.complete || !loaded.naturalWidth || !loaded.naturalHeight) return;
+        const width = loaded.naturalWidth;
+        const height = loaded.naturalHeight;
+        queueMicrotask(() => fitCanvasMediaNodeFrame(nodeId, width, height));
+      }}
+    />
+  );
+  return image(src, original ? image(original) : undefined);
+}
 
 function nodeKindCenterIcon(kind: CanvasNodeKind) {
   const Icon = CANVAS_NODE_KIND_PRESENTATION[kind].icon;
@@ -525,23 +556,7 @@ function CanvasNodeCardView({ seedanceRegistrationState, node, previews, isSelec
           onPointerDown={(event) => event.stopPropagation()}
         />
       ) : preview ? (
-        <RetryImage
-          src={preview}
-          alt={node.title}
-          draggable={false}
-          showRetryButton
-          onLoad={(event) => {
-            const image = event.currentTarget;
-            fitCanvasMediaNodeFrame(node.id, image.naturalWidth, image.naturalHeight);
-          }}
-          ref={(image) => {
-            if (!image?.complete || !image.naturalWidth || !image.naturalHeight) return;
-            const nodeId = node.id;
-            const width = image.naturalWidth;
-            const height = image.naturalHeight;
-            queueMicrotask(() => fitCanvasMediaNodeFrame(nodeId, width, height));
-          }}
-        />
+        <CanvasNodeImage src={preview} nodeId={node.id} title={node.title} fitCanvasMediaNodeFrame={fitCanvasMediaNodeFrame} />
       ) : isEmptyFailedVisualNode ? (
         <div className="prompt-body prompt-body-empty">
           {!isRunning ? <>

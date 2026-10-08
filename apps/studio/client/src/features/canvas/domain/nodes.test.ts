@@ -4,10 +4,19 @@ import {
   imageSrcFromNode,
   normalizeCanvasNode,
   normalizeCanvasNodeKind,
+  originalImageSourceForThumbnail,
   serializeCanvasNode,
 } from "./nodes";
 
 describe("canvas node transforms", () => {
+  it("derives the original image only from thumbnail URLs", () => {
+    expect(originalImageSourceForThumbnail("https://studio.example/api/assets/a1/content?scope=team&thumbnail=320"))
+      .toBe("https://studio.example/api/assets/a1/content?scope=team");
+    expect(originalImageSourceForThumbnail("https://studio.example/api/assets/a1/content?scope=team")).toBe("");
+    expect(originalImageSourceForThumbnail("blob:https://studio.example/1")).toBe("");
+    expect(originalImageSourceForThumbnail("not a url")).toBe("");
+  });
+
   it("canonicalizes legacy prompt/note types to text", () => {
     expect(normalizeCanvasNodeKind("prompt")).toBe("text");
     expect(normalizeCanvasNodeKind("note")).toBe("text");

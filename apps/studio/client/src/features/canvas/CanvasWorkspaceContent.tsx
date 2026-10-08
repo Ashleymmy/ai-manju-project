@@ -74,6 +74,7 @@ import { downloadCanvasOriginalMedia } from "./services/originalMedia";
 import { createCanvasSelectionDownload } from "./services/batchDownload";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { readCanvasClipboardData, readSystemCanvasClipboard, type CanvasClipboardContent } from "./adapters/clipboard";
+import { isCanvasImportCandidate, prepareCanvasImportImage } from "./adapters/importImage";
 import { CANVAS_CLIPBOARD_TOKEN_PREFIX } from "./domain/clipboard";
 import {
   createProject,
@@ -3629,7 +3630,7 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const uploadFilesAsNodes = async (files: FileList | File[], dropPosition?: { x: number; y: number }, ingestion = "drag_or_upload") => {
-    const list = Array.from(files).filter((file) => assetKindFromFile(file) !== null);
+    const list = Array.from(files).filter(isCanvasImportCandidate);
     if (!list.length || projectSessionController.switching || projectSessionController.loading) return;
     if (uploadingRef.current) {
       toast.info("素材正在导入，请完成后再粘贴或上传");
@@ -3647,11 +3648,14 @@ export default function CanvasWorkspaceViewContent() {
     try {
       const createdNodes: CanvasNodeData[] = [];
       let failed = 0;
-      for (const file of list) {
+      for (const original of list) {
         if (!isCurrentProject()) return;
-        const kind = assetKindFromFile(file);
-        if (!kind) continue;
+        const labelledKind = assetKindFromFile(original);
+        const kind = labelledKind === "video" || labelledKind === "audio" ? labelledKind : "image";
         try {
+          const image = kind === "image" ? await prepareCanvasImportImage(original) : null;
+          if (!isCurrentProject()) return;
+          const file = image?.file || original;
           const asset = await uploadAsset(file, {
             type: kind,
             name: file.name,
@@ -3685,11 +3689,12 @@ export default function CanvasWorkspaceViewContent() {
               mimeType: asset.content_type || file.type,
               bytes: asset.size || file.size,
               canvasOrigin: "imported",
+              ...(image ? { naturalWidth: image.width, naturalHeight: image.height } : {}),
             },
           });
         } catch (error) {
           failed += 1;
-          if (isCurrentProject()) toast.error(`${file.name}：${publicApiError(error, "导入素材失败")}`);
+          if (isCurrentProject()) toast.error(`${original.name || "粘贴的图片"}：${publicApiError(error, "导入素材失败")}`);
         }
       }
       if (!createdNodes.length || !isCurrentProject()) return;
@@ -3733,7 +3738,7 @@ export default function CanvasWorkspaceViewContent() {
   const pasteClipboardContent = ({ files, text }: CanvasClipboardContent): boolean => {
     if (projectActionDisabled) return false;
     if (files.length) {
-      const media = files.filter(file => file.size > 0 && assetKindFromFile(file));
+      const media = files.filter(file => file.size > 0 && isCanvasImportCandidate(file));
       if (!media.length) toast.warning("剪贴板中没有可导入的图片、视频或音频文件");
       else {
         if (media.length !== files.length) toast.warning("不支持的文件已跳过");

@@ -2,6 +2,8 @@ import {
   ArrowDownToLine,
   Bot,
   Check,
+  Eye,
+  EyeOff,
   Plus,
   Search,
   Trash2,
@@ -202,18 +204,24 @@ export function SkillLibraryView() {
             <div><p className="eyebrow">NEW SKILL</p><input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} placeholder="技能名称，例如：电影级提示词优化" /></div>
             <input value={draftDescription} onChange={(event) => setDraftDescription(event.target.value)} placeholder="一句话描述（可选）" />
             <textarea value={draftPrompt} onChange={(event) => setDraftPrompt(event.target.value)} placeholder="技能指令（作为提示词优化的系统指令）" />
-            <button className="vermilion-button" onClick={createSkill}><Check size={15} /> 保存技能</button>
-            <button className="full-outline" onClick={() => setCreateMode(false)}>取消</button>
+            <div className="skill-preview-actions">
+              <button type="button" className="vermilion-button" onClick={createSkill}><Check size={15} /> 保存技能</button>
+              <button type="button" className="outline-button" onClick={() => setCreateMode(false)}>取消</button>
+            </div>
           </>
         ) : selected ? (
           <>
             <div><p className="eyebrow">SKILL / {selected.enabled ? "启用中" : "已禁用"}</p><input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} placeholder="技能名称" /></div>
             <input value={draftDescription} onChange={(event) => setDraftDescription(event.target.value)} placeholder="一句话描述（可选）" />
             <textarea value={draftPrompt} onChange={(event) => setDraftPrompt(event.target.value)} placeholder="技能指令（作为提示词优化的系统指令）" />
-            <button className="vermilion-button" onClick={saveEdit}><Check size={15} /> 保存修改</button>
-            <button className="full-outline" onClick={() => toggleEnabled(selected.id)}>{selected.enabled ? "禁用（画布中隐藏）" : "启用（画布中可用）"}</button>
-            <button className="full-outline" onClick={() => removeSkill(selected)}><Trash2 size={14} /> 删除技能</button>
-            <p className="skill-side-hint">更新于 {new Date(selected.updatedAt).toLocaleString("zh-CN")} · 保存后画布节点菜单实时生效</p>
+            <div className="skill-preview-actions">
+              <button type="button" className="vermilion-button" onClick={saveEdit}><Check size={15} /> 保存修改</button>
+              <div className="skill-preview-secondary">
+                <button type="button" className="outline-button" title={selected.enabled ? "禁用后画布中隐藏，配置保留" : "启用后画布中可用"} onClick={() => toggleEnabled(selected.id)}>{selected.enabled ? <><EyeOff size={14} /> 禁用技能</> : <><Eye size={14} /> 启用技能</>}</button>
+                <button type="button" className="outline-button skill-danger-button" onClick={() => removeSkill(selected)}><Trash2 size={14} /> 删除技能</button>
+              </div>
+            </div>
+            <p className="skill-side-hint skill-preview-meta">更新于 {new Date(selected.updatedAt).toLocaleString("zh-CN")} · 保存后画布节点菜单实时生效</p>
           </>
         ) : (
           <div className="empty-output"><Bot size={26} /><p>选择左侧技能查看与编辑</p></div>

@@ -73,6 +73,11 @@
 .admin-report-content .admin-report-filters--ledger {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
+/* Three selects, a wider keyword field, then the query/reset buttons. */
+.admin-report-content .admin-report-filters--seedance {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.5fr) auto;
+  margin-top: 8px;
+}
 .admin-ledger-filter-heading,
 .admin-ledger-filter-footer {
   grid-column: 1 / -1;

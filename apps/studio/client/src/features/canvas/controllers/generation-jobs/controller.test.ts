@@ -1291,6 +1291,27 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.onWarning).toHaveBeenCalledWith("图片模型尚未就绪，请稍后重试");
   });
 
+  it("sizes auto-ratio generations from the first reference image and keeps that size for retries", async () => {
+    const services = createServices({
+      getAssetContentObjectUrl: vi.fn(async () => "blob:reference"),
+      fetchBlob: vi.fn(async () => new Blob(["image"], { type: "image/png" })),
+      readImageMetadata: vi.fn(async () => ({ width: 1080, height: 1920 })),
+      generateImages: vi.fn(async () => ({ images: [{ id: "result", assetId: "result", src: "" }] })),
+    });
+    const source = imageNode({ metadata: { prompt: "人物 @[node:reference]", composerContent: "人物 @[node:reference]", size: "auto", imageResolution: "1K" } });
+    const reference = imageNode({ id: "reference", metadata: { assetId: "reference-asset" } });
+    const harness = createHarness([source, reference], services);
+    await harness.controller.generateFromNode(source.id);
+    expect(vi.mocked(services.generateImages).mock.calls[0][0]).toMatchObject({ size: "768x1360" });
+    expect(harness.nodes[0].metadata).toMatchObject({ size: "auto", requestedImageSize: "768x1360" });
+
+    vi.mocked(services.readImageMetadata).mockRejectedValueOnce(new Error("unreadable"));
+    harness.nodes[0] = { ...harness.nodes[0], metadata: { ...harness.nodes[0].metadata, naturalWidth: undefined, naturalHeight: undefined, requestedImageSize: undefined } };
+    await harness.controller.generateFromNode(source.id);
+    expect(vi.mocked(services.generateImages).mock.calls[1][0]).toMatchObject({ size: "1024x1024" });
+    expect(harness.onError).not.toHaveBeenCalled();
+  });
+
   it("freezes the clicked parameters while references load, then uses new choices on the next run", async () => {
     let resolveReference!: (url: string) => void;
     const referenceReady = new Promise<string>(resolve => {

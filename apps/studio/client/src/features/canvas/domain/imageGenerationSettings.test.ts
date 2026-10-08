@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { canvasImageGenerationSettings, canvasImageGenerationSettingsIssue } from "./imageGenerationSettings";
+import { canvasImageAutoReferenceSize, canvasImageGenerationSettings, canvasImageGenerationSettingsIssue } from "./imageGenerationSettings";
+import type { CanvasMentionReference } from "./mentions";
 import { toImageSizeValue } from "./nodeUtils";
 import type { CanvasNodeData, CanvasNodeMetadata } from "./types";
 
@@ -50,6 +51,30 @@ describe("canvas image generation settings", () => {
     expect(canvasImageGenerationSettings(node({ size: "auto", imageResolution: "4K", naturalWidth: 1920, naturalHeight: 1080 })).size).toBe("3840x2160");
     expect(canvasImageGenerationSettings(node({ size: "auto", imageResolution: "4K", requestedImageSize: "2160x3840" })).size).toBe("2160x3840");
     expect(canvasImageGenerationSettings(node({ size: "auto", imageResolution: "4K", naturalWidth: Infinity, naturalHeight: 0 })).size).toBe("2880x2880");
+  });
+
+  it("follows the reference image in auto mode before the node's own bitmap", () => {
+    const portrait = { width: 1080, height: 1920 };
+    expect(canvasImageGenerationSettings(node({ size: "auto" }), undefined, undefined, portrait).size).toBe("768x1360");
+    expect(canvasImageGenerationSettings(node({ size: "auto", naturalWidth: 1024, naturalHeight: 1024 }), undefined, undefined, portrait).size).toBe("768x1360");
+    expect(canvasImageGenerationSettings(node({ size: "16:9" }), undefined, undefined, portrait).size).toBe("1280x720");
+    expect(canvasImageGenerationSettings(node({ size: "auto" }), undefined, undefined, { width: 0, height: 0 }).size).toBe("1024x1024");
+  });
+
+  it("resolves the auto reference from the first @-referenced image in prompt order", () => {
+    const target = { id: "target", kind: "image", metadata: { size: "auto", prompt: "@[node:text] @[node:wide] @[node:tall]" } } as CanvasNodeData;
+    const nodes = [
+      target,
+      { id: "wide", kind: "image", metadata: { naturalWidth: 1920, naturalHeight: 1080 } },
+      { id: "tall", kind: "image", metadata: { naturalWidth: 1080, naturalHeight: 1920 } },
+      { id: "pending", kind: "image", metadata: {} },
+    ] as CanvasNodeData[];
+    const reference = (nodeId: string, kind: "image" | "text") => ({ key: `node:${nodeId}`, nodeId, kind } as CanvasMentionReference);
+    const references = [reference("text", "text"), reference("tall", "image"), reference("wide", "image"), reference("pending", "image")];
+    expect(canvasImageAutoReferenceSize(target, references, nodes)).toEqual({ width: 1920, height: 1080 });
+    expect(canvasImageAutoReferenceSize({ ...target, metadata: { ...target.metadata, size: "1:1" } }, references, nodes)).toBeUndefined();
+    expect(canvasImageAutoReferenceSize({ ...target, metadata: { size: "auto", prompt: "@[node:pending]" } }, references, nodes)).toBe("unknown");
+    expect(canvasImageAutoReferenceSize({ ...target, metadata: { size: "auto", prompt: "无引用" } }, references, nodes)).toBeUndefined();
   });
 
   it("applies an editing tool's ratio override without losing resolution or detail", () => {

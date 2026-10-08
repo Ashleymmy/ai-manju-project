@@ -41,6 +41,8 @@ export type UserPreferences = {
     wheelZoomRequiresCtrl?: boolean;
     promptPresets?: PromptPreset[];
     projectGroups?: ProjectGroupPreferences;
+    /** Asset library thumbnail columns; absent until the user changes it. */
+    assetGridColumns?: number;
   };
   updated_at?: string;
 };

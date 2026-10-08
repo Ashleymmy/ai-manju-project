@@ -30,7 +30,7 @@ import {
   randomImageGenerationSeed,
 } from "@/features/canvas/domain/imageBatchDiversity";
 import { appendCanvasGenerationRevision } from "@/features/canvas/domain/generationHistory";
-import { canvasImageGenerationSettings, canvasImageGenerationSettingsIssue, canvasImageResolutionIssue } from "@/features/canvas/domain/imageGenerationSettings";
+import { canvasImageGenerationSettings, canvasImageGenerationSettingsIssue, canvasImageResolutionIssue, type CanvasImageDimensions } from "@/features/canvas/domain/imageGenerationSettings";
 import { canvasImageGenerationError } from "@/features/canvas/domain/imageGenerationError";
 import { buildCanvasGenerationInputs, isHiddenCanvasBatchChild } from "@/features/canvas/domain/connections";
 import {
@@ -1261,6 +1261,7 @@ export class CanvasGenerationJobsController {
         referenceNodeIds,
       });
       let prepared: CanvasPreparedImageReferences;
+      let autoReferenceSize: CanvasImageDimensions | undefined;
       try {
         prepared = await this.prepareImageReferences(
           generationInputs,
@@ -1269,6 +1270,13 @@ export class CanvasGenerationJobsController {
           session.projectKey,
           preparation.controller.signal,
         );
+        if (sizeFromNode(sourceNode) === "auto" && prepared.files[0]) {
+          // An unreadable bitmap only loses the ratio hint; generation keeps the square fallback.
+          const file = prepared.files[0];
+          autoReferenceSize = await Promise.resolve()
+            .then(() => this.services.readImageMetadata(file, preparation.controller.signal))
+            .catch(() => undefined);
+        }
       } catch (error) {
         if (isAbortError(error) || this.bindings.getProjectKey() !== session.projectKey) return;
         this.bindings.onError(publicApiError(error, "读取或归档参考图失败"));
@@ -1300,7 +1308,7 @@ export class CanvasGenerationJobsController {
         ? Array.from({ length: count - 1 }, (_, index) => previousChildren[index]?.id || this.services.createId())
         : [];
       const targetIds = [rootId, ...childIds];
-      const { size, quality, imageResolution } = canvasImageGenerationSettings(sourceNode, undefined, model);
+      const { size, quality, imageResolution } = canvasImageGenerationSettings(sourceNode, undefined, model, autoReferenceSize);
       const generationRevisions = reuseSourceNode
         ? appendCanvasGenerationRevision(sourceNode, this.services.createId())
         : sourceNode.metadata?.generationRevisions;
