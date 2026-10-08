@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"strings"
 
@@ -197,15 +198,37 @@ func sanitizeShortcuts(value map[string]any) map[string]any {
 	return result
 }
 
+const (
+	// Asset library thumbnail column bounds mirror ASSET_GRID_SIZE.minColumns / maxColumns in the studio client.
+	minAssetGridColumns = 3
+	maxAssetGridColumns = 8
+)
+
 func sanitizeCanvas(value map[string]any) map[string]any {
-	allowed := map[string]bool{"middleButtonLockHint": true, "backgroundMode": true, "wheelZoomRequiresCtrl": true, "promptPresets": true, "projectGroups": true}
+	allowed := map[string]bool{"middleButtonLockHint": true, "backgroundMode": true, "wheelZoomRequiresCtrl": true, "promptPresets": true, "projectGroups": true, "assetGridColumns": true}
 	result := filterPreferenceKeys(value, allowed)
 	if presets, ok := sanitizePromptPresets(result["promptPresets"]); ok {
 		result["promptPresets"] = presets
 	} else {
 		delete(result, "promptPresets")
 	}
+	if raw, present := result["assetGridColumns"]; present {
+		if columns, ok := sanitizeAssetGridColumns(raw); ok {
+			result["assetGridColumns"] = columns
+		} else {
+			delete(result, "assetGridColumns")
+		}
+	}
 	return result
+}
+
+// sanitizeAssetGridColumns accepts only whole numbers inside the supported column range.
+func sanitizeAssetGridColumns(value any) (int, bool) {
+	number, ok := value.(float64)
+	if !ok || number != math.Trunc(number) || number < minAssetGridColumns || number > maxAssetGridColumns {
+		return 0, false
+	}
+	return int(number), true
 }
 
 const (

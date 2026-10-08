@@ -269,7 +269,8 @@ func (r *GormTagRepository) Counts(tagIDs []string) (map[string]TagCounts, error
 		Count int64
 	}
 	var assetRows []row
-	if err := r.db.Model(&model.AssetTagBinding{}).Select("tag_id, COUNT(*) AS count").Where("tag_id IN ? AND state = ?", ids, model.AssetTagBindingActive).Group("tag_id").Scan(&assetRows).Error; err != nil {
+	// Trashed or missing assets keep their bindings for restore, but are not listed or counted.
+	if err := r.db.Table("asset_tag_bindings AS b").Select("b.tag_id, COUNT(*) AS count").Joins("JOIN assets AS a ON a.id = b.asset_id").Where("b.tag_id IN ? AND b.state = ? AND a.trashed_at IS NULL", ids, model.AssetTagBindingActive).Group("b.tag_id").Scan(&assetRows).Error; err != nil {
 		return nil, err
 	}
 	for _, item := range assetRows {

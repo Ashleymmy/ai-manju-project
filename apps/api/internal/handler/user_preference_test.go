@@ -86,6 +86,38 @@ func TestUserPreferenceDefaultsSaveAndIsolation(t *testing.T) {
 	}
 }
 
+func TestUserPreferenceAssetGridColumnsPersistPerUser(t *testing.T) {
+	router, _, memberCookie, otherCookie, _ := newUserPreferenceTestRouter(t)
+
+	seed := performJSON(router, http.MethodPut, "/api/user/preferences", `{"canvas":{"backgroundMode":"dots"}}`, memberCookie)
+	if seed.Code != http.StatusOK {
+		t.Fatalf("seed status = %d, body = %s", seed.Code, seed.Body.String())
+	}
+	save := performJSON(router, http.MethodPut, "/api/user/preferences", `{"canvas":{"assetGridColumns":6}}`, memberCookie)
+	if save.Code != http.StatusOK {
+		t.Fatalf("save status = %d, body = %s", save.Code, save.Body.String())
+	}
+	saved := decodeUserPreferences(t, save.Body.String())
+	if saved.Canvas["assetGridColumns"] != float64(6) || saved.Canvas["backgroundMode"] != "dots" {
+		t.Fatalf("column preference should merge with existing canvas preferences: %+v", saved.Canvas)
+	}
+
+	for _, invalid := range []string{`2`, `9`, `4.5`, `"5"`, `null`} {
+		response := performJSON(router, http.MethodPut, "/api/user/preferences", `{"canvas":{"assetGridColumns":`+invalid+`}}`, memberCookie)
+		if response.Code != http.StatusOK {
+			t.Fatalf("invalid %s status = %d, body = %s", invalid, response.Code, response.Body.String())
+		}
+		if got := decodeUserPreferences(t, response.Body.String()).Canvas["assetGridColumns"]; got != float64(6) {
+			t.Fatalf("invalid %s should keep the saved column count, got %v", invalid, got)
+		}
+	}
+
+	other := decodeUserPreferences(t, performJSON(router, http.MethodGet, "/api/user/preferences", "", otherCookie).Body.String())
+	if _, ok := other.Canvas["assetGridColumns"]; ok {
+		t.Fatalf("column preference leaked across users: %+v", other.Canvas)
+	}
+}
+
 func TestUserPreferenceAuthGuards(t *testing.T) {
 	router, _, _, _, disabledCookie := newUserPreferenceTestRouter(t)
 

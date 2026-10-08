@@ -73,6 +73,15 @@ func TestGormTagRepositoryTreeBindingAndMirrorIntegration(t *testing.T) {
 	if string(updated.Tags) != `["女性"]` {
 		t.Fatalf("inherited mirror = %s", updated.Tags)
 	}
+	if counts, err := repo.Counts([]string{child.ID}); err != nil || counts[child.ID].AssetCount != 2 {
+		t.Fatalf("live counts=%+v err=%v", counts, err)
+	}
+	if err := db.Model(&model.Asset{}).Where("id = ?", childAsset.ID).Update("trashed_at", time.Now().UTC()).Error; err != nil {
+		t.Fatal(err)
+	}
+	if counts, err := repo.Counts([]string{child.ID}); err != nil || counts[child.ID].AssetCount != 1 {
+		t.Fatalf("trashed asset was counted: counts=%+v err=%v", counts, err)
+	}
 	if _, err := repo.Move(root.ID, child.ID, 0, workspaceID, 8); !errors.Is(err, ErrTagCycle) {
 		t.Fatalf("cycle error = %v", err)
 	}
@@ -219,6 +228,39 @@ func TestMemoryTagRepositoryKeepsAssetAndPromptCountsSeparate(t *testing.T) {
 	}
 	if counts[tag.ID].AssetCount != 0 || counts[tag.ID].PromptCount != 1 {
 		t.Fatalf("counts = %+v", counts[tag.ID])
+	}
+}
+
+func TestMemoryTagRepositoryCountsOnlyLiveAssets(t *testing.T) {
+	assets := NewMemoryAssetRepository()
+	repo := NewMemoryTagRepository(assets)
+	workspaceID := "default:user_a"
+	for _, id := range []string{"asset_live", "asset_trashed"} {
+		if _, err := assets.Create(model.Asset{ID: id, UserID: "user_a", WorkspaceID: workspaceID, Type: "image", URL: id + ".png", Tags: model.JSONB("[]")}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tag := createMemoryTag(t, repo, "tag_live", workspaceID, "", "场景")
+	if _, err := repo.BindAssets(workspaceID, "user_a", []string{"asset_live", "asset_trashed"}, []string{tag.ID}, model.AssetTagOriginDirect); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if _, err := assets.TrashByWorkspace([]string{"asset_trashed"}, workspaceID, "user_a", now, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	counts, err := repo.Counts([]string{tag.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts[tag.ID].AssetCount != 1 {
+		t.Fatalf("trashed asset was counted: %+v", counts[tag.ID])
+	}
+	ids, err := repo.ListAssetIDs(workspaceID, []string{tag.ID}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("trashed binding must stay restorable, ids = %v", ids)
 	}
 }
 

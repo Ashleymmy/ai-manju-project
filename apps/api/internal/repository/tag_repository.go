@@ -342,8 +342,12 @@ func (r *MemoryTagRepository) Counts(tagIDs []string) (map[string]TagCounts, err
 	for id := range wanted {
 		counts[id] = TagCounts{}
 	}
+	if r.assets != nil {
+		r.assets.mu.RLock()
+		defer r.assets.mu.RUnlock()
+	}
 	for _, binding := range r.assetBindings {
-		if wanted[binding.TagID] && binding.State == model.AssetTagBindingActive {
+		if wanted[binding.TagID] && binding.State == model.AssetTagBindingActive && r.assetLiveLocked(binding.AssetID) {
 			count := counts[binding.TagID]
 			count.AssetCount++
 			counts[binding.TagID] = count
@@ -357,6 +361,15 @@ func (r *MemoryTagRepository) Counts(tagIDs []string) (map[string]TagCounts, err
 		}
 	}
 	return counts, nil
+}
+
+// assetLiveLocked mirrors the Gorm count join: trashed or missing assets keep their bindings for restore, but are not counted.
+func (r *MemoryTagRepository) assetLiveLocked(assetID string) bool {
+	if r.assets == nil {
+		return true
+	}
+	asset, ok := r.assets.assets[assetID]
+	return ok && asset.TrashedAt == nil
 }
 
 func (r *MemoryTagRepository) BindAssets(workspaceID string, userID string, assetIDs []string, tagIDs []string, originType string) ([]model.AssetTagBinding, error) {
