@@ -157,6 +157,8 @@ export function ImageWorkbenchView() {
   // 定价规则（生成按钮旁展示约扣积分；pricing_rules 缺失时按文档默认值兜底）。
 
   const [prompt, setPrompt] = useState("雨夜，狭长街道，潮湿沥青反射红色招牌；人物在画面右侧停留，低机位缓慢推近，电影级冷暖对比。");
+  // Prompt text before a quick preset was applied; restored when the selected preset is clicked again.
+  const promptBeforePresetRef = useRef<string | null>(null);
   const [promptPresets, setPromptPresets] = useState<PromptPreset[]>([]);
   const [promptLibraryOpen, setPromptLibraryOpen] = useState(false);
   const [references, setReferences] = useState<ReferenceImage[]>([]);
@@ -723,15 +725,25 @@ export function ImageWorkbenchView() {
           </div>
           {visiblePromptPresets.length ? (
             <div className="workbench-preset-items">
-              {visiblePromptPresets.map((preset) => (
-                <button type="button" className="workbench-preset-chip" key={preset.id}
-                  title={`${priorityLabel(preset.priority)} · ${preset.title}\n${preset.prompt}`}
-                  aria-pressed={Boolean(preset.prompt.trim()) && prompt.trim() === preset.prompt.trim()}
-                  onClick={() => setPrompt(preset.prompt)}>
+              {visiblePromptPresets.map((preset) => {
+                const selected = Boolean(preset.prompt.trim()) && prompt.trim() === preset.prompt.trim();
+                return <button type="button" className="workbench-preset-chip" key={preset.id}
+                  title={`${priorityLabel(preset.priority)} · ${preset.title}\n${preset.prompt}${selected ? "\n再次点击取消选用" : ""}`}
+                  aria-pressed={selected}
+                  onClick={() => {
+                    if (selected) {
+                      setPrompt(promptBeforePresetRef.current ?? "");
+                      promptBeforePresetRef.current = null;
+                      return;
+                    }
+                    const fromPreset = visiblePromptPresets.some((item) => item.prompt.trim() && item.prompt.trim() === prompt.trim());
+                    if (!fromPreset) promptBeforePresetRef.current = prompt;
+                    setPrompt(preset.prompt);
+                  }}>
                   <span>{preset.title}</span>
                   <Check size={12} aria-hidden="true" />
-                </button>
-              ))}
+                </button>;
+              })}
             </div>
           ) : <p className="workbench-preset-empty">在提示词库中保存常用内容，即可快捷选用</p>}
         </div>

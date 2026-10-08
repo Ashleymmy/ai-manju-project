@@ -385,3 +385,72 @@
 .comic-page .workflow-steps button:disabled { cursor: not-allowed; color: #8d979c; background: #181d1f; }
 .comic-page .workflow-steps button:disabled i { opacity: 0.55; }
 .comic-page .workflow-steps button:focus-visible { outline: 2px solid #a9c6ed; outline-offset: -3px; }
+
+/* Template upload buttons show the loaded file name in place of the label. */
+:is(.template-upload-btn, .template-upload-button) > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:is(.template-upload-btn, .template-upload-button).is-loaded { color: #e8e6df; }
+:is(.template-upload-btn, .template-upload-button).is-loaded svg { color: #9fd0a8; }
+
+/* Analysis history: a trigger in the hero actions with an anchored popover card. */
+.comic-history { position: relative; }
+.comic-history-trigger { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 37px; padding: 0 15px; border: 1px solid rgba(239, 235, 222, 0.22); background: transparent; color: #e5e4dd; cursor: pointer; font-size: 14px; font-weight: 500; white-space: nowrap; transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease; }
+.comic-history-trigger:hover,
+.comic-history-trigger.is-open { border-color: rgba(239, 235, 222, 0.45); background: rgba(255, 255, 255, 0.06); color: #f7f6f1; }
+.comic-history-trigger > svg { flex-shrink: 0; }
+
+/* Hero actions: workspace scope (segmented switch) | divider | page actions, all at one height. */
+.comic-scope-switch { display: inline-flex; align-items: center; gap: 2px; min-height: 37px; padding: 3px 3px 3px 12px; border: 1px solid var(--line); border-radius: calc(var(--ui-radius-control, 6px) + 3px); background: rgba(255, 255, 255, 0.02); }
+.comic-scope-switch > span { margin-right: 8px; color: #8f989b; font-size: 10px; letter-spacing: 0.08em; }
+.comic-scope-switch > .comic-tab-button { min-height: 29px; padding: 0 12px; border-color: transparent; }
+.comic-scope-switch > .comic-tab-button.active { border-color: transparent; background: rgba(255, 255, 255, 0.12); }
+.comic-hero-divider { width: 1px; height: 20px; margin: 0 6px; background: var(--line); }
+.comic-history-panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 8px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(520px, calc(100vw - 48px));
+  padding: 16px;
+  border: 1px solid rgba(239, 235, 222, 0.14);
+  border-radius: var(--ui-radius-surface, 10px);
+  background: #1c2224;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+}
+.comic-history-head h3 { margin: 0 0 6px; color: #f2f1ed; font-size: 13px; font-weight: 600; }
+.comic-history-head p { margin: 0; color: #9aa3a6; font-size: 11px; line-height: 1.6; }
+.comic-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: #4f5658 transparent;
+}
+.comic-history-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--ui-radius-control, 6px); background: rgba(255, 255, 255, 0.02); }
+.comic-history-meta { display: grid; flex: 1; gap: 3px; min-width: 0; }
+.comic-history-meta strong,
+.comic-history-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comic-history-meta strong { color: #e8e6df; font-size: 12px; font-weight: 600; }
+.comic-history-meta span { color: #8f989b; font-size: 10px; }
+.comic-history-status { flex-shrink: 0; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); color: #c9c9c4; font-size: 10px; }
+.comic-history-status.is-active { background: rgba(240, 190, 90, 0.12); color: #f0c46a; }
+.comic-history-status.is-processing { background: rgba(120, 170, 240, 0.12); color: #9cc0f2; }
+.comic-history-status.is-failed { background: rgba(255, 139, 120, 0.12); color: #ff9f8f; }
+.comic-history-status.is-confirmed { background: rgba(130, 200, 150, 0.12); color: #9fd0a8; }
+.comic-history-resume { flex-shrink: 0; min-height: 28px; padding: 0 12px; border: 1px solid rgba(239, 235, 222, 0.22); background: transparent; color: #e8e6df; cursor: pointer; font-size: 11px; transition: background 0.15s ease, border-color 0.15s ease; }
+.comic-history-resume:hover:not(:disabled) { border-color: rgba(239, 235, 222, 0.45); background: rgba(255, 255, 255, 0.06); }
+.comic-history-resume:disabled { cursor: not-allowed; opacity: 0.55; }
+.comic-history-empty { margin: 0; padding: 22px 12px; border: 1px dashed rgba(239, 235, 222, 0.12); border-radius: var(--ui-radius-control, 6px); color: #8f989b; font-size: 11px; text-align: center; }
+.comic-history-note { margin: 0; color: #9aa3a6; font-size: 11px; line-height: 1.6; }
+.comic-history-note.is-error { color: #ff9f8f; }
+.comic-history-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.comic-history-foot button { min-height: 30px; padding: 0 14px; border: 1px solid var(--line); background: transparent; color: #bdbdbd; cursor: pointer; font-size: 11px; transition: background 0.15s ease, color 0.15s ease; }
+.comic-history-foot button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.05); color: #f2f1ed; }
+.comic-history-foot button:disabled { cursor: not-allowed; opacity: 0.55; }

@@ -56,7 +56,7 @@
     .settings-workspace, .settings-panel, .quality-note, .preferences-side,
     .preset-settings-list, .notification-list, .sync-result > div,
     .queue-aside, .status-item, .video-state-card, .video-history-empty,
-    .queue-aside code, .tool-surface code,
+    .tool-surface code,
     .script-intake, .candidate-review, .batch-console, .comic-generation-panel,
     .comic-asset-row, .comic-batch-card, .comic-batch-items > div,
     .comic-projects-preview, .comic-projects-panel, .comic-main-area,
@@ -123,7 +123,7 @@
   body:has([data-ui-surface="user"]) :where(
     .status-chip, .state-ribbon, .asset-category, .library-asset > i,
     .candidate-tags span, .preview-tags span, .template-card-tags i,
-    .alias-list span, .comic-reference-chips span, .member-pill, .state-machine span,
+    .alias-list span, .comic-reference-chips span, .member-pill,
     .member-plan-badge, .profile-role-badge, .wb-history-status, .wb-picker-status,
     .wb-seedance-status, .generation-price-compact, .user-pop-badge,
     .result-stage-tag, .reference-card span, .asset-tag-chip,

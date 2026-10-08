@@ -23,6 +23,8 @@ import {
   usePromptSemanticTagsQuery,
   useSystemPromptLibraryQuery,
 } from "./model/queries";
+import { PROMPT_PRESET_PLACEHOLDER } from "./model/promptLibrary";
+import { PromptTagInput } from "./ui/PromptTagInput";
 import "./styles.css";
 
 function SurfaceTitle({ eyebrow, title, description, actions }: { eyebrow: string; title: string; description: string; actions?: ReactNode }) {
@@ -37,6 +39,8 @@ function priorityLabel(value: PromptPreset["priority"]) {
   return { pinned: "置顶", high: "高", normal: "普通", low: "低" }[value] ?? value;
 }
 
+const PRIORITY_FILTERS: PromptPreset["priority"][] = ["pinned", "high", "normal", "low"];
+
 export function PromptLibraryView() {
   const queryClient = useQueryClient();
   const preferencesInitializedRef = useRef(false);
@@ -44,6 +48,7 @@ export function PromptLibraryView() {
   const [presets, setPresets] = useState<PromptPreset[]>([]);
   const [activeId, setActiveId] = useState("");
   const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get("tag") || "");
+  const [priorityFilter, setPriorityFilter] = useState<PromptPreset["priority"] | "">("");
   const [systemItems, setSystemItems] = useState<SystemPrompt[]>([]);
   const [systemTotal, setSystemTotal] = useState(0);
   const [systemTags, setSystemTags] = useState<string[]>([]);
@@ -68,7 +73,8 @@ export function PromptLibraryView() {
   const systemLoading = systemPromptQuery.isFetching;
   const active = presets.find((item) => item.id === activeId) || presets[0];
   const systemActive = systemItems.find((item) => item.id === systemActiveId) || systemItems[0];
-  const visible = presets.filter((item) => !query.trim() || item.priority === query || item.title.includes(query) || item.prompt.includes(query) || item.tags.some((tag) => tag.includes(query))).sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.sort_order - b.sort_order || a.title.localeCompare(b.title, "zh-CN"));
+  const keyword = query.trim();
+  const visible = presets.filter((item) => (!priorityFilter || item.priority === priorityFilter) && (!keyword || item.priority === keyword || priorityLabel(item.priority) === keyword || item.title.includes(keyword) || item.prompt.includes(keyword) || item.tags.some((tag) => tag.includes(keyword)))).sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.sort_order - b.sort_order || a.title.localeCompare(b.title, "zh-CN"));
   const commonTags = Array.from(new Set(presets.flatMap((item) => item.tags))).slice(0, 12);
 
   useEffect(() => {
@@ -128,7 +134,7 @@ export function PromptLibraryView() {
 
   const createPreset = async () => {
     const now = new Date().toISOString();
-    const created: PromptPreset = { id: crypto.randomUUID(), title: "未命名提示词", prompt: "请在此填写提示词内容。", tags: [], priority: "normal", sort_order: presets.length, createdAt: now, updatedAt: now };
+    const created: PromptPreset = { id: crypto.randomUUID(), title: "未命名提示词", prompt: PROMPT_PRESET_PLACEHOLDER, tags: [], priority: "normal", sort_order: presets.length, createdAt: now, updatedAt: now };
     setActiveId(created.id);
     await persist([...presets, created], "已创建提示词预设");
   };
@@ -161,7 +167,20 @@ export function PromptLibraryView() {
   return <div className="feature-page prompt-page">
     <SurfaceTitle eyebrow={mode === "personal" ? `PROMPTS / ${presets.length}` : `LIBRARY / ${systemTotal}`} title="提示词中心" description="个人预设与偏好共用一份数据；系统库聚合公开提示词仓库，可直接检索复用。"
       actions={<div className="scope-switch"><button className={mode === "personal" ? "active" : ""} onClick={() => setMode("personal")}>个人预设</button><button className={mode === "system" ? "active" : ""} onClick={() => setMode("system")}>系统库</button>{mode === "personal" && <button className="vermilion-button" onClick={() => void createPreset()}><Plus size={16} /> 新建预设</button>}</div>} />
-    {mode === "personal" ? <div className="prompt-workspace"><aside className="prompt-filters"><div className="tag-search"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="关键词、标签或优先级" /></div><p className="field-label">PRIORITY</p>{[["置顶", "pinned"], ["高", "high"], ["普通", "normal"], ["低", "low"]].map(([name, key]) => <button onClick={() => setQuery(key)} key={key}><span>{name}</span><b>{presets.filter((item) => item.priority === key).length}</b></button>)}<hr /><p className="field-label">常用标签</p>{commonTags.map((tag) => <button className="tag-filter" onClick={() => setQuery(tag)} key={tag}>#{tag}</button>)}</aside><section className="template-list"><div className="template-list-head"><span>{loading ? "读取中…" : `匹配到 ${visible.length} 条视觉片段`}</span></div>{visible.map((item) => <button className={active?.id === item.id ? "template-card selected" : "template-card"} onClick={() => setActiveId(item.id)} key={item.id}><div><span>{priorityLabel(item.priority)}</span><b>{item.title}</b><p>{item.prompt || "尚未填写提示词"}</p></div><div className="template-card-tags">{item.tags.map((tag) => <i key={tag}>#{tag}</i>)}</div></button>)}</section><aside className="prompt-preview">{active ? <><div><p className="eyebrow">PRESET PREVIEW</p><input value={active.title} onChange={(e) => patchActive({ title: e.target.value })} /></div><div className="preview-tags">{active.tags.map((tag) => { const semantic = semanticPromptTags.find((item) => item.name === tag); return <span key={tag} className={semantic ? "semantic" : ""} title={semantic ? "已命中语义标签库，点击跳转标签库" : "自由标签（未关联语义标签库）"} onClick={() => semantic && window.location.assign(`/tags?tag_id=${encodeURIComponent(semantic.id)}`)}>#{tag}</span>; })}</div><textarea value={active.prompt} onChange={(e) => patchActive({ prompt: e.target.value })} /><input list="prompt-semantic-tag-options" value={active.tags.join(", ")} onChange={(e) => patchActive({ tags: e.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean) })} placeholder="标签，以逗号分隔；可输入或从语义标签库选择" /><datalist id="prompt-semantic-tag-options">{semanticPromptTags.map((tag) => <option key={tag.id} value={tag.name} />)}</datalist>{semanticPromptTags.length ? <div className="prompt-semantic-hint"><span className="field-label">语义标签库</span>{semanticPromptTags.slice(0, 10).map((tag) => <button key={tag.id} type="button" disabled={active.tags.includes(tag.name)} onClick={() => patchActive({ tags: [...active.tags, tag.name] })}>#{tag.name}</button>)}</div> : null}<select value={active.priority} onChange={(e) => patchActive({ priority: e.target.value as PromptPreset["priority"] })}><option value="pinned">置顶</option><option value="high">高</option><option value="normal">普通</option><option value="low">低</option></select><div className="prompt-order-actions"><button onClick={() => void moveActive(-1)}>上移</button><button onClick={() => void moveActive(1)}>下移</button></div><button className="vermilion-button" onClick={() => void persist(presets.map((item) => item.id === active.id ? { ...item, updatedAt: new Date().toISOString() } : item), "提示词已保存")}><Check size={16} /> 保存预设</button><button className="full-outline" onClick={() => { sessionStorage.setItem("ai-manju:image-prompt", active.prompt); window.location.assign("/image"); }}><WandSparkles size={16} /> 送入关键帧</button><button className="full-outline" onClick={async () => { await navigator.clipboard.writeText(active.prompt); toast.success("提示词已复制"); }}><FileText size={15} /> 复制完整提示词</button><button className="full-outline" onClick={() => { if (window.confirm(`删除"${active.title}"？`)) void persist(presets.filter((item) => item.id !== active.id), "提示词已删除"); }}><Trash2 size={15} /> 删除预设</button></> : <div className="empty-output"><p>暂无个人提示词预设</p></div>}</aside></div>
+    {mode === "personal" ? <div className="prompt-workspace"><aside className="prompt-filters"><div className="tag-search"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="关键词、标签或优先级" /></div><p className="field-label">优先级</p>{PRIORITY_FILTERS.map((key) => { const count = presets.filter((item) => item.priority === key).length; return <button className={priorityFilter === key ? "priority-filter selected" : "priority-filter"} aria-pressed={priorityFilter === key} onClick={() => setPriorityFilter((current) => current === key ? "" : key)} key={key}><span>{priorityLabel(key)}</span><b className={count ? "" : "empty"}>{count}</b></button>; })}<hr /><p className="field-label">常用标签</p>{commonTags.map((tag) => <button className="tag-filter" onClick={() => setQuery(tag)} key={tag}>#{tag}</button>)}</aside><section className="template-list"><div className="template-list-head"><span>{loading ? "读取中…" : `匹配到 ${visible.length} 条视觉片段`}</span></div>{visible.map((item) => <button className={active?.id === item.id ? "template-card selected" : "template-card"} onClick={() => setActiveId(item.id)} key={item.id}><div><span>{priorityLabel(item.priority)}</span><b>{item.title}</b>{!item.prompt.trim() || item.prompt === PROMPT_PRESET_PLACEHOLDER ? <p className="template-card-empty">尚未填写提示词</p> : <p>{item.prompt}</p>}</div><div className="template-card-tags">{item.tags.map((tag) => <i key={tag}>#{tag}</i>)}</div></button>)}</section><aside className="prompt-preview prompt-preset-panel">{active ? <>
+      <div className="preset-section"><p className="eyebrow">PRESET PREVIEW</p><input value={active.title} onChange={(e) => patchActive({ title: e.target.value })} aria-label="预设名称" /></div>
+      <div className="preset-section preset-content">
+        {active.tags.length ? <div className="preview-tags">{active.tags.map((tag) => { const semantic = semanticPromptTags.find((item) => item.name === tag); return <span key={tag} className={semantic ? "semantic" : ""} title={semantic ? "已命中语义标签库，点击跳转标签库" : "自由标签（未关联语义标签库）"} onClick={() => semantic && window.location.assign(`/tags?tag_id=${encodeURIComponent(semantic.id)}`)}>#{tag}</span>; })}</div> : null}
+        <textarea value={active.prompt === PROMPT_PRESET_PLACEHOLDER ? "" : active.prompt} onChange={(e) => patchActive({ prompt: e.target.value || PROMPT_PRESET_PLACEHOLDER })} placeholder={PROMPT_PRESET_PLACEHOLDER} aria-label="提示词内容" />
+      </div>
+      <div className="preset-section"><span className="field-label">标签</span><PromptTagInput key={active.id} tags={active.tags} suggestions={semanticPromptTags.map((tag) => tag.name)} onChange={(tags) => patchActive({ tags })} placeholder="以逗号分隔；可输入或从语义标签库选择" />{semanticPromptTags.length ? <div className="prompt-semantic-hint"><span className="field-label">语义标签库</span>{semanticPromptTags.slice(0, 10).map((tag) => <button key={tag.id} type="button" disabled={active.tags.includes(tag.name)} onClick={() => patchActive({ tags: [...active.tags, tag.name] })}>#{tag.name}</button>)}</div> : null}</div>
+      <div className="preset-section"><span className="field-label">优先级与排序</span><div className="preset-order-row"><select value={active.priority} onChange={(e) => patchActive({ priority: e.target.value as PromptPreset["priority"] })} aria-label="优先级"><option value="pinned">置顶</option><option value="high">高</option><option value="normal">普通</option><option value="low">低</option></select><div className="prompt-order-actions"><button onClick={() => void moveActive(-1)}>上移</button><button onClick={() => void moveActive(1)}>下移</button></div></div></div>
+      <div className="preset-actions">
+        <button className="vermilion-button" onClick={() => void persist(presets.map((item) => item.id === active.id ? { ...item, updatedAt: new Date().toISOString() } : item), "提示词已保存")}><Check size={16} /> 保存预设</button>
+        <div className="preset-secondary-actions"><button className="full-outline" onClick={() => { sessionStorage.setItem("ai-manju:image-prompt", active.prompt); window.location.assign("/image"); }}><WandSparkles size={15} /> 送入关键帧</button><button className="full-outline" onClick={async () => { await navigator.clipboard.writeText(active.prompt); toast.success("提示词已复制"); }}><FileText size={15} /> 复制完整提示词</button></div>
+        <button className="full-outline preset-danger" onClick={() => { if (window.confirm(`删除"${active.title}"？`)) void persist(presets.filter((item) => item.id !== active.id), "提示词已删除"); }}><Trash2 size={15} /> 删除预设</button>
+      </div>
+    </> : <div className="empty-output"><p>暂无个人提示词预设</p></div>}</aside></div>
       : <div className="prompt-workspace">
         <aside className="prompt-filters">
           <div className="tag-search"><Search size={15} /><input value={systemKeyword} onChange={(e) => setSystemKeyword(e.target.value)} placeholder="搜索标题、正文或标签" /></div>

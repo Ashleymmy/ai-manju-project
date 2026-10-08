@@ -3,7 +3,9 @@ import type { Dispatch, SetStateAction } from "react";
 
 import type { CapabilityModelCatalog } from "@/entities/model";
 import { modelName, resolveModel } from "@/shared/lib/modelSelection";
+import type { ComicTemplateDraft } from "../model/workflow";
 import { ComicAnalysisSettings } from "./ComicAnalysisSettings";
+import { ComicTemplateFields } from "./ComicTemplateFields";
 
 export type ComicCreationMode = "script" | "import" | "empty";
 
@@ -27,6 +29,8 @@ type ComicCreateDialogProps = {
   setScriptFile: Dispatch<SetStateAction<File | null>>;
   workbookFile: File | null;
   setWorkbookFile: Dispatch<SetStateAction<File | null>>;
+  templates: ComicTemplateDraft;
+  setTemplates: Dispatch<SetStateAction<ComicTemplateDraft>>;
   isParsingScript: boolean;
   onClose: () => void;
   onConfirm: () => void;
@@ -52,6 +56,8 @@ export function ComicCreateDialog({
   setScriptFile,
   workbookFile,
   setWorkbookFile,
+  templates,
+  setTemplates,
   isParsingScript,
   onClose,
   onConfirm,
@@ -202,7 +208,7 @@ export function ComicCreateDialog({
                 <div><strong>正在分析剧本…</strong><p>{scriptFile?.name} · {modelName(analysisModel)}</p></div>
               </div>}
 
-              <TemplateGrid />
+              <ComicTemplateFields variant="dialog" value={templates} onChange={setTemplates} />
             </>
           )}
 
@@ -283,7 +289,7 @@ export function ComicCreateDialog({
                 <p>模板或来源文件变化不会覆盖现有项目，批准提示词或已创建批次</p>
               </div>
 
-              <TemplateGrid />
+              <ComicTemplateFields variant="dialog" value={templates} onChange={setTemplates} />
             </>
           )}
 
@@ -302,7 +308,7 @@ export function ComicCreateDialog({
                 <p>模板或来源文件变化不会覆盖现有项目、批准提示词或已创建批次</p>
               </div>
 
-              <TemplateGrid compact />
+              <ComicTemplateFields variant="dialog" compact value={templates} onChange={setTemplates} />
             </>
           )}
         </fieldset>
@@ -361,34 +367,6 @@ function ProjectFields({
           <option value="东方赛博水墨" />
         </datalist>
       </div>
-    </div>
-  );
-}
-
-function TemplateGrid({ compact = false }: { compact?: boolean }) {
-  const categories = ["人物", "场景", "道具", "UI"];
-  const items = categories.map(category => (
-    <div className="template-item" key={category}>
-      <label className={compact ? "template-label" : "dialog-label"}>
-        {category}分类模板（可选）
-      </label>
-      <p className="template-hint">
-        支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》
-      </p>
-      <textarea rows={4} />
-      <button className="template-upload-btn">
-        <Upload size={compact ? 16 : 12} /> 载入{category}模板 TXT
-        选择文件 未选择任何文件
-      </button>
-    </div>
-  ));
-  /* 四个分类必须是 .templates-grid 的直接子节点，才能排成 2×2；
-     中间再套一层无 class 的 wrapper 时，网格只剩一列，右侧会空出来 */
-  return compact ? (
-    <div className="templates-grid">{items}</div>
-  ) : (
-    <div className="dialog-section">
-      <div className="templates-grid">{items}</div>
     </div>
   );
 }

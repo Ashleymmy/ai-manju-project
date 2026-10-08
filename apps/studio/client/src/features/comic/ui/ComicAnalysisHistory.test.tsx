@@ -140,9 +140,26 @@ describe("server analysis discovery", () => {
     await act(async () => button("找回分析记录").click());
     await act(async () => button("更早的记录").click());
     await act(async () => button("找回分析记录").click());
+    await act(async () => button("找回分析记录").click());
     expect((mocks.list.mock.calls[1][2] as AbortSignal).aborted).toBe(true);
     await act(async () => finish({ items: [{ ...item, id: "old", title: "过期分页" }] }));
     expect(container.textContent).toContain("新列表");
     expect(container.textContent).not.toContain("过期分页");
+  });
+
+  it("closes from the trigger, Escape or a pointer outside the popover", async () => {
+    const panel = () => container.querySelector('[role="region"]');
+    await act(async () => button("找回分析记录").click());
+    await act(async () => panel()!.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    expect(panel()).not.toBeNull();
+    await act(async () => button("找回分析记录").click());
+    expect(panel()).toBeNull();
+    await act(async () => button("找回分析记录").click());
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(panel()).toBeNull();
+    await act(async () => button("找回分析记录").click());
+    await act(async () => document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    expect(panel()).toBeNull();
+    expect(mocks.list).toHaveBeenCalledTimes(3);
   });
 });

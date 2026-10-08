@@ -19,13 +19,21 @@ describe("Comic project controller", () => {
 
   it("creates an empty project with only the supported contract fields", () => {
     createEmptyComicProject(
-      { title: "  第一季  ", stylePreset: "  国风  " },
+      {
+        title: "  第一季  ",
+        stylePreset: "  国风  ",
+        templates: { character: "  {{资产名称}} 人物设定  ", prop: "   " },
+      },
       "team"
     );
 
     expect(comicApiMocks.createComicProject).toHaveBeenCalledOnce();
     expect(comicApiMocks.createComicProject).toHaveBeenCalledWith(
-      { title: "第一季", style_preset: "国风" },
+      {
+        title: "第一季",
+        style_preset: "国风",
+        default_templates: { character: "{{资产名称}} 人物设定" },
+      },
       "team"
     );
   });

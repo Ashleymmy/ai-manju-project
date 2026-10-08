@@ -78,6 +78,7 @@ export async function analyzeComicSource(
       sourceText: text,
       instruction: input.instruction,
       model: input.model,
+      templates: input.templates,
     }),
     input.file,
     input.scope

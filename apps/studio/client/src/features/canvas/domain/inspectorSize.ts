@@ -3,7 +3,8 @@ import { CANVAS_ZOOM_MIN, type CanvasViewport } from "./history";
 /** Inspector dimensions are screen pixels, independent of the canvas zoom. */
 export const INSPECTOR_SIZE = {
   minWidth: 340,
-  defaultWidth: 560,
+  // Fits the chip row on one line while generating (model chip at max width + 生成中/取消 ≈ 652px).
+  defaultWidth: 660,
   defaultMaxWidth: 720,
   nodeWidthExtra: 200,
   defaultHeight: 320,

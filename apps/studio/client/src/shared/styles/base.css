@@ -250,7 +250,6 @@ button.outline-button > svg,
 button.full-outline > svg {
   flex-shrink: 0;
 }
-.page-content { background-image: linear-gradient(90deg, transparent 0, transparent 2.4%, rgba(236,231,215,.05) 2.4%, rgba(236,231,215,.05) calc(2.4% + 1px), transparent calc(2.4% + 1px)); }
 .project-card { position: relative; clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%); }
 .project-card::before { content: "SHEET / PROJECT"; position: absolute; z-index: 4; top: 0; right: 14px; padding: 4px 7px; background: var(--red); color: #17181a; font: var(--font-size-caption) var(--font-family-mono); letter-spacing: 0; }
 .tool-surface { clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%); }

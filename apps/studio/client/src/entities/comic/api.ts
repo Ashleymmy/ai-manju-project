@@ -174,6 +174,7 @@ export async function createComicAnalysisSession(
     source_text: string;
     instruction: string;
     model: string;
+    default_templates?: ComicProjectInput["default_templates"];
   },
   sourceFile: File,
   scope: WorkspaceScope = "personal"
@@ -184,7 +185,7 @@ export async function createComicAnalysisSession(
   const body = new FormData();
   body.set(
     "payload",
-    JSON.stringify({ ...input, source_type: "script", default_templates: {} })
+    JSON.stringify({ ...input, source_type: "script", default_templates: input.default_templates ?? {} })
   );
   body.set("source_file", sourceFile, sourceFile.name);
   const analysisInput = { ...input, scope, source_file_name: sourceFile.name, source_file_size: sourceFile.size, source_file_modified: sourceFile.lastModified };

@@ -72,3 +72,5 @@ export const COMIC_REFERENCE_LIMIT = 6;
 export const COMIC_DEFAULT_ANALYSIS_MODEL = "gpt-5.6-luna";
 /** Keep the first-round instructions comfortably within the analysis input budget. */
 export const COMIC_ANALYSIS_INSTRUCTION_MAX_LENGTH = 4_000;
+/** Category prompt templates are short text; larger files are almost always the wrong file. */
+export const COMIC_TEMPLATE_FILE_MAX_BYTES = 64 * 1024;

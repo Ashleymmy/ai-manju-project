@@ -50,17 +50,50 @@ const queueIntro = {
   subtitle: "所有图像、视频与批量生成任务在这一处显示即时状态。",
 };
 
+/** Polling interval for generation jobs. */
+const JOB_REFRESH_MS = 3_000;
+/** Comic batches are aggregated across several projects, so they are polled less often. */
+const COMIC_REFRESH_MS = 10_000;
+
+/** Lifecycle shown in the side panel; canceled jobs only appear in the distribution bar. */
+const queueFlowSteps: Array<{ state: JobState; label: string; hint: string }> = [
+  { state: "queued", label: "等待 / 暂停", hint: "已提交，排队等待生成资源" },
+  { state: "running", label: "执行中", hint: "正在生成，进度实时更新" },
+  { state: "succeeded", label: "已完成", hint: "生成结束，结果可直接使用" },
+  { state: "failed", label: "异常 / 失败", hint: "生成未成功，可调整后重新提交" },
+];
+
+const queueDistributionOrder: Array<{ state: JobState; label: string }> = [
+  { state: "running", label: "执行中" },
+  { state: "queued", label: "等待" },
+  { state: "succeeded", label: "已完成" },
+  { state: "failed", label: "异常" },
+  { state: "canceled", label: "已取消" },
+];
+
+function formatSyncTime(date: Date) {
+  return date.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 export default function QueuePage() {
   const [, navigate] = useLocation();
   const [scope, setScope] = useState<WorkspaceScope>("personal");
   const [filter, setFilter] = useState<JobState | "all">("all");
   const [apiJobs, setApiJobs] = useState<QueueJobRow[] | null>(null);
   const [comicRows, setComicRows] = useState<QueueJobRow[]>([]);
+  const [syncedAt, setSyncedAt] = useState<Date | null>(null);
+  const [syncFailed, setSyncFailed] = useState(false);
 
   const refresh = useCallback(() => {
     void getJobs({ limit: 50, scope })
       .then(res => {
         const raw: Job[] = Array.isArray(res) ? res : res.items;
+        setSyncedAt(new Date());
+        setSyncFailed(false);
         setApiJobs(
           raw.map(job => ({
             id: job.id,
@@ -82,7 +115,10 @@ export default function QueuePage() {
           }))
         );
       })
-      .catch(() => setApiJobs([]));
+      .catch(() => {
+        setApiJobs(current => current ?? []);
+        setSyncFailed(true);
+      });
   }, [scope]);
 
   const refreshComicBatches = useCallback(() => {
@@ -135,10 +171,12 @@ export default function QueuePage() {
   useEffect(() => {
     setApiJobs(null);
     setComicRows([]);
+    setSyncedAt(null);
+    setSyncFailed(false);
     refresh();
     refreshComicBatches();
-    const timer = window.setInterval(refresh, 3_000);
-    const comicTimer = window.setInterval(refreshComicBatches, 10_000);
+    const timer = window.setInterval(refresh, JOB_REFRESH_MS);
+    const comicTimer = window.setInterval(refreshComicBatches, COMIC_REFRESH_MS);
     return () => {
       window.clearInterval(timer);
       window.clearInterval(comicTimer);
@@ -158,6 +196,20 @@ export default function QueuePage() {
     ["succeeded", `完成 ${String(count("succeeded")).padStart(2, "0")}`],
     ["failed", `异常 ${String(count("failed")).padStart(2, "0")}`],
   ];
+  const succeededCount = count("succeeded");
+  const finishedCount =
+    succeededCount + count("failed") + count("canceled");
+  const successRate = finishedCount
+    ? Math.round((succeededCount / finishedCount) * 100)
+    : null;
+  const distribution = queueDistributionOrder
+    .map(item => ({ ...item, value: count(item.state) }))
+    .filter(item => item.value > 0);
+  const syncLabel = syncFailed
+    ? "同步失败，自动重试中"
+    : syncedAt
+      ? `已同步 ${formatSyncTime(syncedAt)}`
+      : "同步中…";
 
   return (
     <div className="page-content">
@@ -311,25 +363,83 @@ export default function QueuePage() {
             </div>
           )}
         </section>
-        <aside className="queue-aside">
-          <p className="eyebrow">STATUS MACHINE</p>
-          <h3>
-            让每次等待
-            <br />
-            都看得见。
-          </h3>
-          <div className="state-machine">
-            <span className="done">queued</span>
-            <i />
-            <span className="active">running</span>
-            <i />
-            <span>succeeded</span>
+        <aside className="queue-aside" aria-label="任务状态概览">
+          <div className="queue-aside-head">
+            <div>
+              <p className="eyebrow">STATUS FLOW</p>
+              <h3>任务状态</h3>
+            </div>
+            <span
+              className={`queue-live${syncFailed ? " failed" : ""}`}
+              role="status"
+            >
+              <i aria-hidden="true" />
+              {syncLabel}
+            </span>
           </div>
-          <p>
-            {/* 暂时隐藏"团队空间"文案：原文为"队列状态来自服务端 Job 与漫剧批次，随个人 / 团队空间切换；页面刷新后会重新读取，不依赖本地假数据。" */}
-            队列状态来自服务端 Job 与漫剧批次；页面刷新后会重新读取，不依赖本地假数据。
+
+          <div className="queue-rate">
+            <div className="queue-rate-head">
+              <span>成功率</span>
+              <b>{successRate === null ? "—" : `${successRate}%`}</b>
+            </div>
+            <div
+              className="queue-rate-bar"
+              role="img"
+              aria-label={
+                distribution.length
+                  ? distribution
+                      .map(item => `${item.label} ${item.value}`)
+                      .join("，")
+                  : "暂无任务"
+              }
+            >
+              {distribution.map(item => (
+                <i
+                  className={item.state}
+                  key={item.state}
+                  style={{ flexGrow: item.value }}
+                  title={`${item.label} ${item.value}`}
+                />
+              ))}
+            </div>
+            <small>
+              {finishedCount
+                ? `已结束 ${finishedCount} 个任务，成功 ${succeededCount} 个`
+                : "暂无已结束的任务"}
+            </small>
+          </div>
+
+          <ol className="queue-flow">
+            {queueFlowSteps.map(step => {
+              const value = count(step.state);
+              const active = filter === step.state;
+              return (
+                <li key={step.state}>
+                  <button
+                    type="button"
+                    className={`queue-flow-step ${step.state}${
+                      value ? " has-jobs" : ""
+                    }${active ? " active" : ""}`}
+                    aria-pressed={active}
+                    onClick={() => setFilter(active ? "all" : step.state)}
+                  >
+                    <i aria-hidden="true" />
+                    <span>
+                      <b>{step.label}</b>
+                      <small>{step.hint}</small>
+                    </span>
+                    <em>{String(value).padStart(2, "0")}</em>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+
+          <p className="queue-aside-note">
+            任务每 {JOB_REFRESH_MS / 1000} 秒刷新，漫剧批量每{" "}
+            {COMIC_REFRESH_MS / 1000} 秒同步；点击状态可筛选左侧列表。
           </p>
-          <code>GET /api/jobs?limit=50&scope={scope}</code>
         </aside>
       </div>
     </div>

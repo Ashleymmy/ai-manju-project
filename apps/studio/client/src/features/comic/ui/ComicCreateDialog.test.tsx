@@ -146,8 +146,33 @@ describe("comic creation uses the real catalog and analysis workflow", () => {
     await act(async () => button("创建空项目").click());
     await setTitle("空项目");
     await act(async () => [...container.querySelectorAll("button")].filter(item => item.textContent === "创建空项目").at(-1)!.click());
-    expect(mocks.empty).toHaveBeenCalledWith({ title: "空项目", stylePreset: "" }, "personal");
+    expect(mocks.empty).toHaveBeenCalledWith({ title: "空项目", stylePreset: "", templates: {} }, "personal");
     expect(mocks.analyze).not.toHaveBeenCalled();
+  });
+
+  it("loads a category template from a TXT file and submits it with the project", async () => {
+    mocks.empty.mockResolvedValueOnce({ id: "project-test" });
+    await open();
+    await act(async () => button("创建空项目").click());
+    await setTitle("模板项目");
+    const upload = button("载入人物模板 TXT");
+    const fileInput = upload.closest(".template-item")!.querySelector('input[type="file"]') as HTMLInputElement;
+    const picker = vi.spyOn(fileInput, "click").mockImplementation(() => undefined);
+    await act(async () => upload.click());
+    expect(picker).toHaveBeenCalledOnce();
+    const file = new File(["\uFEFF{{资产名称}}，{{资产设定}}\n"], "人物模板.txt", { type: "text/plain" });
+    await act(async () => {
+      Object.defineProperty(fileInput, "files", { configurable: true, value: [file] });
+      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await vi.waitFor(() => expect((upload.closest(".template-item")!.querySelector("textarea") as HTMLTextAreaElement).value).toBe("{{资产名称}}，{{资产设定}}"));
+    expect(container.textContent).toContain("人物模板.txt");
+    expect(mocks.success).toHaveBeenCalledWith("已载入人物模板");
+    await act(async () => [...container.querySelectorAll("button")].filter(item => item.textContent === "创建空项目").at(-1)!.click());
+    expect(mocks.empty).toHaveBeenCalledWith(
+      { title: "模板项目", stylePreset: "", templates: { character: "{{资产名称}}，{{资产设定}}" } },
+      "personal",
+    );
   });
 
   it("imports the chosen workbook without requiring a text model", async () => {

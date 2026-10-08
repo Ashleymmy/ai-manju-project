@@ -71,8 +71,10 @@ import {
   comicAssetDraft,
   filterComicAssets,
   type ComicAssetDraft,
+  type ComicTemplateDraft,
 } from "../model/workflow";
 import { ComicCreateDialog } from "./ComicCreateDialog";
+import { ComicTemplateFields } from "./ComicTemplateFields";
 import { ComicBatchPanel } from "./ComicBatchPanel";
 import { ComicRetainedResult } from "./ComicRetainedResult";
 import { ComicAnalysisHistory } from "./ComicAnalysisHistory";
@@ -115,6 +117,8 @@ export function ComicAssetsView() {
   const [newProjectInstruction, setNewProjectInstruction] = useState(COMIC_DEFAULT_INSTRUCTION);
   const [newProjectScriptFile, setNewProjectScriptFile] = useState<File | null>(null);
   const [newProjectWorkbookFile, setNewProjectWorkbookFile] = useState<File | null>(null);
+  const [newProjectTemplates, setNewProjectTemplates] = useState<ComicTemplateDraft>({});
+  const [templates, setTemplates] = useState<ComicTemplateDraft>({});
   const [isParsingScript, setIsParsingScript] = useState(false);
   const [referencePickerOpen, setReferencePickerOpen] = useState(false);
   const [referenceKeyword, setReferenceKeyword] = useState("");
@@ -288,6 +292,7 @@ export function ComicAssetsView() {
         file,
         title,
         stylePreset,
+        templates,
         instruction,
         model,
         scope,
@@ -766,6 +771,7 @@ export function ComicAssetsView() {
     setCreateDialogOpen(true);
     setNewProjectTitle("");
     setNewProjectStylePreset("");
+    setNewProjectTemplates({});
     setNewProjectAnalysisModel(current => resolveModel(models?.models || [], current)
       || models?.models.find(item => modelName(item) === COMIC_DEFAULT_ANALYSIS_MODEL)
       || models?.defaultModel || "");
@@ -789,7 +795,7 @@ export function ComicAssetsView() {
     setBusy(true);
     try {
       if (creationMode === "empty") {
-        await createEmptyComicProject({ title: newProjectTitle, stylePreset: newProjectStylePreset }, scope);
+        await createEmptyComicProject({ title: newProjectTitle, stylePreset: newProjectStylePreset, templates: newProjectTemplates }, scope);
         if (!isCurrent()) return;
         await reloadProjects();
         if (!isCurrent()) return;
@@ -797,11 +803,13 @@ export function ComicAssetsView() {
       } else {
         const result = await analyzeComicSource({
           file: sourceFile!, title: newProjectTitle, stylePreset: newProjectStylePreset,
+          templates: newProjectTemplates,
           instruction: newProjectInstruction, model: newProjectAnalysisModel, scope,
         });
         if (!isCurrent()) return;
         setTitle(newProjectTitle);
         setStylePreset(newProjectStylePreset);
+        setTemplates(newProjectTemplates);
         setInstruction(newProjectInstruction);
         setModel(newProjectAnalysisModel);
         setFileName(sourceFile!.name);
@@ -823,17 +831,6 @@ export function ComicAssetsView() {
       : <button className="vermilion-button" onClick={() => { leaveCurrentView(); setStage(1); }}><Plus size={16} /> 新建分析</button>;
 
   return <div className="feature-page comic-page">
-    <ComicAnalysisHistory key={`${viewGeneration}:${scope}:${projectDetail?.project.id || ""}:${analysis?.session.id || ""}`} scope={scope} onRecovered={async (detail, signal) => {
-      const isCurrent = captureView("analysis-history");
-      const project = detail.session.status === "confirmed" && detail.session.project_id
-        ? await loadComicProject(detail.session.project_id, scope) : null;
-      if (!isCurrent() || signal.aborted) return;
-      leaveCurrentView();
-      setBatchDetail(null); setReferenceAssets([]); setEditingAssetId(""); setAssetDraft(null);
-      setProjectDetail(project); setAnalysis(project ? null : detail);
-      setSelected(project ? project.assets.map(asset => asset.id) : (activeComicRevision(detail)?.candidate.assets.map(asset => asset.name) || []));
-      setStage(project ? 3 : 2);
-    }} />
     {retainedCandidate && <ComicRetainedResult candidate={retainedCandidate} onClose={() => setRetainedCandidate(null)} />}
     <input ref={fileInputRef} hidden type="file" accept=".txt,.md,.docx,.xlsx,text/plain,text/markdown" onChange={(event) => setFileName(event.target.files?.[0]?.name || "")} />
 
@@ -843,11 +840,26 @@ export function ComicAssetsView() {
         <h1>资产助手</h1>
         <p className="comic-hero-description">可从剧本、四 Sheet 资产表或空项目开始；候选资产确认入库后，再处理提示词并创建服务端后台批次。关闭页面不会中断已创建的任务。</p>
         <div className="comic-hero-actions">
-          <button className={`comic-tab-button ${scope === "personal" ? "active" : ""}`} onClick={() => switchScope("personal")}>个人空间</button>
-          {/* 暂时隐藏"团队空间"标签按钮（全局隐藏），恢复时取消注释
-          <button className={`comic-tab-button ${scope === "team" ? "active" : ""}`} onClick={() => switchScope("team")}>团队空间</button>
-          */}
+          <div className="comic-scope-switch" role="group" aria-label="工作空间">
+            <span>空间</span>
+            <button className={`comic-tab-button ${scope === "personal" ? "active" : ""}`} onClick={() => switchScope("personal")}>个人空间</button>
+            {/* 暂时隐藏"团队空间"标签按钮（全局隐藏），恢复时取消注释
+            <button className={`comic-tab-button ${scope === "team" ? "active" : ""}`} onClick={() => switchScope("team")}>团队空间</button>
+            */}
+          </div>
+          <span className="comic-hero-divider" aria-hidden="true" />
           <button className="create-button" onClick={handleCreateProject}><Plus size={16} /> 新建资产项目</button>
+          <ComicAnalysisHistory key={`${viewGeneration}:${scope}:${projectDetail?.project.id || ""}:${analysis?.session.id || ""}`} scope={scope} onRecovered={async (detail, signal) => {
+            const isCurrent = captureView("analysis-history");
+            const project = detail.session.status === "confirmed" && detail.session.project_id
+              ? await loadComicProject(detail.session.project_id, scope) : null;
+            if (!isCurrent() || signal.aborted) return;
+            leaveCurrentView();
+            setBatchDetail(null); setReferenceAssets([]); setEditingAssetId(""); setAssetDraft(null);
+            setProjectDetail(project); setAnalysis(project ? null : detail);
+            setSelected(project ? project.assets.map(asset => asset.id) : (activeComicRevision(detail)?.candidate.assets.map(asset => asset.name) || []));
+            setStage(project ? 3 : 2);
+          }} />
         </div>
       </div>
       <div className="comic-lets-create-badge">LET'S<br/>CREATE!</div>
@@ -921,40 +933,7 @@ export function ComicAssetsView() {
           <label>首次分析方向<textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="请选择性参照某板，不需遵循有规范特性或逻辑性性求的颜色、场景和道具。" /></label>
           <hr />
           <div className="comic-project-list">{projects.map((project) => <div className="comic-project-row" key={project.id}><button className="comic-project-open" onClick={() => void openProject(project.id)}><FolderOpen size={14} /><span>{project.title}</span></button><div className="comic-project-actions"><button title="重命名" onClick={() => void renameProject(project)}><Pencil size={13} /></button><button title="下载剧本源文件" onClick={() => void downloadSource(project)}><ArrowDownToLine size={13} /></button><button title="删除项目" onClick={() => void removeProject(project)}><Trash2 size={13} /></button></div></div>)}{!projects.length && <small>当前空间还没有漫剧项目</small>}</div>
-          <div className="template-upload-section">
-            <div className="template-upload-item">
-              <p className="template-label">人物分类模板（可选）</p>
-              <div className="template-upload-box">
-                <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
-                <textarea className="template-input" placeholder="输入分类字段或粘贴模板内容..." rows={3}></textarea>
-                <button className="template-upload-button"><Upload size={14} /> 载入人物模板 TXT 选择文件 未选择任何文件</button>
-              </div>
-            </div>
-            <div className="template-upload-item">
-              <p className="template-label">场景分类模板（可选）</p>
-              <div className="template-upload-box">
-                <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
-                <textarea className="template-input" placeholder="输入分类字段或粘贴模板内容..." rows={3}></textarea>
-                <button className="template-upload-button"><Upload size={14} /> 载入场景模板 TXT 选择文件 未选择任何文件</button>
-              </div>
-            </div>
-            <div className="template-upload-item">
-              <p className="template-label">道具分类模板（可选）</p>
-              <div className="template-upload-box">
-                <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
-                <textarea className="template-input" placeholder="输入分类字段或粘贴模板内容..." rows={3}></textarea>
-                <button className="template-upload-button"><Upload size={14} /> 载入道具模板 TXT 选择文件 未选择任何文件</button>
-              </div>
-            </div>
-            <div className="template-upload-item">
-              <p className="template-label">UI分类模板（可选）</p>
-              <div className="template-upload-box">
-                <p className="template-hint">支持《美术风格》、《资产名称》、《资产类别》、《资产设定》、《状态》</p>
-                <textarea className="template-input" placeholder="输入分类字段或粘贴模板内容..." rows={3}></textarea>
-                <button className="template-upload-button"><Upload size={14} /> 载入UI模板 TXT 选择文件 未选择任何文件</button>
-              </div>
-            </div>
-          </div>
+          <ComicTemplateFields variant="panel" value={templates} onChange={setTemplates} disabled={busy} />
           <div className="script-intake-actions">
             <button className="outline-button" onClick={() => setStage(projectDetail ? 3 : 2)}>{projectDetail ? "返回项目资产" : "返回候选"}</button>
             <button className="vermilion-button" disabled={busy} onClick={() => void analyze()}>{busy ? "分析中…" : "解析并预览"}</button>
@@ -1068,6 +1047,8 @@ export function ComicAssetsView() {
       setScriptFile={setNewProjectScriptFile}
       workbookFile={newProjectWorkbookFile}
       setWorkbookFile={setNewProjectWorkbookFile}
+      templates={newProjectTemplates}
+      setTemplates={setNewProjectTemplates}
       isParsingScript={isParsingScript}
       onClose={() => setCreateDialogOpen(false)}
       onConfirm={() => void confirmCreateProject()}

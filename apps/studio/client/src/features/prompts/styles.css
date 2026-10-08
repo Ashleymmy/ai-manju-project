@@ -36,3 +36,65 @@
   color: #b6b6b6;
   cursor: pointer;
 }
+
+/* ---- Prompt center: priority filter (matches the skills side rail) ---- */
+.prompt-filters > .field-label:has(+ .priority-filter) { margin: 18px 0 6px; padding: 0 8px; }
+.prompt-filters > .priority-filter { align-items: center; margin-top: 2px; transition: background-color .15s ease, color .15s ease; }
+.prompt-filters > .priority-filter.selected { background: rgba(255, 255, 255, 0.11); box-shadow: inset 2px 0 0 #f0eee7; color: #f0eee7; font-weight: 600; }
+.prompt-filters > .priority-filter b { min-width: 18px; text-align: right; color: #c6c6c6; }
+.prompt-filters > .priority-filter b.empty { color: #6f7476; }
+.prompt-filters > .priority-filter.selected b { color: #f0eee7; }
+.prompt-filters > .priority-filter:focus-visible { outline: 1px solid rgba(255, 255, 255, 0.5); outline-offset: -1px; }
+
+/* ---- Prompt center: personal preset panel, grouped with an even vertical rhythm ---- */
+.prompt-preset-panel { gap: 18px; padding: 20px; }
+.prompt-preset-panel .preset-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.prompt-preset-panel .preset-section > .eyebrow,
+.prompt-preset-panel .preset-section > .field-label { margin: 0; }
+.prompt-preset-panel .preset-section > input { margin-top: 0; }
+.prompt-preset-panel .preset-content { flex: 1; }
+.prompt-preset-panel .preset-content .preview-tags { flex-wrap: wrap; margin-top: 0; }
+.prompt-preset-panel .preset-content textarea { margin-top: 0; min-height: 180px; }
+.prompt-preset-panel .prompt-semantic-hint { margin-top: 2px; }
+.prompt-preset-panel .preset-order-row { display: flex; gap: 8px; }
+.prompt-preset-panel .preset-order-row select { flex: 1; min-width: 0; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); outline: none; background: #262626; color: #deddd5; font-size: var(--font-size-small); }
+.prompt-preset-panel .prompt-order-actions { margin-top: 0; }
+.prompt-preset-panel .prompt-order-actions button { min-height: 36px; padding: 0 14px; }
+.prompt-preset-panel .preset-actions { display: grid; gap: 8px; margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); }
+.prompt-preset-panel .preset-actions .full-outline { margin-top: 0; }
+.prompt-preset-panel .preset-secondary-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.prompt-preset-panel .preset-secondary-actions .full-outline { min-width: 0; padding: 0 8px; white-space: nowrap; }
+.prompt-preset-panel .preset-danger { color: #ff8b78; }
+.prompt-preset-panel .preset-danger:hover:not(:disabled) { border-color: rgba(255, 139, 120, 0.5); background: rgba(255, 139, 120, 0.08); }
+
+.template-card p.template-card-empty { color: #858d90; font-style: italic; }
+
+/* ---- Prompt center: tag input with styled suggestions (replaces the native datalist popup) ---- */
+.prompt-tag-input { position: relative; }
+.prompt-tag-input > input { width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); outline: none; background: #262626; color: #deddd5; font-size: var(--font-size-small); }
+.prompt-tag-input > input:focus { border-color: rgba(239, 235, 222, 0.28); }
+.prompt-tag-suggestions {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  max-height: 184px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  border: 1px solid rgba(239, 235, 222, 0.14);
+  border-radius: var(--ui-radius-control, 6px);
+  background: #1f2527;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  scrollbar-width: thin;
+  scrollbar-color: #4f5658 transparent;
+}
+.prompt-tag-suggestions::-webkit-scrollbar { width: 6px; }
+.prompt-tag-suggestions::-webkit-scrollbar-track { background: transparent; }
+.prompt-tag-suggestions::-webkit-scrollbar-thumb { border-radius: 3px; background: #4f5658; }
+.prompt-tag-suggestions::-webkit-scrollbar-thumb:hover { background: #6a7274; }
+.prompt-tag-suggestions li { padding: 7px 10px; border-radius: 4px; color: #c9c9c4; cursor: pointer; font-size: var(--font-size-small); line-height: 1.3; }
+.prompt-tag-suggestions li.highlighted { background: rgba(255, 255, 255, 0.08); color: #f0eee7; }

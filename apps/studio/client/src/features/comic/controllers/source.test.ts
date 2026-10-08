@@ -80,6 +80,7 @@ describe("Comic source controller", () => {
         {
           title: "  第一季  ",
           stylePreset: "  国风  ",
+          templates: { prop: "{{资产名称}} 道具" },
           file,
           instruction: "unused for workbook",
           model: "",
@@ -97,6 +98,7 @@ describe("Comic source controller", () => {
       {
         title: "第一季",
         style_preset: "国风",
+        default_templates: { prop: "{{资产名称}} 道具" },
         source_type: "workbook",
         assets: [
           {
@@ -158,6 +160,7 @@ describe("Comic source controller", () => {
         {
           title: "  第一季  ",
           stylePreset: "  国风  ",
+          templates: { character: "  {{资产名称}} 人物  " },
           file,
           instruction: "  完整拆解  ",
           model: "text-model",
@@ -179,6 +182,7 @@ describe("Comic source controller", () => {
         source_text: "剧本文本",
         instruction: "完整拆解",
         model: "text-model",
+        default_templates: { character: "{{资产名称}} 人物" },
       },
       file,
       "personal"

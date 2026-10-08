@@ -19,10 +19,28 @@ export type ComicAssetDraft = {
   prompt: string;
 };
 
+/** Per-category prompt templates typed or loaded while creating a project. */
+export type ComicTemplateDraft = Partial<Record<ComicAssetClass, string>>;
+
 export type ComicProjectDraft = {
   title: string;
   stylePreset: string;
+  templates?: ComicTemplateDraft;
 };
+
+/** Drops blank categories so the API falls back to its system template for them. */
+export function comicTemplatesInput(
+  templates: ComicTemplateDraft | undefined
+): ComicTemplateDraft {
+  const result: ComicTemplateDraft = {};
+  for (const [key, value] of Object.entries(templates ?? {}) as Array<
+    [ComicAssetClass, string | undefined]
+  >) {
+    const trimmed = value?.trim();
+    if (trimmed) result[key] = trimmed;
+  }
+  return result;
+}
 
 export type ComicBatchDraft = {
   assetIds: string[];
@@ -43,6 +61,7 @@ export function comicProjectInput(draft: ComicProjectDraft): ComicProjectInput {
   return {
     title: draft.title.trim(),
     style_preset: draft.stylePreset.trim(),
+    default_templates: comicTemplatesInput(draft.templates),
   };
 }
 
@@ -63,6 +82,7 @@ export function comicAnalysisInput(input: {
   sourceText: string;
   instruction: string;
   model: string;
+  templates?: ComicTemplateDraft;
 }) {
   return {
     title: input.title.trim(),
@@ -70,6 +90,7 @@ export function comicAnalysisInput(input: {
     source_text: input.sourceText,
     instruction: input.instruction.trim(),
     model: input.model,
+    default_templates: comicTemplatesInput(input.templates),
   };
 }
 

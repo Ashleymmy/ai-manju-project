@@ -49,7 +49,8 @@
 }
 .skill-workspace .prompt-filters > .field-label { margin: 18px 0 6px; padding: 0 8px; }
 .skill-workspace .prompt-filters > button { align-items: center; margin-top: 2px; }
-.skill-workspace .prompt-filters > button.selected { background: rgba(255, 255, 255, 0.08); font-weight: 600; }
+.skill-workspace .prompt-filters > button.selected { background: rgba(255, 255, 255, 0.11); box-shadow: inset 2px 0 0 #f0eee7; color: #f0eee7; font-weight: 600; }
+.skill-workspace .prompt-filters > button.selected b { color: #f0eee7; }
 .skill-workspace .prompt-filters hr { margin: 16px 0 0; }
 .skill-workspace .prompt-filters > .skill-side-hint { margin-top: 14px; padding: 0 8px; }
 .skill-preview-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }

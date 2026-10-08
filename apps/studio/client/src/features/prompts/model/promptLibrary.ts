@@ -12,6 +12,12 @@ export type PromptLibraryEntry = {
 
 const priorityRank: Record<PromptPreset["priority"], number> = { pinned: 0, high: 1, normal: 2, low: 3 };
 
+/**
+ * Stored content of a preset the user has not filled yet. The API drops presets with an
+ * empty prompt, so this text is persisted and the editor shows it as a placeholder instead.
+ */
+export const PROMPT_PRESET_PLACEHOLDER = "请在此填写提示词内容。";
+
 export function buildPromptLibraryEntries(systemPrompts: readonly SystemPrompt[], personalPrompts: readonly PromptPreset[]) {
   const personal = personalPrompts.map<PromptLibraryEntry>((item) => ({
     id: `personal:${item.id}`,

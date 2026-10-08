@@ -90,17 +90,22 @@ describe("Comic workflow compatibility contracts", () => {
   it("builds project, import, analysis and revision payloads exactly", () => {
     expect(
       comicProjectInput({ title: "  第一季  ", stylePreset: "  国风  " })
-    ).toEqual({ title: "第一季", style_preset: "国风" });
+    ).toEqual({ title: "第一季", style_preset: "国风", default_templates: {} });
 
     const assets = [{ name: "林默", class: "character" as const }];
     expect(
       comicImportInput(
-        { title: "  第一季  ", stylePreset: "  国风  " },
+        {
+          title: "  第一季  ",
+          stylePreset: "  国风  ",
+          templates: { environment: "  {{资产名称}} 场景  " },
+        },
         assets
       )
     ).toEqual({
       title: "第一季",
       style_preset: "国风",
+      default_templates: { environment: "{{资产名称}} 场景" },
       source_type: "workbook",
       assets,
     });
@@ -112,6 +117,7 @@ describe("Comic workflow compatibility contracts", () => {
         sourceText: "  剧本文本保持原样  ",
         instruction: "  完整拆解  ",
         model: "text-model",
+        templates: { ui: "  界面 {{状态}}  ", prop: "" },
       })
     ).toEqual({
       title: "第一季",
@@ -119,6 +125,7 @@ describe("Comic workflow compatibility contracts", () => {
       source_text: "  剧本文本保持原样  ",
       instruction: "完整拆解",
       model: "text-model",
+      default_templates: { ui: "界面 {{状态}}" },
     });
 
     expect(
