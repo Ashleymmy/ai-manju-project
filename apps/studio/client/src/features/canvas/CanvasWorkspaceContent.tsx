@@ -190,7 +190,9 @@ import {
   createCanvasClipboard,
   duplicateCanvasNode,
   pasteCanvasClipboard,
+  placeCanvasNodesAround,
   type CanvasClipboardPayload,
+  type CanvasVisibleRect,
 } from "@/features/canvas/domain/clipboard";
 import {
   addCanvasConnection,
@@ -1829,8 +1831,22 @@ export default function CanvasWorkspaceViewContent() {
       };
   };
 
+  const visibleCanvasRect = (): CanvasVisibleRect => {
+    const { zoom, panX, panY } = viewportRef.current;
+    const scale = Math.max(0.05, zoom / 100);
+    return {
+      left: (0 - panX) / scale,
+      top: (CANVAS_STAGE_OFFSET - panY) / scale,
+      right: (stageBounds.width - panX) / scale,
+      bottom: (stageBounds.height - panY) / scale,
+    };
+  };
+
+  /** Without an explicit position (toolbar), a new node appears centered in view like pasted media. */
   const addNode = (kind: CanvasNodeKind, position?: { x: number; y: number }) => {
-    const created = buildCanvasNodeCandidate(kind, position);
+    const created = position
+      ? buildCanvasNodeCandidate(kind, position)
+      : placeCanvasNodesAround([buildCanvasNodeCandidate(kind)], getCanvasCenter(), visibleCanvasRect())[0];
     const nextNodes = [...nodesRef.current, created];
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
@@ -3699,25 +3715,7 @@ export default function CanvasWorkspaceViewContent() {
       }
       if (!createdNodes.length || !isCurrentProject()) return;
       const baseNodes = nodesRef.current;
-      const anchor = dropPosition || getCanvasCenter();
-      const columns = Math.min(2, Math.max(1, createdNodes.length));
-      const rows = Math.ceil(createdNodes.length / columns);
-      const scale = Math.max(0.05, zoom / 100);
-      const visibleLeft = (0 - panX) / scale;
-      const visibleTop = (CANVAS_STAGE_OFFSET - panY) / scale;
-      const visibleRight = (stageBounds.width - panX) / scale;
-      const visibleBottom = (stageBounds.height - panY) / scale;
-      const nextNodes = [...baseNodes, ...createdNodes.map((node, index) => ({
-        ...node,
-        x: Math.min(
-          Math.max(anchor.x + (index % columns) * 360 - ((columns - 1) * 360) / 2 - node.width / 2, visibleLeft + 12),
-          Math.max(visibleLeft + 12, visibleRight - node.width - 12),
-        ),
-        y: Math.min(
-          Math.max(anchor.y + Math.floor(index / columns) * 280 - ((rows - 1) * 280) / 2 - node.height / 2, visibleTop + 12),
-          Math.max(visibleTop + 12, visibleBottom - node.height - 12),
-        ),
-      }))];
+      const nextNodes = [...baseNodes, ...placeCanvasNodesAround(createdNodes, dropPosition || getCanvasCenter(), visibleCanvasRect())];
       nodesRef.current = nextNodes;
       setNodes(nextNodes);
       const nextSelectedId = createdNodes.at(-1)?.id || selectedId;
@@ -3753,10 +3751,10 @@ export default function CanvasWorkspaceViewContent() {
     }
     if (!text.trim()) return false;
     const created = buildCanvasNodeCandidate("text");
-    const nextNode = {
+    const [nextNode] = placeCanvasNodesAround([{
       ...created, title: "粘贴文本", content: text,
       metadata: { ...created.metadata, content: text, prompt: text, composerContent: text },
-    };
+    }], getCanvasCenter(), visibleCanvasRect());
     const nextNodes = [...nodesRef.current, nextNode];
     nodesRef.current = nextNodes;
     setNodes(nextNodes);

@@ -30,6 +30,18 @@ export function ledgerUserLabel(user: AdminMemberUser) {
   return user.display_name || user.username || user.user_id;
 }
 
+/** The ledger row names its own user; a separately loaded user only fills in for older APIs. */
+export function ledgerEntryUserName(
+  entry: Pick<AdminLedgerEntry, "user_id" | "username" | "display_name">,
+  loadedUser?: AdminMemberUser | null
+) {
+  const name =
+    entry.display_name ||
+    entry.username ||
+    (loadedUser ? ledgerUserLabel(loadedUser) : "");
+  return name === entry.user_id ? "" : name;
+}
+
 /** Store the applied bounds once so paging cannot shift a relative time window. */
 export function resolveLedgerFilters(
   draft: LedgerFilterDraft,

@@ -3,9 +3,25 @@ import { describe, expect, it } from "vitest";
 import {
   EMPTY_LEDGER_DRAFT,
   ledgerBalanceAfter,
+  ledgerEntryUserName,
   resolveLedgerFilters,
 } from "./ledgerFilters";
 import type { AdminLedgerEntry } from "./memberAdmin";
+
+describe("ledger row user name", () => {
+  const loaded = { user_id: "user_1", username: "loaded", display_name: "已加载", status: "active", permanent_balance: 0, limited_balance: 0 };
+
+  it("prefers the name carried by the ledger row", () => {
+    expect(ledgerEntryUserName({ user_id: "user_1", username: "zhang", display_name: "张三" }, loaded)).toBe("张三");
+    expect(ledgerEntryUserName({ user_id: "user_1", username: "zhang" })).toBe("zhang");
+  });
+
+  it("falls back to a loaded user and never repeats the id", () => {
+    expect(ledgerEntryUserName({ user_id: "user_1" }, loaded)).toBe("已加载");
+    expect(ledgerEntryUserName({ user_id: "user_1" })).toBe("");
+    expect(ledgerEntryUserName({ user_id: "user_1" }, { ...loaded, username: "", display_name: "" })).toBe("");
+  });
+});
 
 describe("ledger query bounds and balance", () => {
   it("does not constrain the default all-time query", () => {

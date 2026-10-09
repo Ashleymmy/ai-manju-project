@@ -6,6 +6,7 @@ import { formatCredits, formatDateTime } from "@/features/member";
 import type { CreditLedgerController } from "../controllers/useCreditLedgerController";
 import {
   ledgerBalanceAfter,
+  ledgerEntryUserName,
   ledgerUserLabel,
   LEDGER_USER_SEARCH_PAGE_SIZE,
 } from "../model/ledgerFilters";
@@ -317,10 +318,12 @@ export function CreditLedgerPanel({
                 {items.map(entry => {
                   const positive = entry.amount >= 0;
                   const balance = ledgerBalanceAfter(entry);
-                  const member =
+                  const userName = ledgerEntryUserName(
+                    entry,
                     appliedUser?.user_id === entry.user_id
                       ? appliedUser
-                      : knownUsers[entry.user_id];
+                      : knownUsers[entry.user_id]
+                  );
                   return (
                     <tr key={entry.id}>
                       <td>
@@ -328,14 +331,14 @@ export function CreditLedgerPanel({
                         <small title="流水编号">{entry.id}</small>
                       </td>
                       <td>
-                        {member && (
+                        {userName && (
                           <span className="admin-ledger-user-name">
-                            {ledgerUserLabel(member)}
+                            {userName}
                           </span>
                         )}
                         <span
                           className={
-                            member ? "admin-ledger-secondary" : undefined
+                            userName ? "admin-ledger-secondary" : undefined
                           }
                         >
                           {entry.user_id}

@@ -54,6 +54,8 @@ export type AdminPaged<T> = {
 export type AdminLedgerEntry = {
   id: string;
   user_id: string;
+  username?: string;
+  display_name?: string;
   entry_type: string;
   /** 有符号：增正减负。 */
   amount: number;

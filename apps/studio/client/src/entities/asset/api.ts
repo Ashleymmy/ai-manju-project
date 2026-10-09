@@ -62,7 +62,18 @@ export function getTrashedAssetLibrary(
   return request<AssetLibraryResponse>("/api/assets/trash/library", {
     signal,
     query: scopedQuery(scope, {
+      folder_id: query.folderId,
+      include_descendants: query.includeDescendants || undefined,
+      type: query.type || undefined,
+      category: query.category || undefined,
+      source_type: query.sourceType || undefined,
       keyword: query.keyword || undefined,
+      tag_ids: query.tagIds?.length ? query.tagIds.join(",") : undefined,
+      tag_match: query.tagMatch,
+      include_tag_descendants: query.includeTagDescendants || undefined,
+      created_from: query.createdFrom || undefined,
+      created_to: query.createdTo || undefined,
+      source_project_id: query.sourceProjectId || undefined,
       page: query.page,
       page_size: query.pageSize,
       sort: query.sort,

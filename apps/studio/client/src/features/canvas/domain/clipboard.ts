@@ -65,6 +65,39 @@ export function duplicateCanvasNode<TNode extends CanvasClipboardNode>(source: T
   return duplicate;
 }
 
+/** Layout for new nodes pasted or dropped around one canvas point. */
+export const CANVAS_PASTE_LAYOUT = {
+  maxColumns: 2,
+  columnStep: 360,
+  rowStep: 280,
+  /** Distance kept between a placed node and the edge of the visible canvas. */
+  viewMargin: 12,
+} as const;
+
+export type CanvasVisibleRect = { left: number; top: number; right: number; bottom: number };
+
+/** Centers new nodes on `anchor` in a small grid, keeping each inside the visible canvas. */
+export function placeCanvasNodesAround<TNode extends { width: number; height: number }>(
+  nodes: readonly TNode[],
+  anchor: { x: number; y: number },
+  visible: CanvasVisibleRect,
+): Array<TNode & { x: number; y: number }> {
+  const { maxColumns, columnStep, rowStep, viewMargin } = CANVAS_PASTE_LAYOUT;
+  const columns = Math.min(maxColumns, Math.max(1, nodes.length));
+  const rows = Math.ceil(nodes.length / columns);
+  return nodes.map((node, index) => {
+    const x = anchor.x + (index % columns) * columnStep - ((columns - 1) * columnStep) / 2 - node.width / 2;
+    const y = anchor.y + Math.floor(index / columns) * rowStep - ((rows - 1) * rowStep) / 2 - node.height / 2;
+    const minX = visible.left + viewMargin;
+    const minY = visible.top + viewMargin;
+    return {
+      ...node,
+      x: Math.min(Math.max(x, minX), Math.max(minX, visible.right - node.width - viewMargin)),
+      y: Math.min(Math.max(y, minY), Math.max(minY, visible.bottom - node.height - viewMargin)),
+    };
+  });
+}
+
 export function createCanvasClipboard<TNode extends CanvasClipboardNode, TEdge extends CanvasClipboardEdge>(
   nodes: readonly TNode[],
   edges: readonly TEdge[],

@@ -1,6 +1,29 @@
 import { describe, expect, it } from "vitest";
 
-import { createCanvasClipboard, duplicateCanvasNode, pasteCanvasClipboard } from "./clipboard";
+import { createCanvasClipboard, duplicateCanvasNode, pasteCanvasClipboard, placeCanvasNodesAround } from "./clipboard";
+
+describe("placing pasted nodes", () => {
+  const visible = { left: 1000, top: 500, right: 2200, bottom: 1300 };
+
+  it("centers a single pasted node on the visible canvas center however many nodes exist", () => {
+    const [node] = placeCanvasNodesAround([{ id: "text", width: 300, height: 170 }], { x: 1600, y: 900 }, visible);
+    expect(node).toMatchObject({ id: "text", x: 1450, y: 815 });
+  });
+
+  it("lays several nodes out in two columns around the anchor", () => {
+    const placed = placeCanvasNodesAround(
+      [{ width: 320, height: 238 }, { width: 320, height: 238 }, { width: 320, height: 238 }],
+      { x: 1600, y: 900 },
+      visible,
+    );
+    expect(placed.map(({ x, y }) => [x, y])).toEqual([[1260, 641], [1620, 641], [1260, 921]]);
+  });
+
+  it("keeps a node inside the visible canvas when the anchor sits near an edge", () => {
+    const [node] = placeCanvasNodesAround([{ width: 300, height: 170 }], { x: 2190, y: 510 }, visible);
+    expect(node).toMatchObject({ x: 2200 - 300 - 12, y: 500 + 12 });
+  });
+});
 
 const nodes = [
   { id: "a", title: "A", x: 0, y: 0, width: 100, height: 80, metadata: { nested: { value: 1 }, sourceNodeId: "b", batchChildIds: ["b", "c"] } },
