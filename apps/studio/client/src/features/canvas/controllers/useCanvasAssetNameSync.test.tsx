@@ -25,8 +25,10 @@ it.each(["image", "video", "audio"] as const)("syncs the final collision title w
     await act(async () => root.render(<QueryClientProvider client={new QueryClient()}><CanvasProvider store={store}><Harness /></CanvasProvider></QueryClientProvider>));
     await act(async () => store.getState().actions.setField("graph", "nodes", nodes => [...nodes, { ...first, id: "second", metadata: { assetId: "new-output" } }]));
     const added = store.getState().graph.nodes.find(n => n.id === "second")!;
-    expect(added.title).toBe("女王的毒苹果（1）");
+    const renamed = store.getState().graph.nodes.find(n => n.id === "first")!;
+    expect([renamed.title, added.title]).toEqual(["女王的毒苹果-1", "女王的毒苹果-2"]);
     expect(syncCanvasNodeAssetName).toHaveBeenCalledWith(added, { userId: "user", projectId: "project", scope: "personal" });
+    expect(syncCanvasNodeAssetName).toHaveBeenCalledWith(renamed, { userId: "user", projectId: "project", scope: "personal" });
     vi.mocked(syncCanvasNodeAssetName).mockClear();
     await act(async () => store.getState().actions.setField("graph", "nodes", nodes => [...nodes, { ...first, id: "shared-copy" }]));
     expect(syncCanvasNodeAssetName).not.toHaveBeenCalled();

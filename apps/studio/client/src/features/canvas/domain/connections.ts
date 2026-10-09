@@ -197,12 +197,33 @@ export function canvasDisplayEdges<E extends CanvasConnectionEdge>(
   return edges.flatMap((edge) => {
     const fromGroup = canvasConnectionGroup(edge.from, groups);
     const toGroup = canvasConnectionGroup(edge.to, groups);
-    if (fromGroup && fromGroup.id === toGroup?.id) return [{ edge }];
-    const key = `${fromGroup?.id || edge.from}->${toGroup?.id || edge.to}`;
+    const key = canvasDisplayEdgeKey(edge, groups);
+    if (!key) return [{ edge }];
     if (seen.has(key)) return [];
     seen.add(key);
     return [{ edge, fromGroup, toGroup }];
   });
+}
+
+/** Empty for lines inside one group; otherwise shared by every edge drawn as the same line. */
+function canvasDisplayEdgeKey(edge: CanvasConnectionEdge, groups: readonly CanvasGroupData[]) {
+  const fromGroup = canvasConnectionGroup(edge.from, groups);
+  const toGroup = canvasConnectionGroup(edge.to, groups);
+  if (fromGroup && fromGroup.id === toGroup?.id) return "";
+  return `${fromGroup?.id || edge.from}->${toGroup?.id || edge.to}`;
+}
+
+/** Every edge drawn as the same line as `edgeId`, so removing the line removes all of them. */
+export function canvasDisplayEdgeIds(
+  edges: readonly CanvasConnectionEdge[],
+  groups: readonly CanvasGroupData[],
+  edgeId: string,
+): string[] {
+  const target = edges.find(edge => edge.id === edgeId);
+  if (!target) return [];
+  const key = canvasDisplayEdgeKey(target, groups);
+  if (!key) return [edgeId];
+  return edges.filter(edge => canvasDisplayEdgeKey(edge, groups) === key).map(edge => edge.id);
 }
 
 export function canvasGroupConnections(

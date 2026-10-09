@@ -9,6 +9,7 @@ import {
   canvasClientPointToWorld,
   canvasConnectionCurvature,
   canvasConnectionDisplayNode,
+  canvasDisplayEdgeIds,
   canvasDisplayEdges,
   canvasGroupConnections,
   connectableCanvasNodesToConfig,
@@ -165,6 +166,23 @@ describe("canvas connection rules", () => {
     ];
     const display = canvasDisplayEdges([{ id: "a-b", from: "a", to: "b" }, { id: "b-c", from: "b", to: "c" }], groups);
     expect(display).toEqual([{ edge: { id: "a-b", from: "a", to: "b" } }, { edge: { id: "b-c", from: "b", to: "c" } }]);
+  });
+
+  it("removes a group line together with every member edge drawn as it", () => {
+    const groups: CanvasGroupData[] = [
+      { id: "ab", title: "AB", nodeIds: ["a", "b"], position: { x: 0, y: 0 }, width: 300, height: 200, color: "#fff" },
+    ];
+    const edges = [
+      { id: "a-b", from: "a", to: "b" },
+      { id: "a-x", from: "a", to: "x" },
+      { id: "b-x", from: "b", to: "x" },
+      { id: "x-a", from: "x", to: "a" },
+      { id: "y-z", from: "y", to: "z" },
+    ];
+    expect(canvasDisplayEdgeIds(edges, groups, "b-x")).toEqual(["a-x", "b-x"]);
+    expect(canvasDisplayEdgeIds(edges, groups, "a-b")).toEqual(["a-b"]);
+    expect(canvasDisplayEdgeIds(edges, groups, "y-z")).toEqual(["y-z"]);
+    expect(canvasDisplayEdgeIds(edges, groups, "missing")).toEqual([]);
   });
 
   it.each([false, true])("connects all visible group members in both directions (pending=%s)", pending => {

@@ -9,12 +9,13 @@ const MEDIA_MIME_BY_EXTENSION: Record<string, string> = {
 
 export type CanvasClipboardContent = { files: File[]; text: string };
 
-export function normalizeCanvasClipboardFile(file: File, index: number): File {
+/** Unnamed clipboard media share one name per kind (pasted-image); node naming numbers repeats. */
+export function normalizeCanvasClipboardFile(file: File): File {
   const extension = file.name.split(".").at(-1)?.toLowerCase() || "";
   const type = file.type && file.type !== "application/octet-stream"
     ? file.type : MEDIA_MIME_BY_EXTENSION[extension] || file.type;
   const suffix = Object.entries(MEDIA_MIME_BY_EXTENSION).find(([, mime]) => mime === type)?.[0] || "bin";
-  const name = file.name || `pasted-${type.split("/")[0] || "file"}-${index + 1}.${suffix}`;
+  const name = file.name || `pasted-${type.split("/")[0] || "file"}.${suffix}`;
   return name === file.name && type === file.type ? file : new File([file], name, { type, lastModified: file.lastModified });
 }
 
@@ -28,7 +29,7 @@ export function readCanvasClipboardData(data: DataTransfer): CanvasClipboardCont
       if (file) files.push(file);
     }
   }
-  return { files: files.map(normalizeCanvasClipboardFile), text: data.getData("text/plain").replace(/\r\n?/g, "\n") };
+  return { files: files.map(file => normalizeCanvasClipboardFile(file)), text: data.getData("text/plain").replace(/\r\n?/g, "\n") };
 }
 
 /** Menu actions need the permission-gated API; keyboard paste uses its native event. */
@@ -45,7 +46,7 @@ export async function readSystemCanvasClipboard(): Promise<CanvasClipboardConten
     const mediaType = item.types.find(type => /^(image|video|audio)\//.test(type));
     if (mediaType) {
       const blob = await item.getType(mediaType);
-      files.push(normalizeCanvasClipboardFile(new File([blob], "", { type: mediaType }), files.length));
+      files.push(normalizeCanvasClipboardFile(new File([blob], "", { type: mediaType })));
     } else if (item.types.includes("text/plain")) {
       texts.push(await (await item.getType("text/plain")).text());
     }

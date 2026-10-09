@@ -56,30 +56,45 @@ export function canvasNodeCopyTitle(name: string, used: ReadonlySet<string>): st
   return uniqueCanvasNodeTitle(`${base}${CANVAS_NODE_COPY_SUFFIX}`, used);
 }
 
-/** Keep the original import collision format outside managed names. */
-function ensureLegacyCanvasNodeTitles(nodes: CanvasNodeData[], previous: readonly CanvasNodeData[] = []): CanvasNodeData[] {
-  if (nodes === previous) return nodes;
-  const previousTitles = new Map(previous.map(node => [node.id, node.title]));
-  const owners = new Map<string, string>();
+/** A numbered import keeps its own name in titleBase; once its title changes elsewhere, the title is the name. */
+function importedCanvasNodeTitleBase(node: CanvasNodeData): string {
+  const title = canvasNodeTitle(node.title);
+  const base = node.metadata?.titleBase;
+  if (!base) return title;
+  return title === base || (title.startsWith(`${base}-`) && /^\d+$/.test(title.slice(base.length + 1))) ? base : title;
+}
+
+/** Imported and library nodes sharing a name are all numbered name-1, name-2 in graph order,
+ * like explicitly named nodes; a name left alone returns to its unnumbered form. */
+function ensureImportedCanvasNodeTitles(nodes: CanvasNodeData[]): CanvasNodeData[] {
+  const groups = new Map<string, CanvasNodeData[]>();
   for (const node of nodes) {
-    const title = canvasNodeTitle(node.title);
-    if (previousTitles.get(node.id) === node.title && !owners.has(title)) {
-      owners.set(title, node.id);
+    const base = importedCanvasNodeTitleBase(node);
+    groups.set(base, [...(groups.get(base) || []), node]);
+  }
+  // Reserve literal names such as an imported 'Apple-1' before numbering collisions.
+  const used = new Set<string>();
+  for (const [base, group] of groups) if (group.length === 1) used.add(base);
+  const titles = new Map<string, { title: string; base?: string }>();
+  for (const [base, group] of groups) {
+    if (group.length === 1) {
+      titles.set(group[0].id, { title: base });
+      continue;
+    }
+    let number = 1;
+    for (const node of group) {
+      while (used.has(`${base}-${number}`)) number += 1;
+      const title = `${base}-${number++}`;
+      used.add(title);
+      titles.set(node.id, { title, base });
     }
   }
-  for (const node of nodes) {
-    const title = canvasNodeTitle(node.title);
-    if (!owners.has(title)) owners.set(title, node.id);
-  }
-  const used = new Set(owners.keys());
   let changed = false;
   const next = nodes.map(node => {
-    const base = canvasNodeTitle(node.title);
-    const title = owners.get(base) === node.id ? base : uniqueNormalizedTitle(base, used);
-    used.add(title);
-    if (title === node.title) return node;
+    const { title, base } = titles.get(node.id)!;
+    if (title === node.title && node.metadata?.titleBase === base) return node;
     changed = true;
-    return { ...node, title };
+    return node.metadata?.titleBase === base ? { ...node, title } : { ...node, title, metadata: { ...node.metadata, titleBase: base } };
   });
   return changed ? next : nodes;
 }
@@ -130,13 +145,13 @@ export function ensureUniqueCanvasNodeTitles(
   const requestedNames = new Set(customBases.values());
   // An existing literal name joins a custom collision group instead of winning silently.
   for (const node of nodes) {
-    if (!customBases.has(node.id) && !placeholderBases.has(node.id) && !isGeneratedCanvasNode(node) && requestedNames.has(canvasNodeTitle(node.title))) {
-      customBases.set(node.id, canvasNodeTitle(node.title));
+    if (!customBases.has(node.id) && !placeholderBases.has(node.id) && !isGeneratedCanvasNode(node) && requestedNames.has(importedCanvasNodeTitleBase(node))) {
+      customBases.set(node.id, importedCanvasNodeTitleBase(node));
     }
   }
   const generated = nodes.filter(node => !customBases.has(node.id) && isGeneratedCanvasNode(node));
   const generatedIds = new Set(generated.map(node => node.id));
-  const legacy = ensureLegacyCanvasNodeTitles(nodes.filter(node => !customBases.has(node.id) && !generatedIds.has(node.id) && !placeholderBases.has(node.id)), previous);
+  const legacy = ensureImportedCanvasNodeTitles(nodes.filter(node => !customBases.has(node.id) && !generatedIds.has(node.id) && !placeholderBases.has(node.id)));
   const nextById = new Map(legacy.map(node => [node.id, node]));
   const used = new Set(legacy.map(node => node.title));
   const customGroups = new Map<string, CanvasNodeData[]>();

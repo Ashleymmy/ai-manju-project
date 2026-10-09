@@ -11,20 +11,31 @@ function node(id: string, kind: CanvasNodeKind, title = id): CanvasNodeData {
 }
 
 describe("independent canvas node titles", () => {
-  it("numbers collisions across every kind while reserving existing numbered names", () => {
+  it("numbers every colliding node name-1, name-2 across kinds while keeping other literal names", () => {
     const nodes = kinds.map((kind, index) => node(String(index), kind, "苹果"));
     const named = ensureUniqueCanvasNodeTitles(nodes);
-    expect(named.map(item => item.title)).toEqual(["苹果", "苹果（1）", "苹果（2）", "苹果（3）", "苹果（4）", "苹果（5）", "苹果（6）", "苹果（7）"]);
+    expect(named.map(item => item.title)).toEqual(["苹果-1", "苹果-2", "苹果-3", "苹果-4", "苹果-5", "苹果-6", "苹果-7", "苹果-8"]);
     expect(ensureUniqueCanvasNodeTitles(named)).toBe(named);
     expect(nodes.every(item => item.title === "苹果")).toBe(true);
     const existing = [node("one", "image", "苹果"), node("two", "video", "苹果1")];
     const inserted = ensureUniqueCanvasNodeTitles([node("new", "audio", "苹果"), ...existing], existing);
-    expect(inserted.map(item => item.title)).toEqual(["苹果（1）", "苹果", "苹果1"]);
+    expect(inserted.map(item => item.title)).toEqual(["苹果-1", "苹果-2", "苹果1"]);
     expect(renameCanvasNode(existing, "one", "苹果1").map(item => item.title)).toEqual(["苹果1-1", "苹果1-2"]);
     expect(renameCanvasNode(existing, "two", "苹果").map(item => item.title)).toEqual(["苹果-1", "苹果-2"]);
     const reserved = [node("original", "image", "苹果"), node("numbered", "audio", "苹果（1）")];
     expect(ensureUniqueCanvasNodeTitles([node("new", "video", "苹果.mp4"), ...reserved], reserved).map(item => item.title))
-      .toEqual(["苹果（2）", "苹果", "苹果（1）"]);
+      .toEqual(["苹果-1", "苹果-2", "苹果（1）"]);
+  });
+
+  it("numbers imports after a literal name-1, and restores the plain name once it is unique again", () => {
+    const literal = node("literal", "image", "OIP-C-1.png");
+    const pair = ensureUniqueCanvasNodeTitles([literal, node("a", "image", "OIP-C.jpg"), node("b", "image", "OIP-C.png")]);
+    expect(pair.map(item => item.title)).toEqual(["OIP-C-1", "OIP-C-2", "OIP-C-3"]);
+    const alone = ensureUniqueCanvasNodeTitles(pair.filter(item => item.id !== "b"), pair);
+    expect(alone.map(item => item.title)).toEqual(["OIP-C-1", "OIP-C"]);
+    expect(alone[1].metadata?.titleBase).toBeUndefined();
+    const retitled = ensureUniqueCanvasNodeTitles(pair.map(item => item.id === "a" ? { ...item, title: "猫" } : item), pair);
+    expect(retitled.map(item => item.title)).toEqual(["OIP-C-1", "猫", "OIP-C"]);
   });
 
   it.each(kinds)("shares copy numbering between duplicate and clipboard for %s", kind => {

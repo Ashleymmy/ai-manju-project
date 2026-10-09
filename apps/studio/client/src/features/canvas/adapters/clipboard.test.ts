@@ -24,16 +24,17 @@ describe("canvas clipboard", () => {
   });
 
   it.each([["Photo.JPG", "image/jpeg"], ["clip.mp4", "video/mp4"], ["sound.wav", "audio/wav"]])("recognizes desktop file %s without a MIME type", (name, mime) => {
-    const normalized = normalizeCanvasClipboardFile(new File(["data"], name), 0);
+    const normalized = normalizeCanvasClipboardFile(new File(["data"], name));
     expect(normalized.type).toBe(mime);
     expect(normalized.name).toBe(name);
     expect(normalized.size).toBe(4);
   });
 
-  it("assigns a usable filename to screenshot blobs without changing their bytes", async () => {
-    const file = normalizeCanvasClipboardFile(new File(["pixels"], "", { type: "image/png" }), 0);
-    expect(file.name).toBe("pasted-image-1.png");
+  it("names unnamed clipboard media pasted-<kind> without changing their bytes", async () => {
+    const file = normalizeCanvasClipboardFile(new File(["pixels"], "", { type: "image/png" }));
+    expect(file.name).toBe("pasted-image.png");
     expect(await file.text()).toBe("pixels");
+    expect(normalizeCanvasClipboardFile(new File(["wave"], "", { type: "audio/wav" })).name).toBe("pasted-audio.wav");
   });
 
   it("reads one representation per image and all clipboard items", async () => {

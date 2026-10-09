@@ -199,6 +199,7 @@ import {
   canvasActiveConnectionPath,
   buildCanvasGenerationInputs,
   buildCanvasConnectionLayerBounds,
+  canvasDisplayEdgeIds,
   connectableCanvasNodesToConfig,
   connectCanvasNodesToConfig,
   createConnectedCanvasGraph,
@@ -1289,11 +1290,13 @@ export default function CanvasWorkspaceViewContent() {
   }, [applyNodeSelection, getCanvasCenter]);
 
   const removeEdge = useCallback((edgeId: string) => {
-    const nextEdges = edgesRef.current.filter((edge) => edge.id !== edgeId);
+    const removedIds = new Set(canvasDisplayEdgeIds(edgesRef.current, groupsRef.current, edgeId));
+    removedIds.add(edgeId);
+    const nextEdges = edgesRef.current.filter((edge) => !removedIds.has(edge.id));
     edgesRef.current = nextEdges;
     setEdges(nextEdges);
-    setSelectedEdgeId((current) => current === edgeId ? "" : current);
-    setHoveredEdgeId((current) => current === edgeId ? "" : current);
+    setSelectedEdgeId((current) => removedIds.has(current) ? "" : current);
+    setHoveredEdgeId((current) => removedIds.has(current) ? "" : current);
     setContextMenu(null);
   }, []);
 
