@@ -1,11 +1,36 @@
 import type { CanvasNodeData, CanvasNodeStatus } from "./types";
 import { stringValue } from "./value";
 import { assetIdFromNode } from "./nodes";
-import { preserveCanvasNodeTitle } from "./nodeTitles";
+import { canvasNodeTitle, preserveCanvasNodeTitle } from "./nodeTitles";
 import { markInterruptedCanvasRequests } from "./generationResume";
 
 /** 批次子图的网格间距（画布单位）。 */
 export const BATCH_GRID_GAP = 36;
+/** Older snapshots stored the batch status as the node name, including copies and collision indices. */
+const LEGACY_BATCH_STATUS_TITLE = /^批量(?:图片 \d+\/\d+|生成中…|生成失败|生成已中断)(?:副本(?:\d+|（\d+）)?)?(?:-\d+|（\d+）)?$/;
+
+/** Return status-named batch images to automatic naming; "设为主图" may have moved such names to children. */
+export function migrateLegacyBatchStatusTitles(nodes: CanvasNodeData[]) {
+  let changed = false;
+  const next = nodes.map((node) => {
+    if (node.kind !== "image" || !LEGACY_BATCH_STATUS_TITLE.test(canvasNodeTitle(node.metadata?.titleBase || node.title))) return node;
+    changed = true;
+    const status = node.metadata?.status;
+    const finished = status !== "loading" && status !== "error" && Boolean(assetIdFromNode(node) || node.imageSrc);
+    return {
+      ...node,
+      title: finished ? node.title : status === "loading" ? "生成中…" : "生成失败",
+      metadata: {
+        ...node.metadata,
+        ...(finished ? { generatedInCanvas: true } : {}),
+        titleEdited: false,
+        titleBase: undefined,
+        titleMode: undefined,
+      },
+    };
+  });
+  return changed ? next : nodes;
+}
 
 export function batchChildGridPosition(root: CanvasNodeData, index: number) {
   const col = index === 0 ? 0 : 1 + Math.floor((index - 1) / 2);
@@ -47,12 +72,12 @@ export function refreshImageBatchRoot(nodes: CanvasNodeData[], rootId: string) {
   // its request is pending: that duplicates the child and loses the root's slot.
   const rootOwnAssetId = stringValue(root.metadata?.ownAssetId) || assetIdFromNode(root);
   const rootOwnImageSrc = stringValue(root.metadata?.ownImageSrc) || root.imageSrc;
-  const total = members.length;
   const status: CanvasNodeStatus = loading ? "loading" : succeeded.length ? "success" : "error";
   const errorDetails = loading || !failed.length ? undefined : succeeded.length ? `${failed.length} 个结果失败，可单独重试。` : "全部图片生成失败，可重试。";
+  // The aggregate status lives in batchStatus and the stack badge; the root keeps
+  // its own slot name so it is named like every other generated image.
   return nodes.map((node) => node.id === rootId ? {
     ...node,
-    title: preserveCanvasNodeTitle(node, loading ? "批量生成中…" : succeeded.length ? `批量图片 ${succeeded.length}/${total}` : "批量生成失败"),
     imageAssetId: rootOwnAssetId || undefined,
     imageSrc: rootOwnAssetId ? undefined : rootOwnImageSrc,
     metadata: {

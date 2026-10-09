@@ -30,8 +30,8 @@ export function useTagPromptBindingsQuery(
   });
 }
 
-/** Assets per page in the tag library's related-asset preview. */
-export const TAG_ASSET_PAGE_SIZE = 24;
+/** Assets per page in the tag library's related-asset preview: a 5-row × 3-column thumbnail grid. */
+export const TAG_ASSET_PAGE_SIZE = 15;
 
 export function useTagAssetsQuery(
   scope: WorkspaceScope,

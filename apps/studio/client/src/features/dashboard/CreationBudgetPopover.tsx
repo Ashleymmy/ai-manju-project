@@ -26,6 +26,7 @@ export function CreationBudgetPopover({ available }: { available?: number }) {
         <button type="button" aria-label="关闭创作预估" onClick={() => setOpen(false)}><X size={16} /></button>
       </div>
       <p className="creation-budget-intro">选一组配置，看看积分能变成多少张画面。</p>
+      <p className="creation-budget-mode"><span>按文字生图估算</span>参考图生图的积分消耗不同</p>
       <CreationBudgetForm available={available} />
     </PopoverContent>
   </Popover>;
@@ -91,6 +92,6 @@ function CreationBudgetForm({ available }: { available?: number }) {
                     <small>{estimate.count === 0 ? "当前可用积分不足以生成一张此规格图片" : `当前单张报价 ${formatCredits(estimate.credits!)} 积分`}</small>
                   </> : <p>{estimate.message}</p>}
     </div>
-    <p className="creation-budget-note">按 1:1 图片、无参考图、每次生成 1 张估算。仅查看，不扣积分；最终以生成时的报价为准。</p>
+    <p className="creation-budget-note">按 1:1 图片、每次生成 1 张估算。仅查看，不扣积分；最终以生成时的报价为准。</p>
   </>;
 }

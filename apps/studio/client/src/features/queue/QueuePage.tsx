@@ -1,5 +1,7 @@
 import {
   ArrowUpRight,
+  ChevronLeft,
+  ChevronRight,
   Clapperboard,
   Film,
   MoreHorizontal,
@@ -54,8 +56,18 @@ const queueIntro = {
 const JOB_REFRESH_MS = 3_000;
 /** Comic batches are aggregated across several projects, so they are polled less often. */
 const COMIC_REFRESH_MS = 10_000;
+/** Jobs per list page; keeps the page height bounded no matter how many jobs exist. */
+const QUEUE_PAGE_SIZE = 10;
 
-/** Lifecycle shown in the side panel; canceled jobs only appear in the distribution bar. */
+const queueStateLabel: Record<JobState, string> = {
+  running: "生成中",
+  queued: "队列中",
+  succeeded: "已完成",
+  canceled: "已取消",
+  failed: "异常",
+};
+
+/** Status cards above the list; canceled jobs only appear in the distribution bar. */
 const queueFlowSteps: Array<{ state: JobState; label: string; hint: string }> = [
   { state: "queued", label: "等待 / 暂停", hint: "已提交，排队等待生成资源" },
   { state: "running", label: "执行中", hint: "正在生成，进度实时更新" },
@@ -83,6 +95,7 @@ export default function QueuePage() {
   const [, navigate] = useLocation();
   const [scope, setScope] = useState<WorkspaceScope>("personal");
   const [filter, setFilter] = useState<JobState | "all">("all");
+  const [page, setPage] = useState(1);
   const [apiJobs, setApiJobs] = useState<QueueJobRow[] | null>(null);
   const [comicRows, setComicRows] = useState<QueueJobRow[]>([]);
   const [syncedAt, setSyncedAt] = useState<Date | null>(null);
@@ -173,6 +186,7 @@ export default function QueuePage() {
     setComicRows([]);
     setSyncedAt(null);
     setSyncFailed(false);
+    setPage(1);
     refresh();
     refreshComicBatches();
     const timer = window.setInterval(refresh, JOB_REFRESH_MS);
@@ -187,6 +201,11 @@ export default function QueuePage() {
   const visible = displayJobs.filter(
     job => filter === "all" || job.state === filter
   );
+  const pageCount = Math.max(1, Math.ceil(visible.length / QUEUE_PAGE_SIZE));
+  // Polling can shrink the page count; show the last page instead of an empty one.
+  const currentPage = Math.min(page, pageCount);
+  const pageJobs = visible.slice((currentPage - 1) * QUEUE_PAGE_SIZE, currentPage * QUEUE_PAGE_SIZE);
+  const applyFilter = (next: JobState | "all") => { setFilter(next); setPage(1); };
   const count = (state: JobState) =>
     displayJobs.filter(job => job.state === state).length;
   const tabs: Array<[JobState | "all", string]> = [
@@ -253,49 +272,86 @@ export default function QueuePage() {
         }
       />
 
-      <div className="queue-status-overview">
-        <div className="status-item">
-          <span className="status-count">
-            {String(count("running")).padStart(2, "0")}
+      <div className="queue-overview" aria-label="任务状态概览">
+        {queueFlowSteps.map(step => {
+          const value = count(step.state);
+          const active = filter === step.state;
+          return (
+            <button
+              type="button"
+              key={step.state}
+              className={`queue-stat ${step.state}${value ? " has-jobs" : ""}${active ? " active" : ""}`}
+              aria-pressed={active}
+              title={active ? "再次点击显示全部任务" : `只看${step.label}`}
+              onClick={() => applyFilter(active ? "all" : step.state)}
+            >
+              <span className="queue-stat-label"><i aria-hidden="true" />{step.label}</span>
+              <b>{String(value).padStart(2, "0")}</b>
+              <small>{step.hint}</small>
+            </button>
+          );
+        })}
+        <div className="queue-stat queue-stat-rate">
+          <span className="queue-stat-label">
+            成功率
+            <span className={`queue-live${syncFailed ? " failed" : ""}`} role="status">
+              <i aria-hidden="true" />
+              {syncLabel}
+            </span>
           </span>
-          <span className="status-text">运行中</span>
-        </div>
-        <div className="status-item">
-          <span className="status-count">
-            {String(count("queued")).padStart(2, "0")}
-          </span>
-          <span className="status-text">等待 / 暂停</span>
-        </div>
-        <div className="status-item">
-          <span className="status-count">
-            {String(count("succeeded")).padStart(2, "0")}
-          </span>
-          <span className="status-text">已完成</span>
-        </div>
-        <div className="status-item">
-          <span className="status-count">
-            {String(count("failed")).padStart(2, "0")}
-          </span>
-          <span className="status-text">异常 / 失败</span>
+          <b>{successRate === null ? "—" : `${successRate}%`}</b>
+          <div
+            className="queue-rate-bar"
+            role="img"
+            aria-label={
+              distribution.length
+                ? distribution.map(item => `${item.label} ${item.value}`).join("，")
+                : "暂无任务"
+            }
+          >
+            {distribution.map(item => (
+              <i
+                className={item.state}
+                key={item.state}
+                style={{ flexGrow: item.value }}
+                title={`${item.label} ${item.value}`}
+              />
+            ))}
+          </div>
+          <small>
+            {finishedCount
+              ? `已结束 ${finishedCount} 个任务，成功 ${succeededCount} 个`
+              : "暂无已结束的任务"}
+          </small>
         </div>
       </div>
 
-      <div className="queue-layout">
-        <section className="queue-card">
+      <section className="queue-card">
           <div className="queue-tabs">
             {tabs.map(([key, label]) => (
               <button
                 className={filter === key ? "active" : ""}
                 key={key}
-                onClick={() => setFilter(key)}
+                onClick={() => applyFilter(key)}
               >
                 {label}
               </button>
             ))}
           </div>
+          {visible.length > 0 && (
+            <div className="queue-row queue-row-head" aria-hidden="true">
+              <span />
+              <span>任务</span>
+              <span>类型</span>
+              <span>任务 ID</span>
+              <span>状态</span>
+              <span>更新</span>
+              <span />
+            </div>
+          )}
           <div className="job-list">
-            {visible.map(job => (
-              <div className="job-row" key={`${job.kind}-${job.id}`}>
+            {pageJobs.map(job => (
+              <div className="queue-row" key={`${job.kind}-${job.id}`}>
                 <div className={`job-icon ${job.state}`}>
                   {job.kind === "comic" ? (
                     <Clapperboard size={18} />
@@ -303,33 +359,20 @@ export default function QueuePage() {
                     <Film size={18} />
                   )}
                 </div>
-                <div className="job-copy">
-                  <div>
-                    <b>{job.name}</b>
-                    <span>
-                      {job.type} · {job.id}
-                    </span>
-                  </div>
+                <div className="queue-row-name">
+                  <b title={job.name}>{job.name}</b>
                   {(job.state === "running" || job.state === "queued") && (
                     <div className="job-progress">
                       <i style={{ width: `${job.progress}%` }} />
                     </div>
                   )}
                 </div>
-                <div className="job-state">
-                  <span className={`status-chip ${job.state}`}>
-                    {job.state === "running"
-                      ? "生成中"
-                      : job.state === "queued"
-                        ? "队列中"
-                        : job.state === "succeeded"
-                          ? "已完成"
-                          : job.state === "canceled"
-                            ? "已取消"
-                            : "异常"}
-                  </span>
-                  <small>{job.updated}</small>
-                </div>
+                <span className="queue-row-type">{job.type}</span>
+                <code className="queue-row-id" title={job.id}>{job.id}</code>
+                <span className="queue-row-state">
+                  <span className={`status-chip ${job.state}`}>{queueStateLabel[job.state]}</span>
+                </span>
+                <time className="queue-row-time">{job.updated}</time>
                 {job.kind === "comic" ? (
                   <button
                     className="icon-button subtle"
@@ -362,86 +405,27 @@ export default function QueuePage() {
               <p>当前筛选没有任务。</p>
             </div>
           )}
-        </section>
-        <aside className="queue-aside" aria-label="任务状态概览">
-          <div className="queue-aside-head">
-            <div>
-              <p className="eyebrow">STATUS FLOW</p>
-              <h3>任务状态</h3>
-            </div>
-            <span
-              className={`queue-live${syncFailed ? " failed" : ""}`}
-              role="status"
-            >
-              <i aria-hidden="true" />
-              {syncLabel}
-            </span>
-          </div>
-
-          <div className="queue-rate">
-            <div className="queue-rate-head">
-              <span>成功率</span>
-              <b>{successRate === null ? "—" : `${successRate}%`}</b>
-            </div>
-            <div
-              className="queue-rate-bar"
-              role="img"
-              aria-label={
-                distribution.length
-                  ? distribution
-                      .map(item => `${item.label} ${item.value}`)
-                      .join("，")
-                  : "暂无任务"
-              }
-            >
-              {distribution.map(item => (
-                <i
-                  className={item.state}
-                  key={item.state}
-                  style={{ flexGrow: item.value }}
-                  title={`${item.label} ${item.value}`}
-                />
-              ))}
-            </div>
-            <small>
-              {finishedCount
-                ? `已结束 ${finishedCount} 个任务，成功 ${succeededCount} 个`
-                : "暂无已结束的任务"}
-            </small>
-          </div>
-
-          <ol className="queue-flow">
-            {queueFlowSteps.map(step => {
-              const value = count(step.state);
-              const active = filter === step.state;
-              return (
-                <li key={step.state}>
-                  <button
-                    type="button"
-                    className={`queue-flow-step ${step.state}${
-                      value ? " has-jobs" : ""
-                    }${active ? " active" : ""}`}
-                    aria-pressed={active}
-                    onClick={() => setFilter(active ? "all" : step.state)}
-                  >
-                    <i aria-hidden="true" />
-                    <span>
-                      <b>{step.label}</b>
-                      <small>{step.hint}</small>
-                    </span>
-                    <em>{String(value).padStart(2, "0")}</em>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-
-          <p className="queue-aside-note">
-            任务每 {JOB_REFRESH_MS / 1000} 秒刷新，漫剧批量每{" "}
-            {COMIC_REFRESH_MS / 1000} 秒同步；点击状态可筛选左侧列表。
-          </p>
-        </aside>
-      </div>
+          <footer className="queue-pager">
+            <p>
+              任务每 {JOB_REFRESH_MS / 1000} 秒刷新，漫剧批量每{" "}
+              {COMIC_REFRESH_MS / 1000} 秒同步
+            </p>
+            {visible.length > QUEUE_PAGE_SIZE && (
+              <nav aria-label="任务分页">
+                <span>
+                  {(currentPage - 1) * QUEUE_PAGE_SIZE + 1}–{Math.min(currentPage * QUEUE_PAGE_SIZE, visible.length)} / 共 {visible.length} 个
+                </span>
+                <button type="button" aria-label="上一页" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>
+                  <ChevronLeft size={15} />
+                </button>
+                <b>{currentPage} / {pageCount}</b>
+                <button type="button" aria-label="下一页" disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)}>
+                  <ChevronRight size={15} />
+                </button>
+              </nav>
+            )}
+          </footer>
+      </section>
     </div>
   );
 }

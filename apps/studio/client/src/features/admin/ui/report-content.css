@@ -78,6 +78,105 @@
   grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.5fr) auto;
   margin-top: 8px;
 }
+/* Usage: scope (time range, member, status) on the first row; IDs, model and actions on the second. */
+.admin-report-content .admin-report-filters--usage {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.usage-filter-range,
+.usage-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.admin-report-filters .usage-filter-range {
+  grid-column: span 2;
+}
+.usage-filter-range > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.usage-filter-range > div > input {
+  flex: 1 1 0;
+}
+.usage-filter-range i {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-style: normal;
+}
+.admin-report-filters--usage .admin-report-filter-actions {
+  flex-wrap: nowrap;
+}
+.admin-report-filters--usage .admin-report-filter-actions > button {
+  flex: 1 1 0;
+}
+.usage-member-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: var(--report-control-height);
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.usage-member-trigger:hover,
+.usage-member-trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--foreground) 32%, var(--border));
+}
+.usage-member-trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-member-trigger small,
+.usage-member-name small {
+  margin-left: 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.usage-member-trigger > svg {
+  flex: none;
+  opacity: 0.6;
+}
+.usage-member-popover {
+  width: var(--radix-popover-trigger-width);
+  min-width: 260px;
+  padding: 0;
+}
+.usage-member-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-member-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 12px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+.usage-member-state button {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
 .admin-ledger-filter-heading,
 .admin-ledger-filter-footer {
   grid-column: 1 / -1;
@@ -291,8 +390,47 @@
   font-weight: 650;
 }
 .admin-report-content .usage-table-scroll {
+  position: relative;
+  overflow: hidden;
   border: 0;
   border-radius: 0;
+}
+.usage-table-viewport {
+  width: 100%;
+}
+/* Overlay bars drawn inside the table (see UsageTableScroll for their insets). */
+.usage-scrollbar {
+  z-index: 2;
+  display: flex;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  touch-action: none;
+  user-select: none;
+}
+.usage-scrollbar[data-orientation="vertical"] {
+  width: 6px;
+}
+.usage-scrollbar[data-orientation="horizontal"] {
+  flex-direction: column;
+  height: 6px;
+}
+.usage-scrollbar-thumb {
+  position: relative;
+  flex: 1;
+  border-radius: 999px;
+  background: #6f797c;
+  transition: background-color 0.15s ease;
+}
+.usage-scrollbar-thumb:hover,
+.usage-scrollbar-thumb[data-state="visible"]:active {
+  background: #9aa4a7;
+}
+/* Widens the grab area without changing the drawn bar. */
+.usage-scrollbar-thumb::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
 }
 .admin-report-content .usage-table-scroll table {
   font-size: 13px;
@@ -416,6 +554,19 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+@media (max-width: 1280px) {
+  .admin-report-content .admin-report-filters--usage {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .admin-report-filters--usage .admin-report-filter-actions {
+    grid-column: span 3;
+    justify-content: flex-end;
+  }
+  .admin-report-filters--usage .admin-report-filter-actions > button {
+    flex: 0 0 auto;
+    min-width: 96px;
+  }
+}
 @media (max-width: 650px) {
   .admin-report-content .admin-report-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -423,7 +574,8 @@
   .admin-report-content .admin-report-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .admin-report-filter-actions {
+  .admin-report-filter-actions,
+  .admin-report-filters--usage .admin-report-filter-actions {
     grid-column: 1 / -1;
   }
 }
@@ -434,7 +586,11 @@
   .admin-report-content .admin-report-filters {
     grid-template-columns: minmax(0, 1fr);
   }
-  .admin-report-filters .admin-report-wide {
+  .admin-report-filters .admin-report-wide,
+  .admin-report-filters .usage-filter-range {
     grid-column: auto;
+  }
+  .usage-filter-range > div {
+    flex-wrap: wrap;
   }
 }

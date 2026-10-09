@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { refreshImageBatchRoot, swapImageBatchPrimary } from "./batch";
 import { completeGeneratedImageTarget, failGeneratedImageTarget } from "./generation";
 import { promptTextFromNode } from "./nodeUtils";
+import { ensureUniqueCanvasNodeTitles } from "./nodeTitles";
+import { buildCanvasSnapshot, parseCanvasSnapshot } from "./snapshotCodec";
 import type { GeneratedImage } from "@/features/image";
 import type { CanvasNodeData } from "./types";
 
@@ -105,6 +107,36 @@ describe("image batch primary", () => {
     next = swapImageBatchPrimary(next, "root", "child");
     expect(next.map(node => node.imageAssetId)).toEqual(["asset-root", "asset-child"]);
     expect(next[0].metadata?.ownAssetId).toBe("asset-root");
+  });
+
+  it("names the batch root like other generated images instead of writing the batch status", () => {
+    let next: CanvasNodeData[] = [
+      imageNode("root", { title: "生成中…", imageAssetId: undefined, metadata: {
+        isBatchRoot: true, batchChildIds: ["a", "b"], status: "loading", assetId: undefined, jobId: "job-root",
+      } }),
+      imageNode("a", { title: "生成中 2/3", imageAssetId: undefined, metadata: { batchRootId: "root", status: "loading", assetId: undefined } }),
+      imageNode("b", { title: "生成中 3/3", imageAssetId: undefined, metadata: { batchRootId: "root", status: "loading", assetId: undefined } }),
+    ];
+    for (const id of ["a", "b"]) next = completeGeneratedImageTarget(next, id, { id, assetId: `asset-${id}`, src: "" }, "苹果");
+    expect(next[0].title).toBe("生成中…");
+    next = completeGeneratedImageTarget(next, "root", { id: "root", assetId: "asset-root", src: "" }, "苹果");
+    expect(next[0].metadata?.batchStatus).toBe("success");
+    expect(next.map(node => node.title)).toEqual(["未命名画布image-1", "未命名画布image-2", "未命名画布image-3"]);
+    expect(next.some(node => node.title.startsWith("批量"))).toBe(false);
+  });
+
+  it("returns stored batch status names to automatic names when a snapshot loads", () => {
+    const custom = { titleEdited: true, titleMode: "custom" as const };
+    const nodes = [
+      imageNode("root", { title: "批量图片 4/4-1", metadata: { ...custom, titleBase: "批量图片 4/4", isBatchRoot: true, batchChildIds: ["swapped"], batchModelV2: true } }),
+      imageNode("swapped", { title: "批量图片 6/6", metadata: { batchRootId: "root" } }),
+      imageNode("copy", { title: "批量图片 6/6副本", metadata: custom }),
+      imageNode("failed", { title: "批量生成失败", imageAssetId: undefined, metadata: { status: "error", assetId: undefined } }),
+      imageNode("named", { title: "批量图片说明", metadata: { ...custom, titleBase: "批量图片说明" } }),
+    ];
+    const parsed = parseCanvasSnapshot(buildCanvasSnapshot({}, nodes, [], 100, 0, 0))!;
+    const titles = ensureUniqueCanvasNodeTitles(parsed.nodes, [], "苹果").map(node => node.title);
+    expect(titles).toEqual(["苹果image-1", "苹果image-2", "苹果image-3", "生成失败", "批量图片说明"]);
   });
 
   it("does not swap a slot while its generation is pending", () => {

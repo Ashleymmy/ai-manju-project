@@ -11,7 +11,7 @@ import {
 import type { CanvasGroupData } from "./groups";
 import { normalizeCanvasGroups } from "./groups";
 import { canvasAgentNodeFromCanvas, normalizeCanvasEdge, normalizeCanvasNode, serializeCanvasEdge, serializeCanvasNode } from "./nodes";
-import { batchChildGridPosition, refreshImageBatchRoot } from "./batch";
+import { batchChildGridPosition, migrateLegacyBatchStatusTitles, refreshImageBatchRoot } from "./batch";
 import type { CanvasBackgroundMode, CanvasEdgeData, CanvasNodeData, CanvasSnapshotData } from "./types";
 import { isRecord, numberValue, stringValue } from "./value";
 import { CANVAS_ZOOM_MAX, CANVAS_ZOOM_MIN } from "./history";
@@ -30,7 +30,7 @@ export function parseCanvasSnapshot(value: unknown): CanvasSnapshotData | null {
   let edges = collectRoundTripCanvasEdgeEntries(data)
     .map(({ base, edge }) => normalizeCanvasEdge({ ...base, ...edge }))
     .filter(Boolean) as CanvasEdgeData[];
-  let nodes = ensureUniqueCanvasNodeTitles(nodes0);
+  let nodes = ensureUniqueCanvasNodeTitles(migrateLegacyBatchStatusTitles(nodes0));
   const migratedRootIds: string[] = [];
   nodes.forEach((root) => {
     const childIds = Array.isArray(root.metadata?.batchChildIds)

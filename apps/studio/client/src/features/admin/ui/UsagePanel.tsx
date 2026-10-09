@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { RefreshCcw, Plus, Search, Download } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { formatCredits, formatDateTime } from "@/features/member";
@@ -20,9 +20,10 @@ import {
   type UsageRow,
 } from "../services/adminUsageApi";
 import { publicApiError } from "@/shared/api/errors";
-import { listAdminMemberUsers } from "../services/adminMemberApi";
 import { AdminPagination, AdminQueryState } from "./components/adminBits";
 import { UsageCostDialog } from "./UsageCostDialogs";
+import { UsageMemberPicker } from "./UsageMemberPicker";
+import { UsageTableScroll } from "./UsageTableScroll";
 import { formatUsagePendingState } from "./usagePendingState";
 import "./report-content.css";
 
@@ -80,7 +81,7 @@ export function UsagePanel({
   }));
   const [inputError, setInputError] = useState("");
   const [exporting, setExporting] = useState(false);
-  const [memberSearch, setMemberSearch] = useState("");
+  const rangeLabelId = useId();
   const [section, setSection] = useState<"usage" | "rates">("usage");
   const [detail, setDetail] = useState<UsageRow | null>(null);
   const [costDialog, setCostDialog] = useState<UsageRow | "rate" | null>(null);
@@ -92,10 +93,6 @@ export function UsagePanel({
     queryKey: ["admin", "cost-rates"],
     queryFn: getCostRates,
     enabled: section === "rates",
-  });
-  const members = useQuery({
-    queryKey: ["admin", "usage-members", memberSearch],
-    queryFn: () => listAdminMemberUsers(1, 200, { search: memberSearch }),
   });
   const apply = () => {
     if (
@@ -215,55 +212,61 @@ export function UsagePanel({
         {section === "usage" ? (
           <>
             <form
-              className="admin-report-filters"
+              className="admin-report-filters admin-report-filters--usage"
               aria-label="消耗与成本筛选"
               onSubmit={e => {
                 e.preventDefault();
                 apply();
               }}
             >
-              <label>
-                开始时间
-                <Input
-                  type="datetime-local"
-                  value={draft.start}
-                  onChange={e => setDraftField("start", e.target.value)}
-                  onBlur={e => setDraftField("start", e.target.value)}
-                />
-              </label>
-              <label>
-                结束时间（不含）
-                <Input
-                  type="datetime-local"
-                  value={draft.end}
-                  onChange={e => setDraftField("end", e.target.value)}
-                  onBlur={e => setDraftField("end", e.target.value)}
-                />
-              </label>
-              <label>
-                查找成员
-                <Input
-                  value={memberSearch}
-                  onChange={e => setMemberSearch(e.target.value)}
-                  placeholder="账号、昵称或成员 ID"
-                />
-              </label>
-              <label>
-                成员
-                <select
-                  aria-label="成员"
+              <div className="usage-filter-range" role="group" aria-labelledby={rangeLabelId}>
+                <span id={rangeLabelId}>时间范围（结束时间不含）</span>
+                <div>
+                  <Input
+                    type="datetime-local"
+                    aria-label="开始时间"
+                    value={draft.start}
+                    onChange={e => setDraftField("start", e.target.value)}
+                    onBlur={e => setDraftField("start", e.target.value)}
+                  />
+                  <i aria-hidden="true">至</i>
+                  <Input
+                    type="datetime-local"
+                    aria-label="结束时间（不含）"
+                    value={draft.end}
+                    onChange={e => setDraftField("end", e.target.value)}
+                    onBlur={e => setDraftField("end", e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="usage-filter-field">
+                <span>成员</span>
+                <UsageMemberPicker
                   value={draft.user_id}
-                  onChange={e => setDraftField("user_id", e.target.value)}
+                  onChange={userId => setDraftField("user_id", userId)}
+                />
+              </div>
+              <label>
+                成员类型（任务发生时）
+                <select
+                  value={draft.member_kind}
+                  onChange={e => setDraftField("member_kind", e.target.value)}
                 >
-                  <option value="">全部成员</option>
-                  {draft.user_id &&
-                    !members.data?.items.some(
-                      m => m.user_id === draft.user_id
-                    ) && <option value={draft.user_id}>{draft.user_id}</option>}
-                  {members.data?.items.map(member => (
-                    <option key={member.user_id} value={member.user_id}>
-                      {member.display_name || member.username} ·{" "}
-                      {member.username}
+                  <option value="">全部</option>
+                  <option value="external">正式成员</option>
+                  <option value="internal">内部测试成员</option>
+                </select>
+              </label>
+              <label>
+                任务状态
+                <select
+                  value={draft.status}
+                  onChange={e => setDraftField("status", e.target.value)}
+                >
+                  <option value="">全部状态</option>
+                  {Object.entries(STATUS_LABELS).map(([key, label]) => (
+                    <option key={key} value={key}>
+                      {label}
                     </option>
                   ))}
                 </select>
@@ -300,52 +303,23 @@ export function UsagePanel({
                   placeholder="全部供应商"
                 />
               </label>
-              <label>
-                任务状态
-                <select
-                  value={draft.status}
-                  onChange={e => setDraftField("status", e.target.value)}
-                >
-                  <option value="">全部状态</option>
-                  {Object.entries(STATUS_LABELS).map(([key, label]) => (
-                    <option key={key} value={key}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                成员类型（任务发生时）
-                <select
-                  value={draft.member_kind}
-                  onChange={e => setDraftField("member_kind", e.target.value)}
-                >
-                  <option value="">全部</option>
-                  <option value="external">正式成员</option>
-                  <option value="internal">内部测试成员</option>
-                </select>
-              </label>
-              <div className="admin-report-filter-actions admin-report-wide">
-                <button className="admin-report-button" type="submit">
+              <div className="admin-report-filter-actions">
+                <button className="admin-report-button admin-report-button--primary" type="submit">
                   <Search size={16} /> 查询
                 </button>
                 <button
                   className="admin-report-button"
                   type="button"
+                  title="导出筛选结果（全部页）"
+                  aria-label="导出筛选结果（全部页）"
                   disabled={exporting || query.isPending || query.isError}
                   onClick={() => void exportCSV()}
                 >
                   <Download size={16} />
-                  {exporting ? "导出中…" : "导出筛选结果（全部页）"}
+                  {exporting ? "导出中…" : "导出"}
                 </button>
               </div>
             </form>
-            {members.isError && (
-              <p role="alert" className="usage-note">
-                成员选项加载失败。
-                <button onClick={() => void members.refetch()}>重试</button>
-              </p>
-            )}
             {inputError && (
               <p role="alert" className="text-destructive">
                 {inputError}
@@ -427,7 +401,7 @@ export function UsagePanel({
                   ))}
                 </select>
               </div>
-              <div className="usage-table-scroll usage-groups">
+              <UsageTableScroll className="usage-groups">
                 <table>
                   <caption className="sr-only">
                     筛选范围内的全部分组统计
@@ -487,11 +461,11 @@ export function UsagePanel({
                 {!groups.length && (
                   <p className="usage-note">当前筛选条件下暂无记录。</p>
                 )}
-              </div>
+              </UsageTableScroll>
               <h3 className="usage-detail-heading">
                 任务明细 <small>{query.data?.total ?? 0} 条</small>
               </h3>
-              <div className="usage-table-scroll">
+              <UsageTableScroll>
                 <table>
                   <caption className="sr-only">成员项目任务消耗明细</caption>
                   <thead>
@@ -564,7 +538,7 @@ export function UsagePanel({
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </UsageTableScroll>
               <AdminPagination
                 page={filters.page}
                 totalPages={Math.max(
@@ -602,7 +576,7 @@ export function UsagePanel({
               emptyHint="配置单价后可计算对应任务的估算成本；也可直接核对实际费用。"
               onRetry={() => void rates.refetch()}
             >
-              <div className="usage-table-scroll">
+              <UsageTableScroll>
                 <table>
                   <thead>
                     <tr>
@@ -629,7 +603,7 @@ export function UsagePanel({
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </UsageTableScroll>
             </AdminQueryState>
           </>
         )}

@@ -49,6 +49,7 @@ it("loads lazily, quotes only explicit selections, and updates after the balance
   expect(fetchImageModelCatalog).not.toHaveBeenCalled();
   await click("灵感还能走多远");
   expect(fetchImageModelCatalog).toHaveBeenCalledTimes(1);
+  expect(text()).toContain("按文字生图估算参考图生图的积分消耗不同");
   expect(fetchGenerationQuote).not.toHaveBeenCalled();
   await select(0, "gpt-image-2");
   expect(fetchGenerationQuote).not.toHaveBeenCalled();

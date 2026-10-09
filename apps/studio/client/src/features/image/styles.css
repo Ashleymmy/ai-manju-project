@@ -113,6 +113,9 @@
 .composer-options select { width: 100%; height: 35px; margin-top: 7px; padding: 0 9px; border: 1px solid var(--line); background: #262626; color: #dfded5; font: var(--font-size-small) "Noto Sans SC", sans-serif; cursor: pointer; outline: none; }
 .composer-options select:hover { border-color: rgba(239,235,222,.25); }
 .composer-options select:focus { border-color: rgba(255, 255, 255, 0.8); }
+/* The select's light text is inherited by the native list, which stays white on Windows. */
+.image-page .composer-options select option { background-color: #1f2527; color: #e6e4dc; }
+.image-page .composer-options select option:disabled { color: #7d8587; }
 .ratio-buttons { padding: 3px; }
 .ratio-buttons button { height: 27px; flex: 1; border: 0; background: transparent; color: #c3c3c3; cursor: pointer; font-size: var(--font-size-caption); }
 .ratio-buttons button.active { background: #404040; color: #f1efe7; }

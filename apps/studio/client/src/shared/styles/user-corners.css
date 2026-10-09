@@ -34,7 +34,7 @@
   /* Remove the old printed-ticket cuts from actions and cards. */
   body:has([data-ui-surface="user"]) :where(
     .create-button, .vermilion-button, .outline-button, .create-asset-project-button,
-    .project-card, .asset-card, .tool-surface, .queue-aside
+    .project-card, .asset-card, .tool-surface
   ) {
     clip-path: none !important;
   }
@@ -55,7 +55,7 @@
     .tag-workspace, .tag-editor, .tag-relations, .tag-bulk-toolbar,
     .settings-workspace, .settings-panel, .quality-note, .preferences-side,
     .preset-settings-list, .notification-list, .sync-result > div,
-    .queue-aside, .status-item, .video-state-card, .video-history-empty,
+    .queue-stat, .video-state-card, .video-history-empty,
     .tool-surface code,
     .script-intake, .candidate-review, .batch-console, .comic-generation-panel,
     .comic-asset-row, .comic-batch-card, .comic-batch-items > div,

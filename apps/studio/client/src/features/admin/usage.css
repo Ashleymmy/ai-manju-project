@@ -26,7 +26,7 @@
 .usage-table-scroll td { vertical-align: top; min-width: 90px; max-width: 260px; overflow-wrap: anywhere; color: #e4e9e2; font-variant-numeric: tabular-nums; }
 .usage-table-scroll td small { display: block; margin-top: 6px; font-size: 10px; line-height: 1.5; color: #a2b0a7; overflow-wrap: anywhere; }
 .usage-table-scroll tbody tr:hover { background: #ffffff04; }
-.usage-groups { max-height: 390px; }
+.usage-groups > .usage-table-viewport { max-height: 390px; }
 .usage-bar { width: 130px; height: 3px; margin-top: 8px; background: #2f3e34; }
 .usage-bar i { display: block; height: 100%; background: #abcbb7; }
 .usage-drill { display: inline-block; color: #c0dfcc; cursor: pointer; text-align: left; padding: 2px 0; margin-right: 10px; text-decoration: underline; text-underline-offset: 3px; }

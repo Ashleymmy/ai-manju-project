@@ -238,13 +238,13 @@ export function CropDialog({
     event.stopPropagation();
     dragCleanupRef.current?.();
     const start = { clientX: event.clientX, clientY: event.clientY, crop: { ...rectRef.current } };
-    const locked = presetLabel !== "自由";
+    const lockedRatio = CROP_RATIO_PRESETS.find((preset) => preset.label === presetLabel)?.ratio ?? null;
     const move = (pointer: PointerEvent) => {
       const dx = (pointer.clientX - start.clientX) / box.width;
       const dy = (pointer.clientY - start.clientY) / box.height;
       setRect(mode === "move"
         ? moveImageCropRect(start.crop, dx, dy)
-        : resizeImageCropRect(start.crop, dx, dy, handle, locked, box));
+        : resizeImageCropRect(start.crop, dx, dy, handle, lockedRatio !== null, box, lockedRatio ?? 1));
     };
     const finish = () => {
       document.removeEventListener("pointermove", move);
