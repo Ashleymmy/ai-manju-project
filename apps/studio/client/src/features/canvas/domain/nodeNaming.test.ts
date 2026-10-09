@@ -65,7 +65,7 @@ describe("canvas generated and custom node naming", () => {
 
   it("does not turn duplicates of generated outputs into manually named nodes", () => {
     const nodes = named([output("a")]);
-    const copy = duplicateCanvasNode(nodes[0], "b", nodes);
+    const copy = duplicateCanvasNode(nodes[0], "b");
     const duplicated = named([...nodes, copy]);
     expect(titles(duplicated)).toEqual(["测试image-1", "测试image-2"]);
     expect(copy.metadata?.titleEdited).toBe(false);
@@ -105,7 +105,7 @@ describe("canvas generated and custom node naming", () => {
   it("numbers placeholder copies independently and switches completed outputs to the current canvas name", () => {
     const blank = { ...output("a"), title: "图片占位", content: "", metadata: { status: "idle" as const } };
     let nodes = named([blank]);
-    const copy = duplicateCanvasNode(nodes[0], "b", nodes);
+    const copy = duplicateCanvasNode(nodes[0], "b");
     const clipboard = createCanvasClipboard(nodes, [], ["a"], "project");
     const pasted = pasteCanvasClipboard(clipboard, "project", { x: 0, y: 0 }, () => "c")!;
     nodes = named([...nodes, copy, ...pasted.nodes]);

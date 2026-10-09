@@ -7,8 +7,8 @@ const CANVAS_NODE_COPY_SUFFIX = "副本";
 const CANVAS_NODE_FILE_EXTENSION = /(?:\.(?:png|jpe?g|webp|gif|avif|bmp|tiff?|svg|heic|heif|ico|mp4|m4v|mov|webm|mkv|avi|wmv|flv|mpeg|mpg|3gp|mp3|wav|wave|ogg|oga|opus|aac|flac|m4a|aiff?|wma|pcm|txt|md|markdown|pdf|docx?|xlsx?|pptx?|csv|json|srt|vtt))+(?=(?:副本(?:\d+|（\d+）)?|（\d+）)*$)/i;
 /** Keep the collision index visible even when the descriptive title is shortened. */
 const CANVAS_NODE_NUMBER_SUFFIX = /(?:(?:image|text|video|audio|config|director)?-\d+|（\d+）)$/;
-/** Copies may come from older snapshots using 副本2, or the current 副本（1）. */
-const CANVAS_NODE_COPY_PATTERN = /\s*副本(?:\d+|（\d+）)?$/;
+/** Copies may come from older snapshots using 副本2 or 副本（1）, or the current 副本-1. */
+const CANVAS_NODE_COPY_PATTERN = /\s*副本(?:\d+|（\d+）|-\d+)?$/;
 /** Legacy text aliases share the text sequence; every other kind has its own counter. */
 const CANVAS_NODE_TITLE_KIND: Record<CanvasNodeKind, string> = {
   image: "image", text: "text", prompt: "text", note: "text",
@@ -38,22 +38,10 @@ export function canvasNodeDisplayTitle(title: string): string {
     : name;
 }
 
-export function uniqueCanvasNodeTitle(name: string, used: ReadonlySet<string>): string {
-  return uniqueNormalizedTitle(canvasNodeTitle(name), new Set(Array.from(used, canvasNodeTitle)));
-}
-
-/** The graph already normalizes its namespace once; avoid rebuilding it for each collision. */
-function uniqueNormalizedTitle(base: string, used: ReadonlySet<string>): string {
-  if (!used.has(base)) return base;
-  // Never interpret a user's trailing digits as an automatically added index.
-  let number = 1;
-  while (used.has(`${base}（${number}）`)) number += 1;
-  return `${base}（${number}）`;
-}
-
-export function canvasNodeCopyTitle(name: string, used: ReadonlySet<string>): string {
+/** Every copy of a node shares one name; repeats are numbered 副本-1, 副本-2 with other custom names. */
+export function canvasNodeCopyTitle(name: string): string {
   const base = canvasNodeTitle(name).replace(CANVAS_NODE_COPY_PATTERN, "") || "节点";
-  return uniqueCanvasNodeTitle(`${base}${CANVAS_NODE_COPY_SUFFIX}`, used);
+  return `${base}${CANVAS_NODE_COPY_SUFFIX}`;
 }
 
 /** A numbered import keeps its own name in titleBase; once its title changes elsewhere, the title is the name. */

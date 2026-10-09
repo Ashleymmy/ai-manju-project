@@ -44,12 +44,12 @@ const CANVAS_NODE_DUPLICATE_DETACHED_KEYS = [
 ] as const;
 
 /** 单节点复制只创建独立节点；原图的入线和出线均不复制。 */
-export function duplicateCanvasNode<TNode extends CanvasClipboardNode>(source: TNode, id: string, existing: readonly Pick<CanvasClipboardNode, "title">[] = [source]): TNode {
+export function duplicateCanvasNode<TNode extends CanvasClipboardNode>(source: TNode, id: string): TNode {
   const duplicate = structuredClone(source);
   duplicate.id = id;
   const generated = isGeneratedCanvasNode(source) && !source.metadata?.titleEdited;
   const automatic = generated || Boolean(canvasNodePlaceholderTitle(source));
-  duplicate.title = automatic ? source.title : canvasNodeCopyTitle(source.title, new Set(existing.map(node => node.title)));
+  duplicate.title = automatic ? source.title : canvasNodeCopyTitle(source.title);
   duplicate.x += CANVAS_NODE_DUPLICATE_OFFSET;
   duplicate.y += CANVAS_NODE_DUPLICATE_OFFSET;
   duplicate.metadata = automatic
@@ -123,7 +123,6 @@ export function pasteCanvasClipboard<TNode extends CanvasClipboardNode, TEdge ex
   projectKey: string,
   center: { x: number; y: number },
   createId: () => string,
-  existing: readonly Pick<CanvasClipboardNode, "title">[] = [],
 ) {
   if (!clipboard?.nodes.length || !projectKey || clipboard.projectKey !== projectKey) return null;
 
@@ -138,14 +137,12 @@ export function pasteCanvasClipboard<TNode extends CanvasClipboardNode, TEdge ex
   const idMap = new Map<string, string>();
   clipboard.nodes.forEach((source) => idMap.set(source.id, createId()));
 
-  const usedTitles = new Set([...existing, ...clipboard.nodes].map(node => node.title));
   const nodes = clipboard.nodes.map((source) => {
     const node = structuredClone(source);
     const id = idMap.get(source.id)!;
     const generated = isGeneratedCanvasNode(node) && !node.metadata?.titleEdited;
     const automatic = generated || Boolean(canvasNodePlaceholderTitle(node));
-    const title = automatic ? node.title : canvasNodeCopyTitle(node.title, usedTitles);
-    usedTitles.add(title);
+    const title = automatic ? node.title : canvasNodeCopyTitle(node.title);
     return {
       ...node,
       id,

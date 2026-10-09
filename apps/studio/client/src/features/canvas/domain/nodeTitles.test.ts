@@ -40,12 +40,15 @@ describe("independent canvas node titles", () => {
 
   it.each(kinds)("shares copy numbering between duplicate and clipboard for %s", kind => {
     const source = node("source", kind, "苹果");
-    const first = duplicateCanvasNode(source, "first", [source]);
-    const second = duplicateCanvasNode(source, "second", [source, first]);
-    const clipboard = createCanvasClipboard([second], [], [second.id], "project");
-    const pasted = pasteCanvasClipboard(clipboard, "project", { x: 0, y: 0 }, () => "third", [source, first, second])!;
-    expect([source, first, second, ...pasted.nodes].map(item => item.title)).toEqual(["苹果", "苹果副本", "苹果副本（1）", "苹果副本（2）"]);
-    expect(normalizeCanvasNode(serializeCanvasNode(pasted.nodes[0]))?.title).toBe("苹果副本（2）");
+    const first = ensureUniqueCanvasNodeTitles([source, duplicateCanvasNode(source, "first")]);
+    expect(first.map(item => item.title)).toEqual(["苹果", "苹果副本"]);
+    const second = ensureUniqueCanvasNodeTitles([...first, duplicateCanvasNode(source, "second")], first);
+    expect(second.map(item => item.title)).toEqual(["苹果", "苹果副本-1", "苹果副本-2"]);
+    const clipboard = createCanvasClipboard([second[2]], [], ["second"], "project");
+    const pasted = pasteCanvasClipboard(clipboard, "project", { x: 0, y: 0 }, () => "third")!;
+    const all = ensureUniqueCanvasNodeTitles([...second, ...pasted.nodes], second);
+    expect(all.map(item => item.title)).toEqual(["苹果", "苹果副本-1", "苹果副本-2", "苹果副本-3"]);
+    expect(normalizeCanvasNode(serializeCanvasNode(all[3]))?.title).toBe("苹果副本-3");
   });
 
   it("shortens only the visible label to eight Unicode characters", () => {

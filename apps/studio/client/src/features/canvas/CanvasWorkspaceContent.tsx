@@ -1273,7 +1273,7 @@ export default function CanvasWorkspaceViewContent() {
       toast.warning("剪贴板来自另一张画布，请在当前画布重新复制");
       return false;
     }
-    const pasted = pasteCanvasClipboard(clipboard, projectKey, getCanvasCenter(), () => crypto.randomUUID(), nodesRef.current);
+    const pasted = pasteCanvasClipboard(clipboard, projectKey, getCanvasCenter(), () => crypto.randomUUID());
     if (!pasted) return false;
     const nextNodes = [...nodesRef.current, ...pasted.nodes];
     const nextEdges = [...edgesRef.current, ...pasted.edges];
@@ -3787,7 +3787,7 @@ export default function CanvasWorkspaceViewContent() {
     const source = targetId ? nodesRef.current.find((node) => node.id === targetId) : selectedNode ? nodesRef.current.find((node) => node.id === selectedNode.id) : null;
     if (!source) return;
     const createdId = crypto.randomUUID();
-    const duplicate = duplicateCanvasNode(source, createdId, nodesRef.current);
+    const duplicate = duplicateCanvasNode(source, createdId);
     const nextNodes = [...nodesRef.current, duplicate];
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
