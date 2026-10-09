@@ -220,6 +220,11 @@ func TestAdminAdjustCredits(t *testing.T) {
 	if total, ok := ledgerData["total"].(float64); !ok || int(total) != 1 {
 		t.Fatalf("admin_add ledger total = %v, want 1; body = %s", ledgerData["total"], ledger.Body.String())
 	}
+	if rows, ok := ledgerData["items"].([]any); !ok || len(rows) != 1 {
+		t.Fatalf("ledger items = %v", ledgerData["items"])
+	} else if row, _ := rows[0].(map[string]any); row["user_id"] != "user_member" || row["username"] != "member" || row["display_name"] != "Member" {
+		t.Fatalf("ledger row user = %v", row)
+	}
 
 	// 同 nonce 重复调账：幂等，不重复加
 	repeat := performJSON(f.router, http.MethodPost, "/api/admin/member-users/user_member/credits/adjust", `{"delta":500,"reason":"补偿","nonce":"adj-1"}`, opsCookie)

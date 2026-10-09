@@ -473,6 +473,47 @@ func TestAssetTrashPaginationKeepsLegacyListCompatible(t *testing.T) {
 	}
 }
 
+func TestAssetTrashLibraryAppliesLibraryFilters(t *testing.T) {
+	router := newAssetTestRouter(t, t.TempDir())
+	ownerCookie := loginCookie(t, router, "owner", "secret")
+	createdFolder := performJSON(router, http.MethodPost, "/api/asset-folders", `{"name":"回收站筛选"}`, ownerCookie)
+	if createdFolder.Code != http.StatusCreated {
+		t.Fatalf("create folder = %d %s", createdFolder.Code, createdFolder.Body.String())
+	}
+	var folder struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(createdFolder.Body.Bytes(), &folder); err != nil {
+		t.Fatal(err)
+	}
+	imageID := responseAssetID(t, uploadAsset(t, router, ownerCookie, "image", "trash-filter.png", "image/png", []byte("\x89PNG\r\n\x1a\ntrash-filter")))
+	audioID := responseAssetID(t, uploadAsset(t, router, ownerCookie, "audio", "trash-filter.mp3", "audio/mpeg", []byte("ID3trash-filter")))
+	moved := performJSON(router, http.MethodPut, "/api/assets/"+imageID+"/metadata", fmt.Sprintf(`{"folder_id":%q}`, folder.Data.ID), ownerCookie)
+	if moved.Code != http.StatusOK {
+		t.Fatalf("move image = %d %s", moved.Code, moved.Body.String())
+	}
+	for _, id := range []string{imageID, audioID} {
+		if deleted := performJSON(router, http.MethodDelete, "/api/assets/"+id, "", ownerCookie); deleted.Code != http.StatusOK {
+			t.Fatalf("trash %s = %d %s", id, deleted.Code, deleted.Body.String())
+		}
+	}
+
+	for _, tc := range []struct {
+		name, query, want, unwanted string
+	}{
+		{name: "type", query: "type=audio", want: audioID, unwanted: imageID},
+		{name: "folder", query: "folder_id=" + folder.Data.ID + "&include_descendants=true", want: imageID, unwanted: audioID},
+	} {
+		listed := performJSON(router, http.MethodGet, "/api/assets/trash/library?"+tc.query, "", ownerCookie)
+		body := listed.Body.String()
+		if listed.Code != http.StatusOK || !strings.Contains(body, tc.want) || strings.Contains(body, tc.unwanted) || !strings.Contains(body, `"total":1`) {
+			t.Fatalf("%s filter = %d %s", tc.name, listed.Code, body)
+		}
+	}
+}
+
 func TestAssetUploadRejectsOversizedFile(t *testing.T) {
 	assetDir := t.TempDir()
 	router := newAssetTestRouterWithConfig(t, config.Config{AssetStorageDir: assetDir, MaxAssetUploadBytes: 8})

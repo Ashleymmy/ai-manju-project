@@ -54,7 +54,39 @@ func (h *AdminBillingHandler) ListLedger(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	response.OK(c, gin.H{"items": items, "total": summary.Total, "page": page, "page_size": pageSize, "summary": summary})
+	response.OK(c, gin.H{"items": h.ledgerRowsWithUsers(items), "total": summary.Total, "page": page, "page_size": pageSize, "summary": summary})
+}
+
+// adminLedgerRow carries the account name and nickname so every row can be
+// labelled, not only users the page happened to load elsewhere.
+type adminLedgerRow struct {
+	model.CreditLedgerEntry
+	Username    string `json:"username,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+}
+
+// ledgerRowsWithUsers looks each user up once per page. A user that cannot be
+// read leaves the row unlabelled rather than failing the ledger.
+func (h *AdminBillingHandler) ledgerRowsWithUsers(items []model.CreditLedgerEntry) []adminLedgerRow {
+	rows := make([]adminLedgerRow, len(items))
+	users := make(map[string]*model.User)
+	for i, item := range items {
+		rows[i].CreditLedgerEntry = item
+		if h.adminMembers == nil || item.UserID == "" {
+			continue
+		}
+		user, seen := users[item.UserID]
+		if !seen {
+			if found, err := h.adminMembers.GetUser(item.UserID); err == nil {
+				user = &found
+			}
+			users[item.UserID] = user
+		}
+		if user != nil {
+			rows[i].Username, rows[i].DisplayName = user.Username, user.DisplayName
+		}
+	}
+	return rows
 }
 
 // ListOrders GET /api/admin/billing/orders?user_id=&status=&order_type=&page=&page_size=

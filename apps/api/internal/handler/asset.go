@@ -623,12 +623,18 @@ func (h *AssetHandler) ListTrashLibrary(c *gin.Context) {
 		return
 	}
 	result, err := h.assets.ListTrashLibrary(user.ID, requestWorkspaceScope(c), service.AssetLibraryInput{
+		FolderID: c.Query("folder_id"), IncludeDescendants: queryBool(c.Query("include_descendants")),
+		TagIDs: parseAssetTags(c.Query("tag_ids")), TagMatch: c.Query("tag_match"), IncludeTagDescendants: queryBool(c.Query("include_tag_descendants")),
 		Type: c.Query("type"), Category: c.Query("category"), SourceType: c.Query("source_type"),
 		SourceProjectID: c.Query("source_project_id"), Keyword: c.Query("keyword"), CreatedFrom: createdFrom, CreatedTo: createdTo,
 		Page: queryPositiveInt(c.Query("page")), PageSize: queryPositiveInt(c.Query("page_size")), Sort: c.Query("sort"),
 	})
 	if err != nil {
-		if errors.Is(err, service.ErrAssetCategory) || errors.Is(err, service.ErrAssetSourceType) {
+		if errors.Is(err, repository.ErrAssetFolderNotFound) {
+			response.Error(c, http.StatusNotFound, err.Error())
+			return
+		}
+		if errors.Is(err, service.ErrAssetCategory) || errors.Is(err, service.ErrAssetSourceType) || errors.Is(err, service.ErrTagMatchMode) || errors.Is(err, repository.ErrTagUsage) || errors.Is(err, repository.ErrTagNotFound) {
 			response.Error(c, http.StatusBadRequest, err.Error())
 			return
 		}
