@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CANVAS_NODE_DOCK_GAP,
   alignmentGuidesBetween,
+  buildCanvasSnapBoxes,
   canvasNodeAlignmentThreshold,
   canvasNodeAlignmentSnapThreshold,
   canvasNodeDockThreshold,
@@ -122,5 +123,42 @@ describe("canvas node dock snap", () => {
     expect(alignmentGuidesBetween(placed, target)).toEqual([
       { axis: "y", position: 60, start: 0, end: 224 },
     ]);
+  });
+});
+
+describe("canvas group snap boxes", () => {
+  const nodes = [box("a", 40, 60), box("b", 200, 60), box("c", 1000, 60), box("d", 2000, 60), box("e", 2200, 60)];
+  const groups = [
+    { id: "ab", nodeIds: ["a", "b", "gone"], position: { x: 10, y: 0 }, width: 320, height: 170 },
+    { id: "de", nodeIds: ["d", "e"], position: { x: 1970, y: 0 }, width: 360, height: 170 },
+  ];
+  const origin = (...ids: string[]) => Object.fromEntries(ids.map(id => [id, nodes.find(node => node.id === id)!]));
+
+  it("moves a dragged group as its frame and targets other groups by frame", () => {
+    const { moving, targets } = buildCanvasSnapBoxes(nodes, origin("a", "b"), groups, 5, 7);
+    expect(moving).toEqual([{ id: "group:ab", x: 15, y: 7, width: 320, height: 170 }]);
+    expect(targets).toEqual([{ id: "group:de", x: 1970, y: 0, width: 360, height: 170 }, nodes[2]]);
+  });
+
+  it("lets a free node dock to a group frame with the usual gap", () => {
+    const { moving, targets } = buildCanvasSnapBoxes(nodes, origin("c"), groups, 0, 0);
+    const placed = { ...moving[0], x: 10 + 320 + CANVAS_NODE_DOCK_GAP + 6 };
+    const snap = snapMovingBoxesToDock([placed], targets, 24);
+    // Node mid (100) is 15 below the frame mid (85), the nearest dock slot.
+    expect(snap).toMatchObject({ deltaX: -6, deltaY: -15 });
+    expect(snap.guides).toContainEqual({ axis: "y", position: 85, start: 10, end: 470 });
+  });
+
+  it("docks one group frame to another", () => {
+    const { moving, targets } = buildCanvasSnapBoxes(nodes, origin("d", "e"), groups, -1600 + 8, 0);
+    expect(moving).toEqual([{ id: "group:de", x: 370 + 8, y: 0, width: 360, height: 170 }]);
+    const snap = snapMovingBoxesToDock(moving, targets, 24);
+    expect(snap.deltaX).toBe(10 + 320 + CANVAS_NODE_DOCK_GAP - 378);
+  });
+
+  it("keeps sibling members as targets while one member moves inside its group", () => {
+    const { moving, targets } = buildCanvasSnapBoxes(nodes, origin("a"), groups, 0, 0);
+    expect(moving.map(item => item.id)).toEqual(["a"]);
+    expect(targets.map(item => item.id)).toEqual(["group:de", "b", "c"]);
   });
 });

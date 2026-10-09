@@ -144,6 +144,8 @@ export type AssetLibraryQuery = {
   page?: number;
   pageSize?: number;
   sort?: "created_at_desc" | "created_at_asc" | "name_asc" | "name_desc" | "type_created_at_desc";
+  /** Canvas generation history also needs generations overwritten on their node. */
+  includeSuperseded?: boolean;
 };
 
 export type AssetLibraryResponse = {

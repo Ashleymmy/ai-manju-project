@@ -1,5 +1,5 @@
 import { CANVAS_CLONE_EXECUTION_IDENTITY_KEYS } from "./clipboard";
-import { assetIdFromNode, imageSrcFromNode } from "./nodes";
+import { assetIdFromNode, imageSrcFromNode, looksLikeImageSource } from "./nodes";
 import { promptTextFromNode } from "./nodeUtils";
 import type { CanvasNodeData, CanvasNodeGenerationRevision } from "./types";
 import { numberValue, stringValue } from "./value";
@@ -224,6 +224,12 @@ function looksLikeStoredImageSrc(node: CanvasNodeData) {
   return assetIdFromNode(node) ? "" : imageSrcFromNode(node, {});
 }
 
+/** Older revisions copied prompt text or filenames into imageSrc; those are not media. */
+function revisionImageSrc(revision: CanvasNodeGenerationRevision) {
+  const src = stringValue(revision.imageSrc);
+  return looksLikeImageSource(src) ? src : "";
+}
+
 export function appendCanvasGenerationRevision(
   node: CanvasNodeData,
   revisionId: string,
@@ -304,7 +310,7 @@ export function collectCanvasGenerationHistory(
     for (const revision of revisions) {
       if (!revision?.id) continue;
       const assetId = stringValue(revision.assetId);
-      const previewUrl = (assetId && previews[assetId]) || stringValue(revision.imageSrc);
+      const previewUrl = (assetId && previews[assetId]) || revisionImageSrc(revision);
       if (!assetId && !previewUrl) continue;
       if (includeCurrent && assetId && assetId === currentAssetId) continue;
       const revisionKind = revision.kind === "video" ? "video" : "image";
@@ -412,7 +418,7 @@ export function cloneCanvasNodeFromGenerationRevision(
     width: numberValue(revision.width) || host.width,
     height: numberValue(revision.height) || host.height,
     imageAssetId: assetId || undefined,
-    imageSrc: assetId ? undefined : stringValue(revision.imageSrc) || undefined,
+    imageSrc: assetId ? undefined : revisionImageSrc(revision) || undefined,
     metadata,
   };
 }

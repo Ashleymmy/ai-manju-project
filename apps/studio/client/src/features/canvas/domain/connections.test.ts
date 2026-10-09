@@ -9,6 +9,7 @@ import {
   canvasClientPointToWorld,
   canvasConnectionCurvature,
   canvasConnectionDisplayNode,
+  canvasDisplayEdges,
   canvasGroupConnections,
   connectableCanvasNodesToConfig,
   connectCanvasNodesToConfig,
@@ -135,6 +136,35 @@ describe("canvas connection rules", () => {
       .toEqual(buildCanvasConnectionLayerBounds(projected, edges, preview));
     expect(canvasActiveConnectionPath(source, "source", { x: 900, y: 80 }, target, groups.map(group => ({ ...group, pending: true }))))
       .toBe(path);
+  });
+
+  it.each([false, true])("keeps lines between members of one group or selection visible (pending=%s)", pending => {
+    const groups: CanvasGroupData[] = [
+      { id: "ab", title: "AB", nodeIds: ["a", "b", "c"], position: { x: 0, y: 0 }, width: 300, height: 200, color: "#fff", pending },
+      { id: "de", title: "DE", nodeIds: ["d", "e"], position: { x: 500, y: 0 }, width: 300, height: 200, color: "#fff" },
+    ];
+    const edges = [
+      { id: "a-b", from: "a", to: "b" },
+      { id: "b-c", from: "b", to: "c" },
+      { id: "c-d", from: "c", to: "d" },
+      { id: "a-e", from: "a", to: "e" },
+      { id: "x-a", from: "x", to: "a" },
+    ];
+    const display = canvasDisplayEdges(edges, groups);
+    expect(display.map(item => item.edge.id)).toEqual(["a-b", "b-c", "c-d", "x-a"]);
+    expect(display.slice(0, 2).every(item => !item.fromGroup && !item.toGroup)).toBe(true);
+    expect(display[2]).toMatchObject({ fromGroup: { id: "ab" }, toGroup: { id: "de" } });
+    expect(display[3]).toMatchObject({ toGroup: { id: "ab" } });
+    expect(display[3].fromGroup).toBeUndefined();
+  });
+
+  it("keeps lines inside a confirmed group visible when a selection spans it and outside nodes", () => {
+    const groups: CanvasGroupData[] = [
+      { id: "selection", title: "Selection", nodeIds: ["a", "b", "c"], position: { x: 0, y: 0 }, width: 900, height: 400, color: "#fff", pending: true },
+      { id: "ab", title: "AB", nodeIds: ["a", "b"], position: { x: 0, y: 0 }, width: 300, height: 200, color: "#fff" },
+    ];
+    const display = canvasDisplayEdges([{ id: "a-b", from: "a", to: "b" }, { id: "b-c", from: "b", to: "c" }], groups);
+    expect(display).toEqual([{ edge: { id: "a-b", from: "a", to: "b" } }, { edge: { id: "b-c", from: "b", to: "c" } }]);
   });
 
   it.each([false, true])("connects all visible group members in both directions (pending=%s)", pending => {

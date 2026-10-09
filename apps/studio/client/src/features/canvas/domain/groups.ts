@@ -23,6 +23,26 @@ const GROUP_HORIZONTAL_PADDING = 28;
 const GROUP_HEADER_HEIGHT = 46;
 const GROUP_BOTTOM_PADDING = 28;
 
+// Mirrors the `--group-*` variables on `.canvas-group-frame` in styles.css, which grow a
+// confirmed group's frame upward so the header clears the first row's floating labels.
+const GROUP_LABEL_CLEARANCE = 32;
+const GROUP_HEADER_BAR_HEIGHT = 38;
+const GROUP_HEADER_MIN_WIDTH = 320;
+const GROUP_LABEL_ZOOM_FLOOR = 45;
+
+/** The frame as drawn at `zoomPercent`, including the zoom-dependent extension above `position.y`. */
+export function canvasGroupVisualFrame<G extends Pick<CanvasGroupData, "position" | "width" | "height"> & { pending?: unknown }>(
+  group: G,
+  zoomPercent: number,
+): G {
+  if (group.pending) return group;
+  const labelScale = Math.max(1, 100 / Math.max(zoomPercent, GROUP_LABEL_ZOOM_FLOOR));
+  const headerScale = Math.min(labelScale, group.width / GROUP_HEADER_MIN_WIDTH);
+  const extension = Math.max(0, GROUP_LABEL_CLEARANCE * labelScale + GROUP_HEADER_BAR_HEIGHT * headerScale - GROUP_HEADER_HEIGHT);
+  if (!extension) return group;
+  return { ...group, position: { x: group.position.x, y: group.position.y - extension }, height: group.height + extension };
+}
+
 export function createCanvasGroup(
   nodes: readonly CanvasGroupNode[],
   selectedIds: Iterable<string>,

@@ -85,6 +85,7 @@ import type { WorkspaceScope } from "@/shared/config";
 import { importTaskManager, useImportTask } from "./model/importTaskManager";
 import { isAssetPackageFile } from "./model/assetPackageFile";
 import { useAssetGridSize } from "./model/useAssetGridSize";
+import { useWheelScrollChaining } from "@/shared/lib/useWheelScrollChaining";
 import { isAssetFavorited, nextAssetReaction } from "./model/reactions";
 import { formatTrashCountdown, isTrashCountdownUrgent, remainingTrashDays } from "./model/trashRetention";
 import { AssetSelectionArea } from "./ui/AssetSelectionArea";
@@ -179,6 +180,7 @@ function downloadBlob(blob: Blob, fileName: string) {
 
 export function AssetLibraryView() {
   const gridSize = useAssetGridSize();
+  useWheelScrollChaining(gridSize.container);
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);

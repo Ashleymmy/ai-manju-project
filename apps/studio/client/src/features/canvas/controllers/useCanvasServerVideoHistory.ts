@@ -19,7 +19,7 @@ export function useCanvasServerVideoHistory(open: boolean, projectId: string | u
       let received = 0;
       for (let page = 1; ; page += 1) {
         const result = await getAssetLibrary(scope, {
-          sourceProjectId: projectId, type: "video", sort: "created_at_asc", page, pageSize: HISTORY_PAGE_SIZE,
+          sourceProjectId: projectId, type: "video", sort: "created_at_asc", page, pageSize: HISTORY_PAGE_SIZE, includeSuperseded: true,
         }, controller.signal);
         if (controller.signal.aborted) return;
         for (const asset of result.items) assets.set(asset.id, asset);

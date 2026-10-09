@@ -301,23 +301,19 @@ for (const withReference of [false, true]) {
               .status
         )
         .toBe("success");
-      const warning = inspector
-        .getByRole("status")
-        .filter({ hasText: "原图实际尺寸为" });
-      if (mismatch) {
-        await expect(warning).toContainText("1536 × 1024 px");
-        await expect(warning).toContainText("1024 × 1024 px");
-      } else await expect(warning).toHaveCount(0);
+      await expect(
+        inspector.getByRole("status").filter({ hasText: "原图实际尺寸为" })
+      ).toHaveCount(0);
       expect(
         snapshot.nodes.find((item: any) => item.id === "target").metadata
           .composerContent
       ).toBe(prompt);
     }
     await page.screenshot({
-      path: testInfo.outputPath("size-mismatch-visible.png"),
+      path: testInfo.outputPath("size-mismatch-kept.png"),
     });
     // The new worker rejects a mismatch before success/asset registration. Older
-    // workers above are still covered by the decoded-image warning as a fallback.
+    // workers above keep the original output silently.
     rejectMismatch = true;
     await inspector.getByRole("button", { name: "生成", exact: true }).click();
     await expect

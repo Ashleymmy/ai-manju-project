@@ -216,6 +216,17 @@ describe("CanvasNodeCard render boundary", () => {
     expect(actions.stopGenerationByNodeId).toHaveBeenCalledWith(node.id);
   });
 
+  it("keeps an empty text node's hint at the shared size and applies its font size to content only", async () => {
+    const empty = createNode({ id: "node-text", kind: "text", imageSrc: undefined, content: "", metadata: { fontSize: 20 } });
+    await act(async () => root.render(<CanvasNodeCard {...createProps(empty)} />));
+    const hint = container.querySelector<HTMLParagraphElement>(".prompt-body-empty p")!;
+    expect(hint.textContent).toBe("双击编辑文本");
+    expect(hint.style.fontSize).toBe("");
+
+    await act(async () => root.render(<CanvasNodeCard {...createProps({ ...empty, content: "第一场：雨夜" })} />));
+    expect(container.querySelector<HTMLParagraphElement>(".prompt-body p")!.style.fontSize).toBe("20px");
+  });
+
   it("removes member connection handles while a node belongs to a group", async () => {
     const node = createNode();
     await act(async () => root.render(<CanvasNodeCard {...createProps(node)} isGrouped />));

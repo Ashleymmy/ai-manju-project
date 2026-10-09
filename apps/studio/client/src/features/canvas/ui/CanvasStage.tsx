@@ -32,6 +32,7 @@ import {
   buildCanvasConnectionLayerBounds,
   canvasActiveConnectionPath,
   canvasConnectionDisplayNode,
+  canvasDisplayEdges,
   isHiddenCanvasConnectionEndpoint,
 } from "@/features/canvas/domain/connections";
 import type { CanvasGroupData, CanvasGroupResizeCorner } from "@/features/canvas/domain/groups";
@@ -289,22 +290,7 @@ export function CanvasStage({
   } = actions;
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const connectionMenuRef = useRef<HTMLDivElement>(null);
-  const displayEdges = useMemo(() => {
-    const groupByNode = new Map<string, CanvasGroupData>();
-    groups.forEach((group) => group.nodeIds.forEach((nodeId) => {
-      if (!groupByNode.has(nodeId) || group.pending) groupByNode.set(nodeId, group);
-    }));
-    const seen = new Set<string>();
-    return edges.flatMap((edge) => {
-      const fromGroup = groupByNode.get(edge.from);
-      const toGroup = groupByNode.get(edge.to);
-      if (fromGroup && toGroup && fromGroup.id === toGroup.id) return [];
-      const key = `${fromGroup?.id || edge.from}->${toGroup?.id || edge.to}`;
-      if (seen.has(key)) return [];
-      seen.add(key);
-      return [{ edge, fromGroup, toGroup }];
-    });
-  }, [edges, groups]);
+  const displayEdges = useMemo(() => canvasDisplayEdges(edges, groups), [edges, groups]);
   useOutsidePress(Boolean(contextMenu), event => event.composedPath().includes(contextMenuRef.current!), () => setContextMenu(null));
   // This menu opens on pointerup; the same gesture's trailing click must not dismiss it.
   useOutsidePress(Boolean(pendingConnectionCreate), event => event.composedPath().includes(connectionMenuRef.current!), cancelPendingConnectionCreate, false);

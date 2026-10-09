@@ -32,6 +32,56 @@ export type CanvasNodeSnapResult = {
 
 const EMPTY_RESULT: CanvasNodeSnapResult = { deltaX: 0, deltaY: 0, guides: [] };
 
+export type CanvasSnapGroupFrame = {
+  id: string;
+  nodeIds: readonly string[];
+  position: { x: number; y: number };
+  width: number;
+  height: number;
+};
+
+/**
+ * A group snaps by its frame: a fully moving group contributes its frame as one moving box,
+ * and an untouched group is one target frame instead of its members. When a member is dragged
+ * inside its own group, that group's other members stay node targets.
+ * `groups` must be the frames captured at drag start; `nodes` only the visible ones.
+ */
+export function buildCanvasSnapBoxes(
+  nodes: readonly CanvasNodeSnapBox[],
+  origins: Readonly<Record<string, { x: number; y: number }>>,
+  groups: readonly CanvasSnapGroupFrame[],
+  deltaX: number,
+  deltaY: number,
+) {
+  const present = new Set(nodes.map((node) => node.id));
+  const moving: CanvasNodeSnapBox[] = [];
+  const targets: CanvasNodeSnapBox[] = [];
+  const inMovingFrame = new Set<string>();
+  const inStaticFrame = new Set<string>();
+  for (const group of groups) {
+    const members = group.nodeIds.filter((id) => present.has(id));
+    if (!members.length) continue;
+    const movingCount = members.filter((id) => origins[id]).length;
+    const frame = { id: `group:${group.id}`, x: group.position.x, y: group.position.y, width: group.width, height: group.height };
+    if (movingCount === members.length) {
+      moving.push({ ...frame, x: frame.x + deltaX, y: frame.y + deltaY });
+      members.forEach((id) => inMovingFrame.add(id));
+    } else if (movingCount === 0) {
+      targets.push(frame);
+      members.forEach((id) => inStaticFrame.add(id));
+    }
+  }
+  for (const node of nodes) {
+    const origin = origins[node.id];
+    if (origin) {
+      if (!inMovingFrame.has(node.id)) moving.push({ ...node, x: origin.x + deltaX, y: origin.y + deltaY });
+    } else if (!inStaticFrame.has(node.id)) {
+      targets.push(node);
+    }
+  }
+  return { moving, targets };
+}
+
 export function snapMovingBoxesToDock(
   moving: readonly CanvasNodeSnapBox[],
   targets: readonly CanvasNodeSnapBox[],

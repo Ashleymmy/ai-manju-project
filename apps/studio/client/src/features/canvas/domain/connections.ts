@@ -178,6 +178,33 @@ export function canvasConnectionDisplayNode<T extends CanvasConnectionNode>(
     : node;
 }
 
+export type CanvasDisplayEdge<E extends CanvasConnectionEdge> = {
+  edge: E;
+  /** Set only when the line leaves this group and is drawn from the group's port. */
+  fromGroup?: CanvasGroupData;
+  toGroup?: CanvasGroupData;
+};
+
+/**
+ * Lines between members of the same group or selection stay node-to-node; lines that cross
+ * a group boundary are drawn from the group frame, one per pair of endpoints.
+ */
+export function canvasDisplayEdges<E extends CanvasConnectionEdge>(
+  edges: readonly E[],
+  groups: readonly CanvasGroupData[],
+): CanvasDisplayEdge<E>[] {
+  const seen = new Set<string>();
+  return edges.flatMap((edge) => {
+    const fromGroup = canvasConnectionGroup(edge.from, groups);
+    const toGroup = canvasConnectionGroup(edge.to, groups);
+    if (fromGroup && fromGroup.id === toGroup?.id) return [{ edge }];
+    const key = `${fromGroup?.id || edge.from}->${toGroup?.id || edge.to}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ edge, fromGroup, toGroup }];
+  });
+}
+
 export function canvasGroupConnections(
   firstNodeId: string,
   secondNodeId: string,

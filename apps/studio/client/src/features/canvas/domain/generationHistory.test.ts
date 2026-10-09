@@ -141,6 +141,27 @@ describe("collectCanvasGenerationHistory", () => {
       revisionId: "rev-old",
     });
   });
+
+  it("旧版本把文件名或提示词写进 imageSrc 时不显示为空白历史图", () => {
+    const stopped = node("stopped", {
+      metadata: {
+        status: "error",
+        generationRevisions: [
+          { id: "rev-filename", kind: "image", imageSrc: "55c9b01b-3772-4b79-a71c-72f94a75d911.png", assetId: "" },
+          { id: "rev-prompt", kind: "image", imageSrc: "@[node:961ce488-ba81-4e53-a362-8489eff08b3c]", assetId: "" },
+          { id: "rev-data", kind: "image", imageSrc: "data:image/png;base64,AA==", assetId: "" },
+          { id: "rev-asset", kind: "image", assetId: "asset-old" },
+        ],
+      },
+    });
+    const items = collectCanvasGenerationHistory([stopped], { "asset-old": "blob:old" });
+    expect(items.map(item => [item.nodeId, item.previewUrl])).toEqual([
+      [canvasGenerationHistoryItemId("stopped", "rev-asset"), "blob:old"],
+      [canvasGenerationHistoryItemId("stopped", "rev-data"), "data:image/png;base64,AA=="],
+    ]);
+    const restored = cloneCanvasNodeFromGenerationRevision(stopped, stopped.metadata!.generationRevisions![0]!, { id: "copy", x: 0, y: 0 });
+    expect(restored.imageSrc).toBeUndefined();
+  });
 });
 
 describe("groupCanvasGenerationHistory", () => {

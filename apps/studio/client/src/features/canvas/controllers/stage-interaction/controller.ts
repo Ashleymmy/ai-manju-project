@@ -15,11 +15,13 @@ import {
   canvasNodeDockThreshold,
   canvasNodeAlignmentThreshold,
   canvasNodeAlignmentSnapThreshold,
+  buildCanvasSnapBoxes,
   snapMovingBoxesToDock,
   type CanvasAlignGuide,
   type CanvasNodeSnapBox,
 } from "@/features/canvas/domain/nodeSnap";
 import {
+  canvasGroupVisualFrame,
   fitCanvasGroupsToNodes,
   resizeCanvasGroup,
   type CanvasGroupData,
@@ -84,6 +86,8 @@ type CanvasDragState = {
   startX: number;
   startY: number;
   origins: CanvasNodeOrigins;
+  /** Frames at drag start; moving frames are refit every frame and cannot be read back. */
+  groupFrames: readonly CanvasGroupData[];
   moved: boolean;
   suppressClick: boolean;
 };
@@ -107,6 +111,7 @@ type CanvasGroupDragState = {
   startY: number;
   position: { x: number; y: number };
   origins: CanvasNodeOrigins;
+  groupFrames: readonly CanvasGroupData[];
   moved: boolean;
 };
 
@@ -627,6 +632,7 @@ export class CanvasStageInteractionController {
       startY: event.clientY,
       position: { ...group.position },
       origins: captureCanvasNodeOrigins(this.currentNodes(), this.expandDragNodeIds(group.nodeIds)),
+      groupFrames: this.currentGroups(),
       moved: false,
     };
     this.bindings.pauseHistory();
@@ -640,7 +646,7 @@ export class CanvasStageInteractionController {
     const deltaY = (event.clientY - drag.startY) / scale;
     if (!drag.moved && Math.abs(deltaX) < 2 && Math.abs(deltaY) < 2) return;
     drag.moved = Math.abs(deltaX) > 0.01 || Math.abs(deltaY) > 0.01;
-    const snapped = this.snapDragDelta(deltaX, deltaY, drag.origins, event.altKey);
+    const snapped = this.snapDragDelta(deltaX, deltaY, drag.origins, drag.groupFrames, event.altKey);
     const nextGroups = this.currentGroups().map(group => group.id === drag.id ? {
       ...group,
       position: {
@@ -762,6 +768,7 @@ export class CanvasStageInteractionController {
       startX: event.clientX,
       startY: event.clientY,
       origins: captureCanvasNodeOrigins(this.currentNodes(), dragIds),
+      groupFrames: this.currentGroups(),
       moved: false,
       suppressClick,
     };
@@ -780,7 +787,7 @@ export class CanvasStageInteractionController {
     const deltaY = (event.clientY - drag.startY) / scale;
     if (!drag.moved && Math.abs(deltaX) < 2 && Math.abs(deltaY) < 2) return;
     drag.moved = Math.abs(deltaX) > 0.01 || Math.abs(deltaY) > 0.01;
-    const snapped = this.snapDragDelta(deltaX, deltaY, drag.origins, event.altKey);
+    const snapped = this.snapDragDelta(deltaX, deltaY, drag.origins, drag.groupFrames, event.altKey);
     this.scheduleGraphFrame({
       nodes: moveCanvasNodesFromOrigins(
         this.currentNodes(),
@@ -891,6 +898,7 @@ export class CanvasStageInteractionController {
     deltaX: number,
     deltaY: number,
     origins: CanvasNodeOrigins,
+    groupFrames: readonly CanvasGroupData[],
     disableSnap: boolean,
   ) {
     if (disableSnap) {
@@ -898,29 +906,11 @@ export class CanvasStageInteractionController {
       return { deltaX, deltaY };
     }
     const nodes = this.currentNodes();
-    const moving: CanvasNodeSnapBox[] = [];
-    const targets: CanvasNodeSnapBox[] = [];
-    for (const node of nodes) {
-      if (isHiddenCanvasBatchChild(node, nodes)) continue;
-      const origin = origins[node.id];
-      if (origin) {
-        moving.push({
-          id: node.id,
-          x: origin.x + deltaX,
-          y: origin.y + deltaY,
-          width: node.width,
-          height: node.height,
-        });
-      } else {
-        targets.push({
-          id: node.id,
-          x: node.x,
-          y: node.y,
-          width: node.width,
-          height: node.height,
-        });
-      }
-    }
+    const visible: CanvasNodeSnapBox[] = nodes
+      .filter(node => !isHiddenCanvasBatchChild(node, nodes))
+      .map(node => ({ id: node.id, x: node.x, y: node.y, width: node.width, height: node.height }));
+    const frames = groupFrames.map(group => canvasGroupVisualFrame(group, this.viewport.zoom));
+    const { moving, targets } = buildCanvasSnapBoxes(visible, origins, frames, deltaX, deltaY);
     const snap = snapMovingBoxesToDock(
       moving,
       targets,

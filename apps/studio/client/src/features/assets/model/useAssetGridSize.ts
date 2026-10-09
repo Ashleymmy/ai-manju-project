@@ -113,6 +113,7 @@ export function useAssetGridSize() {
   };
 
   return {
+    container,
     containerRef,
     columns,
     canZoomIn: columns > ASSET_GRID_SIZE.minColumns,

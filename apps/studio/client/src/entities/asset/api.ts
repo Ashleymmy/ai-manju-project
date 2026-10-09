@@ -49,6 +49,7 @@ export function getAssetLibrary(
       page: query.page,
       page_size: query.pageSize,
       sort: query.sort,
+      include_superseded: query.includeSuperseded || undefined,
     }),
   });
 }

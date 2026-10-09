@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createCanvasGroup, fitCanvasGroupsToNodes, normalizeCanvasGroups, removeNodesFromCanvasGroups, resizeCanvasGroup } from "./groups";
+import { canvasGroupVisualFrame, createCanvasGroup, fitCanvasGroupsToNodes, normalizeCanvasGroups, removeNodesFromCanvasGroups, resizeCanvasGroup } from "./groups";
 
 const nodes = [
   { id: "a", x: 100, y: 80, width: 200, height: 120 },
@@ -69,5 +69,16 @@ describe("canvas groups", () => {
     expect(resizeCanvasGroup(group, "bottom-right", 60, 40)).toMatchObject({ position: { x: 100, y: 80 }, width: 460, height: 340 });
     expect(resizeCanvasGroup(group, "top-left", 60, 40)).toMatchObject({ position: { x: 160, y: 120 }, width: 340, height: 260 });
     expect(resizeCanvasGroup(group, "top-left", 500, 500)).toMatchObject({ position: { x: 240, y: 200 }, width: 260, height: 180 });
+  });
+
+  it("matches the drawn frame, which grows upward for the header at normal zoom", () => {
+    const group = { id: "g", title: "组", nodeIds: ["a"], position: { x: 100, y: 80 }, width: 400, height: 300, color: "#fff" };
+    expect(canvasGroupVisualFrame(group, 100)).toMatchObject({ position: { x: 100, y: 56 }, height: 324 });
+    // 50%: labels scale 2x, the header bar scales to the 400/320 width cap.
+    expect(canvasGroupVisualFrame(group, 50)).toMatchObject({ position: { x: 100, y: 80 - 65.5 }, height: 365.5 });
+    // A narrow group shrinks its header, so the extension shrinks with it.
+    expect(canvasGroupVisualFrame({ ...group, width: 160 }, 100)).toMatchObject({ position: { y: 75 }, height: 305 });
+    const pending = { ...group, pending: true };
+    expect(canvasGroupVisualFrame(pending, 100)).toBe(pending);
   });
 });

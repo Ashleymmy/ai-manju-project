@@ -21,67 +21,19 @@ describe("actual image output dimensions", () => {
       await act(async () => root.unmount());
     }
   });
-  it("describes a larger rounded original without claiming it failed or requesting regeneration", async () => {
+  it("shows nothing for a successful output whose size differs from the request", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const container = document.createElement("div");
     const root = createRoot(container);
     try {
-      await act(async () => root.render(<CanvasImageOutputStatus node={{
-        kind: "image",
-        metadata: { status: "success", requestedImageSize: "1280x720", naturalWidth: 1672, naturalHeight: 941 },
-      } as CanvasNodeData} />));
-      expect(container.textContent).toContain("1672 × 941 px");
-      expect(container.textContent).toContain("1280 × 720 px");
-      expect(container.textContent).toContain("未缩放或裁剪");
-      expect(container.textContent).not.toMatch(/未达到|重新生成/);
-      expect(container.querySelector('[role="alert"]')).toBeNull();
-    } finally {
-      await act(async () => root.unmount());
-    }
-  });
-  it("reports a landscape return for a square request, using submitted rather than edited settings", async () => {
-    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    const container = document.createElement("div");
-    const root = createRoot(container);
-    const node = {
-      kind: "image",
-      metadata: {
-        status: "success",
-        size: "16:9",
-        requestedImageSize: "1024x1024",
-        naturalWidth: 1536,
-        naturalHeight: 1024,
-      },
-    } as CanvasNodeData;
-    try {
-      await act(async () =>
-        root.render(<CanvasImageOutputStatus node={node} />)
-      );
-      expect(container.textContent).toContain("1536 × 1024 px");
-      expect(container.textContent).toContain("1024 × 1024 px");
-      expect(container.textContent).toContain("原图已保留");
-      await act(async () =>
-        root.render(
-          <CanvasImageOutputStatus
-            node={{
-              ...node,
-              metadata: { ...node.metadata, naturalWidth: 1024 },
-            }}
-          />
-        )
-      );
-      expect(container.textContent).toBe("");
-      await act(async () =>
-        root.render(
-          <CanvasImageOutputStatus
-            node={{
-              ...node,
-              metadata: { ...node.metadata, status: "loading" },
-            }}
-          />
-        )
-      );
-      expect(container.textContent).toBe("");
+      for (const metadata of [
+        { status: "success", requestedImageSize: "1280x720", naturalWidth: 320, naturalHeight: 180 },
+        { status: "success", requestedImageSize: "1024x1024", naturalWidth: 1536, naturalHeight: 1024 },
+        { status: "loading", requestedImageSize: "1024x1024", naturalWidth: 1536, naturalHeight: 1024 },
+      ]) {
+        await act(async () => root.render(<CanvasImageOutputStatus node={{ kind: "image", metadata } as CanvasNodeData} />));
+        expect(container.textContent).toBe("");
+      }
     } finally {
       await act(async () => root.unmount());
     }

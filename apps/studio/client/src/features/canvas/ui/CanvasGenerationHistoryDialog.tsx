@@ -1,7 +1,7 @@
 import { VideoThumbnail, videoPosterUrl } from "@/shared/ui/VideoThumbnail";
 import { RetryImage } from "@/shared/ui/RetryImage";
-import { ChevronLeft, ChevronRight, Copy, Film, History, Image as ImageIcon, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronLeft, ChevronRight, Copy, Film, History, Image as ImageIcon, Plus, RotateCcw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -37,11 +37,17 @@ export type CanvasGenerationHistoryDialogProps = {
 };
 
 const MONTH_WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"] as const;
+// Cached previews reload instantly, so the refresh button keeps visible feedback for a moment.
+const HISTORY_REFRESH_SPIN_MS = 700;
+// How long the "已刷新" confirmation stays before the button returns to idle.
+const HISTORY_REFRESH_DONE_MS = 1500;
 
 function cloneDecodedImageSrc(src: string) {
   if (!src || typeof document === "undefined") return "";
+  // naturalWidth is known once the header arrives; copying before `complete` yields a black frame.
   const live = Array.from(document.images).find((img) => (
     img.src === src
+    && img.complete
     && img.naturalWidth > 0
     && !img.closest(".canvas-generation-history-dialog")
   ));
@@ -64,11 +70,18 @@ function HistoryMedia({
   kind,
   alt = "",
   videoControls = false,
+  detailed = false,
+  onFailed,
+  onRetry,
 }: {
   url: string;
   kind: CanvasGenerationHistoryKind;
   alt?: string;
   videoControls?: boolean;
+  /** The large preview explains the failure and offers a manual reload. */
+  detailed?: boolean;
+  onFailed?: (url: string) => void;
+  onRetry?: () => void;
 }) {
   const [src, setSrc] = useState(url);
   const [failed, setFailed] = useState(!url);
@@ -81,8 +94,24 @@ function HistoryMedia({
     setSrc(cloneDecodedImageSrc(url) || url);
     setFailed(false);
   }, [url]);
+  useEffect(() => {
+    if (failed) onFailed?.(url);
+  }, [failed, onFailed, url]);
   if (failed) {
-    return <span>{kind === "video" ? <Film size={videoControls ? 28 : 18} /> : <ImageIcon size={videoControls ? 28 : 18} />}</span>;
+    const Icon = kind === "video" ? Film : ImageIcon;
+    return (
+      <span className="canvas-generation-history-unavailable">
+        <Icon size={detailed ? 28 : 18} />
+        <b>{kind === "video" ? "视频" : "图片"}无法加载</b>
+        {detailed ? <small>原文件可能已删除，或暂时无法访问</small> : null}
+        {detailed && onRetry ? (
+          <button type="button" onClick={onRetry}>
+            <RotateCcw size={12} />
+            重新加载
+          </button>
+        ) : null}
+      </span>
+    );
   }
   if (kind === "video") {
     if (!videoControls) return <VideoThumbnail src={src} alt={alt || "视频封面"} />;
@@ -119,11 +148,15 @@ function HistoryMedia({
 function HistoryThumb({
   item,
   active,
+  retryRevision,
   onSelect,
+  onFailed,
 }: {
   item: CanvasGenerationHistoryItem;
   active: boolean;
+  retryRevision: number;
   onSelect: (nodeId: string) => void;
+  onFailed: (url: string) => void;
 }) {
   return (
     <button
@@ -132,7 +165,7 @@ function HistoryThumb({
       title={item.title}
       onClick={() => onSelect(item.nodeId)}
     >
-      <HistoryMedia url={item.previewUrl} kind={item.kind} />
+      <HistoryMedia key={retryRevision} url={item.previewUrl} kind={item.kind} onFailed={onFailed} />
       <em>{formatCanvasGenerationClock(item.generatedAt) || "--:--:--"}</em>
     </button>
   );
@@ -159,6 +192,32 @@ export function CanvasGenerationHistoryDialog({
   });
   const appliedOpen = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [failedUrls, setFailedUrls] = useState<ReadonlySet<string>>(() => new Set());
+  const [retryRevision, setRetryRevision] = useState(0);
+  const markFailed = useCallback((url: string) => {
+    setFailedUrls(current => current.has(url) ? current : new Set(current).add(url));
+  }, []);
+  const retryFailedMedia = () => {
+    setFailedUrls(new Set());
+    setRetryRevision(value => value + 1);
+  };
+  const [refreshState, setRefreshState] = useState<"idle" | "refreshing" | "done">("idle");
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(refreshTimer.current), []);
+  const refreshAllMedia = () => {
+    clearTimeout(refreshTimer.current);
+    retryFailedMedia();
+    setRefreshState("refreshing");
+    refreshTimer.current = setTimeout(() => {
+      setRefreshState("done");
+      refreshTimer.current = setTimeout(() => setRefreshState("idle"), HISTORY_REFRESH_DONE_MS);
+    }, HISTORY_REFRESH_SPIN_MS);
+  };
+  const refreshLabel = refreshState === "refreshing"
+    ? "刷新中…"
+    : failedUrls.size
+      ? `${failedUrls.size} 项${refreshState === "done" ? "仍无法显示 · 重试" : "未显示 · 刷新"}`
+      : refreshState === "done" ? "已刷新" : "刷新";
   const groups = useMemo(() => groupCanvasGenerationHistory(items, kind), [items, kind]);
   const visibleItems = useMemo(() => groups.flatMap(group => group.items), [groups]);
   const selected = visibleItems.find(item => item.nodeId === selectedId) || visibleItems[0];
@@ -175,6 +234,9 @@ export function CanvasGenerationHistoryDialog({
     if (!open) {
       appliedOpen.current = false;
       setMonthDayKey("");
+      setFailedUrls(new Set());
+      clearTimeout(refreshTimer.current);
+      setRefreshState("idle");
       return;
     }
     const preferred = items.find(item => item.nodeId === preferredNodeId);
@@ -210,6 +272,8 @@ export function CanvasGenerationHistoryDialog({
   const modelLabel = selected
     ? (formatModel?.(selected.model, selected.kind) || selected.model || "—")
     : "—";
+  // Applying media that cannot load would only place a broken node on the canvas.
+  const selectedUnavailable = !selected?.previewUrl || failedUrls.has(selected.previewUrl);
 
   const copySeed = async () => {
     if (!selected?.seed) return;
@@ -248,7 +312,16 @@ export function CanvasGenerationHistoryDialog({
             {selected ? (
               <>
                 <div className="canvas-generation-history-hero">
-                  <HistoryMedia url={selected.previewUrl} kind={selected.kind} alt="" videoControls={selected.kind === "video"} />
+                  <HistoryMedia
+                    key={retryRevision}
+                    url={selected.previewUrl}
+                    kind={selected.kind}
+                    alt=""
+                    videoControls={selected.kind === "video"}
+                    detailed
+                    onFailed={markFailed}
+                    onRetry={selected.previewUrl ? retryFailedMedia : undefined}
+                  />
                 </div>
                 <dl>
                   <div>
@@ -293,7 +366,13 @@ export function CanvasGenerationHistoryDialog({
                   <span>提示词</span>
                   <textarea readOnly value={selected.prompt} />
                 </label>
-                <button className="vermilion-button" type="button" onClick={() => onApply(selected.nodeId)}>
+                <button
+                  className="vermilion-button"
+                  type="button"
+                  disabled={selectedUnavailable}
+                  title={selectedUnavailable ? `${selected.kind === "video" ? "视频" : "图片"}无法加载，暂不能应用到画布` : undefined}
+                  onClick={() => onApply(selected.nodeId)}
+                >
                   <Plus size={14} />
                   应用到画布
                 </button>
@@ -315,34 +394,52 @@ export function CanvasGenerationHistoryDialog({
                   视频
                 </button>
               </div>
-              <div className="canvas-generation-history-views" role="tablist" aria-label="查看方式">
+              <div className="canvas-generation-history-actions">
                 <button
                   type="button"
-                  className={viewMode === "tile" ? "active" : ""}
-                  aria-pressed={viewMode === "tile"}
-                  onClick={() => setHistoryView("tile")}
+                  className={[
+                    "canvas-generation-history-refresh",
+                    failedUrls.size ? "has-failures" : "",
+                    refreshState === "refreshing" ? "is-refreshing" : "",
+                    refreshState === "done" && !failedUrls.size ? "is-done" : "",
+                  ].filter(Boolean).join(" ")}
+                  title="重新加载全部预览"
+                  disabled={refreshState === "refreshing"}
+                  aria-live="polite"
+                  onClick={refreshAllMedia}
                 >
-                  平铺
+                  {refreshState === "done" && !failedUrls.size ? <Check size={13} /> : <RotateCcw size={13} />}
+                  {refreshLabel}
                 </button>
-                <button
-                  type="button"
-                  className={viewMode === "day" ? "active" : ""}
-                  aria-pressed={viewMode === "day"}
-                  onClick={() => setHistoryView("day")}
-                >
-                  日
-                </button>
-                <button
-                  type="button"
-                  className={viewMode === "month" ? "active" : ""}
-                  aria-pressed={viewMode === "month"}
-                  onClick={() => {
-                    setHistoryView("month");
-                    setMonthDayKey("");
-                  }}
-                >
-                  月
-                </button>
+                <div className="canvas-generation-history-views" role="tablist" aria-label="查看方式">
+                  <button
+                    type="button"
+                    className={viewMode === "tile" ? "active" : ""}
+                    aria-pressed={viewMode === "tile"}
+                    onClick={() => setHistoryView("tile")}
+                  >
+                    平铺
+                  </button>
+                  <button
+                    type="button"
+                    className={viewMode === "day" ? "active" : ""}
+                    aria-pressed={viewMode === "day"}
+                    onClick={() => setHistoryView("day")}
+                  >
+                    日
+                  </button>
+                  <button
+                    type="button"
+                    className={viewMode === "month" ? "active" : ""}
+                    aria-pressed={viewMode === "month"}
+                    onClick={() => {
+                      setHistoryView("month");
+                      setMonthDayKey("");
+                    }}
+                  >
+                    月
+                  </button>
+                </div>
               </div>
             </div>
             <div className="canvas-generation-history-scroll" ref={scrollRef}>
@@ -369,7 +466,9 @@ export function CanvasGenerationHistoryDialog({
                               key={item.nodeId}
                               item={item}
                               active={selected?.nodeId === item.nodeId}
+                              retryRevision={retryRevision}
                               onSelect={setSelectedId}
+                              onFailed={markFailed}
                             />
                           ))}
                         </div>
@@ -423,7 +522,7 @@ export function CanvasGenerationHistoryDialog({
                               onClick={() => openMonthDay(cell.isoDate, cell.items)}
                             >
                               <b>{cell.day}</b>
-                              {cover ? <HistoryMedia url={cover.previewUrl} kind={cover.kind} /> : null}
+                              {cover ? <HistoryMedia key={retryRevision} url={cover.previewUrl} kind={cover.kind} onFailed={markFailed} /> : null}
                               {count > 1 ? <i>{count}</i> : null}
                             </button>
                           );
@@ -445,7 +544,9 @@ export function CanvasGenerationHistoryDialog({
                           key={item.nodeId}
                           item={item}
                           active={selected?.nodeId === item.nodeId}
+                          retryRevision={retryRevision}
                           onSelect={setSelectedId}
+                          onFailed={markFailed}
                         />
                       ))}
                     </div>

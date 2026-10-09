@@ -443,7 +443,7 @@
 .asset-grid-size button:disabled { opacity: .35; cursor: default; }
 .asset-grid-size output { min-width: 34px; text-align: center; color: #aaa69e; font-size: var(--font-size-caption); font-variant-numeric: tabular-nums; }
 /* Scroll only the thumbnails. The gutter sits near the detail divider. */
-.asset-grid-scroll { max-height: clamp(320px, 58dvh, 720px); overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; scrollbar-gutter: stable; margin-right: -20px; padding: 2px 16px 2px 2px; margin-left: -2px; scrollbar-width: thin; scrollbar-color: #626c70 transparent; }
+.asset-grid-scroll { max-height: clamp(320px, 58dvh, 720px); overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: auto; scrollbar-gutter: stable; margin-right: -20px; padding: 2px 16px 2px 2px; margin-left: -2px; scrollbar-width: thin; scrollbar-color: #626c70 transparent; }
 .asset-grid-scroll::-webkit-scrollbar { width: 6px; }
 .asset-grid-scroll::-webkit-scrollbar-track { background: transparent; border-radius: 4px; }
 .asset-grid-scroll::-webkit-scrollbar-thumb { background: #626c70; border-radius: 4px; }
