@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -52,6 +53,25 @@ func TestAssetUsageIsIdempotentAndUserStateIsPrivate(t *testing.T) {
 	other, err := service.UserState("asset_parent", "user_b", WorkspaceScopeTeam)
 	if err == nil || other.PrivateNote != "" {
 		t.Fatalf("cross-workspace private state = %+v err=%v", other, err)
+	}
+}
+
+func TestAssetUsageReferenceSkipsDeletedAssetsButExportStaysStrict(t *testing.T) {
+	assets := repository.NewMemoryAssetRepository()
+	usage := NewAssetUsageService(repository.NewMemoryAssetUsageRepository(), assets, repository.NewMemoryAssetReferenceRepository(), repository.NewMemoryAssetLineageRepository())
+	workspaceID := WorkspaceIDForScope(WorkspaceScopePersonal, "user_a")
+	if _, err := assets.Create(model.Asset{ID: "asset_live", UserID: "user_a", WorkspaceID: workspaceID, Type: "image", Name: "live"}); err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{"asset_live", "asset_deleted"}
+	if err := usage.RecordReference(workspaceID, "user_a", model.AssetReferenceTypeCanvasProject, "project_1", ids); err != nil {
+		t.Fatalf("canvas reference with a deleted asset = %v", err)
+	}
+	if err := usage.RecordReference(workspaceID, "user_a", model.AssetReferenceTypeCanvasProject, "project_1", []string{"asset_deleted"}); err != nil {
+		t.Fatalf("canvas reference with only deleted assets = %v", err)
+	}
+	if err := usage.RecordExport(workspaceID, "user_a", "export_1", ids); !errors.Is(err, repository.ErrAssetNotFound) {
+		t.Fatalf("export with a deleted asset = %v", err)
 	}
 }
 

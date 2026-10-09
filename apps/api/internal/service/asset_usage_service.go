@@ -65,8 +65,22 @@ func (s *AssetUsageService) RecordGenerationUse(workspaceID string, userID strin
 	return s.recordForAssets(workspaceID, userID, model.AssetUsageGeneration, "job", jobID, assetIDs)
 }
 
+// RecordReference runs after the referencing snapshot is stored. Snapshots may keep
+// nodes whose assets were deleted elsewhere, so only existing assets are counted.
 func (s *AssetUsageService) RecordReference(workspaceID string, userID string, referenceType string, referenceID string, assetIDs []string) error {
-	return s.recordForAssets(workspaceID, userID, model.AssetUsageReference, referenceType, referenceID, assetIDs)
+	assetIDs = uniqueAssetStrings(assetIDs)
+	if len(assetIDs) == 0 {
+		return nil
+	}
+	assets, err := s.assets.ListByWorkspaceIDs(assetIDs, workspaceID)
+	if err != nil {
+		return err
+	}
+	existing := make([]string, 0, len(assets))
+	for _, asset := range assets {
+		existing = append(existing, asset.ID)
+	}
+	return s.recordForAssets(workspaceID, userID, model.AssetUsageReference, referenceType, referenceID, existing)
 }
 
 func (s *AssetUsageService) RecordExport(workspaceID string, userID string, exportID string, assetIDs []string) error {
