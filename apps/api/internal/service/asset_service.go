@@ -149,6 +149,8 @@ type AssetLibraryInput struct {
 	Page                  int
 	PageSize              int
 	Sort                  string
+	// IncludeSuperseded is for canvas generation history; the library omits them.
+	IncludeSuperseded bool
 }
 
 type AssetLibraryResult struct {
@@ -321,7 +323,7 @@ func (s *AssetService) assetLibraryFilter(userID string, scope string, input Ass
 		FolderIDs: folderIDs, FilterFolder: filterFolder,
 		Type: strings.TrimSpace(strings.ToLower(input.Type)), Category: category, SourceType: sourceType,
 		SourceProjectID: strings.TrimSpace(input.SourceProjectID), Keyword: strings.TrimSpace(input.Keyword),
-		CreatedFrom: input.CreatedFrom, CreatedTo: input.CreatedTo,
+		CreatedFrom: input.CreatedFrom, CreatedTo: input.CreatedTo, IncludeSuperseded: input.IncludeSuperseded,
 	}, nil
 }
 

@@ -114,6 +114,63 @@ func TestProjectServiceSnapshotVersionIncrements(t *testing.T) {
 	}
 }
 
+type failingAssetUsageRecorder struct{ calls int }
+
+func (r *failingAssetUsageRecorder) RecordReference(string, string, string, string, []string) error {
+	r.calls++
+	return repository.ErrAssetNotFound
+}
+
+func TestProjectServiceSnapshotSaveSurvivesAssetBookkeepingFailure(t *testing.T) {
+	references := repository.NewMemoryAssetReferenceRepository()
+	recorder := &failingAssetUsageRecorder{}
+	svc := NewProjectService(repository.NewMemoryProjectRepository())
+	svc.SetAssetReferenceRepository(references)
+	svc.SetAssetUsageRecorder(recorder)
+	project, err := svc.Create("user_a", WorkspaceScopePersonal, CreateProjectInput{Title: "Imported"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := model.JSONB(`{"nodes":[{"id":"pasted","metadata":{"storageKey":"server:personal:image:asset_imported","assetId":"asset_imported"}}]}`)
+	recorder.calls = 0
+	snapshot, err := svc.UpdateSnapshot(project.ID, "user_a", WorkspaceScopePersonal, &data)
+	if err != nil {
+		t.Fatalf("snapshot save with failing usage bookkeeping = %v", err)
+	}
+	if recorder.calls != 1 || snapshot.Version != 1 {
+		t.Fatalf("recorder calls = %d, version = %d", recorder.calls, snapshot.Version)
+	}
+	if _, err := svc.Update(project.ID, "user_a", WorkspaceScopePersonal, UpdateProjectInput{Data: &data}); err != nil {
+		t.Fatalf("project update with failing usage bookkeeping = %v", err)
+	}
+	if _, err := svc.Create("user_a", WorkspaceScopePersonal, CreateProjectInput{Title: "Copy", Data: &data}); err != nil {
+		t.Fatalf("project copy with failing usage bookkeeping = %v", err)
+	}
+	refs, err := references.ListByAssetIDs(project.WorkspaceID, []string{"asset_imported"})
+	if err != nil || len(refs) != 2 {
+		t.Fatalf("references = %#v err=%v", refs, err)
+	}
+}
+
+func TestProjectServiceSnapshotSaveIgnoresMissingImportedAssets(t *testing.T) {
+	assets := repository.NewMemoryAssetRepository()
+	references := repository.NewMemoryAssetReferenceRepository()
+	svc := NewProjectService(repository.NewMemoryProjectRepository())
+	svc.SetAssetReferenceRepository(references)
+	svc.SetAssetUsageRecorder(NewAssetUsageService(repository.NewMemoryAssetUsageRepository(), assets, references, repository.NewMemoryAssetLineageRepository()))
+	project, err := svc.Create("user_a", WorkspaceScopePersonal, CreateProjectInput{Title: "Imported"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := assets.Create(model.Asset{ID: "asset_team", UserID: "user_a", WorkspaceID: WorkspaceIDForScope(WorkspaceScopeTeam, "user_a"), Type: "image", Name: "team"}); err != nil {
+		t.Fatal(err)
+	}
+	data := model.JSONB(`{"nodes":[{"metadata":{"storageKey":"server:personal:image:asset_never_created"}},{"metadata":{"content":"/api/assets/asset_team/content"}}]}`)
+	if _, err := svc.UpdateSnapshot(project.ID, "user_a", WorkspaceScopePersonal, &data); err != nil {
+		t.Fatalf("snapshot save referencing missing or foreign assets = %v", err)
+	}
+}
+
 func TestProjectServiceIndexesCanvasAssetReferences(t *testing.T) {
 	references := repository.NewMemoryAssetReferenceRepository()
 	svc := NewProjectService(repository.NewMemoryProjectRepository())

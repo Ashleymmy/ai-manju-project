@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log"
 	"regexp"
 	"sort"
 	"strconv"
@@ -28,6 +29,16 @@ type ProjectService struct {
 	assetUsage interface {
 		RecordReference(workspaceID string, userID string, referenceType string, referenceID string, assetIDs []string) error
 	}
+	libraryVisibility canvasLibraryVisibility
+}
+
+type canvasLibraryVisibility interface {
+	Sync(workspaceID string, userID string, projectID string, previous []string, displayed []string, historyOnly []string) error
+	Retire(workspaceID string, userID string, projectID string) error
+}
+
+func (s *ProjectService) SetLibraryVisibility(visibility canvasLibraryVisibility) {
+	s.libraryVisibility = visibility
 }
 
 func (s *ProjectService) SetAssetFolderService(folders *AssetFolderService) {
@@ -156,9 +167,7 @@ func (s *ProjectService) Create(userID string, scope string, input CreateProject
 		return model.Project{}, err
 	}
 
-	if err := s.replaceCanvasAssetReferences(project.WorkspaceID, userID, project.ID, project.Data); err != nil {
-		return project, err
-	}
+	s.syncCanvasAssetReferences(project.WorkspaceID, userID, project.ID, project.Data)
 	return project, nil
 }
 
@@ -197,10 +206,10 @@ func (s *ProjectService) Update(id string, userID string, scope string, input Up
 	if err != nil {
 		return model.Project{}, err
 	}
-	if err == nil && input.Data != nil {
-		err = s.replaceCanvasAssetReferences(workspaceID, userID, updated.ID, updated.Data)
+	if input.Data != nil {
+		s.syncCanvasAssetReferences(workspaceID, userID, updated.ID, updated.Data)
 	}
-	return updated, err
+	return updated, nil
 }
 
 func nextDefaultCanvasTitle(repo repository.ProjectRepository, folders *AssetFolderService, workspaceID string) (string, error) {
@@ -237,6 +246,11 @@ func (s *ProjectService) Delete(id string, userID string, scope string) error {
 	if err := s.repo.DeleteByWorkspace(id, workspaceID); err != nil {
 		return err
 	}
+	if s.libraryVisibility != nil {
+		if err := s.libraryVisibility.Retire(workspaceID, userID, id); err != nil {
+			log.Printf("canvas library visibility retire failed: project_id=%s error=%v", id, err)
+		}
+	}
 	if s.references != nil {
 		return s.references.DeleteForSource(workspaceID, model.AssetReferenceTypeCanvasProject, id)
 	}
@@ -253,10 +267,11 @@ func (s *ProjectService) UpdateSnapshot(projectID string, userID string, scope s
 		ProjectID: projectID,
 		Data:      NormalizeJSON(data),
 	}, workspaceID)
-	if err == nil {
-		err = s.replaceCanvasAssetReferences(workspaceID, userID, projectID, snapshot.Data)
+	if err != nil {
+		return model.CanvasSnapshot{}, err
 	}
-	return snapshot, err
+	s.syncCanvasAssetReferences(workspaceID, userID, projectID, snapshot.Data)
+	return snapshot, nil
 }
 
 var (
@@ -264,36 +279,70 @@ var (
 	serverAssetContentURLPattern = regexp.MustCompile(`/api/assets/([A-Za-z0-9_-]+)/content(?:[?#]|$)`)
 )
 
-func (s *ProjectService) replaceCanvasAssetReferences(workspaceID string, userID string, projectID string, data model.JSONB) error {
+// syncCanvasAssetReferences runs after the canvas data is committed. Everything it
+// maintains is derived from that data and recomputed on every save, so a failure
+// is logged instead of reported: the client would otherwise treat a stored
+// snapshot as unsaved, retry it and block canvas switching.
+func (s *ProjectService) syncCanvasAssetReferences(workspaceID string, userID string, projectID string, data model.JSONB) {
 	if s.references == nil {
-		return nil
+		return
 	}
-	assetIDs := canvasAssetIDs(data)
-	if err := s.references.ReplaceForSource(workspaceID, model.AssetReferenceTypeCanvasProject, projectID, assetIDs); err != nil {
-		return err
+	ids := canvasAssetIDs(data)
+	var previous []string
+	if s.libraryVisibility != nil {
+		var err error
+		if previous, err = s.references.ListAssetIDsForSource(workspaceID, model.AssetReferenceTypeCanvasProject, projectID); err != nil {
+			// Without the previous references nothing is known to have left the canvas.
+			log.Printf("canvas asset reference lookup failed: project_id=%s error=%v", projectID, err)
+			previous = nil
+		}
+	}
+	if err := s.references.ReplaceForSource(workspaceID, model.AssetReferenceTypeCanvasProject, projectID, ids.all); err != nil {
+		log.Printf("canvas asset reference sync failed: project_id=%s error=%v", projectID, err)
+		return
+	}
+	if s.libraryVisibility != nil {
+		if err := s.libraryVisibility.Sync(workspaceID, userID, projectID, previous, ids.displayed, ids.historyOnly); err != nil {
+			log.Printf("canvas library visibility sync failed: project_id=%s error=%v", projectID, err)
+		}
 	}
 	if s.assetUsage != nil {
-		return s.assetUsage.RecordReference(workspaceID, userID, model.AssetReferenceTypeCanvasProject, projectID, assetIDs)
+		if err := s.assetUsage.RecordReference(workspaceID, userID, model.AssetReferenceTypeCanvasProject, projectID, ids.all); err != nil {
+			log.Printf("canvas asset usage record failed: project_id=%s error=%v", projectID, err)
+		}
 	}
-	return nil
 }
 
-func canvasAssetIDs(data model.JSONB) []string {
+// canvasGenerationHistoryKey holds overwritten generations kept on a canvas node.
+const canvasGenerationHistoryKey = "generationRevisions"
+
+type canvasAssetIDSet struct {
+	all         []string
+	displayed   []string
+	historyOnly []string
+}
+
+func canvasAssetIDs(data model.JSONB) canvasAssetIDSet {
 	var value any
 	if len(data) == 0 || json.Unmarshal(data, &value) != nil {
-		return nil
+		return canvasAssetIDSet{}
 	}
-	seen := make(map[string]bool)
-	var walk func(any, string)
-	walk = func(current any, key string) {
+	displayed := make(map[string]bool)
+	history := make(map[string]bool)
+	var walk func(any, string, bool)
+	walk = func(current any, key string, inHistory bool) {
+		seen := displayed
+		if inHistory {
+			seen = history
+		}
 		switch typed := current.(type) {
 		case map[string]any:
 			for childKey, child := range typed {
-				walk(child, childKey)
+				walk(child, childKey, inHistory || childKey == canvasGenerationHistoryKey)
 			}
 		case []any:
 			for _, child := range typed {
-				walk(child, key)
+				walk(child, key, inHistory)
 			}
 		case string:
 			text := strings.TrimSpace(typed)
@@ -309,9 +358,24 @@ func canvasAssetIDs(data model.JSONB) []string {
 			}
 		}
 	}
-	walk(value, "")
-	result := make([]string, 0, len(seen))
-	for id := range seen {
+	walk(value, "", false)
+	all := make(map[string]bool, len(displayed)+len(history))
+	historyOnly := make(map[string]bool, len(history))
+	for id := range displayed {
+		all[id] = true
+	}
+	for id := range history {
+		all[id] = true
+		if !displayed[id] {
+			historyOnly[id] = true
+		}
+	}
+	return canvasAssetIDSet{all: sortedAssetIDKeys(all), displayed: sortedAssetIDKeys(displayed), historyOnly: sortedAssetIDKeys(historyOnly)}
+}
+
+func sortedAssetIDKeys(set map[string]bool) []string {
+	result := make([]string, 0, len(set))
+	for id := range set {
 		result = append(result, id)
 	}
 	sort.Strings(result)

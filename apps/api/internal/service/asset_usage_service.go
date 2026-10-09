@@ -80,7 +80,9 @@ func (s *AssetUsageService) RecordReference(workspaceID string, userID string, r
 	for _, asset := range assets {
 		existing = append(existing, asset.ID)
 	}
-	return s.recordForAssets(workspaceID, userID, model.AssetUsageReference, referenceType, referenceID, existing)
+	// No second existence check: an asset deleted after the lookup above must not
+	// turn an already stored snapshot into a failed save.
+	return s.recordEvents(workspaceID, userID, model.AssetUsageReference, referenceType, referenceID, existing)
 }
 
 func (s *AssetUsageService) RecordExport(workspaceID string, userID string, exportID string, assetIDs []string) error {
@@ -293,6 +295,10 @@ func (s *AssetUsageService) recordForAssets(workspaceID string, userID string, e
 	if len(assets) != len(assetIDs) {
 		return repository.ErrAssetNotFound
 	}
+	return s.recordEvents(workspaceID, userID, eventType, contextType, contextID, assetIDs)
+}
+
+func (s *AssetUsageService) recordEvents(workspaceID string, userID string, eventType string, contextType string, contextID string, assetIDs []string) error {
 	for _, assetID := range assetIDs {
 		key := strings.Join([]string{eventType, contextType, contextID, assetID}, ":")
 		if _, err := s.usage.RecordEvent(newAssetUsageEvent(workspaceID, assetID, userID, eventType, contextType, contextID, key)); err != nil {

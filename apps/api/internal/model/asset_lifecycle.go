@@ -7,6 +7,11 @@ const (
 	// Countdown UI and both repository implementations must use this same window.
 	AssetTrashRetention = 30 * 24 * time.Hour
 
+	// AssetTrashedByCanvasCleanup marks assets the system moved to trash after a
+	// canvas stopped using them. Only these are restored automatically when the
+	// canvas uses them again; assets a person trashed are never restored that way.
+	AssetTrashedByCanvasCleanup = "system:canvas_cleanup"
+
 	AssetReferenceTypeCanvasProject = "canvas_project"
 	AssetReferenceTypeComicOutput   = "comic_output"
 	AssetReferenceTypeComicInput    = "comic_input"

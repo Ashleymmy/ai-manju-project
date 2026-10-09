@@ -16,6 +16,7 @@ import (
 type AssetReferenceRepository interface {
 	ReplaceForSource(workspaceID string, referenceType string, referenceID string, assetIDs []string) error
 	ListByAssetIDs(workspaceID string, assetIDs []string) ([]model.AssetReference, error)
+	ListAssetIDsForSource(workspaceID string, referenceType string, referenceID string) ([]string, error)
 	DeleteForSource(workspaceID string, referenceType string, referenceID string) error
 }
 
@@ -69,6 +70,19 @@ func (r *MemoryAssetReferenceRepository) ListByAssetIDs(workspaceID string, asse
 	return result, nil
 }
 
+func (r *MemoryAssetReferenceRepository) ListAssetIDsForSource(workspaceID string, referenceType string, referenceID string) ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make([]string, 0)
+	for _, reference := range r.references {
+		if reference.WorkspaceID == workspaceID && reference.ReferenceType == referenceType && reference.ReferenceID == referenceID {
+			result = append(result, reference.AssetID)
+		}
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
 func (r *MemoryAssetReferenceRepository) DeleteForSource(workspaceID string, referenceType string, referenceID string) error {
 	return r.ReplaceForSource(workspaceID, referenceType, referenceID, nil)
 }
@@ -103,6 +117,14 @@ func (r *GormAssetReferenceRepository) ListByAssetIDs(workspaceID string, assetI
 	}
 	var result []model.AssetReference
 	err := r.db.Where("workspace_id = ? AND asset_id IN ?", workspaceID, ids).Order("asset_id ASC, reference_type ASC, reference_id ASC").Find(&result).Error
+	return result, err
+}
+
+func (r *GormAssetReferenceRepository) ListAssetIDsForSource(workspaceID string, referenceType string, referenceID string) ([]string, error) {
+	result := make([]string, 0)
+	err := r.db.Model(&model.AssetReference{}).
+		Where("workspace_id = ? AND reference_type = ? AND reference_id = ?", workspaceID, referenceType, referenceID).
+		Order("asset_id ASC").Pluck("asset_id", &result).Error
 	return result, err
 }
 

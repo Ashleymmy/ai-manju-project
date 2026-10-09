@@ -100,6 +100,7 @@ func (h *AssetHandler) ListLibrary(c *gin.Context) {
 		Type: c.Query("type"), Category: c.Query("category"), SourceType: c.Query("source_type"),
 		SourceProjectID: c.Query("source_project_id"), Keyword: c.Query("keyword"), CreatedFrom: createdFrom, CreatedTo: createdTo,
 		Page: queryPositiveInt(c.Query("page")), PageSize: queryPositiveInt(c.Query("page_size")), Sort: c.Query("sort"),
+		IncludeSuperseded: queryBool(c.Query("include_superseded")),
 	})
 	if err != nil {
 		if errors.Is(err, repository.ErrAssetFolderNotFound) {

@@ -139,6 +139,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	assetService.SetUsageFilterer(assetUsageService)
 	jobService.SetAssetUsageRecorder(assetUsageService)
 	projectService.SetAssetUsageRecorder(assetUsageService)
+	projectService.SetLibraryVisibility(service.NewCanvasLibraryVisibilityService(repos.assetRepo, repos.assetFolderRepo, repos.assetReferenceRepo, repos.assetUsageRepo, repos.tagRepo))
 	assetService.StartTrashMaintenance(context.Background(), service.AssetTrashMaintenanceInterval)
 	assetHandler := handler.NewAssetHandlerWithService(assetService, cfg)
 	assetHandler.SetLineageService(assetLineageService)

@@ -75,6 +75,38 @@ func TestAssetUsageReferenceSkipsDeletedAssetsButExportStaysStrict(t *testing.T)
 	}
 }
 
+// deletingAssetRepository removes an asset right after the first lookup returns it,
+// reproducing a delete that races a canvas save.
+type deletingAssetRepository struct {
+	repository.AssetRepository
+	deleteID    string
+	workspaceID string
+}
+
+func (r *deletingAssetRepository) ListByWorkspaceIDs(ids []string, workspaceID string) ([]model.Asset, error) {
+	assets, err := r.AssetRepository.ListByWorkspaceIDs(ids, workspaceID)
+	if err == nil && r.deleteID != "" {
+		_ = r.AssetRepository.DeleteByWorkspace(r.deleteID, r.workspaceID)
+		r.deleteID = ""
+	}
+	return assets, err
+}
+
+func TestAssetUsageReferenceToleratesAssetDeletedDuringRecording(t *testing.T) {
+	memory := repository.NewMemoryAssetRepository()
+	workspaceID := WorkspaceIDForScope(WorkspaceScopePersonal, "user_a")
+	for _, id := range []string{"asset_kept", "asset_racing"} {
+		if _, err := memory.Create(model.Asset{ID: id, UserID: "user_a", WorkspaceID: workspaceID, Type: "image", Name: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assets := &deletingAssetRepository{AssetRepository: memory, deleteID: "asset_racing", workspaceID: workspaceID}
+	usage := NewAssetUsageService(repository.NewMemoryAssetUsageRepository(), assets, repository.NewMemoryAssetReferenceRepository(), repository.NewMemoryAssetLineageRepository())
+	if err := usage.RecordReference(workspaceID, "user_a", model.AssetReferenceTypeCanvasProject, "project_1", []string{"asset_kept", "asset_racing"}); err != nil {
+		t.Fatalf("canvas reference racing a delete = %v", err)
+	}
+}
+
 func TestAssetUsageRejectsInvalidReactionAndLongNote(t *testing.T) {
 	assets := repository.NewMemoryAssetRepository()
 	usage := NewAssetUsageService(repository.NewMemoryAssetUsageRepository(), assets, repository.NewMemoryAssetReferenceRepository(), repository.NewMemoryAssetLineageRepository())

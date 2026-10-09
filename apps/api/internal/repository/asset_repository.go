@@ -51,6 +51,9 @@ type AssetRepository interface {
 	RestoreByWorkspace(targets []AssetRestoreTarget, workspaceID string) ([]model.Asset, error)
 	ListExpiredTrash(now time.Time, limit int) ([]model.Asset, error)
 	DeleteByWorkspace(id string, workspaceID string) error
+	// SetSuperseded marks (non-nil at) or clears (nil) the library-hidden state
+	// of the given assets; rows already in the requested state are left as is.
+	SetSuperseded(ids []string, workspaceID string, at *time.Time) error
 }
 
 type AssetLibraryFilter struct {
@@ -73,6 +76,8 @@ type AssetLibraryFilter struct {
 	PageSize        int
 	Sort            string
 	Trashed         bool
+	// IncludeSuperseded keeps assets that only remain in canvas generation history.
+	IncludeSuperseded bool
 }
 
 type AssetMutableUpdate struct {
@@ -220,6 +225,9 @@ func (r *MemoryAssetRepository) ListLibrary(filter AssetLibraryFilter) ([]model.
 			continue
 		}
 		if (filter.Trashed && asset.TrashedAt == nil) || (!filter.Trashed && asset.TrashedAt != nil) {
+			continue
+		}
+		if !filter.Trashed && !filter.IncludeSuperseded && asset.SupersededAt != nil {
 			continue
 		}
 		if filter.FilterFolder && !folderIDs[asset.FolderID] {
@@ -379,11 +387,30 @@ func (r *MemoryAssetRepository) CountByFolder(workspaceID string) (map[string]in
 	defer r.mu.RUnlock()
 	counts := make(map[string]int64)
 	for _, asset := range r.assets {
-		if assetBelongsToWorkspace(asset, workspaceID) && asset.TrashedAt == nil {
+		if assetBelongsToWorkspace(asset, workspaceID) && asset.TrashedAt == nil && asset.SupersededAt == nil {
 			counts[asset.FolderID]++
 		}
 	}
 	return counts, nil
+}
+
+func (r *MemoryAssetRepository) SetSuperseded(ids []string, workspaceID string, at *time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, id := range uniqueAssetIDs(ids) {
+		asset, ok := r.assets[id]
+		if !ok || !assetBelongsToWorkspace(asset, workspaceID) || (asset.SupersededAt == nil) == (at == nil) {
+			continue
+		}
+		if at == nil {
+			asset.SupersededAt = nil
+		} else {
+			value := at.UTC()
+			asset.SupersededAt = &value
+		}
+		r.assets[id] = asset
+	}
+	return nil
 }
 
 func (r *MemoryAssetRepository) ListTrash(workspaceID string) ([]model.Asset, error) {
@@ -416,6 +443,7 @@ func (r *MemoryAssetRepository) TrashByWorkspace(ids []string, workspaceID strin
 		asset.TrashedAt = &trashedAtCopy
 		asset.TrashExpiresAt = &expiresAtCopy
 		asset.TrashedBy = trashedBy
+		asset.SupersededAt = nil
 		asset.UpdatedAt = trashedAt
 		r.assets[id] = asset
 		result = append(result, asset)
@@ -576,6 +604,9 @@ func (r *GormAssetRepository) ListLibrary(filter AssetLibraryFilter) ([]model.As
 		query = query.Where("trashed_at IS NOT NULL")
 	} else {
 		query = query.Where("trashed_at IS NULL")
+		if !filter.IncludeSuperseded {
+			query = query.Where("superseded_at IS NULL")
+		}
 	}
 	if filter.FilterFolder {
 		query = query.Where("folder_id IN ?", filter.FolderIDs)
@@ -687,7 +718,7 @@ func (r *GormAssetRepository) CountByFolder(workspaceID string) (map[string]int6
 		Count    int64
 	}
 	var rows []folderCount
-	if err := r.workspaceQuery(workspaceID).Where("trashed_at IS NULL").Select("folder_id, COUNT(*) AS count").Group("folder_id").Scan(&rows).Error; err != nil {
+	if err := r.workspaceQuery(workspaceID).Where("trashed_at IS NULL AND superseded_at IS NULL").Select("folder_id, COUNT(*) AS count").Group("folder_id").Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	counts := make(map[string]int64, len(rows))
@@ -695,6 +726,18 @@ func (r *GormAssetRepository) CountByFolder(workspaceID string) (map[string]int6
 		counts[row.FolderID] = row.Count
 	}
 	return counts, nil
+}
+
+func (r *GormAssetRepository) SetSuperseded(ids []string, workspaceID string, at *time.Time) error {
+	ids = uniqueAssetIDs(ids)
+	if len(ids) == 0 {
+		return nil
+	}
+	query := r.workspaceQuery(workspaceID).Where("id IN ?", ids)
+	if at == nil {
+		return query.Where("superseded_at IS NOT NULL").UpdateColumn("superseded_at", nil).Error
+	}
+	return query.Where("superseded_at IS NULL").UpdateColumn("superseded_at", at.UTC()).Error
 }
 
 func (r *GormAssetRepository) ListTrash(workspaceID string) ([]model.Asset, error) {
@@ -718,7 +761,7 @@ func (r *GormAssetRepository) TrashByWorkspace(ids []string, workspaceID string,
 			return ErrAssetNotFound
 		}
 		return r.workspaceQueryOn(tx, workspaceID).Where("id IN ? AND trashed_at IS NULL", unique).Updates(map[string]any{
-			"trashed_at": trashedAt, "trash_expires_at": expiresAt, "trashed_by": trashedBy, "updated_at": trashedAt,
+			"trashed_at": trashedAt, "trash_expires_at": expiresAt, "trashed_by": trashedBy, "superseded_at": nil, "updated_at": trashedAt,
 		}).Error
 	})
 	if err != nil {
@@ -729,6 +772,7 @@ func (r *GormAssetRepository) TrashByWorkspace(ids []string, workspaceID string,
 		result[index].TrashedAt = &trashedAtCopy
 		result[index].TrashExpiresAt = &expiresAtCopy
 		result[index].TrashedBy = trashedBy
+		result[index].SupersededAt = nil
 		result[index].UpdatedAt = trashedAt
 	}
 	return result, nil
