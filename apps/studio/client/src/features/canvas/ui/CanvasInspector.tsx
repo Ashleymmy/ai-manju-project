@@ -730,6 +730,8 @@ function ratioIconStyle(ratio: string): CSSProperties {
     "2:3": [14, 21],
     "2:1": [22, 11],
     "1:2": [11, 22],
+    "7:4": [21, 12],
+    "4:7": [12, 21],
     panorama: [26, 10],
   };
   const [width, height] = sizeMap[ratio] || [17, 17];

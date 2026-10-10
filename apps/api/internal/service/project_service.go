@@ -18,6 +18,9 @@ import (
 
 var ErrTitleRequired = errors.New("title is required")
 
+// ErrProjectTitleExists rejects a second live canvas with the same title in one workspace.
+var ErrProjectTitleExists = errors.New("已有同名画布，请换一个名称")
+
 // DefaultCanvasTitle is the creation placeholder; the server appends a free
 // positive number within the canvas's workspace before persisting it.
 const DefaultCanvasTitle = "未命名画布"
@@ -79,6 +82,8 @@ type CreateProjectInput struct {
 	Title        string
 	Data         *model.JSONB
 	CoverAssetID string
+	// UniqueTitle numbers a taken title ("X 2", "X 3") instead of rejecting it.
+	UniqueTitle bool
 }
 
 type UpdateProjectInput struct {
@@ -131,6 +136,17 @@ func (s *ProjectService) Create(userID string, scope string, input CreateProject
 			title, err = nextDefaultCanvasTitle(repo, folders, workspaceID)
 			if err != nil {
 				return err
+			}
+		} else {
+			used, err := liveCanvasTitles(repo, workspaceID, "")
+			if err != nil {
+				return err
+			}
+			if used[title] {
+				if !input.UniqueTitle {
+					return ErrProjectTitleExists
+				}
+				title = numberedCanvasTitle(title, used)
 			}
 		}
 		var err error
@@ -185,6 +201,16 @@ func (s *ProjectService) Update(id string, userID string, scope string, input Up
 			if title == "" {
 				return ErrTitleRequired
 			}
+			// Unchanged titles stay saveable even if older data already has duplicates.
+			if title != current.Title {
+				used, err := liveCanvasTitles(repo, workspaceID, current.ID)
+				if err != nil {
+					return err
+				}
+				if used[title] {
+					return ErrProjectTitleExists
+				}
+			}
 			current.Title = title
 		}
 		if input.Data != nil {
@@ -210,6 +236,30 @@ func (s *ProjectService) Update(id string, userID string, scope string, input Up
 		s.syncCanvasAssetReferences(workspaceID, userID, updated.ID, updated.Data)
 	}
 	return updated, nil
+}
+
+// liveCanvasTitles lists titles of existing canvases, excluding one being renamed.
+func liveCanvasTitles(repo repository.ProjectRepository, workspaceID string, excludeID string) (map[string]bool, error) {
+	projects, err := repo.ListSummariesByWorkspace(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	used := make(map[string]bool, len(projects))
+	for _, project := range projects {
+		if project.ID != excludeID {
+			used[project.Title] = true
+		}
+	}
+	return used, nil
+}
+
+func numberedCanvasTitle(base string, used map[string]bool) string {
+	for number := 2; ; number++ {
+		title := base + " " + strconv.Itoa(number)
+		if !used[title] {
+			return title
+		}
+	}
 }
 
 func nextDefaultCanvasTitle(repo repository.ProjectRepository, folders *AssetFolderService, workspaceID string) (string, error) {

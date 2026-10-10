@@ -7,6 +7,7 @@ import {
   h3VideoSettings,
   isSeedanceVideoModel,
   normalizeVideoGenerationConfig,
+  normalizeVideoSizeValue,
   pollVideoGenerationTask,
   videoGenerationResultToBlob,
   type VideoGenerationConfig,
@@ -39,6 +40,11 @@ function apiResponse(data: unknown, status = 200) {
 }
 
 describe("video API", () => {
+  it("sends the OpenAI-compatible size behind each ratio label instead of falling back to landscape", () => {
+    expect(["16:9", "9:16", "1:1", "7:4", "4:7"].map(normalizeVideoSizeValue))
+      .toEqual(["1280x720", "720x1280", "1024x1024", "1792x1024", "1024x1792"]);
+    expect(normalizeVideoGenerationConfig({ ...config, size: "4:7" }).size).toBe("1024x1792");
+  });
   it.each(["sdvideo/seedance-2.0", "provider::video-v1"])("waits for %s admission using the same idempotency key", async model => {
     vi.useFakeTimers();
     vi.mocked(fetch)

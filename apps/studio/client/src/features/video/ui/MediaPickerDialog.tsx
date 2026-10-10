@@ -36,7 +36,7 @@ import { workbenchFormatBytes } from "../model/referenceEngine";
 /** 每页条数（网格 4-6 列，约 4 行） */
 const PICKER_PAGE_SIZE = 24;
 /** 生成类来源是多个 source_type 的并集，后端只支持单值筛选，这里在已加载页内过滤 */
-const GENERATED_SOURCE_TYPES = new Set(["image_workbench", "canvas", "comic_batch"]);
+const GENERATED_SOURCE_TYPES = new Set(["image_workbench", "video_workbench", "canvas", "comic_batch"]);
 
 type SourceTab = "all" | "upload" | "generated" | "volcano";
 type TypeFilter = "all" | "image" | "video" | "audio";

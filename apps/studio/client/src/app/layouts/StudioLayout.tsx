@@ -76,23 +76,21 @@ type NavItem = {
   label: string;
   href: string;
   icon: Icon;
-  shortcut?: string;
   disabled?: boolean;
   newTab?: boolean;
 };
 
 const creationNav: NavItem[] = [
-  { label: "工作台", href: "/dashboard", icon: Grid2X2, shortcut: "G D" },
+  { label: "工作台", href: "/dashboard", icon: Grid2X2 },
   // 剧本创作：目标路由待定，暂且保留入口但点击无反应（disabled 渲染为纯文本行，不跳转）
   {
     label: "剧本创作",
     href: "/chat",
     icon: FileText,
-    shortcut: "G S",
     disabled: true,
   },
-  { label: "全部项目", href: "/projects", icon: FolderKanban, shortcut: "G P" },
-  { label: "当前任务", href: "/canvas?resume=recent", icon: Compass, shortcut: "G C" },
+  { label: "全部项目", href: "/projects", icon: FolderKanban },
+  { label: "当前任务", href: "/canvas?resume=recent", icon: Compass },
   // 暂时从导航直接独立打开导演台；嵌入式入口代码保留，待后续恢复。
   { label: "3D 导演台", href: "/director", icon: Box, newTab: true },
   { label: "资产助手", href: "/comic-assets", icon: Clapperboard },
@@ -452,7 +450,6 @@ export function LineNav({
                           {String(itemIndex + 1).padStart(2, "0")}
                         </span>
                         <span className="ln-label">{item.label}</span>
-                        {item.shortcut ? <kbd>{item.shortcut}</kbd> : null}
                       </span>
                     );
                   }
@@ -477,7 +474,6 @@ export function LineNav({
                         {String(itemIndex + 1).padStart(2, "0")}
                       </span>
                       <span className="ln-label">{item.label}</span>
-                      {item.shortcut ? <kbd>{item.shortcut}</kbd> : null}
                     </ItemLink>
                   );
                 })}

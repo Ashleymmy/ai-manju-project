@@ -1,4 +1,4 @@
-import { createProject, getProject, getProjectSummaries, getProjectSnapshot } from "@/entities/project";
+import { createProject, getProject, getProjectSnapshot } from "@/entities/project";
 import { ApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 
@@ -35,13 +35,6 @@ export function copyProjectSnapshot(value: unknown, createId = () => crypto.rand
   return copy;
 }
 
-export function projectCopyTitle(title: string, titles: ReadonlySet<string>) {
-  const base = `${title}（副本）`;
-  let candidate = base;
-  for (let index = 2; titles.has(candidate); index += 1) candidate = `${base} ${index}`;
-  return candidate;
-}
-
 export async function copyProject(id: string, scope: WorkspaceScope) {
   const source = await getProject(id, scope);
   let data: unknown = source.data ?? { nodes: [], edges: [] };
@@ -51,7 +44,6 @@ export async function copyProject(id: string, scope: WorkspaceScope) {
     // Old, untouched projects can lack a versioned snapshot. Network failures are not empty canvases.
     if (!(error instanceof ApiError) || error.status !== 404) throw error;
   }
-  const projects = await getProjectSummaries(scope);
-  const title = projectCopyTitle(source.title, new Set(projects.map(project => project.title)));
-  return createProject({ title, scope, data: copyProjectSnapshot(data), cover_asset_id: source.cover_asset_id });
+  // The server numbers taken titles atomically, so rapid repeated copies never collide.
+  return createProject({ title: `${source.title}（副本）`, unique_title: true, scope, data: copyProjectSnapshot(data), cover_asset_id: source.cover_asset_id });
 }

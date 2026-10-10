@@ -360,6 +360,18 @@ func sdVideoReferencesFromContent(raw any) []map[string]any {
 	return references
 }
 
+// sdVideoRatioForSize 把 OpenAI 兼容尺寸换成 SDVideo 比例；竖屏尺寸（含 1024x1792）不得落到横屏。
+func sdVideoRatioForSize(size string) string {
+	switch size {
+	case "720x1280", "1024x1792":
+		return "9:16"
+	case "1024x1024":
+		return "1:1"
+	default:
+		return "16:9"
+	}
+}
+
 // Multipart 参考素材进入同一转换路径，不遗留只供旧图片 Worker 使用的 staged key。
 func (h *AIHandler) createSDVideoMultipart(c *gin.Context, fields map[string]string, files []provider.ProxyMultipartFile) {
 	if !h.requireSDVideo(c) {
@@ -373,14 +385,7 @@ func (h *AIHandler) createSDVideoMultipart(c *gin.Context, fields map[string]str
 	if fields["ratio"] != "" {
 		body["ratio"] = fields["ratio"]
 	} else {
-		switch fields["size"] {
-		case "720x1280":
-			body["ratio"] = "9:16"
-		case "1024x1024":
-			body["ratio"] = "1:1"
-		default:
-			body["ratio"] = "16:9"
-		}
+		body["ratio"] = sdVideoRatioForSize(fields["size"])
 	}
 	content := []any{map[string]any{"type": "text", "text": fields["prompt"]}}
 	for _, file := range files {

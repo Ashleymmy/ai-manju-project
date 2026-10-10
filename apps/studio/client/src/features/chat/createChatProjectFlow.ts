@@ -10,6 +10,7 @@ import {
 
 export type ChatProjectCreatePayload = {
   title: string;
+  unique_title: true;
   scope: "personal";
   data: ChatCanvasSnapshot;
 };
@@ -37,6 +38,7 @@ export function createChatProjectFlow({
     const prompt = rawPrompt.trim();
     const project = await createProject({
       title: prompt.slice(0, 50),
+      unique_title: true,
       scope: "personal",
       data: createInitialCanvasSnapshot(prompt, createId),
     });

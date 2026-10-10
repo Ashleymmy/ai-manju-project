@@ -72,6 +72,7 @@ export {
   normalizeAssetCategory,
   visibleAssetLibraryFolders,
   isDateArchiveFolder,
+  folderOptionLabel,
 } from "./model";
 export type {
   AssetCategory,

@@ -56,6 +56,10 @@ func runAssetSupersededSuite(t *testing.T, repo AssetRepository, prefix string) 
 	if err != nil || counts["folder_canvas"] != 1 {
 		t.Fatalf("folder counts = %v err=%v", counts, err)
 	}
+	reused, total, err := repo.ListLibrary(AssetLibraryFilter{WorkspaceID: workspaceID, FilterFolder: true, FolderIDs: []string{"folder_copy"}, FolderAssetIDs: []string{shown, hidden}, Page: 1, PageSize: 20})
+	if err != nil || total != 1 || len(reused) != 1 || reused[0].ID != shown {
+		t.Fatalf("folder listing with reused assets = %+v total=%d err=%v", reused, total, err)
+	}
 	stored, err := repo.GetByWorkspace(hidden, workspaceID)
 	if err != nil || stored.SupersededAt == nil {
 		t.Fatalf("hidden asset = %+v err=%v", stored, err)
@@ -105,6 +109,13 @@ func TestAssetReferencesListAssetIDsForSource(t *testing.T) {
 			ids, err := repo.ListAssetIDsForSource(workspaceID, model.AssetReferenceTypeCanvasProject, "project_1")
 			if err != nil || len(ids) != 2 || ids[0] != "asset_a" || ids[1] != "asset_b" {
 				t.Fatalf("ids = %v err=%v", ids, err)
+			}
+			byType, err := repo.ListByType(workspaceID, model.AssetReferenceTypeCanvasProject)
+			if err != nil || len(byType) != 3 || byType[0].AssetID != "asset_a" || byType[2].ReferenceID != "project_2" {
+				t.Fatalf("references by type = %+v err=%v", byType, err)
+			}
+			if other, err := repo.ListByType(workspaceID, model.AssetReferenceTypeComicInput); err != nil || len(other) != 0 {
+				t.Fatalf("other type = %+v err=%v", other, err)
 			}
 		})
 	}

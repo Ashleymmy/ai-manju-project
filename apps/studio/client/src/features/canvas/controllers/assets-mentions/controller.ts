@@ -1,5 +1,5 @@
 import { publicApiError } from "@/shared/api/errors";
-import { seedanceAssetPreviewSource, seedanceAssetThumbnailSource, type Asset, type AssetFolder } from "@/entities/asset";
+import { folderOptionLabel, seedanceAssetPreviewSource, seedanceAssetThumbnailSource, type Asset, type AssetFolder } from "@/entities/asset";
 import { apiUrl } from "@/shared/api/http";
 import { seedanceRegistrationSource } from "@/features/canvas/services/seedanceRegistration";
 import type { CanvasNodeData } from "@/features/canvas/domain/types";
@@ -685,7 +685,7 @@ function pickerFolderOptions(folders: AssetFolder[]): CanvasAssetPickerFolderOpt
   const visibleFolders = visibleCanvasAssetFolders(folders);
   return flattenFolderTree(visibleFolders).map(({ folder }) => ({
     id: folder.id,
-    label: folderPathLabel(visibleFolders, folder.id),
+    label: folderOptionLabel(folderPathLabel(visibleFolders, folder.id), folder),
   }));
 }
 

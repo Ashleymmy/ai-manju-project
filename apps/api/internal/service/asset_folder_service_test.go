@@ -107,7 +107,7 @@ func assertAssetFolderPresentationUpgrade(t *testing.T, service *AssetFolderServ
 			topNames = append(topNames, view.Name)
 		}
 	}
-	if got := strings.Join(topNames, ","); got != "画布工坊,未分类,手动上传,生图工作台,资产助手" {
+	if got := strings.Join(topNames, ","); got != "画布工坊,生图工作台,视频工作台,资产助手,待整理" {
 		t.Fatalf("system folder order/labels = %q", got)
 	}
 	updated, err := repo.GetByWorkspace(legacy.ID, legacy.WorkspaceID)
@@ -295,11 +295,14 @@ func TestAssetRegistrationUsesExpectedDefaultFolders(t *testing.T) {
 		category   string
 		sourceType string
 	}{
-		{name: "upload", context: AssetRegistrationContext{SourceType: model.AssetSourceManualUpload}, systemKey: model.AssetFolderSystemKeyUpload, category: model.AssetCategoryOther, sourceType: model.AssetSourceManualUpload},
+		{name: "upload", context: AssetRegistrationContext{SourceType: model.AssetSourceManualUpload}, systemKey: model.AssetFolderSystemKeyUnsorted, category: model.AssetCategoryOther, sourceType: model.AssetSourceManualUpload},
 		{name: "workbench", context: AssetRegistrationContext{SourceType: model.AssetSourceImageWorkbench}, systemKey: model.AssetFolderSystemKeyImageWorkbench, parentKey: model.AssetFolderSystemKeyRoot, category: model.AssetCategoryOther, sourceType: model.AssetSourceImageWorkbench},
 		{name: "canvas", context: AssetRegistrationContext{SourceType: model.AssetSourceCanvas, SourceProjectID: "canvas_1", SourceProjectName: "第一画布"}, systemKey: model.AssetFolderSystemKeyCanvasCategory, parentKey: model.AssetFolderSystemKeyCanvasProject, category: model.AssetCategoryOther, sourceType: model.AssetSourceCanvas},
 		{name: "comic", context: AssetRegistrationContext{SourceType: model.AssetSourceComicBatch, SourceProjectID: "comic_1", SourceProjectName: "第一漫剧", Category: model.AssetCategoryCharacter}, systemKey: model.AssetFolderSystemKeyComicCategory, parentKey: model.AssetFolderSystemKeyComicProject, category: model.AssetCategoryCharacter, sourceType: model.AssetSourceComicBatch},
 		{name: "legacy", context: AssetRegistrationContext{SourceType: model.AssetSourceLegacy}, systemKey: model.AssetFolderSystemKeyUnsorted, category: model.AssetCategoryOther, sourceType: model.AssetSourceLegacy},
+		{name: "video workbench", context: AssetRegistrationContext{SourceType: model.AssetSourceVideoWorkbench}, systemKey: model.AssetFolderSystemKeyVideoWorkbench, parentKey: model.AssetFolderSystemKeyRoot, category: model.AssetCategoryOther, sourceType: model.AssetSourceVideoWorkbench},
+		{name: "sd video in canvas", context: AssetRegistrationContext{SourceType: model.AssetSourceSDVideo, SourceProjectID: "canvas_sd", Category: model.AssetCategoryCharacter}, systemKey: model.AssetFolderSystemKeyCanvasCategory, parentKey: model.AssetFolderSystemKeyCanvasProject, category: model.AssetCategoryOther, sourceType: model.AssetSourceSDVideo},
+		{name: "sd video without canvas", context: AssetRegistrationContext{SourceType: model.AssetSourceSDVideo}, systemKey: model.AssetFolderSystemKeyUnsorted, category: model.AssetCategoryOther, sourceType: model.AssetSourceSDVideo},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -321,6 +324,47 @@ func TestAssetRegistrationUsesExpectedDefaultFolders(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRetiredUploadFolderMergesIntoUnsorted(t *testing.T) {
+	fx := newAssetFolderFixture()
+	workspaceID := WorkspaceIDForScope(WorkspaceScopePersonal, "user_a")
+	defaults, err := fx.service.EnsureDefaults("user_a", WorkspaceScopePersonal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Workspaces created before the merge still store the old folder and its assets.
+	upload, err := fx.service.ensureSystemFolder("user_a", workspaceID, defaults.Root.ID, "手动上传", model.AssetFolderSystemKeyUpload, "workspace", "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.assets.Create(model.Asset{ID: "asset_uploaded", UserID: "user_a", WorkspaceID: workspaceID, Name: "上传", Type: "image", FolderID: upload.ID, SourceType: model.AssetSourceManualUpload}); err != nil {
+		t.Fatal(err)
+	}
+	views, err := fx.service.List("user_a", WorkspaceScopePersonal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, view := range views {
+		if view.ID == upload.ID {
+			t.Fatalf("retired upload folder still listed: %+v", view)
+		}
+		if view.ID == defaults.Unsorted.ID && (view.Name != "待整理" || view.AssetCount != 1) {
+			t.Fatalf("unsorted folder = %+v", view)
+		}
+	}
+	moved, err := fx.assets.GetByWorkspace("asset_uploaded", workspaceID)
+	if err != nil || moved.FolderID != defaults.Unsorted.ID {
+		t.Fatalf("upload asset not merged: %+v, err=%v", moved, err)
+	}
+	resolved, err := fx.service.ResolveRegistration("user_a", WorkspaceScopePersonal, AssetRegistrationContext{FolderID: upload.ID, SourceType: model.AssetSourceManualUpload})
+	if err != nil || resolved.FolderID != defaults.Unsorted.ID {
+		t.Fatalf("stale upload destination = %+v, err=%v", resolved, err)
+	}
+	ids, err := fx.service.FolderIDsForQuery(upload.ID, false, "user_a", WorkspaceScopePersonal)
+	if err != nil || len(ids) == 0 || ids[0] != defaults.Unsorted.ID {
+		t.Fatalf("stale upload query ids = %v, err=%v", ids, err)
 	}
 }
 

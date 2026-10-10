@@ -8,6 +8,7 @@ import {
   Download,
   FolderInput,
   FolderOpen,
+  FolderX,
   Image as ImageIcon,
   Loader2,
   Music2,
@@ -59,6 +60,7 @@ import {
   publishAssetNameChange,
   subscribeAssetNameChanges,
   ASSET_CATEGORY_OPTIONS,
+  folderOptionLabel,
   visibleAssetLibraryFolders,
   type Asset,
   type AssetCategory,
@@ -85,6 +87,7 @@ import type { WorkspaceScope } from "@/shared/config";
 import { importTaskManager, useImportTask } from "./model/importTaskManager";
 import { isAssetPackageFile } from "./model/assetPackageFile";
 import { useAssetGridSize } from "./model/useAssetGridSize";
+import { useLibraryTreeWidth } from "./model/useLibraryTreeWidth";
 import { useWheelScrollChaining } from "@/shared/lib/useWheelScrollChaining";
 import { isAssetFavorited, nextAssetReaction } from "./model/reactions";
 import { formatTrashCountdown, isTrashCountdownUrgent, remainingTrashDays } from "./model/trashRetention";
@@ -141,6 +144,7 @@ const sourceTypeOptions: Array<Option<AssetSourceType | "">> = [
   { value: "", label: "全部来源" },
   { value: "manual_upload", label: "手动上传" },
   { value: "image_workbench", label: "生图工作台" },
+  { value: "video_workbench", label: "视频工作台" },
   { value: "canvas", label: "画布" },
   { value: "comic_batch", label: "漫剧批量" },
   { value: "legacy", label: "历史导入" },
@@ -263,6 +267,7 @@ export function AssetLibraryView() {
     }
   });
   const collapsedFolderSet = useMemo(() => new Set(collapsedFolderIds), [collapsedFolderIds]);
+  const libraryTree = useLibraryTreeWidth();
   const visibleFolderRows = useMemo(
     () => folderRows.filter((row) => !row.ancestorIds.some((id) => collapsedFolderSet.has(id))),
     [folderRows, collapsedFolderSet],
@@ -279,6 +284,8 @@ export function AssetLibraryView() {
     });
   };
   const folderSubtreeForMove = useMemo(() => folderMoveFor ? collectFolderSubtreeIds(folders, folderMoveFor) : new Set<string>(), [folderMoveFor, folders]);
+  // Canvas folders also list assets the canvas reuses from elsewhere; those keep their own folder.
+  const activeFolderSubtree = useMemo(() => activeFolderId ? collectFolderSubtreeIds(folders, activeFolderId) : null, [activeFolderId, folders]);
 
   const refresh = useCallback(() => setRefreshKey((value) => value + 1), []);
   const smartViewQuery = (smartView === "all" || smartView === "trash" || smartView === "seedance" ? "" : smartView) as "" | "favorite" | "dislike" | "unused" | "frequent";
@@ -810,6 +817,7 @@ export function AssetLibraryView() {
       const project = await createProject({
         scope,
         title: `资产 · ${selected.name || selected.id.slice(-6)}`,
+        unique_title: true,
         data: { nodes: [assetCanvasNode(selected)], edges: [], zoom: 90 },
       });
       toast.success("已创建画布并放入资产");
@@ -846,8 +854,9 @@ export function AssetLibraryView() {
       actions={<div className="scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => setScope(item.value)}>{item.label}</button>)}</div>} />
     <AssetTagFilter key={scope} tags={tags} selectedIds={selectedTagIds} match={tagMatch}
       onToggle={toggleFilterTag} onClear={() => setSelectedTagIds([])} onMatchChange={setTagMatch} />
-    <div className="library-workspace">
+    <div className={libraryTree.dragging ? "library-workspace resizing" : "library-workspace"} style={libraryTree.workspaceStyle}>
       <aside className="library-tree">
+        <div {...libraryTree.resizerProps} className={libraryTree.dragging ? "library-tree-resizer dragging" : "library-tree-resizer"} />
         <p className="field-label">SMART VIEWS</p>
         {smartViews.map((view) => <button className={smartView === view.value ? "selected" : ""} onClick={() => setSmartView(view.value)} key={view.value}>{view.label}</button>)}
         <hr />
@@ -860,7 +869,11 @@ export function AssetLibraryView() {
           const collapsed = collapsedFolderSet.has(folder.id);
           return (
             <div key={folder.id} className="folder-row-wrap">
-              <button className={activeFolderId === folder.id ? "folder-row selected" : "folder-row"} style={{ paddingLeft: 6 + depth * 14 }} title={folderPathLabel(navigationFolders, folder.id)} onClick={() => { setActiveFolderId(folder.id); setMoveFolderId(folder.id); }}>
+              <button
+                className={["folder-row", activeFolderId === folder.id ? "selected" : "", folder.canvas_deleted ? "canvas-deleted" : ""].filter(Boolean).join(" ")}
+                style={{ paddingLeft: 6 + depth * 14 }}
+                title={folder.canvas_deleted ? `${folderPathLabel(navigationFolders, folder.id)}\n画布已删除，仅保留资产` : folderPathLabel(navigationFolders, folder.id)}
+                onClick={() => { setActiveFolderId(folder.id); setMoveFolderId(folder.id); }}>
                 {ancestorLast.map((isLast, level) => (isLast ? null : <i key={level} className="folder-guide" style={{ left: 6 + level * 14 + 6 }} />))}
                 {hasChildren ? (
                   <span
@@ -878,7 +891,7 @@ export function AssetLibraryView() {
                 ) : (
                   <span className="folder-toggle placeholder" />
                 )}
-                <FolderOpen size={12} className="folder-icon" />
+                {folder.canvas_deleted ? <FolderX size={12} className="folder-icon" /> : <FolderOpen size={12} className="folder-icon" />}
                 <span className="folder-name">{folder.name}</span>
                 <b className="folder-count">{folder.descendant_asset_count ?? folder.asset_count}</b>
               </button>
@@ -929,7 +942,7 @@ export function AssetLibraryView() {
           <input className="asset-date-input" type="date" value={createdTo} onChange={(event) => setCreatedTo(event.target.value)} title="创建时间止" />
           <button className="outline-button small" disabled={uploading} onClick={() => fileInputRef.current?.click()}><Upload size={15} /> {uploading ? "上传中…" : "导入资产"}</button>
         </div>
-        <div className="asset-bulk-bar"><label><input type="checkbox" checked={assets.length > 0 && selectedIds.length === assets.length} onChange={(event) => setSelectedIds(event.target.checked ? assets.map((asset) => asset.id) : [])} /> 本页全选</label><span aria-live="polite">已选 {bulkIds.length} 项</span><button disabled={!bulkIds.length} onClick={() => setSelectedIds([])}>取消选择</button><select className="asset-move-folder-select" aria-label="移动到目录" title="仅显示一级、二级文件夹" value={visibleMoveFolderId} onChange={(event) => setMoveFolderId(event.target.value)}><option value="">移动到目录…</option>{moveFolderRows.map(({ folder }) => <option key={folder.id} value={folder.id}>{folderPathLabel(navigationFolders, folder.id)}</option>)}</select><button onClick={() => void moveSelectedAssets()} disabled={!visibleMoveFolderId || !bulkIds.length}>移动</button><button onClick={() => void deleteOrRestore()} disabled={!bulkIds.length}>{smartView === "trash" ? "恢复" : "删除"}</button>{smartView === "trash" && <button onClick={() => void permanentDeleteSelected()} disabled={!bulkIds.length}>永久删除</button>}{smartView === "trash" && <button onClick={() => void emptyTrash()}>清空回收站</button>}<button className="asset-bulk-tags-trigger" onClick={() => setBulkTagTarget({ ids: [...bulkIds], scope })} disabled={!bulkIds.length || smartView === "trash"}><Tag size={14} /> 批量标签</button><button onClick={() => void createExport("selected")} disabled={exportBusy === "selected" || !bulkIds.length}>导出选中</button><button onClick={() => void createExport("filter")} disabled={exportBusy === "filter"}>导出筛选</button><button onClick={() => void createExport("folder")} disabled={!activeFolderId || exportBusy === "folder"}>导出目录</button><button onClick={() => void exportAssetPackage()} disabled={!bulkIds.length || exportBusy === "selected"}>打包选中</button><button onClick={() => packageInputRef.current?.click()} disabled={packageBusy === "import"}>{packageBusy === "import" ? "导入中…" : "导入资产包"}</button>
+        <div className="asset-bulk-bar"><label><input type="checkbox" checked={assets.length > 0 && selectedIds.length === assets.length} onChange={(event) => setSelectedIds(event.target.checked ? assets.map((asset) => asset.id) : [])} /> 本页全选</label><span aria-live="polite">已选 {bulkIds.length} 项</span><button disabled={!bulkIds.length} onClick={() => setSelectedIds([])}>取消选择</button><select className="asset-move-folder-select" aria-label="移动到目录" title="仅显示一级、二级文件夹" value={visibleMoveFolderId} onChange={(event) => setMoveFolderId(event.target.value)}><option value="">移动到目录…</option>{moveFolderRows.map(({ folder }) => <option key={folder.id} value={folder.id}>{folderOptionLabel(folderPathLabel(navigationFolders, folder.id), folder)}</option>)}</select><button onClick={() => void moveSelectedAssets()} disabled={!visibleMoveFolderId || !bulkIds.length}>移动</button><button onClick={() => void deleteOrRestore()} disabled={!bulkIds.length}>{smartView === "trash" ? "恢复" : "删除"}</button>{smartView === "trash" && <button onClick={() => void permanentDeleteSelected()} disabled={!bulkIds.length}>永久删除</button>}{smartView === "trash" && <button onClick={() => void emptyTrash()}>清空回收站</button>}<button className="asset-bulk-tags-trigger" onClick={() => setBulkTagTarget({ ids: [...bulkIds], scope })} disabled={!bulkIds.length || smartView === "trash"}><Tag size={14} /> 批量标签</button><button onClick={() => void createExport("selected")} disabled={exportBusy === "selected" || !bulkIds.length}>导出选中</button><button onClick={() => void createExport("filter")} disabled={exportBusy === "filter"}>导出筛选</button><button onClick={() => void createExport("folder")} disabled={!activeFolderId || exportBusy === "folder"}>导出目录</button><button onClick={() => void exportAssetPackage()} disabled={!bulkIds.length || exportBusy === "selected"}>打包选中</button><button onClick={() => packageInputRef.current?.click()} disabled={packageBusy === "import"}>{packageBusy === "import" ? "导入中…" : "导入资产包"}</button>
           <button aria-expanded={showExportTasks} onClick={() => setShowExportTasks(value => !value)}>{showExportTasks ? "收起导出任务" : "导出任务"}</button>
           <button aria-expanded={showImportTasks} onClick={() => setShowImportTasks(value => !value)}>{showImportTasks ? "收起导入任务" : "导入任务"}</button>
         </div>
@@ -966,6 +979,9 @@ export function AssetLibraryView() {
           const trashDays = smartView === "trash" ? remainingTrashDays(asset) : 0;
           const AssetTypeIcon = asset.type === "image" ? ImageIcon : asset.type === "video" ? Video : Music2;
           const assetTypeName = asset.type === "image" ? "图片" : asset.type === "video" ? "视频" : "音频";
+          const reusedFrom = smartView !== "trash" && activeFolderSubtree && asset.folder_id && !activeFolderSubtree.has(asset.folder_id)
+            ? folderPathLabel(navigationFolders, asset.folder_id) || "其他目录"
+            : "";
           return (
             <article key={asset.id} data-asset-id={asset.id} className={`library-asset${selected?.id === asset.id ? " selected" : ""}${selectedIds.includes(asset.id) ? " bulk-selected" : ""}`}>
               <label className="asset-check"><input type="checkbox" aria-label={`选择资产 ${asset.name}`} checked={selectedIds.includes(asset.id)} onChange={() => toggleSelectedAsset(asset.id)} /></label>
@@ -992,6 +1008,7 @@ export function AssetLibraryView() {
                     <VideoThumbnail src={getAssetMediaUrl(asset.id, scope)} alt={`${asset.name}的视频封面`} fallback={<span className="asset-media-placeholder"><Video size={30} /><small>视频封面暂不可用</small></span>} />
                     <span className="asset-video-mark" aria-label="视频"><Play size={13} fill="currentColor" /></span>
                   </> : <span className="asset-media-placeholder"><AudioLines size={36} /><small>音频素材</small></span>}
+                  {reusedFrom ? <span className="asset-reused-mark" title={`本画布引用的资产，存放于「${reusedFrom}」`}>引用</span> : null}
                 </span>
                 <span className="asset-category">{asset.category || asset.type}</span>
                 <div className="asset-card-caption">

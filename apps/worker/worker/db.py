@@ -685,7 +685,7 @@ class JobStore:
                 kind, system_key, source_ref_type, source_ref_id, system_identity,
                 sort_order, created_at, updated_at
             )
-            VALUES (%s, %s, %s, %s, '未分类', '未分类', 'system', 'unsorted', 'workspace', '', %s, 10, timezone('utc', now()), timezone('utc', now()))
+            VALUES (%s, %s, %s, %s, '待整理', '待整理', 'system', 'unsorted', 'workspace', '', %s, 90, timezone('utc', now()), timezone('utc', now()))
             ON CONFLICT DO NOTHING
             """,
             (unsorted_id, workspace_id, created_by, str(root["id"]), unsorted_identity),

@@ -16,7 +16,7 @@ export function useVideoToolkit() {
     const api = createSDVideoClient("personal", controller.signal);
     setBusy(true);
     try {
-      const asset = await uploadAsset(file, {}, "personal", controller.signal);
+      const asset = await uploadAsset(file, { source_type: "video_workbench", category: "reference" }, "personal", controller.signal);
       await api.eraseVideo(asset.id);
       toast.success("擦除任务已提交，可在任务队列查看，完成结果将进入资产库");
     } catch (error) {

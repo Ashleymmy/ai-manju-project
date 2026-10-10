@@ -29,6 +29,8 @@ export function createProject(
     scope?: WorkspaceScope;
     data?: unknown;
     cover_asset_id?: string;
+    /** 名称已被占用时由服务端自动编号（"X 2"），否则返回 409。 */
+    unique_title?: boolean;
   }
 ) {
   const { scope = "personal", ...body } = payload;

@@ -65,6 +65,9 @@ type AssetLibraryFilter struct {
 	FilterAssetIDs  bool
 	FolderIDs       []string
 	FilterFolder    bool
+	// FolderAssetIDs are shown in the folder filter although stored elsewhere,
+	// such as assets a canvas reuses from another canvas.
+	FolderAssetIDs  []string
 	Type            string
 	Category        string
 	SourceType      string
@@ -215,6 +218,10 @@ func (r *MemoryAssetRepository) ListLibrary(filter AssetLibraryFilter) ([]model.
 	for _, id := range filter.FolderIDs {
 		folderIDs[id] = true
 	}
+	folderAssetIDs := make(map[string]bool, len(filter.FolderAssetIDs))
+	for _, id := range filter.FolderAssetIDs {
+		folderAssetIDs[id] = true
+	}
 	query := strings.ToLower(strings.TrimSpace(filter.Keyword))
 	assets := make([]model.Asset, 0)
 	for _, asset := range r.assets {
@@ -230,7 +237,7 @@ func (r *MemoryAssetRepository) ListLibrary(filter AssetLibraryFilter) ([]model.
 		if !filter.Trashed && !filter.IncludeSuperseded && asset.SupersededAt != nil {
 			continue
 		}
-		if filter.FilterFolder && !folderIDs[asset.FolderID] {
+		if filter.FilterFolder && !folderIDs[asset.FolderID] && !folderAssetIDs[asset.ID] {
 			continue
 		}
 		if filter.Type != "" && asset.Type != filter.Type {
@@ -609,7 +616,11 @@ func (r *GormAssetRepository) ListLibrary(filter AssetLibraryFilter) ([]model.As
 		}
 	}
 	if filter.FilterFolder {
-		query = query.Where("folder_id IN ?", filter.FolderIDs)
+		if extra := uniqueAssetIDs(filter.FolderAssetIDs); len(extra) > 0 {
+			query = query.Where("(folder_id IN ? OR id IN ?)", filter.FolderIDs, extra)
+		} else {
+			query = query.Where("folder_id IN ?", filter.FolderIDs)
+		}
 	}
 	if filter.Type != "" {
 		query = query.Where("type = ?", filter.Type)

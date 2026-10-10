@@ -181,7 +181,7 @@ func (h *AssetHandler) Upload(c *gin.Context) {
 	}
 
 	sourceType := strings.TrimSpace(strings.ToLower(c.PostForm("source_type")))
-	if sourceType != model.AssetSourceCanvas {
+	if sourceType != model.AssetSourceCanvas && sourceType != model.AssetSourceVideoWorkbench {
 		sourceType = model.AssetSourceManualUpload
 	}
 	sourceProjectID := ""

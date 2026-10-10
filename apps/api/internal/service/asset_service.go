@@ -271,12 +271,17 @@ func (s *AssetService) assetLibraryFilter(userID string, scope string, input Ass
 		}
 	}
 	folderIDs := []string(nil)
+	folderAssetIDs := []string(nil)
 	filterFolder := strings.TrimSpace(input.FolderID) != ""
 	if filterFolder {
 		if s.folders == nil {
 			return repository.AssetLibraryFilter{}, repository.ErrAssetFolderNotFound
 		}
 		folderIDs, err = s.folders.FolderIDsForQuery(input.FolderID, input.IncludeDescendants, userID, scope)
+		if err != nil {
+			return repository.AssetLibraryFilter{}, err
+		}
+		folderAssetIDs, err = s.folders.CanvasReferencedAssetIDs(folderIDs, userID, scope)
 		if err != nil {
 			return repository.AssetLibraryFilter{}, err
 		}
@@ -320,7 +325,7 @@ func (s *AssetService) assetLibraryFilter(userID string, scope string, input Ass
 	}
 	return repository.AssetLibraryFilter{
 		WorkspaceID: WorkspaceIDForScope(scope, userID), AssetIDs: includeAssetIDs, ExcludeAssetIDs: excludeAssetIDs, FilterAssetIDs: filterAssetIDs,
-		FolderIDs: folderIDs, FilterFolder: filterFolder,
+		FolderIDs: folderIDs, FilterFolder: filterFolder, FolderAssetIDs: folderAssetIDs,
 		Type: strings.TrimSpace(strings.ToLower(input.Type)), Category: category, SourceType: sourceType,
 		SourceProjectID: strings.TrimSpace(input.SourceProjectID), Keyword: strings.TrimSpace(input.Keyword),
 		CreatedFrom: input.CreatedFrom, CreatedTo: input.CreatedTo, IncludeSuperseded: input.IncludeSuperseded,

@@ -68,8 +68,9 @@ import {
   videoConfigFromNode,
   videoFileName,
   videoProviderFromNode,
-  CANVAS_VIDEO_NODE_HEIGHT,
-  CANVAS_VIDEO_NODE_WIDTH,
+  canvasVideoRequestedDimensions,
+  fitCanvasVideoNodeSize,
+  shapeEmptyCanvasImageFrame,
   CANVAS_IMAGE_NODE_HEIGHT,
   CANVAS_IMAGE_NODE_WIDTH,
   canvasImageRequestedDimensions,
@@ -1526,6 +1527,13 @@ export class CanvasGenerationJobsController {
       const generationRevisions = reuseSourceNode
         ? appendCanvasGenerationRevision(sourceNode, this.services.createId())
         : undefined;
+      // Plan the frame in the requested shape; a node still showing its old video keeps its frame.
+      const requestedFrame = canvasVideoRequestedDimensions(config.size);
+      const frame = !reuseSourceNode
+        ? { ...fitCanvasVideoNodeSize(requestedFrame?.width ?? 0, requestedFrame?.height ?? 0), metadata: {} }
+        : !hasExistingMedia && requestedFrame
+          ? shapeEmptyCanvasImageFrame(currentSourceNode, requestedFrame.width, requestedFrame.height)
+          : currentSourceNode;
       const targetNode: CanvasNodeData = {
         id: targetNodeId,
         kind: "video",
@@ -1533,10 +1541,10 @@ export class CanvasGenerationJobsController {
         content: prompt,
         x: reuseSourceNode ? currentSourceNode.x : currentSourceNode.x + currentSourceNode.width + 96,
         y: reuseSourceNode ? currentSourceNode.y : currentSourceNode.y + 24,
-        width: reuseSourceNode ? currentSourceNode.width : CANVAS_VIDEO_NODE_WIDTH,
-        height: reuseSourceNode ? currentSourceNode.height : CANVAS_VIDEO_NODE_HEIGHT,
+        width: frame.width,
+        height: frame.height,
         metadata: {
-          ...(reuseSourceNode ? currentSourceNode.metadata : {}),
+          ...frame.metadata,
           generationRevisions,
           appliedFromHistory: undefined,
           // Keep the previous media attached while regenerating so the node keeps

@@ -266,10 +266,16 @@ export function normalizeVideoGenerationConfig(config: VideoGenerationConfig): V
   };
 }
 
+/** OpenAI-compatible pixel sizes keyed by the ratio label the canvas shows for them (1792x1024 → 7:4). */
+const openAiSizeByRatio: Record<string, string> = {
+  "16:9": "1280x720", "9:16": "720x1280", "1:1": "1024x1024", "7:4": "1792x1024", "4:7": "1024x1792",
+  "2:3": "720x1280", "3:4": "720x1280",
+};
+
 export function normalizeVideoSizeValue(value: string) {
   if (value === "auto") return "auto";
   if (/^\d+x\d+$/.test(value || "")) return value;
-  return ["9:16", "2:3", "3:4"].includes(value) ? "720x1280" : "1280x720";
+  return openAiSizeByRatio[value] || "1280x720";
 }
 
 export function normalizeVideoResolutionName(value: string) {

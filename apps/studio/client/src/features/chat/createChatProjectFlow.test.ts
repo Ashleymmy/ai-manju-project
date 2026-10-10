@@ -83,6 +83,7 @@ describe("Chat project flow", () => {
     expect(events).toEqual(["create", "bootstrap", "navigate"]);
     expect(createProject).toHaveBeenCalledWith({
       title: "长".repeat(50),
+      unique_title: true,
       scope: "personal",
       data: expect.objectContaining({
         nodes: expect.arrayContaining([

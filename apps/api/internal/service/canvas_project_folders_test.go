@@ -68,11 +68,13 @@ func TestCanvasProjectLibraryParity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Duplicate, long and punctuation-containing custom titles retain the public API behavior.
+			// Long and punctuation-containing custom titles are kept; a live duplicate is rejected.
 			customTitle := "镜头 / 角色\\ " + strings.Repeat("长标题", 40)
 			create(customTitle)
-			create(customTitle)
-			for _, title := range []string{customTitle, "重命名画布", "重命名画布"} {
+			if _, err := svc.Create(user, WorkspaceScopePersonal, CreateProjectInput{Title: customTitle}); !errors.Is(err, ErrProjectTitleExists) {
+				t.Fatalf("duplicate custom title = %v", err)
+			}
+			for _, title := range []string{customTitle + "（改）", "重命名画布", "重命名画布"} {
 				updated, err := svc.Update(first.ID, user, WorkspaceScopePersonal, UpdateProjectInput{Title: &title})
 				if err != nil {
 					t.Fatal(err)

@@ -177,7 +177,7 @@ export function createCloudConversationRepository(
       if (controller.signal.aborted) throw new DOMException("Disposed", "AbortError");
       if (attachment.assetId || attachment.assetRef) return { ...attachment, storageKey: undefined };
       if (!file) throw new Error(`${attachment.name} 缺少本地文件`);
-      const asset = await uploadAsset(file, { source_type: "upload", name: attachment.name }, scope, controller.signal);
+      const asset = await uploadAsset(file, { source_type: "video_workbench", category: "reference", name: attachment.name }, scope, controller.signal);
       return { ...attachment, assetId: asset.id, scope, storageKey: undefined };
     },
     dispose() { controller.abort(); },

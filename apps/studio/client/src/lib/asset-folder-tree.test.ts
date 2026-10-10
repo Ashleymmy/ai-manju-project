@@ -24,7 +24,7 @@ describe("asset folder tree", () => {
     ];
     const visible = visibleAssetLibraryFolders(stored);
     expect(flattenFolderTree(visible).map(row => row.folder.name)).toEqual([
-      "画布工坊", "未分类", "手动上传", "生图工作台", "资产助手", "项目", "漫剧资产助手",
+      "画布工坊", "生图工作台", "资产助手", "项目", "漫剧资产助手", "待整理",
     ]);
     expect(folderPathLabel(visible, "child")).toBe("资产助手 / 项目");
     expect(visible.find(item => item.id === "comic")?.descendant_asset_count).toBe(2);

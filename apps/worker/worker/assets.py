@@ -139,7 +139,7 @@ def normalized_asset_category(value: Any) -> str:
 
 def normalized_asset_source(value: Any) -> str:
     normalized = str(value or "").strip().lower()
-    if normalized in {"manual_upload", "image_workbench", "canvas", "comic_batch", "legacy", "unknown"}:
+    if normalized in {"manual_upload", "image_workbench", "video_workbench", "canvas", "comic_batch", "legacy", "unknown"}:
         return normalized
     return "unknown"
 

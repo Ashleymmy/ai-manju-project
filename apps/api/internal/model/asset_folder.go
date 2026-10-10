@@ -11,6 +11,7 @@ const (
 	AssetFolderSystemKeyUpload              = "manual_upload"
 	AssetFolderSystemKeyImageWorkbench      = "image_workbench"
 	AssetFolderSystemKeyImageWorkbenchMonth = "image_workbench_month"
+	AssetFolderSystemKeyVideoWorkbench      = "video_workbench"
 	AssetFolderSystemKeyCanvas              = "canvas"
 	AssetFolderSystemKeyCanvasProject       = "canvas_project"
 	// Canvas categories have stable identities beneath their linked project folder.
@@ -31,6 +32,7 @@ const (
 
 	AssetSourceManualUpload   = "manual_upload"
 	AssetSourceImageWorkbench = "image_workbench"
+	AssetSourceVideoWorkbench = "video_workbench"
 	AssetSourceCanvas         = "canvas"
 	AssetSourceComicBatch     = "comic_batch"
 	AssetSourceSDVideo        = "sd_video"

@@ -57,7 +57,7 @@ const JOB_REFRESH_MS = 3_000;
 /** Comic batches are aggregated across several projects, so they are polled less often. */
 const COMIC_REFRESH_MS = 10_000;
 /** Jobs per list page; keeps the page height bounded no matter how many jobs exist. */
-const QUEUE_PAGE_SIZE = 10;
+const QUEUE_PAGE_SIZE = 20;
 
 const queueStateLabel: Record<JobState, string> = {
   running: "生成中",

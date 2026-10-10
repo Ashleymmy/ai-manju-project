@@ -86,3 +86,20 @@ func TestSDVideoBridgeImportsResultWithoutContentRequest(t *testing.T) {
 		t.Fatal("bridge history provenance missing")
 	}
 }
+
+func TestSDVideoAssetSourceTypeSeparatesVideoWorkbench(t *testing.T) {
+	cases := []struct {
+		request map[string]any
+		want    string
+	}{
+		{map[string]any{"conversation_id": "conversation"}, model.AssetSourceVideoWorkbench},
+		{map[string]any{"project_id": "canvas", "conversation_id": "conversation"}, model.AssetSourceSDVideo},
+		{map[string]any{"project_id": "canvas"}, model.AssetSourceSDVideo},
+		{nil, model.AssetSourceSDVideo},
+	}
+	for _, tc := range cases {
+		if got := sdVideoAssetSourceType(tc.request); got != tc.want {
+			t.Fatalf("sdVideoAssetSourceType(%v) = %s, want %s", tc.request, got, tc.want)
+		}
+	}
+}

@@ -936,8 +936,9 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.nodes.find(node => node.id === edit.id)).toEqual(edited);
     expect(harness.nodes.find(node => node.id === fresh.id)).toEqual(fresh);
     expect(harness.nodes[0]).toMatchObject({ x: 900, y: 600, title: "移动后的源节点", metadata: { status: "success" } });
-    // A 1:1 image result shrinks into the 600×238 frame the user arranged instead of growing.
-    expect(harness.nodes[0]).toMatchObject(kind === "image" ? { width: 238, height: 238 } : { width: 600 });
+    // A 1:1 image result and an empty video's 16:9 request shrink into the 600×238 frame the user arranged.
+    expect(harness.nodes[0]).toMatchObject(kind === "image" ? { width: 238, height: 238 }
+      : kind === "video" ? { width: 238 * 16 / 9, height: 238 } : { width: 600 });
     expect(harness.edges).toEqual(edges);
     expect(harness.bindings.getSelectedNodeId()).toBe(fresh.id);
     for (const [savedNodes, savedEdges] of harness.persistSnapshot.mock.calls) {
@@ -1785,7 +1786,10 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.runningIds.size).toBe(0);
   });
 
-  it("用户导入的视频节点生成时创建新节点并保留原素材", async () => {
+  it.each([
+    ["16:9", 420, 236.25],
+    ["9:16", 315, 560],
+  ] as const)("用户导入的视频节点按 %s 生成时创建新节点并保留原素材", async (size, width, height) => {
     const createVideoGenerationTask = vi.fn(async () => ({ id: "job-video-1", provider: "openai" as const, model: "video-model" }));
     const pollVideoGenerationTask = vi.fn(async () => ({
       status: "completed" as const,
@@ -1812,6 +1816,7 @@ describe("CanvasGenerationJobsController", () => {
         status: "success",
         assetId: "asset-video-imported",
         canvasOrigin: "imported",
+        size,
       },
     })], services);
 
@@ -1821,8 +1826,8 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.nodes).toHaveLength(2);
     expect(harness.nodes[0]).toMatchObject({ id: "video-1", metadata: { assetId: "asset-video-imported" } });
     expect(harness.nodes[1]).toMatchObject({ kind: "video", metadata: { assetId: "asset-video-generated", status: "success" } });
-    // The pending frame matches an empty video node until the result reports its own ratio.
-    expect(harness.nodes[1]!.width / harness.nodes[1]!.height).toBeCloseTo(16 / 9, 8);
+    // The pending frame already has the requested shape, sized like an empty video node.
+    expect(harness.nodes[1]).toMatchObject({ width, height });
     expect(harness.edges).toEqual([expect.objectContaining({ from: "video-1", to: harness.nodes[1]?.id })]);
   });
 

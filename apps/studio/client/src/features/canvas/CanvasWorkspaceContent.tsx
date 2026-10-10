@@ -336,6 +336,7 @@ import {
   CANVAS_VIDEO_NODE_HEIGHT,
   CANVAS_VIDEO_NODE_WIDTH,
   canvasImageOriginalSize,
+  canvasEmptyVideoRequestDimensions,
   shapeEmptyCanvasImageFrame,
   autoVideoSubModeForPromptChange,
   canvasImageParamDefaults,
@@ -1928,14 +1929,16 @@ export default function CanvasWorkspaceViewContent() {
     setContextMenu(null);
   };
 
-  /** Empty image nodes take a newly requested ratio at once, so the layout is planned with the real shape. */
-  const shapeEmptyImageNodeForRequest = (nodes: CanvasNodeData[], previous: CanvasNodeData | undefined, nodeId: string) => {
+  /** Empty image and video nodes take a newly requested ratio at once, so the layout is planned with the real shape. */
+  const shapeEmptyMediaNodeForRequest = (nodes: CanvasNodeData[], previous: CanvasNodeData | undefined, nodeId: string) => {
     const index = nodes.findIndex((node) => node.id === nodeId);
     const next = nodes[index];
     if (!previous || !next) return nodes;
-    const references = mentionReferencesForNode(nodeId);
-    const target = canvasEmptyImageRequestDimensions(next, references, nodes);
-    const before = canvasEmptyImageRequestDimensions(previous, references, nodesRef.current);
+    const requested = (node: CanvasNodeData, graph: CanvasNodeData[]) => node.kind === "video"
+      ? canvasEmptyVideoRequestDimensions(node, videoModel)
+      : canvasEmptyImageRequestDimensions(node, mentionReferencesForNode(nodeId), graph);
+    const target = requested(next, nodes);
+    const before = requested(previous, nodesRef.current);
     if (!target || (before && before.width === target.width && before.height === target.height)) return nodes;
     const shaped = shapeEmptyCanvasImageFrame(next, target.width, target.height);
     return shaped === next ? nodes : nodes.map((node, position) => position === index ? shaped : node);
@@ -1943,7 +1946,7 @@ export default function CanvasWorkspaceViewContent() {
 
   const updateNode = (id: string, patch: Partial<CanvasNodeData>) => {
     const previous = nodesRef.current.find((node) => node.id === id);
-    const nextNodes = shapeEmptyImageNodeForRequest(
+    const nextNodes = shapeEmptyMediaNodeForRequest(
       nodesRef.current.map((node) => node.id === id ? { ...node, ...patch } : node),
       previous,
       id,
@@ -1964,7 +1967,7 @@ export default function CanvasWorkspaceViewContent() {
 
   const updateNodePrompt = (id: string, content: string) => {
     const previous = nodesRef.current.find((node) => node.id === id);
-    const nextNodes = shapeEmptyImageNodeForRequest(nodesRef.current.map((node) => {
+    const nextNodes = shapeEmptyMediaNodeForRequest(nodesRef.current.map((node) => {
       if (node.id !== id) return node;
       const updated = updateCanvasNodeComposer(node, content);
       const autoVideoSubMode = autoVideoSubModeForPromptChange(node, content);
@@ -2958,7 +2961,7 @@ export default function CanvasWorkspaceViewContent() {
   const commitCanvasMediaNodeSize = (nodeId: string, naturalWidth: number, naturalHeight: number, probeAssetId?: string) => {
     const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
     if (!sourceNode) return;
-    const sized = applyCanvasImageNaturalSize(sourceNode, naturalWidth, naturalHeight, sourceNode.kind === "image" ? "layoutBox" : "keepWidth");
+    const sized = applyCanvasImageNaturalSize(sourceNode, naturalWidth, naturalHeight, "layoutBox");
     const markerChanged = probeAssetId !== undefined
       && stringValue(sized.metadata?.naturalSizeProbeAssetId) !== probeAssetId;
     const nextNode = markerChanged
@@ -4255,6 +4258,7 @@ export default function CanvasWorkspaceViewContent() {
         const created = await createProject({
           scope: targetScope,
           title: item.project.title || "导入画布",
+          unique_title: true,
           data: snapshot,
         });
         createdProjects.push(created);

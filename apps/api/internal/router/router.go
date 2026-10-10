@@ -124,6 +124,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	assetService.SetReferenceRepository(repos.assetReferenceRepo)
 	assetFolderService := service.NewAssetFolderService(repos.assetFolderRepo, repos.assetRepo)
 	assetFolderService.SetProjectRepository(repos.projectRepo)
+	assetFolderService.SetAssetReferenceRepository(repos.assetReferenceRepo)
 	projectService.SetAssetFolderService(assetFolderService)
 	if err := assetFolderService.SetArchiveTimezone(cfg.AssetArchiveTimezone); err != nil {
 		panic(fmt.Sprintf("invalid ASSET_ARCHIVE_TIMEZONE: %v", err))

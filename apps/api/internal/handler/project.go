@@ -93,6 +93,7 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		OwnerID      string       `json:"owner_id"`
 		Data         *model.JSONB `json:"data"`
 		CoverAssetID string       `json:"cover_asset_id"`
+		UniqueTitle  bool         `json:"unique_title"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -105,9 +106,14 @@ func (h *ProjectHandler) CreateProject(c *gin.Context) {
 		Title:        req.Title,
 		Data:         req.Data,
 		CoverAssetID: req.CoverAssetID,
+		UniqueTitle:  req.UniqueTitle,
 	})
 	if errors.Is(err, service.ErrTitleRequired) {
 		response.Error(c, 400, "title is required")
+		return
+	}
+	if errors.Is(err, service.ErrProjectTitleExists) {
+		response.Error(c, http.StatusConflict, err.Error())
 		return
 	}
 	if err != nil {
@@ -147,6 +153,10 @@ func (h *ProjectHandler) UpdateProject(c *gin.Context) {
 	})
 	if errors.Is(err, service.ErrTitleRequired) {
 		response.Error(c, 400, "title is required")
+		return
+	}
+	if errors.Is(err, service.ErrProjectTitleExists) {
+		response.Error(c, http.StatusConflict, err.Error())
 		return
 	}
 	if err != nil {

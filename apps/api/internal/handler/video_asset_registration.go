@@ -22,6 +22,21 @@ func (h *AIHandler) prepareVideoAssetRegistration(c *gin.Context, body map[strin
 		if nodeID != "" {
 			return errors.New("node requires project")
 		}
+		if strings.TrimSpace(stringFromAny(body["conversation_id"])) == "" || h.assetFolders == nil {
+			return nil
+		}
+		user := auth.MustCurrentUser(c)
+		context, err := h.assetFolders.ResolveRegistration(user.ID, requestWorkspaceScope(c), service.AssetRegistrationContext{
+			SourceType: model.AssetSourceVideoWorkbench, Category: model.AssetCategoryOther,
+			SourceMetadata: service.VideoHistoryMetadata(body),
+		})
+		if err != nil {
+			return err
+		}
+		body["asset_registration"] = map[string]any{
+			"source_type": context.SourceType, "folder_id": context.FolderID,
+			"category": context.Category, "source_metadata": context.SourceMetadata,
+		}
 		return nil
 	}
 	if h.projects == nil {

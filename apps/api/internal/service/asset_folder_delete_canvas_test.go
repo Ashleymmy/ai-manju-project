@@ -65,7 +65,7 @@ func TestDeleteCanvasAssetFolderParity(t *testing.T) {
 						}
 					}
 					// Fixed system folders, categories, and other workspaces remain protected.
-					for _, protected := range []model.AssetFolder{defaults.Root, defaults.Unsorted, defaults.Upload, defaults.ImageWorkbench, defaults.Canvas, defaults.Comic, category} {
+					for _, protected := range []model.AssetFolder{defaults.Root, defaults.Unsorted, defaults.ImageWorkbench, defaults.VideoWorkbench, defaults.Canvas, defaults.Comic, category} {
 						if _, err := svc.Delete(protected.ID, user, WorkspaceScopePersonal); !errors.Is(err, repository.ErrAssetFolderProtected) {
 							t.Fatalf("delete protected %s: %v", protected.SystemKey, err)
 						}
@@ -90,6 +90,20 @@ func TestDeleteCanvasAssetFolderParity(t *testing.T) {
 					// A different canvas with the same title must not protect this orphan.
 					if _, err := projects.Create(model.Project{ID: "unrelated_" + user, OwnerID: user, WorkspaceID: workspace, Title: project.Title}); err != nil {
 						t.Fatal(err)
+					}
+					raw, err := folders.ListByWorkspace(workspace)
+					if err != nil {
+						t.Fatal(err)
+					}
+					deletedIDs, err := svc.deletedCanvasFolderIDs(workspace, raw)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if len(deletedIDs) != 1 || !deletedIDs[linked.ID] {
+						t.Fatalf("deleted canvas archives = %v, want only %s", deletedIDs, linked.ID)
+					}
+					if stored, err := svc.Get(linked.ID, user, WorkspaceScopePersonal); err != nil || stored.Name != project.Title {
+						t.Fatalf("deleted canvas archive renamed: stored=%+v err=%v", stored, err)
 					}
 					svc.SetActiveReferenceChecker(fixedAssetFolderReferenceChecker{active: true})
 					if _, err := svc.Delete(linked.ID, user, WorkspaceScopePersonal); !errors.Is(err, repository.ErrAssetFolderInUse) {

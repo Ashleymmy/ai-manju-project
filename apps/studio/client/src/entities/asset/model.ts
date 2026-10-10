@@ -41,6 +41,7 @@ export function normalizeAssetCategory(value?: string | null): AssetCategory {
 export type AssetSourceType =
   | "manual_upload"
   | "image_workbench"
+  | "video_workbench"
   | "canvas"
   | "comic_batch"
   | "legacy"
@@ -94,25 +95,41 @@ export type AssetFolder = {
   asset_count: number;
   descendant_asset_count: number;
   sort_order: number;
+  /** A retained canvas archive whose canvas has been deleted. */
+  canvas_deleted?: boolean;
 };
 
 /** Legacy automatic calendar folders are not user-created date-named folders. */
 const DATE_ARCHIVE_KEYS = new Set(["canvas_project_date", "image_workbench_month"]);
+/** The former manual-upload folder was merged into 待整理; the server moves its assets. */
+const RETIRED_SYSTEM_KEYS = new Set([...DATE_ARCHIVE_KEYS, "manual_upload"]);
 
 /** Keep older/cached API folders consistent with the current built-in labels and order. */
 const SYSTEM_FOLDER_PRESENTATION: Record<string, { name?: string; sort_order?: number }> = {
   comic: { name: "资产助手" },
   canvas: { sort_order: 0 },
+  unsorted: { name: "待整理", sort_order: 90 },
 };
 
 export function isDateArchiveFolder(folder: AssetFolder) {
   return folder.kind === "system" && DATE_ARCHIVE_KEYS.has(folder.system_key || "");
 }
 
+function isRetiredSystemFolder(folder: AssetFolder) {
+  return folder.kind === "system" && RETIRED_SYSTEM_KEYS.has(folder.system_key || "");
+}
+
+/** Plain-text marker for dropdowns, where the sidebar's deleted-canvas icon cannot be shown. */
+export const DELETED_CANVAS_FOLDER_MARK = "（已删除）";
+
+export function folderOptionLabel(pathLabel: string, folder: AssetFolder) {
+  return folder.canvas_deleted ? `${pathLabel}${DELETED_CANVAS_FOLDER_MARK}` : pathLabel;
+}
+
 /** Promote children of retired automatic folders in every library navigation. */
 export function visibleAssetLibraryFolders(folders: readonly AssetFolder[]): AssetFolder[] {
   const byId = new Map(folders.map(folder => [folder.id, folder]));
-  const hiddenIds = new Set(folders.filter(folder => isDateArchiveFolder(folder)
+  const hiddenIds = new Set(folders.filter(folder => isRetiredSystemFolder(folder)
     || (folder.kind === "system" && folder.system_key === "system_root"))
     .map(folder => folder.id));
   return folders.filter(folder => !hiddenIds.has(folder.id)).map(folder => {

@@ -572,7 +572,7 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
             type: "video",
             name: fileName,
             category: "generated",
-            source_type: "canvas",
+            source_type: "video_workbench",
             source_metadata: JSON.stringify({ source: "video_workbench", message_id: message.id }),
           }, scope, signal);
           assetId = asset.id;

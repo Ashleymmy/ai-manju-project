@@ -49,6 +49,6 @@ export function videoModelCapabilities(model: string): VideoModelCapabilities {
 
 export function videoOptionAvailable(model: string, field: "resolutions" | "ratios" | "supports", value: string) {
   const choices = videoModelCapabilities(model)[field];
-  if (field === "ratios") value = ({ "1280x720": "16:9", "720x1280": "9:16", "1024x1024": "1:1" } as Record<string, string>)[value] || value;
+  if (field === "ratios") value = ({ "1280x720": "16:9", "720x1280": "9:16", "1024x1024": "1:1", "1792x1024": "7:4", "1024x1792": "4:7" } as Record<string, string>)[value] || value;
   return !choices?.length || choices.some(choice => choice.toLowerCase() === value.toLowerCase());
 }

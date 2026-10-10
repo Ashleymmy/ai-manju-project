@@ -18,7 +18,7 @@ import (
 
 func TestVideoGenerationDurableCanvasProvenance(t *testing.T) {
 	for _, native := range []bool{true, false} {
-		for _, scenario := range []string{"valid", "foreign-project", "wrong-scope", "missing-node", "standalone"} {
+		for _, scenario := range []string{"valid", "foreign-project", "wrong-scope", "missing-node", "standalone", "workbench"} {
 			t.Run(scenario+map[bool]string{true: "-native", false: "-openai"}[native], func(t *testing.T) {
 				projects := service.NewProjectService(repository.NewMemoryProjectRepository())
 				data := model.JSONB(`{"nodes":[{"id":"video-node"}]}`)
@@ -48,6 +48,11 @@ func TestVideoGenerationDurableCanvasProvenance(t *testing.T) {
 				case "standalone":
 					delete(body, "project_id")
 					delete(body, "node_id")
+				case "workbench":
+					delete(body, "project_id")
+					delete(body, "node_id")
+					body["conversation_id"] = "conversation"
+					h.SetAssetFolderService(service.NewAssetFolderService(repository.NewMemoryAssetFolderRepository(), repository.NewMemoryAssetRepository()))
 				}
 				encoded, _ := json.Marshal(body)
 				rec := httptest.NewRecorder()
@@ -60,7 +65,7 @@ func TestVideoGenerationDurableCanvasProvenance(t *testing.T) {
 				} else {
 					h.VideoTaskCreate(c)
 				}
-				valid := scenario == "valid" || scenario == "standalone"
+				valid := scenario == "valid" || scenario == "standalone" || scenario == "workbench"
 				if !valid {
 					if rec.Code != http.StatusBadRequest || len(producer.Messages) != 0 {
 						t.Fatalf("invalid association queued: %d", rec.Code)
@@ -79,6 +84,11 @@ func TestVideoGenerationDurableCanvasProvenance(t *testing.T) {
 					metadata := registration["source_metadata"].(map[string]any)
 					if registration["source_project_id"] != project.ID || registration["source_node_id"] != "video-node" || registration["source_type"] != "canvas" || metadata["model"] != "official::seedance-2.5" || metadata["prompt"] != "original prompt" {
 						t.Fatal("durable context missing")
+					}
+				} else if scenario == "workbench" {
+					registration := payload["asset_registration"].(map[string]any)
+					if registration["source_type"] != model.AssetSourceVideoWorkbench || registration["folder_id"] == "" || registration["source_project_id"] != nil {
+						t.Fatalf("workbench registration = %+v", registration)
 					}
 				} else if _, ok := payload["asset_registration"]; ok {
 					t.Fatal("caller registration trusted")

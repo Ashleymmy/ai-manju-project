@@ -15,6 +15,39 @@ var canvasLibraryCategories = []struct{ key, name string }{
 	{model.AssetCategoryOther, "其他"},
 }
 
+// deletedCanvasFolderIDs finds archives whose canvas is gone, so the library can
+// mark them without changing their stored (still reserved) names.
+func (s *AssetFolderService) deletedCanvasFolderIDs(workspaceID string, folders []model.AssetFolder) (map[string]bool, error) {
+	if s.projects == nil {
+		return nil, nil
+	}
+	hasCanvasFolder := false
+	for _, folder := range folders {
+		if folder.SystemKey == model.AssetFolderSystemKeyCanvasProject {
+			hasCanvasFolder = true
+			break
+		}
+	}
+	if !hasCanvasFolder {
+		return nil, nil
+	}
+	projects, err := s.projects.ListSummariesByWorkspace(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	live := make(map[string]bool, len(projects))
+	for _, project := range projects {
+		live[project.ID] = true
+	}
+	deleted := make(map[string]bool)
+	for _, folder := range folders {
+		if folder.SystemKey == model.AssetFolderSystemKeyCanvasProject && folder.SourceRefID != "" && !live[folder.SourceRefID] {
+			deleted[folder.ID] = true
+		}
+	}
+	return deleted, nil
+}
+
 // ensureCanvasProjectFolders runs inside the project's workspace transaction.
 // Archive registration resolves the same project identity, so a later job with
 // an old title cannot rename the folder back or split its existing assets.

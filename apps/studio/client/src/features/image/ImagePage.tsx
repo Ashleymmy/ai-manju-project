@@ -465,6 +465,7 @@ export function ImageWorkbenchView() {
       const project = await createProject({
         scope,
         title: `关键帧 · ${new Date().toLocaleDateString("zh-CN")}`,
+        unique_title: true,
         data: {
           nodes: [{
             id: crypto.randomUUID(),

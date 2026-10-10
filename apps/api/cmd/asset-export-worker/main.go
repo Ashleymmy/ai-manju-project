@@ -30,6 +30,7 @@ func main() {
 	}
 	assetRepo := repository.NewGormAssetRepository(db)
 	folderService := service.NewAssetFolderService(repository.NewGormAssetFolderRepository(db), assetRepo)
+	folderService.SetAssetReferenceRepository(repository.NewGormAssetReferenceRepository(db))
 	if err := folderService.SetArchiveTimezone(cfg.AssetArchiveTimezone); err != nil {
 		log.Fatalf("invalid ASSET_ARCHIVE_TIMEZONE: %v", err)
 	}

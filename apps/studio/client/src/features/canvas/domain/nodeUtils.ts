@@ -23,7 +23,7 @@ import type {
   ImageQualityValue,
   ImageSizeValue,
 } from "./types";
-import { assetIdFromNode, looksLikeImageSource } from "./nodes";
+import { assetIdFromNode, imageSrcFromNode, looksLikeImageSource } from "./nodes";
 import { isRecord, numberValue, stringValue } from "./value";
 import { workspaceScopeValue } from "./workspace";
 import { CANVAS_NODE_RESIZE_BOUNDS } from "./nodeResize";
@@ -57,6 +57,8 @@ export function isCanvasImageResolutionAvailable(value: CanvasImageResolution): 
 /** 空视频节点默认 16:9 横屏框；有视频后按实际像素比适配。 */
 export const CANVAS_VIDEO_NODE_WIDTH = 420;
 export const CANVAS_VIDEO_NODE_HEIGHT = CANVAS_VIDEO_NODE_WIDTH * 9 / 16;
+/** 竖屏视频框的最大高度，与图片一致，避免 9:16 把画布撑得过高。 */
+const CANVAS_VIDEO_NODE_MAX_HEIGHT = CANVAS_IMAGE_NODE_MAX_HEIGHT;
 
 /** 视频节点使用明确比例；旧的自适应设置回退到横屏。 */
 export const CANVAS_VIDEO_DEFAULT_RATIO = "16:9";
@@ -90,6 +92,34 @@ export function isDefaultCanvasImageNodeSize(width: number, height: number) {
     .some(size => Math.abs(width - size.width) <= 1 && Math.abs(height - size.height) <= 1);
 }
 
+export function fitCanvasVideoNodeSize(naturalWidth: number, naturalHeight: number) {
+  if (!Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight) || !(naturalWidth > 0) || !(naturalHeight > 0)) {
+    return { width: CANVAS_VIDEO_NODE_WIDTH, height: CANVAS_VIDEO_NODE_HEIGHT };
+  }
+  const scale = Math.min(CANVAS_VIDEO_NODE_WIDTH / naturalWidth, CANVAS_VIDEO_NODE_MAX_HEIGHT / naturalHeight);
+  return { width: naturalWidth * scale, height: naturalHeight * scale };
+}
+
+export function isDefaultCanvasVideoNodeSize(width: number, height: number) {
+  return Math.abs(width - CANVAS_VIDEO_NODE_WIDTH) <= 1 && Math.abs(height - CANVAS_VIDEO_NODE_HEIGHT) <= 1;
+}
+
+type CanvasMediaFrameDefaults = {
+  width: number;
+  height: number;
+  isDefault: (width: number, height: number) => boolean;
+  fit: (naturalWidth: number, naturalHeight: number) => { width: number; height: number };
+};
+const CANVAS_IMAGE_FRAME_DEFAULTS: CanvasMediaFrameDefaults = {
+  width: CANVAS_IMAGE_NODE_WIDTH, height: CANVAS_IMAGE_NODE_HEIGHT, isDefault: isDefaultCanvasImageNodeSize, fit: fitCanvasImageNodeSize,
+};
+const CANVAS_VIDEO_FRAME_DEFAULTS: CanvasMediaFrameDefaults = {
+  width: CANVAS_VIDEO_NODE_WIDTH, height: CANVAS_VIDEO_NODE_HEIGHT, isDefault: isDefaultCanvasVideoNodeSize, fit: fitCanvasVideoNodeSize,
+};
+function canvasMediaFrameDefaults(node: CanvasFrameNode) {
+  return node.kind === "video" ? CANVAS_VIDEO_FRAME_DEFAULTS : CANVAS_IMAGE_FRAME_DEFAULTS;
+}
+
 export function canvasImageNodeNeedsFit(
   node: { width: number; height: number; metadata?: { naturalWidth?: unknown; naturalHeight?: unknown } },
   naturalWidth: number,
@@ -101,11 +131,11 @@ export function canvasImageNodeNeedsFit(
     > CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE * Math.max(1, aspect);
 }
 
-type CanvasFrameNode = { width: number; height: number; metadata?: Record<string, unknown> };
+type CanvasFrameNode = { kind?: string; width: number; height: number; metadata?: Record<string, unknown> };
 
 /**
- * `keepWidth` grows or shrinks the height around the current width (videos, legacy repairs).
- * `layoutBox` keeps image results inside the box the user arranged, so they never grow over neighbours.
+ * `keepWidth` grows or shrinks the height around the current width (legacy repairs).
+ * `layoutBox` keeps media results inside the box the user arranged, so they never grow over neighbours.
  */
 export type CanvasImageFrameFit = "keepWidth" | "layoutBox";
 
@@ -121,14 +151,18 @@ export function applyCanvasImageNaturalSize<T extends CanvasFrameNode>(
   const storedHeight = numberValue(node.metadata?.naturalHeight);
   const sameMeta = storedWidth === naturalWidth && storedHeight === naturalHeight;
   if (!needsFit && sameMeta) return node;
-  if (needsFit && fit === "layoutBox" && !isDefaultCanvasImageNodeSize(node.width, node.height)) {
+  const defaults = canvasMediaFrameDefaults(node);
+  const defaultFrame = defaults.isDefault(node.width, node.height);
+  // A generated video stays in the planned frame even when the model ignores the requested ratio.
+  const keepBox = !defaultFrame || (node.kind === "video" && node.metadata?.generatedInCanvas === true);
+  if (needsFit && fit === "layoutBox" && keepBox) {
     const fitted = fitCanvasImageFrameInLayoutBox(node, naturalWidth / naturalHeight);
     return { ...fitted, metadata: { ...fitted.metadata, naturalWidth, naturalHeight } };
   }
   // Repair stretched legacy frames without resetting correctly resized media on reload.
   const scale = Math.min(node.width / naturalWidth, CANVAS_NODE_RESIZE_BOUNDS.maxWidth / naturalWidth, CANVAS_NODE_RESIZE_BOUNDS.maxHeight / naturalHeight);
-  const fitted = !needsFit ? null : isDefaultCanvasImageNodeSize(node.width, node.height)
-    ? fitCanvasImageNodeSize(naturalWidth, naturalHeight)
+  const fitted = !needsFit ? null : defaultFrame
+    ? defaults.fit(naturalWidth, naturalHeight)
     : { width: naturalWidth * scale, height: naturalHeight * scale };
   return {
     ...node,
@@ -155,9 +189,10 @@ function canvasImageLayoutBox(node: CanvasFrameNode, includeFrame: boolean) {
   const arranged = !untouched ? { width: node.width, height: node.height }
     : includeFrame ? { width: Math.max(width, node.width), height: Math.max(height, node.height) }
     : { width, height };
-  // Legacy default frames were only roughly 4:3; read them as the current default box.
-  return isDefaultCanvasImageNodeSize(arranged.width, arranged.height)
-    ? { width: CANVAS_IMAGE_NODE_WIDTH, height: CANVAS_IMAGE_NODE_HEIGHT }
+  // Legacy default image frames were only roughly 4:3; read them as the current default box.
+  const defaults = canvasMediaFrameDefaults(node);
+  return defaults.isDefault(arranged.width, arranged.height)
+    ? { width: defaults.width, height: defaults.height }
     : arranged;
 }
 
@@ -180,14 +215,15 @@ export function fitCanvasImageFrameInLayoutBox<T extends CanvasFrameNode>(node: 
 }
 
 /**
- * Preview the requested ratio on an empty image node before generation. The default box takes the
- * regular media fit; a box the user resized only shrinks. Repeated ratio changes start from the same box.
+ * Preview the requested ratio on an empty image or video node before generation. The default box takes
+ * the regular media fit; a box the user resized only shrinks. Repeated ratio changes start from the same box.
  */
 export function shapeEmptyCanvasImageFrame<T extends CanvasFrameNode>(node: T, width: number, height: number): T {
   if (!(width > 0) || !(height > 0)) return node;
   const box = canvasImageLayoutBox(node, false);
-  const frame = isDefaultCanvasImageNodeSize(box.width, box.height)
-    ? fitCanvasImageNodeSize(width, height)
+  const defaults = canvasMediaFrameDefaults(node);
+  const frame = defaults.isDefault(box.width, box.height)
+    ? defaults.fit(width, height)
     : containInBox(box, width / height);
   const unchanged = Math.abs(frame.width - node.width) <= CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE
     && Math.abs(frame.height - node.height) <= CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE;
@@ -378,6 +414,21 @@ export function videoConfigFromNode(node: CanvasNodeData, fallbackModel: string)
     return { ...config, size: !config.model || isSeedanceVideoModel(config.model) ? CANVAS_VIDEO_DEFAULT_RATIO : CANVAS_VIDEO_DEFAULT_SIZE };
   }
   return config;
+}
+
+/** Frame shape of a normalized video request ("16:9" or "1280x720"). */
+export function canvasVideoRequestedDimensions(size: string) {
+  const match = size.match(/^(\d+)[:x](\d+)$/);
+  const width = Number(match?.[1]);
+  const height = Number(match?.[2]);
+  return width > 0 && height > 0 ? { width, height } : undefined;
+}
+
+/** Shape an empty, idle video node will request; the submitted ratio already reflects model fallbacks. */
+export function canvasEmptyVideoRequestDimensions(node: CanvasNodeData, fallbackModel: string) {
+  if (node.kind !== "video" || node.metadata?.status === "loading") return undefined;
+  if (assetIdFromNode(node) || imageSrcFromNode(node, {})) return undefined;
+  return canvasVideoRequestedDimensions(videoConfigFromNode(node, fallbackModel).size);
 }
 
 export function audioConfigFromNode(node: CanvasNodeData, fallbackModel: string) {

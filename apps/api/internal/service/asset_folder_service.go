@@ -42,6 +42,7 @@ type AssetFolderService struct {
 	folders       repository.AssetFolderRepository
 	assets        repository.AssetRepository
 	projects      repository.ProjectRepository
+	references    repository.AssetReferenceRepository
 	activeChecker ActiveAssetFolderReferenceChecker
 	archiveZone   *time.Location
 }
@@ -49,8 +50,8 @@ type AssetFolderService struct {
 type AssetDefaultFolders struct {
 	Root           model.AssetFolder
 	Unsorted       model.AssetFolder
-	Upload         model.AssetFolder
 	ImageWorkbench model.AssetFolder
+	VideoWorkbench model.AssetFolder
 	Canvas         model.AssetFolder
 	Comic          model.AssetFolder
 }
@@ -59,6 +60,8 @@ type AssetFolderView struct {
 	model.AssetFolder
 	AssetCount           int64 `json:"asset_count"`
 	DescendantAssetCount int64 `json:"descendant_asset_count"`
+	// CanvasDeleted marks a retained canvas archive whose canvas no longer exists.
+	CanvasDeleted bool `json:"canvas_deleted,omitempty"`
 }
 
 type AssetFolderCreateInput struct {
@@ -117,6 +120,12 @@ func (s *AssetFolderService) SetProjectRepository(projects repository.ProjectRep
 	s.projects = projects
 }
 
+// SetAssetReferenceRepository lets canvas folders also list assets their canvas
+// uses from elsewhere, such as a copied canvas reusing the original's results.
+func (s *AssetFolderService) SetAssetReferenceRepository(references repository.AssetReferenceRepository) {
+	s.references = references
+}
+
 func (s *AssetFolderService) EnsureDefaults(userID string, scope string) (AssetDefaultFolders, error) {
 	return s.ensureDefaultsForWorkspace(userID, WorkspaceIDForScope(scope, userID))
 }
@@ -132,11 +141,11 @@ func (s *AssetFolderService) ensureDefaultsForWorkspace(userID string, workspace
 		sort int
 		dest *model.AssetFolder
 	}{
-		{name: "未分类", key: model.AssetFolderSystemKeyUnsorted, sort: 10},
-		{name: "手动上传", key: model.AssetFolderSystemKeyUpload, sort: 20},
+		{name: "待整理", key: model.AssetFolderSystemKeyUnsorted, sort: 90},
 		{name: "生图工作台", key: model.AssetFolderSystemKeyImageWorkbench, sort: 30},
 		{name: "画布工坊", key: model.AssetFolderSystemKeyCanvas, sort: 0},
 		{name: "资产助手", key: model.AssetFolderSystemKeyComic, sort: 50},
+		{name: "视频工作台", key: model.AssetFolderSystemKeyVideoWorkbench, sort: 40},
 	}
 	created := make([]model.AssetFolder, 0, len(definitions))
 	for _, definition := range definitions {
@@ -157,7 +166,7 @@ func (s *AssetFolderService) ensureDefaultsForWorkspace(userID string, workspace
 		}
 		created = append(created, folder)
 	}
-	return AssetDefaultFolders{Root: root, Unsorted: created[0], Upload: created[1], ImageWorkbench: created[2], Canvas: created[3], Comic: created[4]}, nil
+	return AssetDefaultFolders{Root: root, Unsorted: created[0], ImageWorkbench: created[1], Canvas: created[2], Comic: created[3], VideoWorkbench: created[4]}, nil
 }
 
 func (s *AssetFolderService) List(userID string, scope string) ([]AssetFolderView, error) {
@@ -220,15 +229,26 @@ func (s *AssetFolderService) List(userID string, scope string) ([]AssetFolderVie
 		delete(counts, sourceID)
 	}
 	folders = withoutDateFolders(folders)
+	deletedCanvas, err := s.deletedCanvasFolderIDs(workspaceID, folders)
+	if err != nil {
+		return nil, err
+	}
+	referenced, err := s.canvasReferencedAssets(workspaceID, folders, dateTargets)
+	if err != nil {
+		return nil, err
+	}
 	children := folderChildren(folders)
 	result := make([]AssetFolderView, 0, len(folders))
 	for _, folder := range folders {
 		folder.Scope = WorkspaceScopeFromID(folder.WorkspaceID)
+		descendants := descendantFolderIDs(folder.ID, children)
+		assetCount := counts[folder.ID] + int64(len(referenced.shownIn([]string{folder.ID})))
 		descendantCount := counts[folder.ID]
-		for _, id := range descendantFolderIDs(folder.ID, children) {
+		for _, id := range descendants {
 			descendantCount += counts[id]
 		}
-		result = append(result, AssetFolderView{AssetFolder: folder, AssetCount: counts[folder.ID], DescendantAssetCount: descendantCount})
+		descendantCount += int64(len(referenced.shownIn(append([]string{folder.ID}, descendants...))))
+		result = append(result, AssetFolderView{AssetFolder: folder, AssetCount: assetCount, DescendantAssetCount: descendantCount, CanvasDeleted: deletedCanvas[folder.ID]})
 	}
 	return result, nil
 }
@@ -388,6 +408,13 @@ func (s *AssetFolderService) validateDestinationForWorkspace(folderID string, wo
 	if folder.SystemKey == model.AssetFolderSystemKeyRoot {
 		return model.AssetFolder{}, ErrAssetFolderParent
 	}
+	if isRetiredUploadFolder(folder) {
+		defaults, err := s.ensureDefaultsForWorkspace(folder.CreatedBy, workspaceID)
+		if err != nil {
+			return model.AssetFolder{}, err
+		}
+		return defaults.Unsorted, nil
+	}
 	if isLegacyDateFolder(folder) {
 		parent, err := s.validateDestinationForWorkspace(folder.ParentID, workspaceID)
 		if err != nil {
@@ -477,17 +504,24 @@ func (s *AssetFolderService) resolveRegistrationForWorkspace(userID string, work
 	}
 	var folder model.AssetFolder
 	switch sourceType {
-	case model.AssetSourceManualUpload:
-		folder = defaults.Upload
 	case model.AssetSourceImageWorkbench:
 		folder = defaults.ImageWorkbench
-	case model.AssetSourceCanvas:
-		// Canvas libraries intentionally expose only four destinations. Legacy
-		// categories such as costume/reference therefore fall back to "other".
-		if category != model.AssetCategoryCharacter && category != model.AssetCategoryEnvironment && category != model.AssetCategoryProp {
-			category = model.AssetCategoryOther
-			context.Category = category
+	case model.AssetSourceVideoWorkbench:
+		folder = defaults.VideoWorkbench
+	case model.AssetSourceSDVideo:
+		// The SD channel is not a workspace of its own: canvas results follow
+		// their canvas, anything else keeps the historical unsorted destination.
+		if strings.TrimSpace(context.SourceProjectID) == "" {
+			folder = defaults.Unsorted
+			break
 		}
+		category = model.AssetCategoryOther
+		context.Category = category
+		folder, err = s.resolveCanvasCategoryFolder(userID, workspaceID, context.SourceProjectID, context.SourceProjectName, category)
+	case model.AssetSourceCanvas:
+		// Canvas libraries intentionally expose only four destinations.
+		category = canvasLibraryCategory(category)
+		context.Category = category
 		folder, err = s.resolveCanvasCategoryFolder(userID, workspaceID, context.SourceProjectID, context.SourceProjectName, category)
 	case model.AssetSourceComicBatch:
 		if strings.TrimSpace(context.SourceProjectID) == "" {
@@ -595,7 +629,7 @@ func (s *AssetFolderService) FolderIDsForQuery(folderID string, includeDescendan
 	if err != nil {
 		return nil, err
 	}
-	if isLegacyDateFolder(folder) {
+	if isRetiredSystemFolder(folder) {
 		folder, err = s.validateDestinationForWorkspace(folderID, workspaceID)
 		if err != nil {
 			return nil, err
@@ -746,7 +780,7 @@ func NormalizeAssetSourceType(value string) (string, error) {
 		return model.AssetSourceUnknown, nil
 	}
 	switch value {
-	case model.AssetSourceManualUpload, model.AssetSourceImageWorkbench, model.AssetSourceCanvas,
+	case model.AssetSourceManualUpload, model.AssetSourceImageWorkbench, model.AssetSourceVideoWorkbench, model.AssetSourceCanvas,
 		model.AssetSourceComicBatch, model.AssetSourceSDVideo, model.AssetSourceLegacy, model.AssetSourceUnknown:
 		return value, nil
 	default:

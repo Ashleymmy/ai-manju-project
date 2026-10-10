@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { copyProjectSnapshot, projectCopyTitle, copyProject } from "./copyProject";
+import { copyProjectSnapshot, copyProject } from "./copyProject";
 import { ApiError } from "@/shared/api/errors";
 
 const api = vi.hoisted(() => ({ createProject: vi.fn(), getProject: vi.fn(), getProjectSummaries: vi.fn(), getProjectSnapshot: vi.fn() }));
@@ -26,8 +26,7 @@ describe("independent canvas copies", () => {
     expect(source.nodes[1].metadata.jobId).toBe("job");
     expect(copy.nodes[0].metadata.generationRevisions).toEqual([{ assetId: "old" }]);
   });
-  it("numbers repeated copies and refuses corrupted snapshots", () => {
-    expect(projectCopyTitle("画布", new Set(["画布（副本）", "画布（副本） 2"]))).toBe("画布（副本） 3");
+  it("refuses corrupted snapshots", () => {
     expect(() => copyProjectSnapshot(null)).toThrow();
     expect(() => copyProjectSnapshot({ nodes: "bad" })).toThrow();
   });
@@ -41,8 +40,7 @@ describe("independent canvas copies", () => {
   it("falls back only for legacy missing snapshots", async () => {
     api.getProject.mockResolvedValue({ id: "source", title: "Original", data: { nodes: [{ id: "text" }] } });
     api.getProjectSnapshot.mockRejectedValue(new ApiError("missing", 404));
-    api.getProjectSummaries.mockResolvedValue([]);
     await copyProject("source", "team");
-    expect(api.createProject).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "team", data: { nodes: [{ id: "text" }] } }));
+    expect(api.createProject).toHaveBeenLastCalledWith(expect.objectContaining({ title: "Original（副本）", unique_title: true, scope: "team", data: { nodes: [{ id: "text" }] } }));
   });
 });

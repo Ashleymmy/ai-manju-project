@@ -17,6 +17,7 @@ type AssetReferenceRepository interface {
 	ReplaceForSource(workspaceID string, referenceType string, referenceID string, assetIDs []string) error
 	ListByAssetIDs(workspaceID string, assetIDs []string) ([]model.AssetReference, error)
 	ListAssetIDsForSource(workspaceID string, referenceType string, referenceID string) ([]string, error)
+	ListByType(workspaceID string, referenceType string) ([]model.AssetReference, error)
 	DeleteForSource(workspaceID string, referenceType string, referenceID string) error
 }
 
@@ -83,6 +84,24 @@ func (r *MemoryAssetReferenceRepository) ListAssetIDsForSource(workspaceID strin
 	return result, nil
 }
 
+func (r *MemoryAssetReferenceRepository) ListByType(workspaceID string, referenceType string) ([]model.AssetReference, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make([]model.AssetReference, 0)
+	for _, reference := range r.references {
+		if reference.WorkspaceID == workspaceID && reference.ReferenceType == referenceType {
+			result = append(result, reference)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].ReferenceID != result[j].ReferenceID {
+			return result[i].ReferenceID < result[j].ReferenceID
+		}
+		return result[i].AssetID < result[j].AssetID
+	})
+	return result, nil
+}
+
 func (r *MemoryAssetReferenceRepository) DeleteForSource(workspaceID string, referenceType string, referenceID string) error {
 	return r.ReplaceForSource(workspaceID, referenceType, referenceID, nil)
 }
@@ -125,6 +144,13 @@ func (r *GormAssetReferenceRepository) ListAssetIDsForSource(workspaceID string,
 	err := r.db.Model(&model.AssetReference{}).
 		Where("workspace_id = ? AND reference_type = ? AND reference_id = ?", workspaceID, referenceType, referenceID).
 		Order("asset_id ASC").Pluck("asset_id", &result).Error
+	return result, err
+}
+
+func (r *GormAssetReferenceRepository) ListByType(workspaceID string, referenceType string) ([]model.AssetReference, error) {
+	var result []model.AssetReference
+	err := r.db.Where("workspace_id = ? AND reference_type = ?", workspaceID, referenceType).
+		Order("reference_id ASC, asset_id ASC").Find(&result).Error
 	return result, err
 }
 

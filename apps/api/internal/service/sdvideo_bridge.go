@@ -303,7 +303,7 @@ func (b *SDVideoBridge) reconcile(ctx context.Context, job model.Job) error {
 		ContentType: contentType, Reader: bytes.NewReader(body),
 		ParentAssetIDs: sdVideoParentAssets(original),
 		Registration: AssetRegistrationContext{
-			AssetName: name, SourceType: model.AssetSourceSDVideo, SourceJobID: job.ID,
+			AssetName: name, SourceType: sdVideoAssetSourceType(original), SourceJobID: job.ID,
 			SourceProjectID: stringValue(metadata["project_id"]), SourceNodeID: stringValue(metadata["node_id"]),
 			SourceMetadata: VideoHistoryMetadata(original),
 		},
@@ -323,6 +323,15 @@ func (b *SDVideoBridge) reconcile(ctx context.Context, job model.Job) error {
 		return err
 	}
 	return b.jobs.repo.SetBridgeState(job.ID, "done")
+}
+
+// sdVideoAssetSourceType files video-workbench conversations under their own
+// workbench; canvas and other callers keep the SD channel marker.
+func sdVideoAssetSourceType(request map[string]any) string {
+	if stringValue(request["project_id"]) == "" && stringValue(request["conversation_id"]) != "" {
+		return model.AssetSourceVideoWorkbench
+	}
+	return model.AssetSourceSDVideo
 }
 
 func sdVideoParentAssets(request map[string]any) []string {

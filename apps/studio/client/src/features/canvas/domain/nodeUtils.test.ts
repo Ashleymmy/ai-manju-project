@@ -9,8 +9,10 @@ import {
   canvasGenerationInputsFromVideoSnapshot,
   canvasImageOriginalSize,
   canvasImageRequestedDimensions,
+  canvasEmptyVideoRequestDimensions,
   fitCanvasImageFrameInLayoutBox,
   fitCanvasImageNodeSize,
+  fitCanvasVideoNodeSize,
   shapeEmptyCanvasImageFrame,
   imageResolutionFromNode,
   isCanvasImageResolutionAvailable,
@@ -131,6 +133,28 @@ describe("canvas node utilities", () => {
     // Untouched default frames keep the regular media fit, as uploads always did.
     expect(applyCanvasImageNaturalSize({ width: 320, height: 238, metadata: {} }, 1080, 1920, "layoutBox"))
       .toMatchObject({ width: 315, height: 560 });
+  });
+
+  it("shapes empty video nodes like images: picked ratio at once, results only shrink into the planned box", () => {
+    expect(fitCanvasVideoNodeSize(1280, 720)).toEqual({ width: 420, height: 236.25 });
+    expect(fitCanvasVideoNodeSize(720, 1280)).toEqual({ width: 315, height: 560 });
+
+    const empty = { id: "v", kind: "video", title: "", content: "", x: 0, y: 0, width: 420, height: 236.25, metadata: { size: "9:16" } } as CanvasNodeData;
+    expect(canvasEmptyVideoRequestDimensions(empty, "seedance-2.0")).toEqual({ width: 9, height: 16 });
+    expect(canvasEmptyVideoRequestDimensions({ ...empty, metadata: { size: "4:7" } }, "sora-2")).toEqual({ width: 1024, height: 1792 });
+    expect(canvasEmptyVideoRequestDimensions({ ...empty, metadata: { size: "9:16", status: "loading" } }, "sora-2")).toBeUndefined();
+    expect(canvasEmptyVideoRequestDimensions({ ...empty, metadata: { size: "9:16", assetId: "video" } }, "sora-2")).toBeUndefined();
+
+    const portrait = shapeEmptyCanvasImageFrame(empty, 9, 16);
+    expect(portrait).toMatchObject({ width: 315, height: 560 });
+    expect(shapeEmptyCanvasImageFrame(portrait, 16, 9)).toMatchObject({ width: 420, height: 236.25 });
+    expect(shapeEmptyCanvasImageFrame({ ...empty, width: 600, height: 300 }, 9, 16).width).toBeCloseTo(168.75, 8);
+
+    // A generated result in another ratio stays in the planned box; an imported file still takes the regular fit.
+    const generated = applyCanvasImageNaturalSize({ ...empty, metadata: { generatedInCanvas: true } }, 1080, 1920, "layoutBox");
+    expect(generated.height).toBe(236.25);
+    expect(generated.width).toBeCloseTo(236.25 * 9 / 16, 8);
+    expect(applyCanvasImageNaturalSize({ ...empty, metadata: {} }, 1080, 1920, "layoutBox")).toMatchObject({ width: 315, height: 560 });
   });
 
   it("keeps a stored original size only while it matches the loaded thumbnail's ratio", () => {
