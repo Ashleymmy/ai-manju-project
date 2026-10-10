@@ -10,6 +10,7 @@ import {
 } from "./nodeUtils";
 import { imageModelSupportsDetail } from "@/entities/model/imageProtocol";
 import { extractCanvasMentionTokens, type CanvasMentionReference } from "./mentions";
+import { assetIdFromNode, imageSrcFromNode } from "./nodes";
 import type { CanvasNodeData } from "./types";
 
 export type CanvasImageDimensions = { width: number; height: number };
@@ -19,6 +20,8 @@ const IMAGE_DIMENSION_STEP = 16;
 const IMAGE_MAX_EDGE = 3840;
 const IMAGE_MAX_RATIO = 3;
 const IMAGE_MAX_PIXELS = 8_294_400;
+/** Auto without a reference, bitmap or earlier request follows the empty image node's 4:3 frame. */
+const EMPTY_IMAGE_AUTO_RATIO = "4:3";
 /** Resolution controls pixel budget independently of the model's detail quality. */
 const RESOLUTION_PIXELS = { "1K": 1024 ** 2, "2K": 2048 ** 2, "4K": IMAGE_MAX_PIXELS } as const;
 
@@ -54,6 +57,23 @@ export function canvasImageAutoReferenceSize(
   return undefined;
 }
 
+/**
+ * Pixel size an empty, idle image node will request, when it is known before submission.
+ * Undefined for nodes that already show media or whose auto reference is only readable at submission.
+ */
+export function canvasEmptyImageRequestDimensions(
+  node: CanvasNodeData,
+  references: readonly CanvasMentionReference[],
+  nodes: readonly CanvasNodeData[],
+): CanvasImageDimensions | undefined {
+  if (node.kind !== "image" || node.metadata?.status === "loading") return undefined;
+  if (assetIdFromNode(node) || imageSrcFromNode(node, {})) return undefined;
+  const reference = canvasImageAutoReferenceSize(node, references, nodes);
+  if (reference === "unknown") return undefined;
+  const [width, height] = canvasImageGenerationSettings(node, undefined, undefined, reference).size.split("x").map(Number);
+  return width > 0 && height > 0 ? { width, height } : undefined;
+}
+
 export function canvasImageGenerationSettings(
   node: CanvasNodeData,
   size = sizeFromNode(node),
@@ -62,8 +82,9 @@ export function canvasImageGenerationSettings(
 ) {
   const imageResolution = imageResolutionFromNode(node);
   const quality = imageModelSupportsDetail(model) ? qualityFromNode(node) : "auto";
+  const effectiveSize = size === "auto" && imageAutoRatio(node, autoReferenceSize) === undefined ? EMPTY_IMAGE_AUTO_RATIO : size;
   // Explicit ratio buttons must stay exact after the API's 16 px alignment.
-  const ratioParts = (size === "panorama" ? "3:1" : size).match(/^(\d+):(\d+)$/);
+  const ratioParts = (effectiveSize === "panorama" ? "3:1" : effectiveSize).match(/^(\d+):(\d+)$/);
   if (ratioParts) {
     const rw = Number(ratioParts[1]);
     const rh = Number(ratioParts[2]);
@@ -108,13 +129,19 @@ function imageAspectRatio(node: CanvasNodeData, size: string, autoReferenceSize?
   if (size === "panorama") return IMAGE_MAX_RATIO;
   const parts = size.split(/[:x]/).map(Number);
   const explicit = parts.length === 2 ? positiveRatio(parts[0], parts[1]) : undefined;
-  // Auto follows the first reference image, then the current bitmap (never the resized
-  // canvas card), then the last request. Empty nodes without references use 1:1.
+  return Math.max(1 / IMAGE_MAX_RATIO, Math.min(IMAGE_MAX_RATIO, explicit ?? imageAutoRatio(node, autoReferenceSize) ?? 1));
+}
+
+/**
+ * Auto follows the first reference image, then the current bitmap (never the resized
+ * canvas card), then the last request. Undefined means none is known (an empty node).
+ */
+function imageAutoRatio(node: CanvasNodeData, autoReferenceSize?: CanvasImageDimensions) {
   const reference = autoReferenceSize ? positiveRatio(autoReferenceSize.width, autoReferenceSize.height) : undefined;
   const natural = positiveRatio(Number(node.metadata?.naturalWidth), Number(node.metadata?.naturalHeight));
   const requested = String(node.metadata?.requestedImageSize || "").split("x").map(Number);
   const previous = requested.length === 2 ? positiveRatio(requested[0], requested[1]) : undefined;
-  return Math.max(1 / IMAGE_MAX_RATIO, Math.min(IMAGE_MAX_RATIO, explicit ?? reference ?? natural ?? previous ?? 1));
+  return reference ?? natural ?? previous;
 }
 
 function positiveRatio(width: number, height: number) {

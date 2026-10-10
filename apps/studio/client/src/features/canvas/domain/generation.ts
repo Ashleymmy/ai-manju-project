@@ -6,6 +6,7 @@ import type { CanvasVideoReferenceSnapshot } from "./video";
 import { videoResultPersistentMetadata } from "./video";
 import { refreshImageBatchRoot } from "./batch";
 import { ensureUniqueCanvasNodeTitles, preserveCanvasNodeTitle } from "./nodeTitles";
+import { canvasImageNodeNeedsFit, canvasImageRequestedDimensions, fitCanvasImageFrameInLayoutBox } from "./nodeUtils";
 import type { CanvasNodeData } from "./types";
 import { stringValue } from "./value";
 import {
@@ -137,13 +138,18 @@ export function failGeneratedVideoTarget(nodes: CanvasNodeData[], targetNodeId: 
 export function resolveGeneratedNode(nodes: CanvasNodeData[], childId: string, generated: GeneratedImage | undefined, prompt: string) {
   return nodes.map((node) => {
     if (node.id !== childId) return node;
+    const requested = generated ? canvasImageRequestedDimensions(node.metadata?.requestedImageSize) : undefined;
+    // A result in a new ratio shrinks into the arranged box instead of growing over neighbours.
+    const framed = requested && canvasImageNodeNeedsFit(node, requested.width, requested.height)
+      ? fitCanvasImageFrameInLayoutBox(node, requested.width / requested.height)
+      : node;
     return {
-      ...node,
+      ...framed,
       title: preserveCanvasNodeTitle(node, "生成图片"),
       imageAssetId: generated?.assetId,
       imageSrc: generated?.assetId ? undefined : generated?.src,
       metadata: {
-        ...node.metadata,
+        ...framed.metadata,
         generatedInCanvas: Boolean(generated) || node.metadata?.generatedInCanvas,
         assetId: generated?.assetId,
         // 批次根节点自身也是生成目标：把"自己的"结果单独留档，避免主图切换后被覆盖丢失
@@ -155,6 +161,10 @@ export function resolveGeneratedNode(nodes: CanvasNodeData[], childId: string, g
         jobProgress: undefined,
         errorDetails: generated ? undefined : "任务已完成，但没有返回图片",
         mimeType: generated?.contentType,
+        // The new image must not inherit the previous result's size; the request is the best
+        // estimate until the loaded bitmap confirms its ratio.
+        naturalWidth: requested?.width,
+        naturalHeight: requested?.height,
         generatedAt: generated
           ? stringValue(node.metadata?.generatedAt) || new Date().toISOString()
           : node.metadata?.generatedAt,

@@ -517,7 +517,7 @@ export function CanvasInspector({
                       </div>
                       <div className="param-group"><span className="param-group-label">比例</span>
                         <div className="param-ratio-grid">
-                          <button type="button" className={sizeFromNode(selectedNode) === "auto" ? "param-ratio active" : "param-ratio"} title="跟随第一张 @ 引用的参考图比例；没有参考图时沿用当前图片比例，空节点为 1:1" onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: "auto" } })}>
+                          <button type="button" className={sizeFromNode(selectedNode) === "auto" ? "param-ratio active" : "param-ratio"} title="跟随第一张 @ 引用的参考图比例；没有参考图时沿用当前图片比例，空节点为 4:3" onClick={() => updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), size: "auto" } })}>
                             <i className="param-ratio-icon" style={ratioIconStyle("auto")} />
                             <span>自适应</span>
                           </button>

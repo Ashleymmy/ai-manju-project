@@ -935,7 +935,9 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.nodes.map(node => node.id)).toEqual([source.id, edit.id, fresh.id]);
     expect(harness.nodes.find(node => node.id === edit.id)).toEqual(edited);
     expect(harness.nodes.find(node => node.id === fresh.id)).toEqual(fresh);
-    expect(harness.nodes[0]).toMatchObject({ x: 900, y: 600, width: 600, title: "移动后的源节点", metadata: { status: "success" } });
+    expect(harness.nodes[0]).toMatchObject({ x: 900, y: 600, title: "移动后的源节点", metadata: { status: "success" } });
+    // A 1:1 image result shrinks into the 600×238 frame the user arranged instead of growing.
+    expect(harness.nodes[0]).toMatchObject(kind === "image" ? { width: 238, height: 238 } : { width: 600 });
     expect(harness.edges).toEqual(edges);
     expect(harness.bindings.getSelectedNodeId()).toBe(fresh.id);
     for (const [savedNodes, savedEdges] of harness.persistSnapshot.mock.calls) {
@@ -1308,7 +1310,7 @@ describe("CanvasGenerationJobsController", () => {
     vi.mocked(services.readImageMetadata).mockRejectedValueOnce(new Error("unreadable"));
     harness.nodes[0] = { ...harness.nodes[0], metadata: { ...harness.nodes[0].metadata, naturalWidth: undefined, naturalHeight: undefined, requestedImageSize: undefined } };
     await harness.controller.generateFromNode(source.id);
-    expect(vi.mocked(services.generateImages).mock.calls[1][0]).toMatchObject({ size: "1024x1024" });
+    expect(vi.mocked(services.generateImages).mock.calls[1][0]).toMatchObject({ size: "1152x864" });
     expect(harness.onError).not.toHaveBeenCalled();
   });
 
@@ -1819,6 +1821,8 @@ describe("CanvasGenerationJobsController", () => {
     expect(harness.nodes).toHaveLength(2);
     expect(harness.nodes[0]).toMatchObject({ id: "video-1", metadata: { assetId: "asset-video-imported" } });
     expect(harness.nodes[1]).toMatchObject({ kind: "video", metadata: { assetId: "asset-video-generated", status: "success" } });
+    // The pending frame matches an empty video node until the result reports its own ratio.
+    expect(harness.nodes[1]!.width / harness.nodes[1]!.height).toBeCloseTo(16 / 9, 8);
     expect(harness.edges).toEqual([expect.objectContaining({ from: "video-1", to: harness.nodes[1]?.id })]);
   });
 

@@ -29,9 +29,11 @@ import { workspaceScopeValue } from "./workspace";
 import { CANVAS_NODE_RESIZE_BOUNDS } from "./nodeResize";
 import { extractCanvasMentionTokens } from "./mentions";
 
-/** 空图片节点默认尺寸（约 4:3）。有图后按原图像素比适配。 */
+/** 空图片节点默认尺寸（4:3，与“自适应”无参考图时的生成比例一致）。有图后按原图像素比适配。 */
 export const CANVAS_IMAGE_NODE_WIDTH = 320;
-export const CANVAS_IMAGE_NODE_HEIGHT = 238;
+export const CANVAS_IMAGE_NODE_HEIGHT = 240;
+/** Earlier default frames (320×238 and 300×220) still count as untouched defaults. */
+const CANVAS_IMAGE_NODE_LEGACY_DEFAULT_SIZES = [{ width: 320, height: 238 }, { width: 300, height: 220 }] as const;
 /** 竖图允许的最大节点高度，避免 9:16 把画布撑得过高。 */
 export const CANVAS_IMAGE_NODE_MAX_HEIGHT = 560;
 export const CANVAS_IMAGE_NODE_MIN_WIDTH = 120;
@@ -51,6 +53,10 @@ export const CANVAS_IMAGE_AVAILABLE_RESOLUTIONS = ["1K"] as const satisfies read
 export function isCanvasImageResolutionAvailable(value: CanvasImageResolution): boolean {
   return (CANVAS_IMAGE_AVAILABLE_RESOLUTIONS as readonly string[]).includes(value);
 }
+
+/** 空视频节点默认 16:9 横屏框；有视频后按实际像素比适配。 */
+export const CANVAS_VIDEO_NODE_WIDTH = 420;
+export const CANVAS_VIDEO_NODE_HEIGHT = CANVAS_VIDEO_NODE_WIDTH * 9 / 16;
 
 /** 视频节点使用明确比例；旧的自适应设置回退到横屏。 */
 export const CANVAS_VIDEO_DEFAULT_RATIO = "16:9";
@@ -80,10 +86,8 @@ export function fitCanvasImageNodeSize(naturalWidth: number, naturalHeight: numb
 }
 
 export function isDefaultCanvasImageNodeSize(width: number, height: number) {
-  return (
-    (Math.abs(width - CANVAS_IMAGE_NODE_WIDTH) <= 1 && Math.abs(height - CANVAS_IMAGE_NODE_HEIGHT) <= 1)
-    || (Math.abs(width - 300) <= 1 && Math.abs(height - 220) <= 1)
-  );
+  return [{ width: CANVAS_IMAGE_NODE_WIDTH, height: CANVAS_IMAGE_NODE_HEIGHT }, ...CANVAS_IMAGE_NODE_LEGACY_DEFAULT_SIZES]
+    .some(size => Math.abs(width - size.width) <= 1 && Math.abs(height - size.height) <= 1);
 }
 
 export function canvasImageNodeNeedsFit(
@@ -97,17 +101,30 @@ export function canvasImageNodeNeedsFit(
     > CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE * Math.max(1, aspect);
 }
 
-export function applyCanvasImageNaturalSize<T extends {
-  width: number;
-  height: number;
-  metadata?: Record<string, unknown>;
-}>(node: T, naturalWidth: number, naturalHeight: number): T {
+type CanvasFrameNode = { width: number; height: number; metadata?: Record<string, unknown> };
+
+/**
+ * `keepWidth` grows or shrinks the height around the current width (videos, legacy repairs).
+ * `layoutBox` keeps image results inside the box the user arranged, so they never grow over neighbours.
+ */
+export type CanvasImageFrameFit = "keepWidth" | "layoutBox";
+
+export function applyCanvasImageNaturalSize<T extends CanvasFrameNode>(
+  node: T,
+  naturalWidth: number,
+  naturalHeight: number,
+  fit: CanvasImageFrameFit = "keepWidth",
+): T {
   if (!Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight) || !(naturalWidth > 0) || !(naturalHeight > 0)) return node;
   const needsFit = canvasImageNodeNeedsFit(node, naturalWidth, naturalHeight);
   const storedWidth = numberValue(node.metadata?.naturalWidth);
   const storedHeight = numberValue(node.metadata?.naturalHeight);
   const sameMeta = storedWidth === naturalWidth && storedHeight === naturalHeight;
   if (!needsFit && sameMeta) return node;
+  if (needsFit && fit === "layoutBox" && !isDefaultCanvasImageNodeSize(node.width, node.height)) {
+    const fitted = fitCanvasImageFrameInLayoutBox(node, naturalWidth / naturalHeight);
+    return { ...fitted, metadata: { ...fitted.metadata, naturalWidth, naturalHeight } };
+  }
   // Repair stretched legacy frames without resetting correctly resized media on reload.
   const scale = Math.min(node.width / naturalWidth, CANVAS_NODE_RESIZE_BOUNDS.maxWidth / naturalWidth, CANVAS_NODE_RESIZE_BOUNDS.maxHeight / naturalHeight);
   const fitted = !needsFit ? null : isDefaultCanvasImageNodeSize(node.width, node.height)
@@ -122,6 +139,87 @@ export function applyCanvasImageNaturalSize<T extends {
       naturalHeight,
     },
   };
+}
+
+/** The user's arranged box, remembered while the frame still has the size an automatic fit gave it. */
+export type CanvasImageLayoutBox = { width: number; height: number; fitWidth: number; fitHeight: number };
+
+function canvasImageLayoutBox(node: CanvasFrameNode, includeFrame: boolean) {
+  const raw = node.metadata?.imageLayoutBox;
+  const box = isRecord(raw) ? raw : undefined;
+  const width = numberValue(box?.width) || 0;
+  const height = numberValue(box?.height) || 0;
+  const untouched = width > 0 && height > 0
+    && Math.abs((numberValue(box?.fitWidth) ?? Number.NaN) - node.width) <= CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE
+    && Math.abs((numberValue(box?.fitHeight) ?? Number.NaN) - node.height) <= CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE;
+  const arranged = !untouched ? { width: node.width, height: node.height }
+    : includeFrame ? { width: Math.max(width, node.width), height: Math.max(height, node.height) }
+    : { width, height };
+  // Legacy default frames were only roughly 4:3; read them as the current default box.
+  return isDefaultCanvasImageNodeSize(arranged.width, arranged.height)
+    ? { width: CANVAS_IMAGE_NODE_WIDTH, height: CANVAS_IMAGE_NODE_HEIGHT }
+    : arranged;
+}
+
+function withCanvasImageFrame<T extends CanvasFrameNode>(node: T, box: { width: number; height: number }, frame: { width: number; height: number }): T {
+  const layoutBox: CanvasImageLayoutBox = { width: box.width, height: box.height, fitWidth: frame.width, fitHeight: frame.height };
+  return { ...node, width: frame.width, height: frame.height, metadata: { ...node.metadata, imageLayoutBox: layoutBox } };
+}
+
+function containInBox(box: { width: number; height: number }, aspect: number) {
+  return aspect >= box.width / box.height
+    ? { width: box.width, height: box.width / aspect }
+    : { width: box.height * aspect, height: box.height };
+}
+
+/** A new result only shrinks into the arranged box (and the frame it was shown in), never grows past it. */
+export function fitCanvasImageFrameInLayoutBox<T extends CanvasFrameNode>(node: T, aspect: number): T {
+  if (!Number.isFinite(aspect) || !(aspect > 0)) return node;
+  const box = canvasImageLayoutBox(node, true);
+  return withCanvasImageFrame(node, box, containInBox(box, aspect));
+}
+
+/**
+ * Preview the requested ratio on an empty image node before generation. The default box takes the
+ * regular media fit; a box the user resized only shrinks. Repeated ratio changes start from the same box.
+ */
+export function shapeEmptyCanvasImageFrame<T extends CanvasFrameNode>(node: T, width: number, height: number): T {
+  if (!(width > 0) || !(height > 0)) return node;
+  const box = canvasImageLayoutBox(node, false);
+  const frame = isDefaultCanvasImageNodeSize(box.width, box.height)
+    ? fitCanvasImageNodeSize(width, height)
+    : containInBox(box, width / height);
+  const unchanged = Math.abs(frame.width - node.width) <= CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE
+    && Math.abs(frame.height - node.height) <= CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE;
+  return unchanged ? node : withCanvasImageFrame(node, box, frame);
+}
+
+/** Thumbnail rounding and the API's 16 px request alignment stay well within 2% of the original ratio. */
+const CANVAS_IMAGE_ORIGINAL_ASPECT_TOLERANCE = 0.02;
+
+/** Parse a persisted "WIDTHxHEIGHT" image request. */
+export function canvasImageRequestedDimensions(value: unknown) {
+  const match = stringValue(value).match(/^(\d+)x(\d+)$/);
+  const width = Number(match?.[1]);
+  const height = Number(match?.[2]);
+  return width > 0 && height > 0 ? { width, height } : undefined;
+}
+
+/**
+ * Asset previews are thumbnails, so a stored original size wins only while its ratio matches
+ * the loaded bitmap. `stale` means the stored size belonged to a different image.
+ */
+export function canvasImageOriginalSize(
+  metadata: { naturalWidth?: unknown; naturalHeight?: unknown } | undefined,
+  loadedWidth: number,
+  loadedHeight: number,
+) {
+  const loaded = { width: loadedWidth, height: loadedHeight, stale: false };
+  const storedWidth = numberValue(metadata?.naturalWidth) || 0;
+  const storedHeight = numberValue(metadata?.naturalHeight) || 0;
+  if (!(loadedWidth > 0) || !(loadedHeight > 0) || !(storedWidth > 0) || !(storedHeight > 0)) return loaded;
+  const matches = Math.abs(storedWidth / storedHeight / (loadedWidth / loadedHeight) - 1) <= CANVAS_IMAGE_ORIGINAL_ASPECT_TOLERANCE;
+  return matches ? { width: storedWidth, height: storedHeight, stale: false } : { ...loaded, stale: true };
 }
 
 export const VIDEO_SUBMODES = [

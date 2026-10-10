@@ -8,13 +8,76 @@ import { createCanvasStore } from "../model/store";
 import { renameCanvasNode } from "../domain/nodeTitles";
 import { duplicateCanvasNode } from "../domain/clipboard";
 import type { CanvasNodeData } from "../domain/types";
-import { syncCanvasNodeAssetName } from "../services/assetNames";
-import { useCanvasAssetNameSync } from "./useCanvasAssetNameSync";
+import { ApiError } from "@/shared/api/errors";
+import { pendingCanvasAssetNames, syncCanvasNodeAssetName } from "../services/assetNames";
+import { ASSET_NAME_SYNC_RETRY_DELAYS_MS, useCanvasAssetNameSync } from "./useCanvasAssetNameSync";
 
 vi.mock("../services/assetNames", async importOriginal => ({
-  ...await importOriginal<typeof import("../services/assetNames")>(), syncCanvasNodeAssetName: vi.fn(async () => undefined),
+  ...await importOriginal<typeof import("../services/assetNames")>(),
+  syncCanvasNodeAssetName: vi.fn(async () => undefined),
+  pendingCanvasAssetNames: { remember: vi.fn(async () => undefined), forget: vi.fn(async () => undefined), list: vi.fn(async () => []) },
 }));
-afterEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+const renderHarness = async (store: ReturnType<typeof createCanvasStore>) => {
+  const root = createRoot(document.createElement("div"));
+  function Harness() { useCanvasAssetNameSync("user", "project"); return null; }
+  await act(async () => root.render(<QueryClientProvider client={new QueryClient()}><CanvasProvider store={store}><Harness /></CanvasProvider></QueryClientProvider>));
+  return root;
+};
+const imageNode = (id: string, title: string): CanvasNodeData => ({ id, title, kind: "image", x: 0, y: 0, width: 200, height: 200, content: "",
+  metadata: { assetId: id, titleEdited: true, titleBase: title, titleMode: "custom" } });
+
+it("retries a failed library rename silently, remembers it for the next open and forgets it once saved", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.useFakeTimers();
+  const store = createCanvasStore({ session: { loading: false, canonicalProjectScope: "personal" }, graph: { nodes: [imageNode("a", "苹果")] } });
+  const root = await renderHarness(store);
+  try {
+    vi.mocked(syncCanvasNodeAssetName).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await act(async () => store.getState().actions.setField("graph", "nodes", nodes => renameCanvasNode(nodes, "a", "梨")));
+    expect(pendingCanvasAssetNames.remember).toHaveBeenCalledWith(expect.objectContaining({ projectId: "project" }), "media:personal:a", expect.objectContaining({ id: "a", title: "梨" }));
+    expect(syncCanvasNodeAssetName).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(ASSET_NAME_SYNC_RETRY_DELAYS_MS[0]); });
+    expect(vi.mocked(syncCanvasNodeAssetName).mock.calls.map(([node]) => node.title)).toEqual(["梨", "梨"]);
+    expect(pendingCanvasAssetNames.forget).toHaveBeenCalledWith(expect.anything(), "media:personal:a");
+  } finally { await act(async () => root.unmount()); }
+});
+
+it("drops an obsolete retry after a newer rename and stops on permanent library errors", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.useFakeTimers();
+  const store = createCanvasStore({ session: { loading: false, canonicalProjectScope: "personal" }, graph: { nodes: [imageNode("a", "苹果")] } });
+  const root = await renderHarness(store);
+  try {
+    vi.mocked(syncCanvasNodeAssetName).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await act(async () => store.getState().actions.setField("graph", "nodes", nodes => renameCanvasNode(nodes, "a", "梨")));
+    vi.mocked(syncCanvasNodeAssetName).mockRejectedValueOnce(new ApiError("not found", 404));
+    await act(async () => store.getState().actions.setField("graph", "nodes", nodes => renameCanvasNode(nodes, "a", "桃")));
+    await act(async () => { await vi.advanceTimersByTimeAsync(ASSET_NAME_SYNC_RETRY_DELAYS_MS.reduce((sum, delay) => sum + delay, 0)); });
+    expect(vi.mocked(syncCanvasNodeAssetName).mock.calls.map(([node]) => node.title)).toEqual(["梨", "桃"]);
+    expect(pendingCanvasAssetNames.forget).toHaveBeenLastCalledWith(expect.anything(), "media:personal:a");
+  } finally { await act(async () => root.unmount()); }
+});
+
+it("resumes remembered renames once the canvas has loaded, skipping ones overtaken by later edits", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.mocked(pendingCanvasAssetNames.list).mockResolvedValueOnce([
+    { targetKey: "media:personal:a", nodeId: "a", title: "苹果" },
+    { targetKey: "media:personal:b", nodeId: "b", title: "旧名字" },
+  ]);
+  const store = createCanvasStore({ session: { loading: true, canonicalProjectScope: null } });
+  const root = await renderHarness(store);
+  try {
+    expect(pendingCanvasAssetNames.list).not.toHaveBeenCalled();
+    await act(async () => store.getState().actions.commit({
+      graph: { nodes: [imageNode("a", "苹果"), imageNode("b", "梨")] },
+      session: { loading: false, canonicalProjectScope: "personal" },
+    }));
+    expect(vi.mocked(syncCanvasNodeAssetName).mock.calls.map(([node]) => [node.id, node.title])).toEqual([["a", "苹果"]]);
+    expect(pendingCanvasAssetNames.forget).toHaveBeenCalledWith(expect.anything(), "media:personal:b");
+  } finally { await act(async () => root.unmount()); }
+});
 
 it.each(["image", "video", "audio"] as const)("syncs the final collision title when a new %s resource is attached", async kind => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);

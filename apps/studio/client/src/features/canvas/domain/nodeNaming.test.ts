@@ -63,12 +63,16 @@ describe("canvas generated and custom node naming", () => {
     expect(titles(named(nodes.slice(0, 2)))).toEqual(["测试image-1", "测试image-2"]);
   });
 
-  it("does not turn duplicates of generated outputs into manually named nodes", () => {
+  it("fixes the name of a generated output's copy when it is made", () => {
     const nodes = named([output("a")]);
     const copy = duplicateCanvasNode(nodes[0], "b");
     const duplicated = named([...nodes, copy]);
-    expect(titles(duplicated)).toEqual(["测试image-1", "测试image-2"]);
-    expect(copy.metadata?.titleEdited).toBe(false);
+    expect(titles(duplicated)).toEqual(["测试image-1", "测试image-1副本"]);
+    expect(copy.metadata?.titleEdited).toBe(true);
+    const twice = ensureUniqueCanvasNodeTitles([...duplicated, duplicateCanvasNode(duplicated[0], "c")], duplicated, "测试");
+    expect(titles(twice)).toEqual(["测试image-1", "测试image-1副本-1", "测试image-1副本-2"]);
+    expect(titles(ensureUniqueCanvasNodeTitles(twice, twice, "第一集"))).toEqual(["第一集image-1", "测试image-1副本-1", "测试image-1副本-2"]);
+    expect(titles(named([output("new"), ...twice]))).toEqual(["测试image-1", "测试image-2", "测试image-1副本-1", "测试image-1副本-2"]);
     expect(titles(renameCanvasNode(duplicated, "b", "副本新名称"))).toEqual(["测试image-1", "副本新名称"]);
   });
 
@@ -129,10 +133,12 @@ describe("canvas generated and custom node naming", () => {
 
   it("migrates completed legacy outputs but never infers generation just from a prompt", () => {
     const legacy = { ...output("old", "audio"), metadata: { sourceNodeId: "source", generationMode: "audio" as const, status: "success" as const } };
-    const copy = duplicateCanvasNode(legacy, "copy");
-    const clipboard = createCanvasClipboard([legacy], [], [legacy.id], "project");
+    const migrated = named([legacy]);
+    expect(titles(migrated)).toEqual(["测试audio-1"]);
+    const copy = duplicateCanvasNode(migrated[0], "copy");
+    const clipboard = createCanvasClipboard(migrated, [], [legacy.id], "project");
     const pasted = pasteCanvasClipboard(clipboard, "project", { x: 0, y: 0 }, () => "pasted")!;
-    expect(titles(named([legacy, copy, ...pasted.nodes]))).toEqual(["测试audio-1", "测试audio-2", "测试audio-3"]);
+    expect(titles(named([...migrated, copy, ...pasted.nodes]))).toEqual(["测试audio-1", "测试audio-1副本-1", "测试audio-1副本-2"]);
     const imported = { ...legacy, id: "import", title: "原素材", metadata: { ...legacy.metadata, canvasOrigin: "imported" } };
     const blank = { ...legacy, id: "blank", title: "音频", metadata: { generationMode: "audio" as const, prompt: "已填写提示词" } };
     expect(titles(named([imported, blank]))).toEqual(["原素材", "音频"]);

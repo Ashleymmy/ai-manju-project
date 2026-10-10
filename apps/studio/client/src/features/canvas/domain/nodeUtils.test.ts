@@ -7,7 +7,11 @@ import {
   fragmentMediaMimeType,
   applyCanvasImageNaturalSize,
   canvasGenerationInputsFromVideoSnapshot,
+  canvasImageOriginalSize,
+  canvasImageRequestedDimensions,
+  fitCanvasImageFrameInLayoutBox,
   fitCanvasImageNodeSize,
+  shapeEmptyCanvasImageFrame,
   imageResolutionFromNode,
   isCanvasImageResolutionAvailable,
   isAbortError,
@@ -97,6 +101,50 @@ describe("canvas node utilities", () => {
     expect(applyCanvasImageNaturalSize(repaired, 1920, 1080)).toBe(repaired);
     expect(applyCanvasImageNaturalSize(node, 0, 1080)).toBe(node);
     expect(applyCanvasImageNaturalSize(node, Infinity, 1080)).toBe(node);
+  });
+
+  it("previews a picked ratio on empty nodes from the arranged box without compounding", () => {
+    const empty = { width: 320, height: 238, metadata: {} };
+    const portrait = shapeEmptyCanvasImageFrame(empty, 720, 1280);
+    expect(portrait).toMatchObject({ width: 315, height: 560 });
+    expect(shapeEmptyCanvasImageFrame(portrait, 1280, 720)).toMatchObject({ width: 320, height: 180 });
+
+    const resized = { width: 640, height: 360, metadata: {} };
+    const narrow = shapeEmptyCanvasImageFrame(resized, 720, 1280);
+    expect(narrow).toMatchObject({ width: 202.5, height: 360 });
+    expect(shapeEmptyCanvasImageFrame(narrow, 1280, 720)).toMatchObject({ width: 640, height: 360 });
+
+    // A manual resize after the preview becomes the new arranged box.
+    const userSized = { ...narrow, width: 300, height: 300 * 16 / 9 };
+    expect(shapeEmptyCanvasImageFrame(userSized, 1280, 720)).toMatchObject({ width: 300, height: 168.75 });
+  });
+
+  it("only shrinks image results into the arranged box, never past it", () => {
+    const square = { width: 320, height: 320, metadata: {} };
+    const tall = fitCanvasImageFrameInLayoutBox(square, 9 / 16);
+    expect(tall).toMatchObject({ width: 180, height: 320 });
+    expect(fitCanvasImageFrameInLayoutBox(tall, 16 / 9)).toMatchObject({ width: 320, height: 180 });
+
+    const loaded = applyCanvasImageNaturalSize(square, 1080, 1920, "layoutBox");
+    expect(loaded).toMatchObject({ width: 180, height: 320, metadata: { naturalWidth: 1080, naturalHeight: 1920 } });
+    expect(applyCanvasImageNaturalSize(square, 1080, 1920).height).toBeCloseTo(320 * 16 / 9, 8);
+    // Untouched default frames keep the regular media fit, as uploads always did.
+    expect(applyCanvasImageNaturalSize({ width: 320, height: 238, metadata: {} }, 1080, 1920, "layoutBox"))
+      .toMatchObject({ width: 315, height: 560 });
+  });
+
+  it("keeps a stored original size only while it matches the loaded thumbnail's ratio", () => {
+    expect(canvasImageRequestedDimensions("1920x1080")).toEqual({ width: 1920, height: 1080 });
+    expect(canvasImageRequestedDimensions("auto")).toBeUndefined();
+
+    expect(canvasImageOriginalSize({ naturalWidth: 1920, naturalHeight: 1080 }, 640, 360))
+      .toEqual({ width: 1920, height: 1080, stale: false });
+    expect(canvasImageOriginalSize({ naturalWidth: 1365, naturalHeight: 768 }, 640, 360))
+      .toEqual({ width: 1365, height: 768, stale: false });
+    // A previous 1:1 result must not confine a new 16:9 image.
+    expect(canvasImageOriginalSize({ naturalWidth: 1024, naturalHeight: 1024 }, 640, 360))
+      .toEqual({ width: 640, height: 360, stale: true });
+    expect(canvasImageOriginalSize({}, 640, 360)).toEqual({ width: 640, height: 360, stale: false });
   });
 
   it.each([[4000, 200], [200, 4000]])("preserves extreme media proportions %s:%s", (width, height) => {

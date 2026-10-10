@@ -68,6 +68,12 @@ import {
   videoConfigFromNode,
   videoFileName,
   videoProviderFromNode,
+  CANVAS_VIDEO_NODE_HEIGHT,
+  CANVAS_VIDEO_NODE_WIDTH,
+  CANVAS_IMAGE_NODE_HEIGHT,
+  CANVAS_IMAGE_NODE_WIDTH,
+  canvasImageRequestedDimensions,
+  fitCanvasImageNodeSize,
 } from "@/features/canvas/domain/nodeUtils";
 import {
   buildCanvasTextRequestMessages,
@@ -1333,14 +1339,17 @@ export class CanvasGenerationJobsController {
       // reference loading remain available for the user's next generation.
       const currentSourceNode = currentGraph.source;
       const currentImageSettings = canvasImageGenerationSettings(currentSourceNode, undefined, modelFromNode(currentSourceNode, model));
+      const requestedFrame = canvasImageRequestedDimensions(size);
       const rootNode: CanvasNodeData = {
         ...(reuseSourceNode ? currentSourceNode : {
           id: rootId,
           kind: "image" as const,
           x: currentSourceNode.x + currentSourceNode.width + 96,
           y: currentSourceNode.y + 24,
-          width: 320,
-          height: 238,
+          // A new output node is not arranged yet, so it starts in the requested ratio.
+          ...(requestedFrame
+            ? fitCanvasImageNodeSize(requestedFrame.width, requestedFrame.height)
+            : { width: CANVAS_IMAGE_NODE_WIDTH, height: CANVAS_IMAGE_NODE_HEIGHT }),
         }),
         id: rootId,
         kind: "image",
@@ -1382,11 +1391,13 @@ export class CanvasGenerationJobsController {
           content: prompt,
           x: position.x,
           y: position.y,
-          width: 320,
-          height: 238,
+          // Batch slots share the root's frame so the grid stays aligned.
+          width: rootNode.width,
+          height: rootNode.height,
           metadata: {
             ...previous?.metadata,
             ...commonMetadata,
+            imageLayoutBox: rootNode.metadata?.imageLayoutBox,
             count: 1,
             batchRootId: rootId,
             errorDetails: undefined,
@@ -1522,8 +1533,8 @@ export class CanvasGenerationJobsController {
         content: prompt,
         x: reuseSourceNode ? currentSourceNode.x : currentSourceNode.x + currentSourceNode.width + 96,
         y: reuseSourceNode ? currentSourceNode.y : currentSourceNode.y + 24,
-        width: reuseSourceNode ? currentSourceNode.width : 420,
-        height: reuseSourceNode ? currentSourceNode.height : 260,
+        width: reuseSourceNode ? currentSourceNode.width : CANVAS_VIDEO_NODE_WIDTH,
+        height: reuseSourceNode ? currentSourceNode.height : CANVAS_VIDEO_NODE_HEIGHT,
         metadata: {
           ...(reuseSourceNode ? currentSourceNode.metadata : {}),
           generationRevisions,

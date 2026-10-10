@@ -48,7 +48,7 @@ describe("canvas image parameter controls", () => {
   it("changes the displayed pixels and generation settings through the actual parameter buttons", async () => {
     await act(async () => root.render(<Harness />));
     await click("参数");
-    expect(document.body.textContent).toContain("请求尺寸：1024 × 1024 px");
+    expect(document.body.textContent).toContain("请求尺寸：1152 × 864 px");
     await click("4K");
     expect((Array.from(document.querySelectorAll("button")).find(item => item.textContent?.trim() === "4K") as HTMLButtonElement)?.disabled).toBe(true);
     await click("16:9");
@@ -74,7 +74,7 @@ describe("canvas image parameter controls", () => {
     await click("2K");
     expect((Array.from(document.querySelectorAll("button")).find(item => item.textContent?.trim() === "2K") as HTMLButtonElement)?.disabled).toBe(true);
     await act(async () => container.querySelector<HTMLButtonElement>(".node-send-button")!.click());
-    expect(submit).toHaveBeenLastCalledWith({ size: "1024x1024", quality: "auto", imageResolution: "1K" });
+    expect(submit).toHaveBeenLastCalledWith({ size: "1152x864", quality: "auto", imageResolution: "1K" });
   });
 });
 

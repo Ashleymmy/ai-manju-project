@@ -3,7 +3,7 @@ import { CreditBalance } from "@/features/member";
 import { registrationProviderId, savedSeedanceRegistration, seedanceRegistrationKey, seedanceRegistrationPhase, seedanceRegistrationSource } from "./services/seedanceRegistration";
 import { useCanvasSeedanceRegistration } from "./controllers/useCanvasSeedanceRegistration";
 import { pickDefaultImageModel, resolveModel } from "@/shared/lib/modelSelection";
-import { canvasImageGenerationSettings, canvasImageGenerationSettingsIssue } from "./domain/imageGenerationSettings";
+import { canvasEmptyImageRequestDimensions, canvasImageGenerationSettings, canvasImageGenerationSettingsIssue } from "./domain/imageGenerationSettings";
 import { canvasImageGenerationError } from "./domain/imageGenerationError";
 import {
   Archive,
@@ -289,6 +289,7 @@ import {
   imageSrcFromNode,
   looksLikeImageSource,
   nodeKindTitle,
+  originalImageSourceForThumbnail,
   normalizeCanvasEdge,
   normalizeCanvasNode,
   normalizeCanvasNodeKind,
@@ -330,6 +331,12 @@ import {
   defaultGenerationModeForKind,
   defaultMediaMimeType,
   applyCanvasImageNaturalSize,
+  CANVAS_IMAGE_NODE_HEIGHT,
+  CANVAS_IMAGE_NODE_WIDTH,
+  CANVAS_VIDEO_NODE_HEIGHT,
+  CANVAS_VIDEO_NODE_WIDTH,
+  canvasImageOriginalSize,
+  shapeEmptyCanvasImageFrame,
   autoVideoSubModeForPromptChange,
   canvasImageParamDefaults,
   fragmentMediaFileName,
@@ -1808,8 +1815,8 @@ export default function CanvasWorkspaceViewContent() {
       content: "",
       x: basePosition.x,
       y: basePosition.y,
-      width: normalizedKind === "image" ? 320 : normalizedKind === "video" ? 420 : 300,
-      height: normalizedKind === "audio" ? 120 : normalizedKind === "image" ? 238 : 170,
+      width: normalizedKind === "image" ? CANVAS_IMAGE_NODE_WIDTH : normalizedKind === "video" ? CANVAS_VIDEO_NODE_WIDTH : 300,
+      height: normalizedKind === "audio" ? 120 : normalizedKind === "image" ? CANVAS_IMAGE_NODE_HEIGHT : normalizedKind === "video" ? CANVAS_VIDEO_NODE_HEIGHT : 170,
       metadata: {
         content: "",
         generationMode: defaultGenerationModeForKind(normalizedKind),
@@ -1921,8 +1928,26 @@ export default function CanvasWorkspaceViewContent() {
     setContextMenu(null);
   };
 
+  /** Empty image nodes take a newly requested ratio at once, so the layout is planned with the real shape. */
+  const shapeEmptyImageNodeForRequest = (nodes: CanvasNodeData[], previous: CanvasNodeData | undefined, nodeId: string) => {
+    const index = nodes.findIndex((node) => node.id === nodeId);
+    const next = nodes[index];
+    if (!previous || !next) return nodes;
+    const references = mentionReferencesForNode(nodeId);
+    const target = canvasEmptyImageRequestDimensions(next, references, nodes);
+    const before = canvasEmptyImageRequestDimensions(previous, references, nodesRef.current);
+    if (!target || (before && before.width === target.width && before.height === target.height)) return nodes;
+    const shaped = shapeEmptyCanvasImageFrame(next, target.width, target.height);
+    return shaped === next ? nodes : nodes.map((node, position) => position === index ? shaped : node);
+  };
+
   const updateNode = (id: string, patch: Partial<CanvasNodeData>) => {
-    const nextNodes = nodesRef.current.map((node) => node.id === id ? { ...node, ...patch } : node);
+    const previous = nodesRef.current.find((node) => node.id === id);
+    const nextNodes = shapeEmptyImageNodeForRequest(
+      nodesRef.current.map((node) => node.id === id ? { ...node, ...patch } : node),
+      previous,
+      id,
+    );
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
   };
@@ -1938,14 +1963,15 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const updateNodePrompt = (id: string, content: string) => {
-    const nextNodes = nodesRef.current.map((node) => {
+    const previous = nodesRef.current.find((node) => node.id === id);
+    const nextNodes = shapeEmptyImageNodeForRequest(nodesRef.current.map((node) => {
       if (node.id !== id) return node;
       const updated = updateCanvasNodeComposer(node, content);
       const autoVideoSubMode = autoVideoSubModeForPromptChange(node, content);
       return autoVideoSubMode
         ? { ...updated, metadata: { ...(updated.metadata || {}), videoSubMode: autoVideoSubMode, videoSubModeManual: false } }
         : updated;
-    });
+    }), previous, id);
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
   };
@@ -2909,11 +2935,35 @@ export default function CanvasWorkspaceViewContent() {
     if (!sourceNode || (sourceNode.kind !== "image" && sourceNode.kind !== "video")) return;
     // Ignore a late metadata event from a video replaced on this node.
     if (source && imageSrcFromNode(sourceNode, previews) !== source) return;
-    // Asset previews are thumbnails; do not replace known original dimensions with their size.
-    const originalWidth = numberValue(sourceNode.metadata?.naturalWidth) || 0;
-    const originalHeight = numberValue(sourceNode.metadata?.naturalHeight) || 0;
-    const hasOriginalSize = sourceNode.kind === "image" && assetIdFromNode(sourceNode) && originalWidth > 0 && originalHeight > 0;
-    const nextNode = applyCanvasImageNaturalSize(sourceNode, hasOriginalSize ? originalWidth : naturalWidth, hasOriginalSize ? originalHeight : naturalHeight);
+    // Asset previews are thumbnails; keep a known original size only while it matches the loaded image.
+    const assetId = sourceNode.kind === "image" ? assetIdFromNode(sourceNode) : "";
+    const original = assetId
+      ? canvasImageOriginalSize(sourceNode.metadata, naturalWidth, naturalHeight)
+      : { width: naturalWidth, height: naturalHeight, stale: false };
+    const probeOriginal = Boolean(assetId)
+      && (original.stale || stringValue(sourceNode.metadata?.naturalSizeProbeAssetId) === assetId);
+    if (!probeOriginal) return commitCanvasMediaNodeSize(nodeId, original.width, original.height);
+    const originalSource = originalImageSourceForThumbnail(imageSrcFromNode(sourceNode, previews));
+    // Without a thumbnail the loaded bitmap already is the original.
+    if (!originalSource) return commitCanvasMediaNodeSize(nodeId, naturalWidth, naturalHeight, "");
+    // Fix the frame from the thumbnail now; the marker survives a failed read so the next load retries.
+    commitCanvasMediaNodeSize(nodeId, original.width, original.height, assetId);
+    void readCanvasOriginalImageSize(originalSource).then((size) => {
+      const currentNode = nodesRef.current.find((node) => node.id === nodeId);
+      if (currentNode && assetIdFromNode(currentNode) === assetId) commitCanvasMediaNodeSize(nodeId, size.width, size.height, "");
+    }, () => undefined);
+  };
+
+  /** `probeAssetId`: undefined keeps the original-size marker, "" clears it, an id sets it. */
+  const commitCanvasMediaNodeSize = (nodeId: string, naturalWidth: number, naturalHeight: number, probeAssetId?: string) => {
+    const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
+    if (!sourceNode) return;
+    const sized = applyCanvasImageNaturalSize(sourceNode, naturalWidth, naturalHeight, sourceNode.kind === "image" ? "layoutBox" : "keepWidth");
+    const markerChanged = probeAssetId !== undefined
+      && stringValue(sized.metadata?.naturalSizeProbeAssetId) !== probeAssetId;
+    const nextNode = markerChanged
+      ? { ...sized, metadata: { ...sized.metadata, naturalSizeProbeAssetId: probeAssetId || undefined } }
+      : sized;
     if (nextNode === sourceNode) return;
     const nextNodes = nodesRef.current.map((node) => node.id === nodeId ? nextNode : node);
     nodesRef.current = nextNodes;
@@ -5118,6 +5168,30 @@ function readCanvasImageSize(dataUrl: string) {
     image.onerror = () => reject(new Error("无法读取原图尺寸"));
     image.src = dataUrl;
   });
+}
+
+/** Waits before each attempt to read an original image's size; later loads retry if all fail. */
+const CANVAS_ORIGINAL_SIZE_RETRY_DELAYS_MS = [0, 2_000, 8_000] as const;
+const canvasOriginalSizeReads = new Map<string, Promise<{ width: number; height: number }>>();
+
+/** Several nodes and repeated load events share one in-flight read per original. */
+function readCanvasOriginalImageSize(source: string) {
+  const pending = canvasOriginalSizeReads.get(source);
+  if (pending) return pending;
+  const read = (async () => {
+    let lastError: unknown;
+    for (const delay of CANVAS_ORIGINAL_SIZE_RETRY_DELAYS_MS) {
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+      try {
+        return await readCanvasImageSize(source);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
+  })().finally(() => canvasOriginalSizeReads.delete(source));
+  canvasOriginalSizeReads.set(source, read);
+  return read;
 }
 
 function readCanvasFileDataUrl(file: File, signal?: AbortSignal) {

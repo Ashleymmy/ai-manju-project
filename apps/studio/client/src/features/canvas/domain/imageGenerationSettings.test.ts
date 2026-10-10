@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canvasImageAutoReferenceSize, canvasImageGenerationSettings, canvasImageGenerationSettingsIssue } from "./imageGenerationSettings";
+import { canvasEmptyImageRequestDimensions, canvasImageAutoReferenceSize, canvasImageGenerationSettings, canvasImageGenerationSettingsIssue } from "./imageGenerationSettings";
 import type { CanvasMentionReference } from "./mentions";
 import { toImageSizeValue } from "./nodeUtils";
 import type { CanvasNodeData, CanvasNodeMetadata } from "./types";
@@ -27,6 +27,16 @@ describe("canvas image generation settings", () => {
     }
   });
 
+  it("knows the requested size of empty idle image nodes before submission", () => {
+    const empty = (metadata: CanvasNodeMetadata, extra: Partial<CanvasNodeData> = {}) =>
+      ({ id: "empty", kind: "image", title: "", content: "", x: 0, y: 0, width: 320, height: 238, metadata, ...extra } as CanvasNodeData);
+    expect(canvasEmptyImageRequestDimensions(empty({ size: "16:9" }), [], [])).toEqual({ width: 1280, height: 720 });
+    expect(canvasEmptyImageRequestDimensions(empty({ size: "auto" }), [], [])).toEqual({ width: 1152, height: 864 });
+    expect(canvasEmptyImageRequestDimensions(empty({ size: "16:9", status: "loading" }), [], [])).toBeUndefined();
+    expect(canvasEmptyImageRequestDimensions(empty({ size: "16:9", assetId: "asset" }), [], [])).toBeUndefined();
+    expect(canvasEmptyImageRequestDimensions(empty({ size: "16:9" }, { kind: "video" }), [], [])).toBeUndefined();
+  });
+
   it.each(ratios)("preserves the %s selection within API limits at every resolution", size => {
     expect(toImageSizeValue(size)).toBe(size);
     let previousPixels = 0;
@@ -46,11 +56,11 @@ describe("canvas image generation settings", () => {
     }
   });
 
-  it("applies resolution in auto mode using bitmap dimensions, with a square fallback", () => {
-    expect(canvasImageGenerationSettings(node({ size: "auto", imageResolution: "4K", quality: "high" })).size).toBe("2880x2880");
+  it("applies resolution in auto mode using bitmap dimensions, with the empty node's 4:3 fallback", () => {
+    expect(canvasImageGenerationSettings(node({ size: "auto", imageResolution: "4K", quality: "high" })).size).toBe("3264x2448");
     expect(canvasImageGenerationSettings(node({ size: "auto", imageResolution: "4K", naturalWidth: 1920, naturalHeight: 1080 })).size).toBe("3840x2160");
     expect(canvasImageGenerationSettings(node({ size: "auto", imageResolution: "4K", requestedImageSize: "2160x3840" })).size).toBe("2160x3840");
-    expect(canvasImageGenerationSettings(node({ size: "auto", imageResolution: "4K", naturalWidth: Infinity, naturalHeight: 0 })).size).toBe("2880x2880");
+    expect(canvasImageGenerationSettings(node({ size: "auto", imageResolution: "4K", naturalWidth: Infinity, naturalHeight: 0 })).size).toBe("3264x2448");
   });
 
   it("follows the reference image in auto mode before the node's own bitmap", () => {
@@ -58,7 +68,7 @@ describe("canvas image generation settings", () => {
     expect(canvasImageGenerationSettings(node({ size: "auto" }), undefined, undefined, portrait).size).toBe("768x1360");
     expect(canvasImageGenerationSettings(node({ size: "auto", naturalWidth: 1024, naturalHeight: 1024 }), undefined, undefined, portrait).size).toBe("768x1360");
     expect(canvasImageGenerationSettings(node({ size: "16:9" }), undefined, undefined, portrait).size).toBe("1280x720");
-    expect(canvasImageGenerationSettings(node({ size: "auto" }), undefined, undefined, { width: 0, height: 0 }).size).toBe("1024x1024");
+    expect(canvasImageGenerationSettings(node({ size: "auto" }), undefined, undefined, { width: 0, height: 0 }).size).toBe("1152x864");
   });
 
   it("resolves the auto reference from the first @-referenced image in prompt order", () => {

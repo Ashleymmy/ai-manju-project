@@ -102,6 +102,10 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   captureTimeSeconds?: number;
   naturalWidth?: number;
   naturalHeight?: number;
+  /** Asset whose stored natural size came from a thumbnail; its original still needs to be read. */
+  naturalSizeProbeAssetId?: string;
+  /** Box the user arranged an image node in, and the frame an automatic ratio fit gave it inside that box. */
+  imageLayoutBox?: { width: number; height: number; fitWidth: number; fitHeight: number };
   promptPanelWidth?: number;
   /** User-selected inspector height in screen pixels; absent means content-sized. */
   promptPanelHeight?: number;

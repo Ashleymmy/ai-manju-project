@@ -139,6 +139,31 @@ describe("image batch primary", () => {
     expect(titles).toEqual(["苹果image-1", "苹果image-2", "苹果image-3", "生成失败", "批量图片说明"]);
   });
 
+  it("does not keep the previous result's pixel size when a generation overwrites a node", () => {
+    const nodes = [imageNode("a", { metadata: {
+      status: "loading", naturalWidth: 1024, naturalHeight: 1024, requestedImageSize: "1920x1072",
+    } })];
+    const completed = completeGeneratedImageTarget(nodes, "a", { id: "new", assetId: "asset-new", src: "" }, "苹果");
+    expect(completed[0].metadata).toMatchObject({ naturalWidth: 1920, naturalHeight: 1072 });
+
+    const unknown = completeGeneratedImageTarget([imageNode("b", { metadata: {
+      status: "loading", naturalWidth: 1024, naturalHeight: 1024, requestedImageSize: undefined,
+    } })], "b", { id: "new", assetId: "asset-new", src: "" }, "苹果");
+    expect(unknown[0].metadata?.naturalWidth).toBeUndefined();
+    expect(unknown[0].metadata?.naturalHeight).toBeUndefined();
+  });
+
+  it("shrinks an overwritten result into the arranged frame instead of growing over neighbours", () => {
+    const square = [imageNode("a", { width: 320, height: 320, metadata: { status: "loading", requestedImageSize: "720x1280" } })];
+    const tall = completeGeneratedImageTarget(square, "a", { id: "new", assetId: "asset-new", src: "" }, "苹果");
+    expect(tall[0]).toMatchObject({ width: 180, height: 320 });
+    const wide = completeGeneratedImageTarget(
+      [{ ...tall[0], metadata: { ...tall[0].metadata, status: "loading", requestedImageSize: "1280x720" } }],
+      "a", { id: "next", assetId: "asset-next", src: "" }, "苹果",
+    );
+    expect(wide[0]).toMatchObject({ width: 320, height: 180 });
+  });
+
   it("does not swap a slot while its generation is pending", () => {
     const nodes = [
       imageNode("root", { metadata: { isBatchRoot: true, batchChildIds: ["child"], status: "loading" } }),
