@@ -6,6 +6,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { CanvasProvider } from "../ui/CanvasProvider";
 import { createCanvasStore } from "../model/store";
 import { renameCanvasNode } from "../domain/nodeTitles";
+import { duplicateCanvasNode } from "../domain/clipboard";
 import type { CanvasNodeData } from "../domain/types";
 import { syncCanvasNodeAssetName } from "../services/assetNames";
 import { useCanvasAssetNameSync } from "./useCanvasAssetNameSync";
@@ -32,6 +33,32 @@ it.each(["image", "video", "audio"] as const)("syncs the final collision title w
     vi.mocked(syncCanvasNodeAssetName).mockClear();
     await act(async () => store.getState().actions.setField("graph", "nodes", nodes => [...nodes, { ...first, id: "shared-copy" }]));
     expect(syncCanvasNodeAssetName).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); }
+});
+
+it("names media shared by copies only from the first node that references it", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const original: CanvasNodeData = { id: "original", title: "download", kind: "image", x: 0, y: 0, width: 200, height: 200, content: "",
+    imageAssetId: "shared", metadata: { assetId: "shared", canvasOrigin: "imported" } };
+  const store = createCanvasStore({ session: { loading: false, canonicalProjectScope: "personal" }, graph: { nodes: [original] } });
+  const root = createRoot(document.createElement("div"));
+  function Harness() { useCanvasAssetNameSync("user", "project"); return null; }
+  const synced = () => vi.mocked(syncCanvasNodeAssetName).mock.calls.map(([node]) => [node.id, node.title]);
+  try {
+    await act(async () => root.render(<QueryClientProvider client={new QueryClient()}><CanvasProvider store={store}><Harness /></CanvasProvider></QueryClientProvider>));
+    const actions = store.getState().actions;
+    actions.setField("graph", "nodes", nodes => [...nodes, duplicateCanvasNode(nodes[0], "copy-1")]);
+    actions.setField("graph", "nodes", nodes => [...nodes, duplicateCanvasNode(nodes[0], "copy-2")]);
+    expect(store.getState().graph.nodes.map(node => node.title)).toEqual(["download", "download副本-1", "download副本-2"]);
+    actions.setField("graph", "nodes", nodes => renameCanvasNode(nodes, "copy-2", "猫"));
+    expect(syncCanvasNodeAssetName).not.toHaveBeenCalled();
+    actions.setField("graph", "nodes", nodes => renameCanvasNode(nodes, "original", "原图"));
+    expect(synced()).toEqual([["original", "原图"]]);
+    vi.mocked(syncCanvasNodeAssetName).mockClear();
+    actions.setField("graph", "nodes", nodes => nodes.filter(node => node.id !== "original"));
+    expect(syncCanvasNodeAssetName).not.toHaveBeenCalled();
+    actions.setField("graph", "nodes", nodes => renameCanvasNode(nodes, "copy-1", "新原图"));
+    expect(synced()).toEqual([["copy-1", "新原图"]]);
   } finally { await act(async () => root.unmount()); }
 });
 

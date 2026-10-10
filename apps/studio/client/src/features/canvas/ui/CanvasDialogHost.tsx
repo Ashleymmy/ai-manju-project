@@ -19,6 +19,7 @@ export type CanvasDialogHostProps = {
   mentionPreview: ComponentProps<typeof CanvasMentionPreviewDialog>;
   assetPicker: ComponentProps<typeof CanvasAssetPickerDialog>;
   assetArchive: ComponentProps<typeof CanvasArchiveAssetDialog>;
+  batchAssetArchive: ComponentProps<typeof CanvasArchiveAssetDialog>;
   generationHistory: ComponentProps<typeof CanvasGenerationHistoryDialog>;
   connectSelection: ComponentProps<typeof CanvasConnectSelectionDialog>;
   destructive: ComponentProps<typeof CanvasDestructiveDialogs>;
@@ -32,6 +33,7 @@ export function CanvasDialogHost({
   mentionPreview,
   assetPicker,
   assetArchive,
+  batchAssetArchive,
   generationHistory,
   connectSelection,
   destructive,
@@ -45,6 +47,7 @@ export function CanvasDialogHost({
       <CanvasMentionPreviewDialog {...mentionPreview} />
       <CanvasAssetPickerDialog {...assetPicker} />
       <CanvasArchiveAssetDialog key={assetArchive.nodeKey} {...assetArchive} />
+      <CanvasArchiveAssetDialog key={batchAssetArchive.nodeKey} {...batchAssetArchive} />
       <CanvasGenerationHistoryDialog {...generationHistory} />
       <CanvasConnectSelectionDialog {...connectSelection} />
       <CanvasDestructiveDialogs {...destructive} />

@@ -107,7 +107,7 @@ type CanvasStageActions = {
   handleStagePointerDown: (event: PointerEvent<HTMLElement>) => void;
   openCanvasContextMenu: (event: ReactMouseEvent<Element>) => void;
   handleCanvasDoubleClick: (event: ReactMouseEvent<Element>) => void;
-  uploadFilesAsNodes: (files: FileList | File[], position?: { x: number; y: number }) => Promise<unknown>;
+  dropOnCanvas: (data: DataTransfer, position: { x: number; y: number }) => void;
   selectCanvasGroup: (group: CanvasGroupData) => void;
   startGroupDrag: (event: PointerEvent<HTMLElement>, group: CanvasGroupData) => void;
   moveGroupDrag: (event: PointerEvent<HTMLElement>) => void;
@@ -134,6 +134,7 @@ type CanvasStageActions = {
   copySelectedNodes: () => void;
   openConnectSelection: () => void;
   registerSelectedImagesAsSeedanceAssets: () => void;
+  archiveSelectedNodesToLibrary: () => void;
   downloadSelectedNodes: (nodeIds?: Iterable<string>) => Promise<unknown>;
   generateFromNode: (nodeId?: string) => Promise<unknown>;
   renderCanvasSubmenu: (key: string, icon: ReactNode, label: string, items: ReactNode) => ReactNode;
@@ -242,7 +243,7 @@ export function CanvasStage({
     handleStagePointerDown,
     openCanvasContextMenu,
     handleCanvasDoubleClick,
-    uploadFilesAsNodes,
+    dropOnCanvas,
     selectCanvasGroup,
     startGroupDrag,
     moveGroupDrag,
@@ -351,7 +352,7 @@ export function CanvasStage({
           onContextMenu={(event) => { if (projectActionDisabled) { event.preventDefault(); return; } openCanvasContextMenu(event); }}
           onDoubleClick={(event) => { if (!projectActionDisabled) handleCanvasDoubleClick(event); }}
           onDragOver={(event) => { if (!projectActionDisabled) event.preventDefault(); }}
-          onDrop={(event) => { event.preventDefault(); if (!projectActionDisabled) void uploadFilesAsNodes(event.dataTransfer.files, screenToCanvasPoint(event.clientX, event.clientY)); }}
+          onDrop={(event) => { event.preventDefault(); if (!projectActionDisabled) dropOnCanvas(event.dataTransfer, screenToCanvasPoint(event.clientX, event.clientY)); }}
         >
           <div className="canvas-left-dock" data-canvas-ui data-canvas-no-zoom>
             <CanvasTopToolbar {...topToolbar} />
@@ -561,14 +562,17 @@ export function CanvasStage({
                 {!contextMenu.edgeId && selectedNodeIds.size >= 2 ? (
                   <button className="full-outline" onClick={() => { actions.registerSelectedImagesAsSeedanceAssets(); setContextMenu(null); }}><BadgeCheck size={14} /> 批量注册拟真人素材</button>
                 ) : null}
+                {!contextMenu.edgeId && selectedNodeIds.size >= 2 ? (
+                  <button className="full-outline" onClick={() => { actions.archiveSelectedNodesToLibrary(); setContextMenu(null); }}><Archive size={14} /> 批量加入素材库</button>
+                ) : null}
                 {contextMenu.nodeId ? (
                   <>
-                    {contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? (
+                    {selectedNodeIds.size < 2 && contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? (
                       <button className="full-outline" onClick={() => { void archiveCanvasMediaNode(contextMenuNode); setContextMenu(null); }}><Archive size={14} /> 加入素材库</button>
                     ) : null}
                     <button className="full-outline" onClick={() => { copySelectedNodes(); setContextMenu(null); }}>复制所选节点</button>
                     {selectedNodeIds.size >= 2 ? <button className="full-outline" onClick={() => { openConnectSelection(); setContextMenu(null); }}>连接所选节点到配置</button> : null}
-                    <button className="full-outline" onClick={() => { void duplicateSelectedNode(contextMenu.nodeId!); setContextMenu(null); }}>复制节点</button>
+                    <button className="full-outline" onClick={() => { void duplicateSelectedNode(contextMenu.nodeId!); setContextMenu(null); }}>创建副本</button>
                     {contextMenuNode?.kind === "director" ? <button className="full-outline" onClick={() => { void openDirectorNode(contextMenuNode); setContextMenu(null); }}>打开导演台</button> : null}
                     {contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? (
                       <>
@@ -598,8 +602,8 @@ export function CanvasStage({
                       </>
                     ) : null}
                     {contextMenuNode?.kind === "video" ? <button className="full-outline" disabled={Boolean(captureFrameNodeId)} onClick={() => { void captureVideoFrameNode(contextMenuNode); setContextMenu(null); }}>当前帧创建图片</button> : null}
-                    {contextMenuNode?.kind === "video" || contextMenuNode?.kind === "audio" ? <button className="full-outline" onClick={() => { void archiveCanvasMediaNode(contextMenuNode); setContextMenu(null); }}>加入素材库</button> : null}
-                    {contextMenuNode?.kind === "text" ? <button className="full-outline" onClick={() => { void archiveCanvasTextNode(contextMenuNode); setContextMenu(null); }}>加入素材库</button> : null}
+                    {selectedNodeIds.size < 2 && (contextMenuNode?.kind === "video" || contextMenuNode?.kind === "audio") ? <button className="full-outline" onClick={() => { void archiveCanvasMediaNode(contextMenuNode); setContextMenu(null); }}>加入素材库</button> : null}
+                    {selectedNodeIds.size < 2 && contextMenuNode?.kind === "text" ? <button className="full-outline" onClick={() => { void archiveCanvasTextNode(contextMenuNode); setContextMenu(null); }}>加入素材库</button> : null}
                     <hr className="canvas-menu-divider" />
                     <button className="full-outline danger" onClick={() => { removeNode(contextMenu.nodeId!); }}>删除节点</button>
                   </>

@@ -24,17 +24,27 @@ export function useCanvasAssetNameSync(userId: string, projectId: string, catalo
         || state.graph.nodes === previous.graph.nodes) return;
       const context = { userId, projectId, scope };
       const oldNodes = new Map(previous.graph.nodes.map(node => [node.id, node]));
-      for (const node of state.graph.nodes) {
+      const targets = state.graph.nodes.map(node => canvasNodeAssetNameTarget(node, context));
+      // Copies share their source's media; only the first node in graph order
+      // names it, so a copy's own name and collision number stay on the canvas.
+      const ownerByKey = new Map<string, string>();
+      const referencesByKey = new Map<string, number>();
+      targets.forEach((target, index) => {
+        if (!target) return;
+        if (!ownerByKey.has(target.key)) ownerByKey.set(target.key, state.graph.nodes[index].id);
+        referencesByKey.set(target.key, (referencesByKey.get(target.key) || 0) + 1);
+      });
+      for (const [index, node] of state.graph.nodes.entries()) {
         const old = oldNodes.get(node.id);
-        const target = canvasNodeAssetNameTarget(node, context);
-        if (!target) continue;
+        const target = targets[index];
+        if (!target || ownerByKey.get(target.key) !== node.id) continue;
         const oldTarget = old && canvasNodeAssetNameTarget(old, context);
         const attached = target.key !== oldTarget?.key;
         if (!attached && old?.title === node.title) continue;
         // Import/generation attaches media before the store assigns its final
         // numbered title. Sync that final title, without renaming a reused file
         // merely because a second node references it.
-        if (attached && state.graph.nodes.filter(item => canvasNodeAssetNameTarget(item, context)?.key === target.key).length !== 1) continue;
+        if (attached && referencesByKey.get(target.key) !== 1) continue;
         const sync = () => syncCanvasNodeAssetName(node, context).catch(() => {
           // An obsolete failure must not invite retrying an old title.
           const current = store.getState().graph.nodes.find(item => item.id === node.id);

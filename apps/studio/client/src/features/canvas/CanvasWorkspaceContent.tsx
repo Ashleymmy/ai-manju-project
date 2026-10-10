@@ -75,6 +75,7 @@ import { createCanvasSelectionDownload } from "./services/batchDownload";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { readCanvasClipboardData, readSystemCanvasClipboard, type CanvasClipboardContent } from "./adapters/clipboard";
 import { isCanvasImportCandidate, prepareCanvasImportImage } from "./adapters/importImage";
+import { CANVAS_TEXT_FILE_ACCEPT, droppedCanvasText, isCanvasTextFile, readCanvasTextFile } from "./adapters/importText";
 import { CANVAS_CLIPBOARD_TOKEN_PREFIX } from "./domain/clipboard";
 import {
   createProject,
@@ -609,6 +610,7 @@ export default function CanvasWorkspaceViewContent() {
   const [projectArchiveBusy, setProjectArchiveBusy] = useState(false);
   const [captureFrameNodeId, setCaptureFrameNodeId] = useState("");
   const [archiveNode, setArchiveNode] = useState<CanvasNodeData | null>(null);
+  const [batchArchiveNodeIds, setBatchArchiveNodeIds] = useState<string[]>([]);
   const hoveredId = useCanvasStore((state) => state.ui.hoveredNodeId);
   const setHoveredId = canvasCommands.ui.setHoveredNodeId;
   const hoveredEdgeId = useCanvasStore((state) => state.ui.hoveredEdgeId);
@@ -1001,7 +1003,7 @@ export default function CanvasWorkspaceViewContent() {
   const projectCoverUrls = useProjectCoverUrls(projects, projectListScope);
   const projectScopePending = Boolean(projectId && !canonicalProjectScope);
   const projectActionDisabled = loading || switching || projectScopePending;
-  useEffect(() => { setArchiveNode(null); }, [projectId, canonicalProjectScope]);
+  useEffect(() => { setArchiveNode(null); setBatchArchiveNodeIds([]); }, [projectId, canonicalProjectScope]);
   const canvasInteractionBlocked = projectActionDisabled;
   const syncTimestampLabel = formatCanvasSyncTime(snapshotUpdatedAt);
   const syncStatusTitle = [
@@ -2663,14 +2665,11 @@ export default function CanvasWorkspaceViewContent() {
     setArchiveNode(sourceNode);
   };
 
-  const saveCanvasNodeToLibrary = async (category: CanvasLibraryCategory) => {
-    const sourceNode = nodesRef.current.find(node => node.id === archiveNode?.id);
-    const activeScope = projectSessionController.canonicalScope;
-    const projectKey = projectSessionController.canonicalKey;
-    const isCurrentProject = () => !projectSessionController.switching && projectSessionController.canonicalKey === projectKey;
-    if (!sourceNode || !activeScope || projectSessionController.switching) throw new Error("节点或画布已切换，请重新选择");
-    const folder = await resolveCanvasArchiveFolder(projectId, activeScope, category);
-    if (!isCurrentProject()) return;
+  /** Saves one node into a resolved category folder; false once the canvas has switched away. */
+  const archiveCanvasNodeIntoFolder = async (
+    sourceNode: CanvasNodeData, folderId: string, category: CanvasLibraryCategory,
+    activeScope: WorkspaceScope, isCurrentProject: () => boolean,
+  ) => {
     let patch: (node: CanvasNodeData) => CanvasNodeData;
     if (sourceNode.kind === "text") {
       if (!user?.id) throw new Error("当前登录用户不可用，无法保存文本资产");
@@ -2680,7 +2679,7 @@ export default function CanvasWorkspaceViewContent() {
         title: sourceNode.title || "画布文本",
         content: canvasTextDisplayValue(sourceNode).trim(),
         id: (sourceNode.metadata?.textAssetScope === activeScope ? stringValue(sourceNode.metadata?.textAssetId) : "") || canvasNodeTextAssetId(projectId, sourceNode.id),
-        folderId: folder.id, category, projectId,
+        folderId, category, projectId,
       });
       patch = node => ({
         ...node,
@@ -2691,8 +2690,8 @@ export default function CanvasWorkspaceViewContent() {
       const sourceScope = workspaceScopeValue(sourceNode.metadata?.assetScope) || activeScope;
       const copySharedAsset = Boolean(sourceAssetId && nodesRef.current.some(node => node.id !== sourceNode.id
         && assetIdFromNode(node) === sourceAssetId && (workspaceScopeValue(node.metadata?.assetScope) || activeScope) === sourceScope));
-      const asset = await archiveCanvasMediaAsset({ node: sourceNode, projectId, projectTitle, scope: activeScope, folderId: folder.id, category, copySharedAsset });
-      if (!isCurrentProject()) return;
+      const asset = await archiveCanvasMediaAsset({ node: sourceNode, projectId, projectTitle, scope: activeScope, folderId, category, copySharedAsset });
+      if (!isCurrentProject()) return false;
       mergeCanvasAssetCatalog([asset], activeScope);
       publishAssetNameChange({ assetId: asset.id, name: asset.name, scope: activeScope });
       void invalidateAssetRecord(queryClient, activeScope, asset.id);
@@ -2704,7 +2703,7 @@ export default function CanvasWorkspaceViewContent() {
           mimeType: asset.content_type || node.metadata?.mimeType, bytes: asset.size ?? node.metadata?.bytes },
       });
     }
-    if (!isCurrentProject()) return;
+    if (!isCurrentProject()) return false;
     const nextNodes = nodesRef.current.map(node => {
       if (node.id !== sourceNode.id) return node;
       // A slow upload must not restore an image the user has since replaced.
@@ -2720,11 +2719,65 @@ export default function CanvasWorkspaceViewContent() {
     if (archivedNode && archivedNode.title !== sourceNode.title) {
       await syncCanvasNodeAssetName(archivedNode, { userId: user?.id || "", projectId, scope: activeScope });
     }
+    return isCurrentProject();
+  };
+
+  const saveCanvasNodeToLibrary = async (category: CanvasLibraryCategory) => {
+    const sourceNode = nodesRef.current.find(node => node.id === archiveNode?.id);
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
+    const isCurrentProject = () => !projectSessionController.switching && projectSessionController.canonicalKey === projectKey;
+    if (!sourceNode || !activeScope || projectSessionController.switching) throw new Error("节点或画布已切换，请重新选择");
+    const folder = await resolveCanvasArchiveFolder(projectId, activeScope, category);
     if (!isCurrentProject()) return;
+    if (!await archiveCanvasNodeIntoFolder(sourceNode, folder.id, category, activeScope, isCurrentProject)) return;
     await persistSnapshot(nodesRef.current, edgesRef.current, viewportRef.current.zoom, { quiet: true });
     if (!isCurrentProject()) return;
     void assetsMentionsController.loadMentionCatalog("", activeScope);
     toast.success(`已加入 ${projectTitle} / ${folder.name}`);
+  };
+
+  const batchArchiveCandidates = (ids: ReadonlySet<string>) => nodesRef.current.filter(node => ids.has(node.id) && (
+    node.kind === "text" ? Boolean(canvasTextDisplayValue(node).trim())
+      : (node.kind === "image" || node.kind === "video" || node.kind === "audio")
+        && Boolean(assetIdFromNode(node) || isReadableMediaSource(node.imageSrc || stringValue(node.metadata?.content)))
+  ));
+
+  const archiveSelectedNodesToLibrary = () => {
+    if (!projectSessionController.canonicalScope) return toast.warning("正在确认项目工作区，暂不能归档素材");
+    const candidates = batchArchiveCandidates(selectedNodeIdsRef.current);
+    if (!candidates.length) return toast.warning("所选节点中没有可加入素材库的图片、视频、音频或文本");
+    if (candidates.some(node => node.kind === "text") && !user?.id) return toast.error("当前登录用户不可用，无法保存文本资产");
+    setBatchArchiveNodeIds(candidates.map(node => node.id));
+  };
+
+  /** One category for the whole selection; nodes are saved one by one so a failure only skips that node. */
+  const saveSelectedNodesToLibrary = async (category: CanvasLibraryCategory) => {
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
+    const isCurrentProject = () => !projectSessionController.switching && projectSessionController.canonicalKey === projectKey;
+    if (!activeScope || projectSessionController.switching) throw new Error("画布已切换，请重新选择");
+    const folder = await resolveCanvasArchiveFolder(projectId, activeScope, category);
+    if (!isCurrentProject()) return;
+    const failed: string[] = [];
+    let saved = 0;
+    for (const id of batchArchiveNodeIds) {
+      const sourceNode = nodesRef.current.find(node => node.id === id);
+      if (!sourceNode) continue;
+      try {
+        if (!await archiveCanvasNodeIntoFolder(sourceNode, folder.id, category, activeScope, isCurrentProject)) return;
+        saved += 1;
+      } catch {
+        if (!isCurrentProject()) return;
+        failed.push(sourceNode.title || "未命名节点");
+      }
+    }
+    if (!saved) throw new Error(`加入素材库失败：${failed.join("、")}`);
+    await persistSnapshot(nodesRef.current, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+    if (!isCurrentProject()) return;
+    void assetsMentionsController.loadMentionCatalog("", activeScope);
+    if (failed.length) toast.warning(`已加入 ${saved} 个到 ${projectTitle} / ${folder.name}，${failed.length} 个失败：${failed.join("、")}`);
+    else toast.success(`已加入 ${saved} 个到 ${projectTitle} / ${folder.name}`);
   };
 
   const captureVideoFrameNode = async (sourceNode: CanvasNodeData) => {
@@ -3648,8 +3701,27 @@ export default function CanvasWorkspaceViewContent() {
     return { ok: true, message: `已将 ${addedNodes.length} 个资产添加到画布。`, data: { nodeIds: addedNodes.map((node) => node.id), assetIds } };
   };
 
+  const buildExternalTextNode = (title: string, text: string): CanvasNodeData => {
+    const created = buildCanvasNodeCandidate("text");
+    return { ...created, title, content: text, metadata: { ...created.metadata, content: text, prompt: text, composerContent: text } };
+  };
+
+  /** Text from outside the canvas (pasted or dropped) becomes one text node centered on `anchor`. */
+  const addExternalTextNode = (title: string, text: string, anchor: { x: number; y: number }, message: string) => {
+    const [nextNode] = placeCanvasNodesAround([buildExternalTextNode(title, text)], anchor, visibleCanvasRect());
+    const nextNodes = [...nodesRef.current, nextNode];
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    applyNodeSelection([nextNode.id], nextNode.id, true);
+    stageInteractionController.resetConnectionAndPending();
+    setContextMenu(null);
+    void persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom);
+    toast.success(message);
+  };
+
+  /** Media is uploaded to the asset library; text files are read into text nodes and stay on the canvas. */
   const uploadFilesAsNodes = async (files: FileList | File[], dropPosition?: { x: number; y: number }, ingestion = "drag_or_upload") => {
-    const list = Array.from(files).filter(isCanvasImportCandidate);
+    const list = Array.from(files).filter(file => isCanvasTextFile(file) || isCanvasImportCandidate(file));
     if (!list.length || projectSessionController.switching || projectSessionController.loading) return;
     if (uploadingRef.current) {
       toast.info("素材正在导入，请完成后再粘贴或上传");
@@ -3669,6 +3741,17 @@ export default function CanvasWorkspaceViewContent() {
       let failed = 0;
       for (const original of list) {
         if (!isCurrentProject()) return;
+        if (isCanvasTextFile(original)) {
+          try {
+            const text = await readCanvasTextFile(original);
+            if (!isCurrentProject()) return;
+            createdNodes.push(buildExternalTextNode(original.name, text));
+          } catch (error) {
+            failed += 1;
+            if (isCurrentProject()) toast.error(`${original.name}：${publicApiError(error, "读取文本文件失败")}`);
+          }
+          continue;
+        }
         const labelledKind = assetKindFromFile(original);
         const kind = labelledKind === "video" || labelledKind === "audio" ? labelledKind : "image";
         try {
@@ -3725,8 +3808,8 @@ export default function CanvasWorkspaceViewContent() {
       applyNodeSelection(nextSelectedId ? [nextSelectedId] : [], nextSelectedId, Boolean(nextSelectedId));
       const saved = await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom);
       if (saved && isCurrentProject()) {
-        if (failed) toast.warning(`已添加 ${createdNodes.length} 个媒体节点，${failed} 个导入失败`);
-        else toast.success(`已添加 ${createdNodes.length} 个媒体节点`);
+        if (failed) toast.warning(`已添加 ${createdNodes.length} 个素材节点，${failed} 个导入失败`);
+        else toast.success(`已添加 ${createdNodes.length} 个素材节点`);
       }
     } catch (error) {
       if (isCurrentProject()) toast.error(publicApiError(error, "上传媒体到画布失败"));
@@ -3739,8 +3822,8 @@ export default function CanvasWorkspaceViewContent() {
   const pasteClipboardContent = ({ files, text }: CanvasClipboardContent): boolean => {
     if (projectActionDisabled) return false;
     if (files.length) {
-      const media = files.filter(file => file.size > 0 && isCanvasImportCandidate(file));
-      if (!media.length) toast.warning("剪贴板中没有可导入的图片、视频或音频文件");
+      const media = files.filter(file => file.size > 0 && (isCanvasTextFile(file) || isCanvasImportCandidate(file)));
+      if (!media.length) toast.warning("剪贴板中没有可导入的图片、视频、音频或文本文件");
       else {
         if (media.length !== files.length) toast.warning("不支持的文件已跳过");
         void uploadFilesAsNodes(media, getCanvasCenter(), "paste");
@@ -3753,20 +3836,18 @@ export default function CanvasWorkspaceViewContent() {
       return true;
     }
     if (!text.trim()) return false;
-    const created = buildCanvasNodeCandidate("text");
-    const [nextNode] = placeCanvasNodesAround([{
-      ...created, title: "粘贴文本", content: text,
-      metadata: { ...created.metadata, content: text, prompt: text, composerContent: text },
-    }], getCanvasCenter(), visibleCanvasRect());
-    const nextNodes = [...nodesRef.current, nextNode];
-    nodesRef.current = nextNodes;
-    setNodes(nextNodes);
-    applyNodeSelection([created.id], created.id, true);
-    stageInteractionController.resetConnectionAndPending();
-    setContextMenu(null);
-    void persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom);
-    toast.success("已粘贴文本节点");
+    addExternalTextNode("粘贴文本", text, getCanvasCenter(), "已粘贴文本节点");
     return true;
+  };
+
+  const dropOnCanvas = (data: DataTransfer, position: { x: number; y: number }) => {
+    if (projectActionDisabled) return;
+    if (data.files.length) {
+      void uploadFilesAsNodes(data.files, position);
+      return;
+    }
+    const text = droppedCanvasText(data);
+    if (text.trim()) addExternalTextNode("拖入文本", text, position, "已添加文本节点");
   };
 
   const pasteSystemClipboard = async () => {
@@ -4442,7 +4523,7 @@ export default function CanvasWorkspaceViewContent() {
           <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>正在同步画布内容与创作指令</p>
         </div>
       )}
-      <input ref={fileInputRef} type="file" accept="image/*,video/*,audio/*" multiple hidden disabled={projectActionDisabled} onChange={(event) => event.target.files && void uploadFilesAsNodes(event.target.files)} />
+      <input ref={fileInputRef} type="file" accept={`image/*,video/*,audio/*,${CANVAS_TEXT_FILE_ACCEPT}`} multiple hidden disabled={projectActionDisabled} onChange={(event) => event.target.files && void uploadFilesAsNodes(event.target.files)} />
       <input ref={replaceImageInputRef} type="file" accept="image/*" hidden disabled={projectActionDisabled} onChange={(event) => void replaceCanvasImage(event.target.files?.[0])} />
       <input ref={replaceMediaInputRef} type="file" accept="video/*,audio/*" hidden disabled={projectActionDisabled} onChange={(event) => { const file = event.target.files?.[0]; const kind = file?.type.startsWith("video/") ? "video" as const : "audio" as const; void uploadMediaToNode(replaceMediaNodeIdRef.current, file, kind); }} />
       <input ref={fragmentInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectActionDisabled || fragmentBusy} onChange={(event) => void importCanvasFragment(event.target.files?.[0])} />
@@ -4693,7 +4774,7 @@ export default function CanvasWorkspaceViewContent() {
             handleStagePointerDown,
             openCanvasContextMenu,
             handleCanvasDoubleClick,
-            uploadFilesAsNodes,
+            dropOnCanvas,
             selectCanvasGroup,
             startGroupDrag,
             moveGroupDrag,
@@ -4720,6 +4801,7 @@ export default function CanvasWorkspaceViewContent() {
             copySelectedNodes,
             openConnectSelection: () => setConnectSelectionOpen(true),
             registerSelectedImagesAsSeedanceAssets,
+            archiveSelectedNodesToLibrary,
             downloadSelectedNodes,
             generateFromNode,
             renderCanvasSubmenu,
@@ -4865,6 +4947,13 @@ export default function CanvasWorkspaceViewContent() {
           assetName: archiveNode?.title || "素材", projectTitle,
           onOpenChange: open => { if (!open) setArchiveNode(current => current === archiveNode ? null : current); },
           onSave: saveCanvasNodeToLibrary,
+        }}
+        batchAssetArchive={{
+          open: batchArchiveNodeIds.length > 0 && !projectActionDisabled,
+          nodeKey: `${canonicalProjectScope}:${projectId}:batch:${batchArchiveNodeIds.join(",")}`,
+          assetName: `已选 ${batchArchiveNodeIds.length} 个节点`, projectTitle,
+          onOpenChange: open => { if (!open) setBatchArchiveNodeIds([]); },
+          onSave: saveSelectedNodesToLibrary,
         }}
         imageTool={{
           dialog: imageToolDialog, busy: imageToolBusy, error: imageToolError || originalToolImage.error, preview: imageToolPreview,
