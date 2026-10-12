@@ -7,11 +7,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ai-manju/api/internal/model"
@@ -28,7 +31,14 @@ const (
 	AssetTrashRiskWindow = 72 * time.Hour
 	// AssetTrashMaintenanceInterval bounds cleanup delay without polling storage aggressively.
 	AssetTrashMaintenanceInterval = 10 * time.Minute
+	// assetUploadNameFirstCopy is the first suffix for a duplicate manual-upload
+	// name in one folder: "a.png" becomes "a (2).png", matching batch downloads.
+	assetUploadNameFirstCopy = 2
 )
+
+// assetUploadNameExtension mirrors the client's extension detection so "(n)"
+// lands before ".png" but not inside names like "v1.2 final".
+var assetUploadNameExtension = regexp.MustCompile(`\.[A-Za-z0-9]{1,6}$`)
 
 // AssetTrashExpiresAt returns the stored expiry, or trashedAt + 30 days when the
 // legacy row has no trash_expires_at.
@@ -68,6 +78,9 @@ type AssetService struct {
 	tagFilterer   AssetTagFilterer
 	usageFilterer AssetUsageFilterer
 	lineage       *AssetLineageService
+	// uploadNameMu spans name lookup and insert so concurrent uploads of one
+	// file name in this process cannot both claim the same free name.
+	uploadNameMu sync.Mutex
 }
 
 type AssetTagSyncer interface {
@@ -434,12 +447,26 @@ func (s *AssetService) Upload(ctx context.Context, input AssetUploadInput) (mode
 		return model.Asset{}, ErrPayloadTooLarge
 	}
 
+	name := input.Name
+	unlockName := func() {}
+	if registration.SourceType == model.AssetSourceManualUpload {
+		s.uploadNameMu.Lock()
+		unlockName = s.uploadNameMu.Unlock
+		name, err = s.availableUploadName(workspaceID, registration.FolderID, input.Name)
+		if err != nil {
+			unlockName()
+			if input.IdempotencyKey == "" {
+				_ = s.storage.Delete(ctx, key)
+			}
+			return model.Asset{}, err
+		}
+	}
 	asset, err := s.repo.Create(model.Asset{
 		ID:              input.ID,
 		UserID:          input.UserID,
 		WorkspaceID:     workspaceID,
 		Type:            input.Type,
-		Name:            input.Name,
+		Name:            name,
 		URL:             object.URL,
 		Size:            object.Size,
 		ContentType:     input.ContentType,
@@ -456,6 +483,7 @@ func (s *AssetService) Upload(ctx context.Context, input AssetUploadInput) (mode
 		ContentSHA256:   hex.EncodeToString(hasher.Sum(nil)),
 		IngestionMode:   normalizeAssetIngestionMode(input.IngestionMode, registration.SourceType),
 	})
+	unlockName()
 	if err != nil {
 		if input.IdempotencyKey == "" {
 			_ = s.storage.Delete(ctx, key)
@@ -483,6 +511,32 @@ func (s *AssetService) Upload(ctx context.Context, input AssetUploadInput) (mode
 		return model.Asset{}, err
 	}
 	return asset, nil
+}
+
+// availableUploadName keeps name when no live library asset in folderID uses it
+// (case-insensitively) and otherwise returns the first free "name (n).ext".
+func (s *AssetService) availableUploadName(workspaceID string, folderID string, name string) (string, error) {
+	extension := assetUploadNameExtension.FindString(name)
+	if extension == name {
+		extension = ""
+	}
+	stem := strings.TrimSuffix(name, extension)
+	// The keyword match is a superset of exact names; equality is checked below.
+	siblings, _, err := s.repo.ListLibrary(repository.AssetLibraryFilter{
+		Unpaged: true, WorkspaceID: workspaceID, FilterFolder: true, FolderIDs: []string{folderID}, Keyword: stem,
+	})
+	if err != nil {
+		return "", err
+	}
+	taken := make(map[string]bool, len(siblings))
+	for _, sibling := range siblings {
+		taken[strings.ToLower(sibling.Name)] = true
+	}
+	candidate := name
+	for copyIndex := assetUploadNameFirstCopy; taken[strings.ToLower(candidate)]; copyIndex++ {
+		candidate = fmt.Sprintf("%s (%d)%s", stem, copyIndex, extension)
+	}
+	return candidate, nil
 }
 
 func (s *AssetService) recordAssetLineage(input AssetUploadInput, asset model.Asset) error {
