@@ -587,16 +587,58 @@ func TestAggregateModelsExcludesNativeGeminiFromAgentTools(t *testing.T) {
 			Enabled:            true,
 		},
 	})
-	textModels := result["text_models"].([]string)
-	agentModels := result["agent_text_models"].([]string)
-	if !containsString(textModels, "gemini-native::gemini-2.5-pro") {
-		t.Fatalf("native Gemini missing from normal text models: %#v", textModels)
+	// Without the pinned model or a default supplier, the first text model wins.
+	if got := result["agent_text_models"].([]string); len(got) != 1 || got[0] != "openai::tool-model" {
+		t.Fatalf("agent models = %#v", got)
 	}
-	if containsString(agentModels, "gemini-native::gemini-2.5-pro") {
-		t.Fatalf("native Gemini leaked into Agent models: %#v", agentModels)
+	nativeOnly := aggregateModelProviders([]model.ModelProviderConfig{{
+		ID:                 "gemini-native",
+		BaseURL:            "https://generativelanguage.googleapis.com/v1beta",
+		AuthType:           model.ModelProviderAuthTypeXGoogAPIKey,
+		TextModel:          "gemini-2.5-pro",
+		Capabilities:       mustProviderJSONB([]string{model.ModelCapabilityText}),
+		ModelsByCapability: mustProviderJSONB(map[string][]string{model.ModelCapabilityText: {"gemini-2.5-pro"}}),
+		Enabled:            true,
+	}})
+	if got := nativeOnly["text_models"].([]string); len(got) != 1 || got[0] != "gemini-native::gemini-2.5-pro" {
+		t.Fatalf("native Gemini missing from normal text models: %#v", got)
 	}
-	if !containsString(agentModels, "openai::tool-model") || !containsString(agentModels, "gemini-openai::gemini-2.5-flash") {
-		t.Fatalf("tool-capable models missing: %#v", agentModels)
+	if got := nativeOnly["agent_text_models"].([]string); len(got) != 0 {
+		t.Fatalf("native Gemini leaked into Agent models: %#v", got)
+	}
+}
+
+func TestAggregateModelsPinsTheSingleTextModel(t *testing.T) {
+	text := func(id string, models ...string) model.ModelProviderConfig {
+		return model.ModelProviderConfig{
+			ID: id, BaseURL: "https://example.com/v1", AuthType: model.ModelProviderAuthTypeBearer, TextModel: models[0],
+			Capabilities:       mustProviderJSONB([]string{model.ModelCapabilityText}),
+			ModelsByCapability: mustProviderJSONB(map[string][]string{model.ModelCapabilityText: models}),
+			Enabled:            true,
+		}
+	}
+	primary := text("primary", "gpt-5.4", "deepseek-v4-pro")
+	primary.DefaultFor = mustProviderJSONB([]string{model.ModelCapabilityText})
+	result := aggregateModelProviders([]model.ModelProviderConfig{
+		primary,
+		text("other", "gpt-5.2", "DeepSeek-V4-Flash"),
+	})
+	want := "other::DeepSeek-V4-Flash"
+	if result["default_text_model"] != want {
+		t.Fatalf("default text model = %v", result["default_text_model"])
+	}
+	for _, key := range []string{"text_models", "agent_text_models"} {
+		if got := result[key].([]string); len(got) != 1 || got[0] != want {
+			t.Fatalf("%s = %#v", key, got)
+		}
+	}
+	if all := result["models"].([]string); containsString(all, "primary::gpt-5.4") || !containsString(all, want) {
+		t.Fatalf("unpinned text models leaked into models: %#v", all)
+	}
+
+	fallback := aggregateModelProviders([]model.ModelProviderConfig{primary})
+	if got := fallback["text_models"].([]string); len(got) != 1 || got[0] != "primary::gpt-5.4" {
+		t.Fatalf("missing pinned model must fall back to the default text model: %#v", got)
 	}
 }
 func TestAggregateModelsKeepsAliasesProviderSpecific(t *testing.T) {

@@ -333,6 +333,11 @@ const (
 	ModelCapabilityAudio = "audio"
 )
 
+// PinnedTextModelName is the only language model used by Studio text features
+// (Agent, prompt tools, comic analysis). Requests cannot choose another one;
+// when no enabled provider lists it, the admin's default text model is used.
+const PinnedTextModelName = "deepseek-v4-flash"
+
 // ModelProviderConfig stores the single Beta default OpenAI-compatible model
 // service. API keys are encrypted at rest and never returned by normal JSON
 // responses.

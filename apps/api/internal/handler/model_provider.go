@@ -1000,10 +1000,29 @@ func aggregateModelProviders(configs []model.ModelProviderConfig, resolvers ...f
 			}
 		}
 	}
+	textModels := uniqueStrings(byCapability[model.ModelCapabilityText])
+	pinnedText := pinnedTextModel(textModels, defaults[model.ModelCapabilityText])
+	defaults[model.ModelCapabilityText] = pinnedText
+	pinnedTextModels := []string{}
+	if pinnedText != "" {
+		pinnedTextModels = []string{pinnedText}
+	}
+	mediaModels := make(map[string]bool)
+	for _, capability := range []string{model.ModelCapabilityImage, model.ModelCapabilityVideo, model.ModelCapabilityAudio} {
+		for _, encoded := range byCapability[capability] {
+			mediaModels[encoded] = true
+		}
+	}
+	visible := make([]string, 0, len(all))
+	for _, encoded := range all {
+		if encoded == pinnedText || mediaModels[encoded] || !containsString(textModels, encoded) {
+			visible = append(visible, encoded)
+		}
+	}
 	return gin.H{
-		"models":                   uniqueStrings(all),
-		"text_models":              uniqueStrings(byCapability[model.ModelCapabilityText]),
-		"agent_text_models":        uniqueStrings(agentTextModels),
+		"models":                   uniqueStrings(visible),
+		"text_models":              pinnedTextModels,
+		"agent_text_models":        onlyModel(uniqueStrings(agentTextModels), pinnedText),
 		"image_models":             uniqueStrings(byCapability[model.ModelCapabilityImage]),
 		"video_models":             uniqueStrings(byCapability[model.ModelCapabilityVideo]),
 		"audio_models":             uniqueStrings(byCapability[model.ModelCapabilityAudio]),
@@ -1018,6 +1037,44 @@ func aggregateModelProviders(configs []model.ModelProviderConfig, resolvers ...f
 		"video_model_capabilities": videoCapabilities,
 		"image_model_protocols":    imageModelProtocols,
 	}
+}
+
+func isPinnedTextModelName(modelID string) bool {
+	name := strings.ToLower(strings.TrimSpace(modelID))
+	return name == model.PinnedTextModelName || strings.HasSuffix(name, "/"+model.PinnedTextModelName)
+}
+
+// pinnedTextModel picks the provider-qualified pinned text model, preferring the
+// default text supplier, and falls back to the configured default text model.
+func pinnedTextModel(textModels []string, defaultModel string) string {
+	defaultProvider, _ := decodeProviderModel(defaultModel)
+	match := ""
+	for _, encoded := range textModels {
+		providerID, modelID := decodeProviderModel(encoded)
+		if !isPinnedTextModelName(modelID) {
+			continue
+		}
+		if providerID == defaultProvider {
+			return encoded
+		}
+		if match == "" {
+			match = encoded
+		}
+	}
+	if match != "" {
+		return match
+	}
+	if defaultModel != "" || len(textModels) == 0 {
+		return defaultModel
+	}
+	return textModels[0]
+}
+
+func onlyModel(models []string, selected string) []string {
+	if selected != "" && containsString(models, selected) {
+		return []string{selected}
+	}
+	return []string{}
 }
 
 func supportsAgentToolCalls(config model.ModelProviderConfig) bool {

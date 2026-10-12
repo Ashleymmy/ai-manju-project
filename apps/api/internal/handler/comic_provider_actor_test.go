@@ -55,7 +55,9 @@ func TestComicProvidersUseCurrentInitiatingAccount(t *testing.T) {
 				}
 				return
 			}
-			if !errors.Is(textErr, repository.ErrModelProviderAccessDenied) || !errors.Is(imageErr, repository.ErrModelProviderAccessDenied) || calls.Load() != before {
+			// Text ignores the requested supplier and uses the pinned model visible to
+			// this actor, so an unauthorized actor simply has no text supplier.
+			if !isTextUnavailableForActor(textErr) || !errors.Is(imageErr, repository.ErrModelProviderAccessDenied) || calls.Load() != before {
 				t.Fatalf("unauthorized actor reached provider: text=%v image=%v", textErr, imageErr)
 			}
 		})
@@ -81,9 +83,15 @@ func TestComicProvidersUseCurrentInitiatingAccount(t *testing.T) {
 	if _, err := providers.UpsertModelProvider(config); err != nil {
 		t.Fatal(err)
 	}
-	before := calls.Load()
-	if _, err := h.GenerateBackgroundTextForUser(context.Background(), "allowed", "private::shared-text", provider.TextGenerationRequest{Prompt: "mock"}); !errors.Is(err, repository.ErrModelProviderAccessDenied) || calls.Load() != before {
-		t.Fatalf("revoked provider policy ignored: %v", err)
+	allowedUser, _ := users.GetUser("allowed")
+	candidates, err := h.forUser(allowedUser).generationCandidates(model.ModelCapabilityText, "private::shared-text")
+	if err != nil {
+		t.Fatalf("public text supplier unavailable after revocation: %v", err)
+	}
+	for _, candidate := range candidates {
+		if candidate.Config.ID == "private" {
+			t.Fatal("revoked provider policy ignored")
+		}
 	}
 	super, _ := users.GetUser("super")
 	super.Role = model.UserRoleMember
@@ -101,4 +109,8 @@ func TestComicProvidersUseCurrentInitiatingAccount(t *testing.T) {
 	if _, err := h.ResolveBackgroundImageJobForUser("allowed", "public::shared-image"); !errors.Is(err, repository.ErrModelProviderAccessDenied) {
 		t.Fatalf("disabled actor reached public provider: %v", err)
 	}
+}
+
+func isTextUnavailableForActor(err error) bool {
+	return errors.Is(err, repository.ErrModelProviderAccessDenied) || errors.Is(err, errGenerationUnavailable)
 }

@@ -111,6 +111,16 @@ func (h *ModelProviderHandler) LoadGenerationCandidates(c *gin.Context, capabili
 
 // Shared by HTTP handlers and background comic workflows.
 func (h *ModelProviderHandler) generationCandidates(capability, requestedModel string) ([]modelSelection, error) {
+	if normalizeCapability(capability) == model.ModelCapabilityText {
+		pinned, err := h.pinnedTextSelection()
+		if errors.Is(err, repository.ErrModelProviderAccessDenied) {
+			return nil, err
+		}
+		if err != nil {
+			return nil, errGenerationUnavailable
+		}
+		requestedModel = pinned
+	}
 	first, selectionErr := h.resolveProviderSelection(capability, requestedModel)
 	// An explicit forbidden supplier must not turn into an automatic fallback.
 	if errors.Is(selectionErr, repository.ErrModelProviderAccessDenied) {
@@ -151,6 +161,16 @@ func (h *ModelProviderHandler) generationCandidates(capability, requestedModel s
 		return nil, errGenerationUnavailable
 	}
 	return result, nil
+}
+
+// pinnedTextSelection ignores caller-supplied text models (old canvas nodes,
+// saved preferences) so every text feature uses the same catalog choice.
+func (h *ModelProviderHandler) pinnedTextSelection() (string, error) {
+	configs, err := h.normalizedProviders()
+	if err != nil {
+		return "", err
+	}
+	return stringFromAny(aggregateModelProviders(configs)["default_text_model"]), nil
 }
 
 func (h *AIHandler) generationJobKwargs(candidates []modelSelection, operation string) map[string]any {

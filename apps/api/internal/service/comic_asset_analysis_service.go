@@ -201,7 +201,7 @@ func (s *ComicAssetService) createAnalysisSession(ctx context.Context, userID st
 	}
 	requestedModel := strings.TrimSpace(input.RequestedModel)
 	if requestedModel == "" {
-		return ComicAnalysisDetail{}, ErrComicTextModelRequired
+		requestedModel = model.PinnedTextModelName
 	}
 	initialInstruction := trimRunes(strings.TrimSpace(input.InitialInstruction), ComicAnalysisMaxInstructionRunes)
 	if initialInstruction == "" {
@@ -381,7 +381,7 @@ func (s *ComicAssetService) CreateAnalysisRevision(ctx context.Context, sessionI
 			return ComicAnalysisDetail{}, ErrComicAnalysisInstruction
 		}
 		if requestedModel == "" {
-			return ComicAnalysisDetail{}, ErrComicTextModelRequired
+			requestedModel = model.PinnedTextModelName
 		}
 		if s.textGenerator == nil {
 			return ComicAnalysisDetail{}, ErrComicTextProvider
@@ -503,7 +503,7 @@ func (s *ComicAssetService) OptimizePrompt(ctx context.Context, projectID string
 	}
 	requestedModel := strings.TrimSpace(input.RequestedModel)
 	if requestedModel == "" {
-		return OptimizeComicPromptResult{}, ErrComicTextModelRequired
+		requestedModel = model.PinnedTextModelName
 	}
 	if s.textGenerator == nil {
 		return OptimizeComicPromptResult{}, ErrComicTextProvider

@@ -121,6 +121,9 @@ func TestComicGenerationSharesCandidatesAndImageProtocols(t *testing.T) {
 		config.TextModel = "shared-text"
 		config.BaseURL = server.URL + "/v1"
 		config.ExtraHeaders = mustProviderJSONB(map[string]string{"X-Supplier": id})
+		if id == "a" {
+			config.DefaultFor = mustProviderJSONB([]string{model.ModelCapabilityText})
+		}
 		if id == "b" {
 			config.ModelProtocols = mustProviderJSONB(map[string]string{"gpt-image-2": model.ImageProtocolOpenAIResponses})
 		}

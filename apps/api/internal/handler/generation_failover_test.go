@@ -14,6 +14,7 @@ import (
 	"github.com/ai-manju/api/internal/model"
 	"github.com/ai-manju/api/internal/provider"
 	"github.com/ai-manju/api/internal/queue"
+	"github.com/ai-manju/api/internal/repository"
 )
 
 func generationTestConfig(id, modelID string) model.ModelProviderConfig {
@@ -21,6 +22,27 @@ func generationTestConfig(id, modelID string) model.ModelProviderConfig {
 		Mode: model.ModelProviderModeOpenAICompatible, BaseURL: "http://supplier.test/v1",
 		AuthType: model.ModelProviderAuthTypeNone, ImageModel: modelID,
 		TimeoutMS: 30000, Enabled: true}
+}
+
+func TestTextGenerationIgnoresRequestedModelForPinnedModel(t *testing.T) {
+	repo := repository.NewMemoryModelProviderRepository()
+	primary := generationTestConfig("a", "gpt-image-2")
+	primary.TextModel = "gpt-5.4"
+	primary.DefaultFor = mustProviderJSONB([]string{model.ModelCapabilityText})
+	pinned := generationTestConfig("b", "gpt-image-2")
+	pinned.TextModel = model.PinnedTextModelName
+	for _, config := range []model.ModelProviderConfig{primary, pinned} {
+		if _, err := repo.UpsertModelProvider(config); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := NewModelProviderHandler(repo, provider.NewSecretBox("secret"))
+	for _, requested := range []string{"", "a::gpt-5.4", "gpt-6"} {
+		candidates, err := h.generationCandidates(model.ModelCapabilityText, requested)
+		if err != nil || len(candidates) == 0 || candidates[0].Config.ID != "b" || candidates[0].Model != model.PinnedTextModelName {
+			t.Fatalf("requested %q resolved to %#v, %v", requested, candidates, err)
+		}
+	}
 }
 
 func TestImageGenerationQueuesSameModelCandidatesPrivately(t *testing.T) {
