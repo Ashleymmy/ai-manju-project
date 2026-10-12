@@ -7,7 +7,7 @@ import { useAgentDocuments } from "@/features/canvas/agent/useAgentDocuments";
 import { applyAgentReferencesToOps, canvasAgentReferences, describeAgentReferences, persistableAgentReferences, type AgentReference } from "@/features/canvas/agent/references";
 import { buildAgentReferenceContent } from "@/features/canvas/agent/referenceMedia";
 import { useOutsidePress } from "@/shared/lib/useOutsidePress";
-import { ArrowLeft, ArrowUp, Bot, Brain, ChartColumn, Check, ChevronDown, ChevronRight, Copy, History, Image as ImageIcon, Info, KeyRound, LayoutGrid, Link2, MessageCircle, MessagesSquare, Paperclip, PlugZap, Plus, Puzzle, ScanSearch, Settings, ShieldCheck, Sparkles, Square, Trash2, User, X, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowUp, Bot, Brain, ChartColumn, Check, ChevronDown, ChevronRight, Copy, History, Image as ImageIcon, Info, KeyRound, LayoutGrid, Link2, MessageCircle, MessagesSquare, Paperclip, PlugZap, Plus, Puzzle, ScanSearch, Settings, ShieldCheck, Square, Trash2, User, X, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchAiModels,
@@ -18,23 +18,18 @@ import {
   type TextModelCatalog,
 } from "@/services/api/ai";
 import { publicApiError } from "@/shared/api/errors";
+import { pinnedTextModelLabel } from "@/shared/lib/modelSelection";
 import { isDefinitiveGenerationReceiptFailure } from "@/services/api/generationReceipt";
 import { loadScopedAgentConversations, persistAgentReceiptMessage } from "@/features/canvas/agent/conversationRepository";
 import { agentConversationScopeKey, ownsAgentTextReceipt, type AgentTextReceipt } from "@/features/canvas/agent/textReceipt";
 import {
   AGENT_INTERRUPTED_MESSAGE,
-  agentModelName,
-  agentModelOptions,
   copyAgentMessageText,
   createLocalAgentSseClient,
-  extraAgentModels,
-  featuredAgentModels,
   isAgentTurnCancelled,
   loadAgentConnectionSettings,
   persistAgentConnectionSettings,
   persistAgentConversations,
-  pickAgentDefaultModel,
-  resolveAgentModel,
   postLocalAgentResult,
   postLocalAgentState,
   sendLocalAgentTurn,
@@ -63,7 +58,12 @@ import {
 } from "@/lib/canvas-agent";
 import "./AgentPanel.css";
 
-type AgentMenuKind = "threads" | "files" | "plus" | "confirm" | "models";
+type AgentMenuKind = "threads" | "files" | "plus" | "confirm";
+/** Status text names the model only when it is the pinned one, never the admin fallback. */
+function withPinnedModel(status: string, model: string) {
+  const label = pinnedTextModelLabel(model);
+  return label ? `${status} · ${label}` : status;
+}
 type PlusMenuView = "root" | "canvas" | "skills" | "apps";
 // 技能预设与头脑风暴提示词：纯前端占位，后续由后端技能/应用体系适配
 const SKILL_PRESETS = [
@@ -95,8 +95,6 @@ type AgentPanelProps = {
   pagePath?: string;
   /** 聊天台引导流程交接的用户输入原文（步骤5：同步为一条用户消息并发送，仅一次） */
   initialPrompt?: string;
-  /** 聊天台选中的模型标识，首轮保留该模型，由后台选择可用供应商。 */
-  initialModel?: string;
   assetScope?: "personal" | "team";
   /** User-driven selection only; generated output selections must not become references. */
   referenceSelection?: { projectId: string; nodeIds: string[] };
@@ -118,7 +116,7 @@ type AgentPanelProps = {
 
 export default function AgentPanel({
   userId, projectId, open, onClose, snapshot: canvasSnapshot, canUndoOps,
-  onApplyOps, onExecuteWorkspaceTool, onUndoOps, initialPrompt, initialModel,
+  onApplyOps, onExecuteWorkspaceTool, onUndoOps, initialPrompt,
   assetScope = "personal", referenceSelection, mode = "canvas", displayName, pagePath,
 }: AgentPanelProps) {
   const isStudio = mode === "studio";
@@ -149,7 +147,6 @@ export default function AgentPanel({
   const [waiting, setWaiting] = useState(false);
   const [threadId, setThreadId] = useState<string | undefined>();
   const [modelCatalog, setModelCatalog] = useState<TextModelCatalog | null>(null);
-  const [textModel, setTextModel] = useState("");
   const [modelLoadError, setModelLoadError] = useState("");
   const [confirmTools, setConfirmTools] = useState(true);
   const [pendingTool, setPendingTool] = useState<PendingAgentTool | null>(null);
@@ -161,8 +158,6 @@ export default function AgentPanel({
   const conversationsRef = useRef(conversations);
   const [openMenu, setOpenMenu] = useState<AgentMenuKind | null>(null);
   const [plusView, setPlusView] = useState<PlusMenuView>("root");
-  const [autoModel, setAutoModel] = useState(false);
-  const [moreModelsOpen, setMoreModelsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -295,37 +290,28 @@ export default function AgentPanel({
     fetchAiModels()
       .then((result) => {
         if (!current) return;
+        // The server pins one text model; the Agent offers no model choice.
         const models = isStudio ? result.textModels : result.agentTextModels;
-        const defaultModel = pickAgentDefaultModel(models, result.modelLabels, result.defaultTextModel);
         const catalog: TextModelCatalog = {
           models,
-          defaultModel,
+          defaultModel: models[0] || "",
           labels: result.modelLabels,
           providerNames: result.modelProviderNames,
         };
         setModelCatalog(catalog);
-        setTextModel((current) => resolveAgentModel(models, current) || defaultModel);
         setModelLoadError(models.length ? "" : isStudio ? "没有可用的文本模型" : "没有支持 Agent 工具调用的文本模型");
-        setActivity(models.length ? "在线 Agent 可用" : "Agent 模型未配置");
+        setActivity(models.length ? withPinnedModel("在线 Agent 可用", models[0]) : "Agent 模型未配置");
       })
       .catch((error) => {
         if (!current) return;
         const message = publicApiError(error, "读取 Agent 模型失败");
         setModelCatalog(null);
-        setTextModel("");
         setModelLoadError(message);
         setActivity("Agent 模型不可用");
         toast.error(message);
       });
     return () => { current = false; };
   }, [isStudio, storageProjectId]);
-
-  useEffect(() => {
-    if (initialModel && modelCatalog && resolveAgentModel(modelCatalog.models, initialModel) && !initialPromptSentRef.current) {
-      setTextModel(initialModel);
-      setAutoModel(false);
-    }
-  }, [initialModel, modelCatalog]);
 
   useEffect(() => {
     if (!enabled || !url.trim() || !token.trim()) return;
@@ -553,7 +539,7 @@ export default function AgentPanel({
     if (isStudio && calls.length) throw new Error("当前对话未连接画布，未执行模型返回的操作。请进入对应画布继续。");
     if (!calls.length) {
       upsertAssistantMessage(assistantId, response.content || "模型没有返回内容。");
-      setActivity(response.model ? `完成 · ${response.model.split("::").at(-1)}` : "完成");
+      setActivity(withPinnedModel("完成", response.model || ""));
       setWaiting(false);
       return;
     }
@@ -892,20 +878,7 @@ export default function AgentPanel({
 
   const currentTitle = conversations.find((c) => c.id === conversationId)?.title ?? "新建对话";
 
-  const modelDisplay = agentModelName;
-  // Auto 模式下使用模型目录默认模型，手动选择后退出 Auto
-  const awaitingInitialModel = Boolean(initialPrompt && initialModel && !initialPromptSentRef.current);
-  const resolvedInitialModel = modelCatalog && initialModel ? resolveAgentModel(modelCatalog.models, initialModel) : "";
-  const initialModelError = awaitingInitialModel && modelCatalog && !resolvedInitialModel
-    ? "所选模型已不可用，请重新选择创作模型后发送"
-    : "";
-  const effectiveModel = awaitingInitialModel
-    ? resolvedInitialModel
-    : autoModel ? (modelCatalog?.defaultModel ?? "") : textModel;
-  const menuModels = agentModelOptions(modelCatalog?.models || [], effectiveModel).map(option => option.value);
-  const menuDefault = menuModels.find(model => agentModelName(model) === agentModelName(modelCatalog?.defaultModel || "")) || "";
-  const featuredModels = featuredAgentModels(menuModels, menuDefault);
-  const extraModels = extraAgentModels(menuModels, featuredModels);
+  const effectiveModel = modelCatalog?.defaultModel ?? "";
   const busy = waiting || Boolean(pendingTool);
 
   const toggleMenu = (menu: AgentMenuKind) => {
@@ -1029,19 +1002,19 @@ export default function AgentPanel({
     if (channel !== "online") return;
     if (!effectiveModel) {
       // 模型目录加载失败：仍将用户输入同步进对话（步骤5），并展示真实错误
-      if (modelLoadError || initialModelError) {
+      if (modelLoadError) {
         initialPromptSentRef.current = true;
         setMessages((prev) => [
           ...prev,
           { id: `u-${Date.now()}`, role: "user", text: initialPrompt },
-          { id: `err-${Date.now()}`, role: "error", text: initialModelError || modelLoadError },
+          { id: `err-${Date.now()}`, role: "error", text: modelLoadError },
         ]);
       }
       return; // 模型目录仍在加载：effectiveModel 就绪后本 effect 会再次触发
     }
     initialPromptSentRef.current = true;
     void sendOnlinePrompt(initialPrompt);
-  }, [open, initialPrompt, waiting, messages.length, channel, effectiveModel, modelLoadError, initialModelError, sendOnlinePrompt]);
+  }, [open, initialPrompt, waiting, messages.length, channel, effectiveModel, modelLoadError, sendOnlinePrompt]);
 
   useEffect(() => {
     if (isStudio && open && rendered && effectiveModel) composerRef.current?.focus({ preventScroll: true });
@@ -1437,78 +1410,6 @@ export default function AgentPanel({
               </div>
 
               <div className="agent-composer-right">
-                {/* 模型选择面板：Auto 开关 + 精选推荐 + 更多模型 */}
-                <div className="agent-model-picker" data-agent-menu>
-                  <button
-                    type="button"
-                    className="agent-model-selector"
-                    title="切换模型配置"
-                    onClick={() => toggleMenu("models")}
-                  >
-                    <Sparkles size={13} />
-                    {/* 悬停显示完整模型名，兜底超长 id 被省略号截断的情况 */}
-                    <span title={autoModel ? "Auto" : textModel ? modelDisplay(textModel) : undefined}>{autoModel ? "Auto" : textModel ? modelDisplay(textModel) : "选择模型"}</span>
-                    <ChevronDown size={11} />
-                  </button>
-                  {openMenu === "models" && modelCatalog && (
-                    <div className="agent-model-menu">
-                      <div className="agent-model-auto">
-                        <span>Auto</span>
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={autoModel}
-                          className={`agent-switch ${autoModel ? "on" : ""}`}
-                          onClick={() => setAutoModel((v) => !v)}
-                        >
-                          <i />
-                        </button>
-                      </div>
-                      <div className="agent-menu-label">精选推荐</div>
-                      {featuredModels.map((model) => (
-                        <button
-                          key={model}
-                          type="button"
-                          className={`agent-model-item ${!autoModel && model === textModel ? "active" : ""}`}
-                          onClick={() => { setTextModel(model); setAutoModel(false); setOpenMenu(null); }}
-                        >
-                          <span><Sparkles size={12} /> {modelDisplay(model)}</span>
-                          {!autoModel && model === textModel && <Check size={14} />}
-                        </button>
-                      ))}
-                      {extraModels.length > 0 && (
-                        <>
-                          <button
-                            type="button"
-                            className="agent-model-more"
-                            onClick={() => setMoreModelsOpen((v) => !v)}
-                          >
-                            <span>更多模型</span>
-                            <ChevronDown size={13} className={moreModelsOpen ? "rotated" : ""} />
-                          </button>
-                          {moreModelsOpen && extraModels.map((model) => (
-                            <button
-                              key={model}
-                              type="button"
-                              className={`agent-model-item ${!autoModel && model === textModel ? "active" : ""}`}
-                              onClick={() => { setTextModel(model); setAutoModel(false); setOpenMenu(null); }}
-                            >
-                              <span><Sparkles size={12} /> {modelDisplay(model)}</span>
-                              {!autoModel && model === textModel && <Check size={14} />}
-                            </button>
-                          ))}
-                        </>
-                      )}
-                      <button
-                        type="button"
-                        className="agent-model-help"
-                        onClick={() => toast.info("Auto 会根据任务自动选择模型；也可以在列表中手动指定。")}
-                      >
-                        <Info size={12} /> 如何选择模型？
-                      </button>
-                    </div>
-                  )}
-                </div>
                 {busy && (
                   <button
                     type="button"

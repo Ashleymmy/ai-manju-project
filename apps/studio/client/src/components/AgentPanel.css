@@ -514,8 +514,7 @@
   border-color: rgba(239,235,222,.34);
   color: #f0ede5;
 }
-.agent-confirm-toggle,
-.agent-model-selector {
+.agent-confirm-toggle {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -531,20 +530,10 @@
   transition: all 0.15s;
   white-space: nowrap;
 }
-.agent-confirm-toggle:hover,
-.agent-model-selector:hover {
+.agent-confirm-toggle:hover {
   border-color: rgba(239,235,222,.28);
   color: #f0ede5;
 }
-.agent-model-selector span {
-  /* 模型名展示宽度上限：96px 会截断 doubao-seedance-1-5-pro 这类长名；
-     放宽到 180px，配合 composer-footer 换行与面板可拖宽，常见模型名可完整显示 */
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.agent-model-selector > svg:first-child { color: var(--sand, #d7bd7b); }
 /* 闁汇垼顕х粩鐑芥嚍閸屾粌浠€殿喗娲滈弫銈夋焻婢跺顏ラ柛?*/
 .agent-ref-picker { position: relative; }
 .agent-ref-menu {
@@ -601,41 +590,6 @@
   white-space: nowrap;
 }
 /* 婵☆垪鈧磭鈧兘鏌呮径瀣仴闁革絻鍔岄懘濠勪沪?*/
-.agent-model-picker { position: relative; }
-.agent-model-menu {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  right: 0;
-  /* 默认面板 290px 时菜单可用宽度约 267px，取 260px 保证长模型名完整显示且不被面板裁切 */
-  width: 260px;
-  max-height: 270px;
-  overflow-y: auto;
-  padding: 5px;
-  background: #2c2c2c;
-  border: 1px solid rgba(239,235,222,.16);
-  border-radius: 12px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 18px 44px rgba(0,0,0,.5);
-  z-index: 60;
-}
-.agent-model-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: #e6e3da;
-  font-size: var(--font-size-control);
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.12s;
-}
-.agent-model-item:hover { background: rgba(255,255,255,.07); }
-.agent-model-item.active { background: rgba(255,255,255,.16); }
 .agent-send-btn {
   width: 32px;
   height: 32px;
@@ -868,92 +822,6 @@
   line-height: 1.5;
 }
 /* 婵☆垪鈧磭鈧兘妫冮姀鈩冪凡闁挎稒顑媢to 鐎殿喒鍋撻柛?/ 闁告帒妫滄俊?/ 閻㈩垼鍠栨慨?*/
-.agent-model-auto {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: #f0ede5;
-}
-.agent-switch {
-  position: relative;
-  width: 34px;
-  height: 20px;
-  border: 0;
-  border-radius: 999px;
-  background: #414141;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,.35);
-  cursor: pointer;
-  transition: background 0.18s;
-  flex-shrink: 0;
-}
-.agent-switch i {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: linear-gradient(180deg, #fbf8f1, #e0dccd);
-  box-shadow: 0 1px 3px rgba(0,0,0,.4);
-  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.agent-switch.on { background: var(--red, #f2f1ed); }
-.agent-switch.on i { transform: translateX(14px); }
-.agent-menu-label {
-  padding: 8px 10px 4px;
-  font-size: var(--font-size-small);
-  color: #a4a4a4;
-}
-.agent-model-item > span {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.agent-model-item > span svg { color: var(--sand, #d7bd7b); }
-.agent-model-item {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-}
-.agent-model-item > svg { color: var(--green, #a9a9a9); }
-.agent-model-more {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  margin-top: 2px;
-  padding: 8px 10px;
-  border: 0;
-  border-top: 1px solid rgba(239,235,222,.1);
-  background: transparent;
-  color: #cdcdcd;
-  font-size: var(--font-size-control);
-  font-family: inherit;
-  cursor: pointer;
-}
-.agent-model-more:hover { color: #f0ede5; }
-.agent-model-more svg { transition: transform 0.18s; }
-.agent-model-more svg.rotated { transform: rotate(180deg); }
-.agent-model-help {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  margin-top: 2px;
-  padding: 8px 10px;
-  border: 0;
-  border-top: 1px solid rgba(239,235,222,.1);
-  border-radius: 0 0 8px 8px;
-  background: transparent;
-  color: #a4a4a4;
-  font-size: var(--font-size-small);
-  font-family: inherit;
-  cursor: pointer;
-}
-.agent-model-help:hover { color: #c8c8c8; }
 /* 闁哄牜鍓欏﹢?Agent 閺夆晝鍋炵敮瀵告媼閸撗呮瀭濡?*/
 .agent-connect { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
 .agent-setup-note {

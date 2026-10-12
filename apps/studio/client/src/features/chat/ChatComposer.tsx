@@ -1,25 +1,22 @@
 import {
   ArrowUp,
-  ChevronDown,
   Loader2,
   Mic,
   Plus,
-  Sparkles,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchModelCatalog, modelQueryKeys } from "@/entities/model";
-import { agentModelName, agentModelOptions, pickAgentDefaultModel, resolveAgentModel } from "@/features/canvas";
 import { createAndOpenProject } from "@/features/projects";
 
 import { createChatProjectFlow } from "./createChatProjectFlow";
 import "./styles.css";
 
-/* 点击空白处 / Esc 关闭下拉的“自己人”标记：model 在本组件，user 在 ChatPage 顶栏 */
+/* 点击空白处 / Esc 关闭下拉的“自己人”标记：user 菜单在 ChatPage 顶栏 */
 export const CHAT_OPEN_MENU_ATTR = "data-chat-open-menu";
 
 /**
@@ -30,8 +27,6 @@ export const CHAT_OPEN_MENU_ATTR = "data-chat-open-menu";
 export default function ChatComposer() {
   const { user } = useAuth();
   const [location, navigate] = useLocation();
-  const [requestedModel, setSelectedModel] = useState("");
-  const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -44,45 +39,19 @@ export default function ChatComposer() {
     refetchOnWindowFocus: true,
   });
   const catalog = user && !modelsQuery.isError ? modelsQuery.data : undefined;
-  // 创作想法会交给画布助手，只展示接口返回的支持工具调用的文本模型。
-  const availableModels = catalog?.agentTextModels || [];
-  const selectedModel = resolveAgentModel(availableModels, requestedModel)
-    || pickAgentDefaultModel(availableModels, catalog?.modelLabels, catalog?.defaultTextModel);
-  const modelOptions = agentModelOptions(availableModels, selectedModel);
-  const modelStatus = !user ? "登录后查看模型"
-    : modelsQuery.isFetching ? "正在获取模型…"
-      : modelsQuery.isError ? "模型获取失败，请重试"
+  // 文本模型由服务端统一指定；这里只确认画布助手有可用的工具调用模型。
+  const selectedModel = catalog?.agentTextModels[0] || "";
+  const modelStatus = !user ? "登录后使用"
+    : modelsQuery.isFetching ? "正在连接创作助手…"
+      : modelsQuery.isError ? "创作助手连接失败，请重试"
         : !selectedModel ? "暂无可用的创作模型，请联系管理员配置"
           : "";
-  const selectedModelLabel = selectedModel ? agentModelName(selectedModel) : modelStatus;
   const sendButtonTitle = isLoading ? "正在创建项目…"
     : !input.trim() ? "输入创作想法后发送"
       : user && (!selectedModel || modelsQuery.isFetching) ? modelStatus
         : "发送并创建项目（Enter）";
   // 未登录时去登录页，登录后回到当前所在页面
   const loginPath = `/login?next=${encodeURIComponent(location || "/dashboard")}`;
-
-  // 点击页面任意空白处 / 按 Esc 时关闭模型下拉（用户菜单在 ChatPage 顶栏独立处理）
-  useEffect(() => {
-    if (!showModelDropdown) return;
-    const closeMenu = () => setShowModelDropdown(false);
-    const onPointerDown = (event: PointerEvent) => {
-      if ((event.target as HTMLElement | null)?.closest(`[${CHAT_OPEN_MENU_ATTR}="model"]`)) return;
-      closeMenu();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        closeMenu();
-        inputRef.current?.focus();
-      }
-    };
-    window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [showModelDropdown]);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -183,7 +152,7 @@ export default function ChatComposer() {
       {/* 创作输入区：与 studio 输入表面同一质感 */}
       <section
         className="chat-composer"
-        data-keep-expanded={Boolean(input.length || showModelDropdown || isListening || isLoading)}
+        data-keep-expanded={Boolean(input.length || isListening || isLoading)}
         onClick={(event) => {
           // 点击面板留白也能进入输入；内部按钮保留自己的焦点和操作。
           if (event.target === event.currentTarget) inputRef.current?.focus();
@@ -200,48 +169,12 @@ export default function ChatComposer() {
         />
         <div className="chat-composer-bar">
           <div className="chat-composer-settings">
-            <div className="chat-model" {...{ [CHAT_OPEN_MENU_ATTR]: "model" }}>
-              <button
-                className="chat-tool-btn chat-model-trigger"
-                aria-label="选择创作模型"
-                aria-expanded={showModelDropdown}
-                title={selectedModelLabel}
-                disabled={isLoading}
-                onClick={() => {
-                  setShowModelDropdown(!showModelDropdown);
-                  if (!showModelDropdown && user && !modelsQuery.isFetching) void modelsQuery.refetch();
-                }}
-              >
-                <Sparkles size={14} />
-                <span>{selectedModelLabel}</span>
-                <ChevronDown size={12} className={showModelDropdown ? "rotated" : ""} />
-              </button>
-              {showModelDropdown && (
-                <div className="chat-menu chat-model-menu">
-                  {modelStatus && <p className="chat-model-status" role="status">{modelStatus}</p>}
-                  {modelOptions.map(({ value: model, label }) => (
-                    <button
-                      key={model}
-                      className={selectedModel === model ? "active" : ""}
-                      aria-pressed={selectedModel === model}
-                      disabled={modelsQuery.isFetching}
-                      title={label}
-                      onClick={() => {
-                        setSelectedModel(model);
-                        setShowModelDropdown(false);
-                        inputRef.current?.focus();
-                      }}
-                    >
-                      <Sparkles size={12} />
-                      <span>{label}</span>
-                    </button>
-                  ))}
-                  {user && !modelsQuery.isFetching && (modelsQuery.isError || !availableModels.length) && (
-                    <button onClick={() => void modelsQuery.refetch()}>重新获取模型</button>
-                  )}
-                </div>
-              )}
-            </div>
+            {user && modelStatus && !modelsQuery.isFetching && (
+              <p className="chat-model-status" role="status">
+                {modelStatus}
+                {modelsQuery.isError && <button type="button" onClick={() => void modelsQuery.refetch()}>重试</button>}
+              </p>
+            )}
             {input.length > 0 && <span className="chat-composer-hint">{input.length} 字符</span>}
           </div>
           <div className="chat-composer-actions">

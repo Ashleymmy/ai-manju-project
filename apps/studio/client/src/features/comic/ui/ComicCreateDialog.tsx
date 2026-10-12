@@ -2,7 +2,7 @@ import { Loader2, Upload, X } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
 
 import type { CapabilityModelCatalog } from "@/entities/model";
-import { modelName, resolveModel } from "@/shared/lib/modelSelection";
+import { useDocumentScrollLock } from "@/shared/lib/useDocumentScrollLock";
 import type { ComicTemplateDraft } from "../model/workflow";
 import { ComicAnalysisSettings } from "./ComicAnalysisSettings";
 import { ComicTemplateFields } from "./ComicTemplateFields";
@@ -22,7 +22,6 @@ type ComicCreateDialogProps = {
   modelsError: boolean;
   onRefreshModels: () => void;
   analysisModel: string;
-  setAnalysisModel: Dispatch<SetStateAction<string>>;
   instruction: string;
   setInstruction: Dispatch<SetStateAction<string>>;
   scriptFile: File | null;
@@ -49,7 +48,6 @@ export function ComicCreateDialog({
   modelsError,
   onRefreshModels,
   analysisModel,
-  setAnalysisModel,
   instruction,
   setInstruction,
   scriptFile,
@@ -62,8 +60,9 @@ export function ComicCreateDialog({
   onClose,
   onConfirm,
 }: ComicCreateDialogProps) {
+  useDocumentScrollLock(open);
   if (!open) return null;
-  const modelReady = !modelsLoading && !modelsError && Boolean(resolveModel(modelCatalog?.models || [], analysisModel));
+  const modelReady = !modelsLoading && !modelsError && Boolean(analysisModel);
   const canConfirm = Boolean(projectTitle.trim()) && !isParsingScript && (creationMode === "empty" || (creationMode === "import" ? workbookFile : scriptFile && modelReady && instruction.trim()));
   const close = () => { if (!isParsingScript) onClose(); };
 
@@ -81,7 +80,7 @@ export function ComicCreateDialog({
           </button>
         </div>
 
-        <fieldset className="dialog-body" disabled={isParsingScript}>
+        <div className="dialog-body"><fieldset className="comic-create-fields" disabled={isParsingScript}>
           <div className="dialog-section">
             <label className="dialog-label">创建方式</label>
             <div className="creation-mode-tabs">
@@ -200,12 +199,11 @@ export function ComicCreateDialog({
 
               <ComicAnalysisSettings
                 catalog={modelCatalog} loading={modelsLoading} error={modelsError} disabled={isParsingScript}
-                onRefresh={onRefreshModels} model={analysisModel} onModelChange={setAnalysisModel}
-                instruction={instruction} onInstructionChange={setInstruction}
+                onRefresh={onRefreshModels} instruction={instruction} onInstructionChange={setInstruction}
               />
               {isParsingScript && <div className="comic-analysis-progress" role="status">
                 <Loader2 size={18} className="animate-spin" />
-                <div><strong>正在分析剧本…</strong><p>{scriptFile?.name} · {modelName(analysisModel)}</p></div>
+                <div><strong>正在分析剧本…</strong><p>{scriptFile?.name}</p></div>
               </div>}
 
               <ComicTemplateFields variant="dialog" value={templates} onChange={setTemplates} />
@@ -311,7 +309,7 @@ export function ComicCreateDialog({
               <ComicTemplateFields variant="dialog" compact value={templates} onChange={setTemplates} />
             </>
           )}
-        </fieldset>
+        </fieldset></div>
 
         <div className="dialog-footer">
           <button className="outline-button" onClick={close} disabled={isParsingScript}>

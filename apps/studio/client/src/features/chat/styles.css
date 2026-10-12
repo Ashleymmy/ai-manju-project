@@ -352,44 +352,21 @@
 @container (max-width: 400px) {
   .chat-composer-hint { display: none; }
 }
-.chat-model {
-  position: relative;
-  min-width: 0;
-  overflow: visible;
-}
-.chat-model-menu {
-  bottom: calc(100% + 8px);
-  left: 0;
-  z-index: 60;
-  transform-origin: bottom left;
-  width: min(340px, 100cqw);
-  max-height: min(320px, 45dvh);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-.chat-model-menu button span {
-  overflow-wrap: anywhere;
-}
-.chat-model-menu svg, .chat-model-trigger svg {
-  flex-shrink: 0;
-}
 .chat-model-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
-  padding: 8px 10px;
   color: var(--muted-foreground);
   font-size: var(--font-size-control);
 }
-.chat-model-trigger {
-  max-width: min(320px, 100%);
-}
-.chat-model-trigger span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.chat-model button:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
+.chat-model-status button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }
 .chat-tool-btn {
   display: inline-flex;

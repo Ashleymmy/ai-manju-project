@@ -782,7 +782,7 @@ export class CanvasGenerationJobsController {
       return;
     }
     const prompt = stringValue(node.metadata?.prompt) || node.content;
-    const model = modelFromNode(node, this.bindings.getTextModel());
+    const model = this.bindings.getTextModel();
     if (!prompt.trim() || !model) {
       this.bindings.onWarning(!model ? "请先配置文本模型" : "提示词不能为空");
       return;
@@ -1101,7 +1101,7 @@ export class CanvasGenerationJobsController {
       const context = await this.resolveMentionContextOrNotify(sourceNode, nodes, edges, undefined, intent.controller.signal);
       if (!context || !this.preparationIsCurrent(intent)) return;
       const prompt = canvasTextRequestPrompt(sourceNode, context.prompt);
-      const model = modelFromNode(sourceNode, this.bindings.getTextModel());
+      const model = this.bindings.getTextModel();
       if (!prompt.trim() || !model) {
         this.bindings.onWarning(!model ? "请先配置文本模型" : "提示词不能为空");
         return;

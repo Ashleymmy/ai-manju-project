@@ -68,8 +68,8 @@ export const COMIC_QUEUE_PHASE_LABELS: Record<string, string> = {
 };
 export const COMIC_REFERENCE_LIMIT = 6;
 
-/** Prefer Luna only when its actual model ID is returned by the text catalog. */
-export const COMIC_DEFAULT_ANALYSIS_MODEL = "gpt-5.6-luna";
+/** Shown when the server catalog has no text model; the model itself is fixed by the server. */
+export const COMIC_TEXT_MODEL_MISSING_MESSAGE = "暂无可用的文本模型，请联系管理员配置";
 /** Keep the first-round instructions comfortably within the analysis input budget. */
 export const COMIC_ANALYSIS_INSTRUCTION_MAX_LENGTH = 4_000;
 /** Category prompt templates are short text; larger files are almost always the wrong file. */

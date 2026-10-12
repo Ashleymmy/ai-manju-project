@@ -9,6 +9,18 @@ export function modelName(model: string) {
   return model.split("::").at(-1)?.trim() || "";
 }
 
+/** The server's fixed text model (apps/api `PinnedTextModelName`); users never choose a text model. */
+export const PINNED_TEXT_MODEL_NAME = "deepseek-v4-flash";
+
+/**
+ * The pinned model's name when `model` is it, otherwise "". When the server falls
+ * back to the admin default text model, nothing is shown.
+ */
+export function pinnedTextModelLabel(model: string) {
+  const name = modelName(model).toLowerCase();
+  return name === PINNED_TEXT_MODEL_NAME || name.endsWith(`/${PINNED_TEXT_MODEL_NAME}`) ? PINNED_TEXT_MODEL_NAME : "";
+}
+
 // SD-video selectors identify managed slots, not user-facing model names.
 const SDVIDEO_MODEL_PREFIX = "sdvideo/";
 

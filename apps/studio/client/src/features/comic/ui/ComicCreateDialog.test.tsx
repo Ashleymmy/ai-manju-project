@@ -88,15 +88,11 @@ describe("comic creation uses the real catalog and analysis workflow", () => {
     expect(container.textContent).not.toContain("旧项目详情");
   });
 
-  it("loads actual model names once and sends the selected provider-qualified value to analysis", async () => {
+  it("sends the server's text model to analysis without offering a model choice", async () => {
     await open();
     expect(mocks.catalog.refetch).toHaveBeenCalledOnce();
-    const trigger = container.querySelector('[role="combobox"][aria-label="分析模型"]') as HTMLButtonElement;
-    expect(trigger.textContent).toBe("gpt-5.6-luna");
-    expect(container.textContent).not.toContain("gpt-5.6-scl");
-    await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
-    expect([...document.querySelectorAll('[role="option"]')].map(item => item.textContent)).toEqual(["gpt-5.6-luna", "text-real"]);
-    await act(async () => (document.querySelectorAll('[role="option"]')[1] as HTMLElement).click());
+    expect(container.querySelector('[aria-label="分析模型"]')).toBeNull();
+    expect(container.textContent).not.toContain("分析模型");
     await setTitle("真实分析");
     const file = await setFile();
     let finish!: (value: unknown) => void;
@@ -121,9 +117,8 @@ describe("comic creation uses the real catalog and analysis workflow", () => {
     if (state === "empty") mocks.catalog.data.models = [];
     if (state === "error") mocks.catalog.error = new Error("unavailable");
     await open(); await setTitle("测试"); await setFile();
-    const trigger = container.querySelector('[aria-label="分析模型"]') as HTMLButtonElement;
-    expect(trigger.disabled).toBe(true);
     expect(button("解析并预览").disabled).toBe(true);
+    if (state !== "loading") expect(container.querySelector(".comic-analysis-model-status")).not.toBeNull();
     expect(container.textContent).not.toContain("gpt-5.6-scl");
     expect(mocks.analyze).not.toHaveBeenCalled();
   });

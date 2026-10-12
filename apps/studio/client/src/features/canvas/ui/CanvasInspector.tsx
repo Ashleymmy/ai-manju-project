@@ -497,9 +497,11 @@ export function CanvasInspector({
                     </Popover>
                   </>
                 ) : null}
-                <CanvasModelPicker key={`${selectedNode.id}:model`} active={inspectorOpen && !projectActionDisabled}
-                  value={selectedGenerationModel} label={selectedGenerationModelLabel}
-                  options={generationModelOptions} onSelect={selectGenerationModel} />
+                {selectedGenerationMode !== "text" && (
+                  <CanvasModelPicker key={`${selectedNode.id}:model`} active={inspectorOpen && !projectActionDisabled}
+                    value={selectedGenerationModel} label={selectedGenerationModelLabel}
+                    options={generationModelOptions} onSelect={selectGenerationModel} />
+                )}
                 <Popover key={`${selectedNode.id}:parameters`} active={inspectorOpen && !projectActionDisabled}>
                   <PopoverTrigger asChild>
                     <button type="button" className="node-chip" title="详细参数"><SlidersHorizontal size={13} /> 参数</button>

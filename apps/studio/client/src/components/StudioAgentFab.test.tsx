@@ -39,8 +39,8 @@ describe("studio Agent dialog", () => {
     localStorage.clear();
     mocks.navigate.mockReset();
     mocks.fetchAiModels.mockReset().mockResolvedValue({
-      textModels: ["provider::gpt-5.6-luna", "provider::plain-model"], agentTextModels: [],
-      defaultTextModel: "provider::gpt-5.6-luna", modelLabels: {}, modelProviderNames: {},
+      textModels: ["provider::deepseek-v4-flash"], agentTextModels: [],
+      defaultTextModel: "provider::deepseek-v4-flash", modelLabels: {}, modelProviderNames: {},
     });
     mocks.requestAiText.mockReset().mockResolvedValue({ content: "A real response", toolCalls: [] });
     container = document.createElement("div");
@@ -93,14 +93,12 @@ describe("studio Agent dialog", () => {
     expect(dialog().textContent).toContain("A real response");
   });
 
-  it("uses the selected plain text model and closes menus before closing the dialog on Escape", async () => {
+  it("uses the server's text model and closes menus before closing the dialog on Escape", async () => {
     await open();
-    await click(".agent-model-selector");
-    const models = dialog().querySelectorAll<HTMLButtonElement>(".agent-model-item");
-    await act(async () => models[1].click());
+    expect(dialog().querySelector(".agent-model-selector")).toBeNull();
     await type("Model choice");
     await click(".agent-send-btn");
-    expect(mocks.requestAiText.mock.calls[0][0].model).toBe("provider::plain-model");
+    expect(mocks.requestAiText.mock.calls[0][0].model).toBe("provider::deepseek-v4-flash");
     await click(".agent-thread-trigger");
     await act(async () => composer().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
     expect(dialog().querySelector(".agent-thread-menu")).toBeNull();

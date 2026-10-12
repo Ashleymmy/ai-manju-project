@@ -144,7 +144,6 @@ export function SettingsView() {
   const [audioFormat, setAudioFormat] = useState("mp3");
   const [audioSpeed, setAudioSpeed] = useState("1");
   const [audioInstructions, setAudioInstructions] = useState("");
-  const [textModel, setTextModel] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [canvasImageCount, setCanvasImageCount] = useState(3);
   const [shortcuts, setShortcuts] = useState<CanvasShortcutBindings>({ ...DEFAULT_CANVAS_SHORTCUTS });
@@ -249,7 +248,6 @@ export function SettingsView() {
     setAudioFormat(generation.audioFormat || "mp3");
     setAudioSpeed(generation.audioSpeed || "1");
     setAudioInstructions(generation.audioInstructions || "");
-    setTextModel(resolveModel(catalog.textModels, generation.textModel || "") || catalog.defaultTextModel);
     setSystemPrompt(generation.systemPrompt || "");
     setBackgroundMode(preferences.canvas?.backgroundMode || "lines");
     setCtrlZoom(preferences.canvas?.wheelZoomRequiresCtrl !== false);
@@ -323,7 +321,6 @@ export function SettingsView() {
           audioFormat,
           audioSpeed,
           audioInstructions,
-          textModel,
           systemPrompt,
         },
         shortcuts,
@@ -358,7 +355,6 @@ export function SettingsView() {
     setAudioFormat("mp3");
     setAudioSpeed("1");
     setAudioInstructions("");
-    setTextModel(aiCatalog?.defaultTextModel || "");
     setSystemPrompt("");
     setBackgroundMode("lines");
     setCtrlZoom(true);
@@ -523,15 +519,6 @@ export function SettingsView() {
               </div>
               <p className="settings-group-label">文本</p>
               <div className="settings-fields">
-                <label>
-                  默认文本模型
-                  <select value={textModel} onChange={(event) => setTextModel(event.target.value)}>
-                    <option value="">未设置</option>
-                    {modelOptions(aiCatalog?.textModels || [], textModel, aiCatalog?.modelLabels).map(({ value, label }) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
-                </label>
                 <label className="settings-fields-wide">
                   系统提示词
                   <textarea value={systemPrompt} onChange={(event) => setSystemPrompt(event.target.value)} placeholder="AI 助手和文本生成默认携带的系统提示词" />

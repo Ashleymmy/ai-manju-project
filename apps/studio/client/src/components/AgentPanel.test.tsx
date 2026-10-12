@@ -9,9 +9,11 @@ vi.mock("@/services/api/ai", () => mocks);
 
 import AgentPanel from "./AgentPanel";
 
+// The server pins a single text model, so the catalog carries exactly one entry.
 const catalog = {
-  agentTextModels: ["provider::gpt-5.6-luna", "provider::chosen-model"],
-  defaultTextModel: "provider::gpt-5.6-luna",
+  textModels: ["provider::deepseek-v4-flash"],
+  agentTextModels: ["provider::deepseek-v4-flash"],
+  defaultTextModel: "provider::deepseek-v4-flash",
   modelLabels: {}, modelProviderNames: {},
 };
 const snapshot = {
@@ -19,15 +21,15 @@ const snapshot = {
   selectedNodeIds: [], viewport: { x: 0, y: 0, k: 1 },
 };
 
-describe("AgentPanel chat model handoff", () => {
+describe("AgentPanel pinned text model", () => {
   let root: Root;
   let container: HTMLDivElement;
 
-  async function render(initialPrompt = "雨夜追逐", initialModel = "provider::chosen-model") {
+  async function render(initialPrompt = "雨夜追逐") {
     await act(async () => root.render(
       <AgentPanel userId="agent-test-user" projectId={snapshot.projectId} open onClose={vi.fn()} snapshot={snapshot}
         canUndoOps={false} onApplyOps={vi.fn()} onExecuteWorkspaceTool={vi.fn()} onUndoOps={vi.fn()}
-        initialPrompt={initialPrompt} initialModel={initialModel} />
+        initialPrompt={initialPrompt} />
     ));
   }
   beforeEach(() => {
@@ -46,86 +48,40 @@ describe("AgentPanel chat model handoff", () => {
     vi.unstubAllGlobals();
   });
 
-  it("waits for the catalog and sends exactly once using the selected provider model", async () => {
+  it("waits for the catalog and sends exactly once using the server's model", async () => {
     let resolveCatalog!: (value: typeof catalog) => void;
     mocks.fetchAiModels.mockReturnValueOnce(new Promise(resolve => { resolveCatalog = resolve; }));
     await render();
     expect(mocks.requestAiText).not.toHaveBeenCalled();
     await act(async () => resolveCatalog(catalog));
     expect(mocks.requestAiText).toHaveBeenCalledTimes(1);
-    expect(mocks.requestAiText.mock.calls[0][0]).toMatchObject({ model: "provider::chosen-model" });
+    expect(mocks.requestAiText.mock.calls[0][0]).toMatchObject({ model: "provider::deepseek-v4-flash", tool_choice: "required" });
     await render();
     expect(mocks.requestAiText).toHaveBeenCalledTimes(1);
   });
 
-  it("honors a model handed off after the panel has already loaded its default", async () => {
-    await render("", "");
+  it("offers no model picker", async () => {
+    await render("");
+    expect(container.querySelector(".agent-model-selector, .agent-model-menu")).toBeNull();
+    expect(container.textContent).not.toMatch(/选择模型|如何选择模型|更多模型|精选推荐/);
+  });
+
+  it("names the pinned model in the status line but never the admin fallback", async () => {
+    await render("");
+    expect(container.querySelector(".agent-activity")?.textContent).toBe("在线 Agent 可用 · deepseek-v4-flash");
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    mocks.fetchAiModels.mockResolvedValueOnce({ ...catalog, textModels: ["admin::gpt-5.6-sol"], agentTextModels: ["admin::gpt-5.6-sol"], defaultTextModel: "admin::gpt-5.6-sol" });
+    await render("");
+    expect(container.querySelector(".agent-activity")?.textContent).toBe("在线 Agent 可用");
+  });
+
+  it("keeps the prompt and reports a missing Agent model", async () => {
+    mocks.fetchAiModels.mockResolvedValueOnce({ ...catalog, textModels: [], agentTextModels: [], defaultTextModel: "" });
     await render();
-    expect(mocks.requestAiText).toHaveBeenCalledTimes(1);
-    expect(mocks.requestAiText.mock.calls[0][0]).toMatchObject({ model: "provider::chosen-model" });
-  });
-
-  it("dismisses its model menu on a stopped canvas pointer event without submitting a request", async () => {
-    await render("", "");
-    await act(async () => (container.querySelector(".agent-model-selector") as HTMLButtonElement).click());
-    expect(container.querySelector(".agent-model-menu")).not.toBeNull();
-    const outside = document.createElement("div");
-    outside.addEventListener("pointerdown", event => event.stopPropagation());
-    container.append(outside);
-    await act(async () => outside.dispatchEvent(new Event("pointerdown", { bubbles: true })));
-    expect(container.querySelector(".agent-model-menu")).toBeNull();
-    expect(mocks.requestAiText).not.toHaveBeenCalled();
-  });
-
-  it("keeps the prompt and reports an unavailable selected model without substituting another", async () => {
-    await render("雨夜追逐", "provider::removed-model");
     expect(mocks.requestAiText).not.toHaveBeenCalled();
     expect(container.textContent).toContain("雨夜追逐");
-    expect(container.textContent).toContain("所选模型已不可用");
-  });
-
-  it("shows model names once in both featured and expanded choices without supplier subtitles", async () => {
-    const models = [
-      "first::gpt-5.6-luna", "backup::gpt-5.6-luna", "first::gpt-6-astra",
-      "first::gpt-5.5", "first::gpt-5.4", "backup::gpt-5.4",
-    ];
-    mocks.fetchAiModels.mockResolvedValueOnce({
-      ...catalog, agentTextModels: models, defaultTextModel: "first::gpt-6-astra",
-      modelLabels: Object.fromEntries(models.map(model => [model, "供应商自定义别名"])),
-      modelProviderNames: Object.fromEntries(models.map(model => [model, "新 Provider"])),
-    });
-    await render("", "");
-    expect(container.querySelector(".agent-model-selector")?.textContent).toBe("gpt-5.6-luna");
-    await act(async () => (container.querySelector(".agent-model-selector") as HTMLButtonElement).click());
-    expect([...container.querySelectorAll(".agent-model-item")].map(item => item.textContent?.trim())).toEqual([
-      "gpt-5.6-luna", "gpt-6-astra", "gpt-5.5",
-    ]);
-    await act(async () => (container.querySelector(".agent-model-more") as HTMLButtonElement).click());
-    const items = [...container.querySelectorAll<HTMLButtonElement>(".agent-model-item")];
-    expect(items.map(item => item.textContent?.trim())).toEqual(["gpt-5.6-luna", "gpt-6-astra", "gpt-5.5", "gpt-5.4"]);
-    expect(container.querySelector(".agent-model-menu small")).toBeNull();
-    expect(container.querySelector(".agent-model-menu")?.textContent).not.toMatch(/Provider|供应商自定义别名|first::|backup::/);
-    await act(async () => items.at(-1)!.click());
-    expect(container.querySelector(".agent-model-selector")?.textContent).toBe("gpt-5.4");
-  });
-
-  it("preserves a selected alternative supplier while showing a single model choice", async () => {
-    mocks.fetchAiModels.mockResolvedValueOnce({
-      ...catalog, agentTextModels: ["first::gpt-5.6-luna", "backup::gpt-5.6-luna"],
-    });
-    await render("雨夜追逐", "backup::gpt-5.6-luna");
-    expect(mocks.requestAiText).toHaveBeenCalledTimes(1);
-    expect(mocks.requestAiText.mock.calls[0][0]).toMatchObject({ model: "backup::gpt-5.6-luna", tool_choice: "required" });
-    await act(async () => (container.querySelector(".agent-model-selector") as HTMLButtonElement).click());
-    expect(container.querySelectorAll(".agent-model-item")).toHaveLength(1);
-    expect(container.querySelector(".agent-model-item.active")?.textContent?.trim()).toBe("gpt-5.6-luna");
-  });
-
-  it("lets the backend recover a saved supplier when the same model is still available", async () => {
-    await render("雨夜追逐", "removed::gpt-5.6-luna");
-    expect(mocks.requestAiText).toHaveBeenCalledTimes(1);
-    expect(mocks.requestAiText.mock.calls[0][0].model).toBe("removed::gpt-5.6-luna");
-    expect(container.textContent).not.toContain("所选模型已不可用");
+    expect(container.textContent).toContain("没有支持 Agent 工具调用的文本模型");
   });
 
   it("keeps a pending server request busy and displays only its final failure", async () => {

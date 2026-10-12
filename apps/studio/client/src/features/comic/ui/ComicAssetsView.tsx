@@ -1,5 +1,5 @@
 import { GenerationPrice } from "@/features/member";
-import { modelName, modelOptions, resolveModel } from "@/shared/lib/modelSelection";
+import { modelOptions, resolveModel } from "@/shared/lib/modelSelection";
 import { ArrowDownToLine, ArrowUpRight, Check, ChevronRight, FileText, FolderOpen, Image as ImageIcon, Pencil, Plus, RefreshCcw, Search, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -54,11 +54,11 @@ import { useComicViewContext } from "../controllers/useComicViewContext";
 import { comicRetainedCandidate, type ComicRetainedCandidate } from "../controllers/operationRecovery";
 import {
   COMIC_CLASS_LABELS,
-  COMIC_DEFAULT_ANALYSIS_MODEL,
   COMIC_DEFAULT_INSTRUCTION,
   COMIC_OPTIMIZE_DIRECTION,
   COMIC_PROJECT_ANALYSIS_INSTRUCTION,
   COMIC_REFERENCE_LIMIT,
+  COMIC_TEXT_MODEL_MISSING_MESSAGE,
   COMIC_WORKFLOW_STEPS,
 } from "../model/constants";
 import {
@@ -116,7 +116,6 @@ export function ComicAssetsView() {
   const [creationMode, setCreationMode] = useState<"script" | "import" | "empty">("script");
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [newProjectStylePreset, setNewProjectStylePreset] = useState("");
-  const [newProjectAnalysisModel, setNewProjectAnalysisModel] = useState("");
   const [newProjectInstruction, setNewProjectInstruction] = useState(COMIC_DEFAULT_INSTRUCTION);
   const [newProjectScriptFile, setNewProjectScriptFile] = useState<File | null>(null);
   const [newProjectWorkbookFile, setNewProjectWorkbookFile] = useState<File | null>(null);
@@ -240,10 +239,7 @@ export function ComicAssetsView() {
     }
     if (textModelsQuery.data) {
       const catalog = textModelsQuery.data;
-      setModel(current => resolveModel(catalog.models, current) || catalog.defaultModel);
-      setNewProjectAnalysisModel(current => resolveModel(catalog.models, current)
-        || catalog.models.find(item => modelName(item) === COMIC_DEFAULT_ANALYSIS_MODEL)
-        || catalog.defaultModel);
+      setModel(resolveModel(catalog.models, catalog.defaultModel) || catalog.models[0] || "");
     }
   }, [scope, textModelsQuery.data, textModelsQuery.error, textModelsQuery.errorUpdatedAt]);
 
@@ -290,7 +286,7 @@ export function ComicAssetsView() {
     if (!title.trim()) return toast.error("请填写项目名称");
     const extension = file.name.toLowerCase().split(".").pop();
     if (extension !== "xlsx" && !model)
-      return toast.error("请先配置并选择文本模型");
+      return toast.error(COMIC_TEXT_MODEL_MISSING_MESSAGE);
     if (extension !== "xlsx" && !instruction.trim())
       return toast.error("请填写首次分析方向");
 
@@ -781,9 +777,6 @@ export function ComicAssetsView() {
     setNewProjectTitle("");
     setNewProjectStylePreset("");
     setNewProjectTemplates({});
-    setNewProjectAnalysisModel(current => resolveModel(models?.models || [], current)
-      || models?.models.find(item => modelName(item) === COMIC_DEFAULT_ANALYSIS_MODEL)
-      || models?.defaultModel || "");
     void textModelsQuery.refetch();
     setNewProjectInstruction(COMIC_PROJECT_ANALYSIS_INSTRUCTION);
   };
@@ -794,7 +787,7 @@ export function ComicAssetsView() {
     const sourceFile = creationMode === "script" ? newProjectScriptFile : newProjectWorkbookFile;
     if (creationMode !== "empty" && !sourceFile) return toast.error(creationMode === "script" ? "请先选择剧本文件" : "请先选择资产表文件");
     if (creationMode === "script") {
-      if (textModelsQuery.isFetching || textModelsQuery.error || !resolveModel(models?.models || [], newProjectAnalysisModel)) return toast.error("请先获取并选择可用的文本模型");
+      if (textModelsQuery.isFetching || textModelsQuery.error || !model) return toast.error(COMIC_TEXT_MODEL_MISSING_MESSAGE);
       if (!newProjectInstruction.trim()) return toast.error("请填写首轮分析要求");
       if (!/\.(docx|txt|md)$/i.test(sourceFile!.name)) return toast.error("请选择 DOCX、TXT 或 MD 剧本");
     }
@@ -813,14 +806,13 @@ export function ComicAssetsView() {
         const result = await analyzeComicSource({
           file: sourceFile!, title: newProjectTitle, stylePreset: newProjectStylePreset,
           templates: newProjectTemplates,
-          instruction: newProjectInstruction, model: newProjectAnalysisModel, scope,
+          instruction: newProjectInstruction, model, scope,
         });
         if (!isCurrent()) return;
         setTitle(newProjectTitle);
         setStylePreset(newProjectStylePreset);
         setTemplates(newProjectTemplates);
         setInstruction(newProjectInstruction);
-        setModel(newProjectAnalysisModel);
         setFileName(sourceFile!.name);
         await applySourceResult(result, isCurrent);
       }
@@ -937,7 +929,6 @@ export function ComicAssetsView() {
           <p className="eyebrow">ANALYSIS SETTINGS</p>
           <label>项目名称<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：雨幕收容所" /></label>
           <label>风格基调<input value={stylePreset} onChange={(event) => setStylePreset(event.target.value)} placeholder="例如：现实感悬疑" /></label>
-          <label>文本模型<select value={model} onChange={(event) => setModel(event.target.value)}><option value="">选择文本模型</option>{modelOptions(models?.models || [], model, models?.labels).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label>全局美术风格<input list="art-style-options" value={globalArtStyle} onChange={(event) => setGlobalArtStyle(event.target.value)} placeholder="选择或输入美术风格" /><datalist id="art-style-options"><option value="3D动漫PBR" /><option value="国风动画" /><option value="二维赛璐璐" /><option value="微写实动画" /><option value="东方赛博水墨" /></datalist></label>
           <label>首次分析方向<textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="请选择性参照某板，不需遵循有规范特性或逻辑性性求的颜色、场景和道具。" /></label>
           <hr />
@@ -1004,7 +995,6 @@ export function ComicAssetsView() {
         <aside className="comic-generation-panel">
           <p className="eyebrow">PROMPT DIRECTION</p>
           <textarea value={optimizeDirection} onChange={(event) => setOptimizeDirection(event.target.value)} />
-          <label>文本模型<select value={model} onChange={(event) => setModel(event.target.value)}>{modelOptions(models?.models || [], model, models?.labels).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
           <hr />
           <p className="eyebrow">BATCH GENERATION</p>
           <label>图像模型<select value={generationModel} onChange={(event) => setGenerationModel(event.target.value)}>{modelOptions(imageModels?.models || [], generationModel, imageModels?.labels).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -1048,8 +1038,7 @@ export function ComicAssetsView() {
       modelsLoading={textModelsQuery.isPending || textModelsQuery.isFetching}
       modelsError={Boolean(textModelsQuery.error)}
       onRefreshModels={() => { void textModelsQuery.refetch(); }}
-      analysisModel={newProjectAnalysisModel}
-      setAnalysisModel={setNewProjectAnalysisModel}
+      analysisModel={model}
       instruction={newProjectInstruction}
       setInstruction={setNewProjectInstruction}
       scriptFile={newProjectScriptFile}

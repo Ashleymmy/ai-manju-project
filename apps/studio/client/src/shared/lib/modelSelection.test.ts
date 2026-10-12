@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { modelDisplayName, modelName, modelOptions, resolveModel, videoModelOptions } from "./modelSelection";
+import { modelDisplayName, modelName, modelOptions, pinnedTextModelLabel, resolveModel, videoModelOptions } from "./modelSelection";
 
 describe("shared generation model selection", () => {
+  it("recognizes only the pinned text model, including a vendor-prefixed id", () => {
+    expect(pinnedTextModelLabel("provider::deepseek-v4-flash")).toBe("deepseek-v4-flash");
+    expect(pinnedTextModelLabel("provider::DeepSeek/DeepSeek-V4-Flash")).toBe("deepseek-v4-flash");
+    expect(pinnedTextModelLabel("provider::gpt-5.6-sol")).toBe("");
+    expect(pinnedTextModelLabel("provider::deepseek-v4-flash-preview")).toBe("");
+    expect(pinnedTextModelLabel("")).toBe("");
+  });
+
   it("keeps video accounts selectable even with identical model IDs or aliases", () => {
     const company = "company::doubao-seedance-2-0-fast-260128";
     const mobile = "mobile::doubao-seedance-2-0-fast-260128";

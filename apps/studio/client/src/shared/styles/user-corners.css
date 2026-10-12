@@ -113,7 +113,7 @@
     [data-slot="select-content"], [data-slot="tooltip-content"], [data-sonner-toast],
     .canvas-context-menu, .canvas-submenu-panel, .canvas-connection-create-menu,
     .canvas-switcher-popover, .canvas-mention-menu, .canvas-more-menu,
-    .agent-thread-menu, .agent-ref-menu, .agent-model-menu, .agent-files-menu,
+    .agent-thread-menu, .agent-ref-menu, .agent-files-menu,
     .agent-plus-menu, .agent-confirm-menu, .wb-mention-menu, .chat-menu, .user-pop,
     .comic-analysis-model-menu, .node-hover-toolbar, .preview-detail-pager
   ) {
@@ -136,7 +136,7 @@
   /* Preserve purpose-built round controls: connections, swatches, switches,
    * floating avatars and media overlay actions, rather than turning them into boxes. */
   body:has([data-ui-surface="user"]) :where(
-    .switch, .agent-switch, [data-slot="switch"], [data-slot="switch-thumb"],
+    .switch, [data-slot="switch"], [data-slot="switch-thumb"],
     [data-slot="radio-group-item"], [role="slider"],
     .canvas-connection-handle, .canvas-group-connection-handle,
     .canvas-agent-fab, .studio-agent-fab, .agent-icon-btn, .agent-send-btn,

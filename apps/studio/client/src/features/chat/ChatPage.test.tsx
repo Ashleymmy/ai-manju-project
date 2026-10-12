@@ -29,18 +29,16 @@ vi.mock("@/features/projects", () => ({
 }));
 
 import ChatPage from "./ChatPage";
-import { modelQueryKeys } from "@/entities/model";
 
+// The server pins a single text model, so the catalog carries exactly one entry.
 const serverCatalog = {
-  models: ["provider-a::text", "provider-b::text", "provider-a::gpt-5.5", "provider-a::image", "provider-a::plain-text"],
-  text_models: ["provider-a::text", "provider-b::text", "provider-a::gpt-5.5", "provider-a::plain-text"],
-  agent_text_models: ["provider-a::text", "provider-b::text", "provider-a::gpt-5.5"],
-  default_text_model: "provider-b::text",
-  model_labels: { "provider-a::text": "真实模型", "provider-b::text": "真实模型" },
-  model_provider_names: { "provider-a::text": "服务商甲", "provider-b::text": "服务商乙" },
+  models: ["provider-b::deepseek-v4-flash", "provider-a::image"],
+  text_models: ["provider-b::deepseek-v4-flash"],
+  agent_text_models: ["provider-b::deepseek-v4-flash"],
+  default_text_model: "provider-b::deepseek-v4-flash",
 };
 
-describe("Chat model selector", () => {
+describe("Chat composer text model", () => {
   let root: Root;
   let container: HTMLDivElement;
   let queryClient: QueryClient;
@@ -87,64 +85,14 @@ describe("Chat model selector", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows each server model once without supplier labels and hands the selected id to Canvas", async () => {
+  it("offers no model choice and hands the server's model to Canvas", async () => {
     await mount();
     expect(mocks.request).toHaveBeenCalledWith("/api/ai/models");
-    expect(button(".chat-model-trigger").textContent).toBe("text");
-    expect(button(".chat-model-trigger").title).toBe("text");
-    await click(".chat-model-trigger");
-    expect(Array.from(container.querySelectorAll(".chat-model-menu button")).map(item => item.textContent))
-      .toEqual(["text", "gpt-5.5"]);
-    expect(container.querySelector(".chat-model-menu")?.textContent).not.toMatch(/服务商|provider-|真实模型|plain-text|image/);
-    expect([...container.querySelectorAll<HTMLButtonElement>(".chat-model-menu button")].map(item => item.title))
-      .toEqual(["text", "gpt-5.5"]);
-    await click('.chat-model-menu button[aria-pressed="false"]');
+    expect(container.querySelector(".chat-model-trigger, .chat-model-menu")).toBeNull();
     await enterPrompt();
     await click(".chat-send");
-    expect(mocks.bootstrap).toHaveBeenCalledWith("new-project", "雨夜追逐", "provider-a::gpt-5.5");
+    expect(mocks.bootstrap).toHaveBeenCalledWith("new-project", "雨夜追逐", "provider-b::deepseek-v4-flash");
     expect(mocks.navigate).toHaveBeenCalledWith("/canvas/new-project?scope=personal");
-  });
-
-  it("keeps the same selected model when only its supplier disappears", async () => {
-    await mount();
-    await click(".chat-model-trigger");
-    await click('.chat-model-menu button[aria-pressed="false"]');
-    mocks.request.mockResolvedValue({ ...serverCatalog, agent_text_models: ["provider-a::text", "provider-b::gpt-5.5"] });
-    await act(async () => { await queryClient.invalidateQueries({ queryKey: modelQueryKeys.all }); });
-    await flush();
-    expect(button(".chat-model-trigger").textContent).toBe("gpt-5.5");
-    await click(".chat-model-trigger");
-    expect(container.querySelectorAll(".chat-model-menu button[aria-pressed]")).toHaveLength(2);
-    expect(button('.chat-model-menu button[aria-pressed="true"]').textContent).toBe("gpt-5.5");
-    await enterPrompt();
-    await click(".chat-send");
-    expect(mocks.bootstrap).toHaveBeenCalledWith("new-project", "雨夜追逐", "provider-a::gpt-5.5");
-  });
-
-  it("keeps the API default supplier behind a merged choice", async () => {
-    await mount();
-    await enterPrompt();
-    await click(".chat-send");
-    expect(mocks.bootstrap).toHaveBeenCalledWith("new-project", "雨夜追逐", "provider-b::text");
-  });
-
-  it("defaults to Luna and merges suppliers without changing the selected model", async () => {
-    mocks.request.mockResolvedValue({
-      ...serverCatalog,
-      agent_text_models: ["provider-a::gpt-5.5", "provider-a::gpt-5.6-luna", "provider-b::gpt-5.6-luna"],
-      default_text_model: "provider-a::gpt-5.5",
-      model_labels: { "provider-a::gpt-5.6-luna": "自定义名称 · 供应商" },
-      model_provider_names: { "provider-a::gpt-5.6-luna": "新 Provider", "provider-b::gpt-5.6-luna": "其他 Provider" },
-    });
-    await mount();
-    expect(button(".chat-model-trigger").textContent).toBe("gpt-5.6-luna");
-    await click(".chat-model-trigger");
-    expect([...container.querySelectorAll(".chat-model-menu button[aria-pressed]")].map(item => item.textContent))
-      .toEqual(["gpt-5.5", "gpt-5.6-luna"]);
-    expect(container.querySelector(".chat-model-menu")?.textContent).not.toMatch(/Provider|供应商|自定义名称/);
-    await enterPrompt();
-    await click(".chat-send");
-    expect(mocks.bootstrap).toHaveBeenCalledWith("new-project", "雨夜追逐", "provider-a::gpt-5.6-luna");
   });
 
   it("blocks sending on loading, an empty catalog or failure, and recovers on retry", async () => {
@@ -155,26 +103,24 @@ describe("Chat model selector", () => {
     expect(button(".chat-send").disabled).toBe(true);
     await act(async () => resolveCatalog({ models: ["provider::image"], text_models: [] }));
     await flush();
-    expect(button(".chat-model-trigger").textContent).toContain("暂无可用");
+    expect(container.textContent).toContain("暂无可用");
     expect(button(".chat-send").disabled).toBe(true);
 
     mocks.request.mockRejectedValue(new Error("offline"));
-    await click(".chat-model-trigger");
-    expect(container.textContent).toContain("模型获取失败");
-    expect(container.querySelectorAll(".chat-model-menu button[aria-pressed]")).toHaveLength(0);
+    await act(async () => { await queryClient.refetchQueries(); });
+    await flush();
+    expect(container.textContent).toContain("连接失败");
     expect(button(".chat-send").disabled).toBe(true);
     mocks.request.mockResolvedValue(serverCatalog);
-    await click(".chat-model-menu button");
+    await click(".chat-model-status button");
     expect(button(".chat-send").disabled).toBe(false);
     expect(container.querySelector("textarea")!.value).toBe("雨夜追逐");
   });
 
-  it("does not fetch or expose model choices before login", async () => {
+  it("does not fetch models before login", async () => {
     mocks.user = null;
     await mount();
-    await click(".chat-model-trigger");
     expect(mocks.request).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("登录后查看模型");
-    expect(container.querySelectorAll(".chat-model-menu button[aria-pressed]")).toHaveLength(0);
+    expect(container.querySelector(".chat-model-status")).toBeNull();
   });
 });

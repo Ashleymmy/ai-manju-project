@@ -67,11 +67,9 @@ describe("Agent durable reply recovery", () => {
   });
 
   it("saves tools started before applying operations and creates a distinct receipt for the next model step", async () => {
-    mocks.fetchAiModels.mockResolvedValue({ agentTextModels: ["provider::model", "provider::second"],
-      defaultTextModel: "provider::model", textModels: ["provider::model", "provider::second"], modelLabels: {}, modelProviderNames: {} });
     mocks.requestAiText.mockImplementationOnce(async () => toolReply).mockImplementationOnce(async (body, _signal, _waiting, receipt) => {
-      expect(body.model).toBe("provider::second");
-      expect(receipts()).toContainEqual(expect.objectContaining({ key: receipt.key, state: "pending", model: "provider::second" }));
+      expect(body.model).toBe("provider::model");
+      expect(receipts()).toContainEqual(expect.objectContaining({ key: receipt.key, state: "pending", model: "provider::model" }));
       return { content: "工具完成后的回复", toolCalls: [] };
     });
     apply.mockImplementation(async () => {
@@ -80,15 +78,12 @@ describe("Agent durable reply recovery", () => {
     });
     await render(); await send("创建文本");
     const firstKey = mocks.requestAiText.mock.calls[0][3].key;
-    await click(".agent-model-selector");
-    await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".agent-model-item")]
-      .find(item => item.textContent?.includes("second"))!.click());
     await click(".agent-pending-actions .vermilion-button");
     expect(apply).toHaveBeenCalledTimes(1);
     expect(mocks.requestAiText).toHaveBeenCalledTimes(2);
     expect(mocks.requestAiText.mock.calls[1][3].key).not.toBe(firstKey);
     expect(mocks.requestAiText.mock.calls[1][3].recoverOnly).toBeUndefined();
-    expect(receipts()[0]).toMatchObject({ state: "received", model: "provider::second" });
+    expect(receipts()[0]).toMatchObject({ state: "received", model: "provider::model" });
   });
 
   it("does not execute approved operations if the tools-started marker cannot be saved", async () => {

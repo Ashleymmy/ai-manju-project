@@ -571,7 +571,6 @@ export default function CanvasWorkspaceViewContent() {
   // 聊天台引导流程：覆盖层从首屏接管（步骤2），用户输入原文在加载完成后交接给 Agent 面板（步骤5）
   const [bootstrapActive, setBootstrapActive] = useState(() => Boolean(projectId && peekCanvasBootstrap(projectId)));
   const [initialPrompt, setInitialPrompt] = useState("");
-  const [initialModel, setInitialModel] = useState("");
   const bootstrapPromptRef = useRef("");
   const [agentUndoSnapshot, setAgentUndoSnapshot] = useState<CanvasAgentSnapshot | null>(null);
   const inspectorOpen = useCanvasStore((state) => state.ui.inspectorOpen);
@@ -588,7 +587,6 @@ export default function CanvasWorkspaceViewContent() {
   const setMaterialNodeId = canvasCommands.ui.setMaterialNodeId;
   const [modelCatalog, setModelCatalog] = useState<ImageModelCatalog | null>(null);
   const [imageModel, setImageModel] = useState("");
-  const [textModels, setTextModels] = useState<string[]>([]);
   const [textModel, setTextModel] = useState("");
   const [videoModels, setVideoModels] = useState<string[]>([]);
   const [videoModel, setVideoModel] = useState("");
@@ -987,12 +985,9 @@ export default function CanvasWorkspaceViewContent() {
   const visiblePromptPresets = useMemo(() => sortPromptPresets(promptPresets).slice(0, 8), [promptPresets]);
   const selectedGenerationMode = selectedNode ? generationModeFromNode(selectedNode) : "image";
   const selectedGeneratedText = selectedNode ? isGeneratedCanvasText(selectedNode) : false;
-  const selectedGenerationModel = selectedNode
-    ? modelFromNode(
-      selectedNode,
-      selectedGenerationMode === "text" ? textModel : selectedGenerationMode === "image" ? imageModel : selectedGenerationMode === "video" ? videoModel : audioModel,
-    )
-    : "";
+  const selectedGenerationModel = !selectedNode ? ""
+    : selectedGenerationMode === "text" ? textModel
+    : modelFromNode(selectedNode, selectedGenerationMode === "image" ? imageModel : selectedGenerationMode === "video" ? videoModel : audioModel);
   const selectedVideoConfig = selectedNode && selectedGenerationMode === "video"
     ? videoConfigFromNode(selectedNode, videoModel)
     : null;
@@ -1370,7 +1365,6 @@ export default function CanvasWorkspaceViewContent() {
       .then(([modelsResult, aiModelsResult, preferencesResult]) => {
         if (disposed) return;
         const preferredModel = preferencesResult.status === "fulfilled" ? preferencesResult.value.generation?.imageModel || "" : "";
-        const preferredTextModel = preferencesResult.status === "fulfilled" ? preferencesResult.value.generation?.textModel || "" : "";
         const preferredVideoModel = preferencesResult.status === "fulfilled" ? preferencesResult.value.generation?.videoModel || "" : "";
         const preferredAudioModel = preferencesResult.status === "fulfilled" ? preferencesResult.value.generation?.audioModel || "" : "";
         if (preferencesResult.status === "fulfilled") {
@@ -1395,19 +1389,17 @@ export default function CanvasWorkspaceViewContent() {
         }
         if (aiModelsResult.status === "fulfilled") {
           const catalog = aiModelsResult.value;
-          setTextModels(catalog.textModels);
           setVideoModels(catalog.videoModels);
           setAudioModels(catalog.audioModels);
           setTextModelLabels(catalog.modelLabels);
           setModelProviderNames(catalog.modelProviderNames);
-          setTextModel((current) => resolveModel(catalog.textModels, current || preferredTextModel) || catalog.defaultTextModel);
+          setTextModel(catalog.defaultTextModel);
           setVideoModel((current) => resolveModel(catalog.videoModels, current)
             || pickDefaultCanvasVideoModel(catalog.videoModels, catalog.modelLabels, catalog.modelProviderNames,
               resolveModel(catalog.videoModels, preferredVideoModel) || catalog.defaultVideoModel));
           setAudioModel((current) => resolveModel(catalog.audioModels, current || preferredAudioModel) || catalog.defaultAudioModel);
         } else {
           toast.error(publicApiError(aiModelsResult.reason, "读取 AI 模型失败"));
-          if (preferredTextModel) setTextModel((current) => current || preferredTextModel);
           if (preferredVideoModel) setVideoModel((current) => current || preferredVideoModel);
           if (preferredAudioModel) setAudioModel((current) => current || preferredAudioModel);
         }
@@ -1419,11 +1411,9 @@ export default function CanvasWorkspaceViewContent() {
   useEffect(() => {
     // 切换项目时先清掉上一个项目残留的交接内容，避免串项目误发
     setInitialPrompt("");
-    setInitialModel("");
     if (!projectId) return;
     const bootstrap = consumeCanvasBootstrapPayload(projectId);
     const prompt = bootstrap?.prompt || "";
-    setInitialModel(bootstrap?.model || "");
     bootstrapPromptRef.current = prompt;
     if (!prompt) setBootstrapActive(false);
   }, [projectId]);
@@ -4884,7 +4874,7 @@ export default function CanvasWorkspaceViewContent() {
           selectedGenerationModel={selectedGenerationModel}
           selectedGenerationModelLabel={canvasModelName(selectedGenerationModel, textModelLabels) || "选择模型"}
           generationModelOptions={selectedGenerationMode === "text"
-            ? canvasGenerationModelOptions(textModels, selectedGenerationModel, textModelLabels)
+            ? []
             : selectedGenerationMode === "image"
               ? canvasGenerationModelOptions(modelCatalog?.models || [], selectedGenerationModel, modelCatalog?.labels)
               : selectedGenerationMode === "video"
@@ -4921,8 +4911,7 @@ export default function CanvasWorkspaceViewContent() {
             generateFromNode,
             openAssetPicker,
             selectGenerationModel: (value) => {
-              if (!selectedNode) return;
-              if (selectedGenerationMode === "text") setTextModel(value);
+              if (!selectedNode || selectedGenerationMode === "text") return;
               // Image choices belong to this node; new nodes keep the catalog default.
               if (selectedGenerationMode === "video") setVideoModel(value);
               if (selectedGenerationMode === "audio") setAudioModel(value);
@@ -4954,7 +4943,6 @@ export default function CanvasWorkspaceViewContent() {
             onExecuteWorkspaceTool: executeAgentWorkspaceTool,
             onUndoOps: undoAgentOperations,
             initialPrompt,
-            initialModel,
           }}
           skillLibrary={{ open: skillLibraryOpen, onOpenChange: setSkillLibraryOpen }}
           presetManager={{ open: presetManagerOpen, onOpenChange: setPresetManagerOpen, onPresetsChange: setPromptPresets }}
