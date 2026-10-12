@@ -21,6 +21,9 @@ const (
 	AssetFolderSystemKeyComic             = "comic"
 	AssetFolderSystemKeyComicProject      = "comic_project"
 	AssetFolderSystemKeyComicCategory     = "comic_category"
+	// AssetFolderSystemRootName is the hidden storage root's name. It is never shown,
+	// so it must not collide with names users give their own top-level folders.
+	AssetFolderSystemRootName = "__system_root__"
 
 	AssetCategoryCharacter   = "character"
 	AssetCategoryEnvironment = "environment"

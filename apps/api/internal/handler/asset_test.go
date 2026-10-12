@@ -51,8 +51,12 @@ func TestAssetUploadListContentAndUserScope(t *testing.T) {
 	if err := json.Unmarshal(upload.Body.Bytes(), &uploadBody); err != nil {
 		t.Fatalf("decode upload body failed: %v; body = %s", err, upload.Body.String())
 	}
-	if uploadBody.Data.ID == "" || uploadBody.Data.Type != "image" || uploadBody.Data.Name != "sample.png" || uploadBody.Data.ContentType != "image/png" {
+	if uploadBody.Data.ID == "" || uploadBody.Data.Type != "image" || uploadBody.Data.Name != "sample" || uploadBody.Data.ContentType != "image/png" {
 		t.Fatalf("unexpected upload body: %+v", uploadBody.Data)
+	}
+	download := performJSON(router, http.MethodGet, "/api/assets/"+uploadBody.Data.ID+"/content?download=1", "", ownerCookie)
+	if disposition := download.Header().Get("Content-Disposition"); download.Code != http.StatusOK || !strings.Contains(disposition, `filename=sample.png`) {
+		t.Fatalf("download status = %d, disposition = %q, extension-free names must still download with their format", download.Code, disposition)
 	}
 	if wantURL := "/api/assets/" + uploadBody.Data.ID + "/content"; uploadBody.Data.URL != wantURL {
 		t.Fatalf("asset URL = %q, want %q", uploadBody.Data.URL, wantURL)

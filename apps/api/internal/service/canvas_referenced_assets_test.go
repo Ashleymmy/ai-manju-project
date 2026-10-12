@@ -63,8 +63,10 @@ func TestCopiedCanvasFolderListsReusedAssets(t *testing.T) {
 		t.Fatal(err)
 	}
 	counts := map[string][2]int64{}
+	referencedCounts := map[string]int64{}
 	for _, view := range views {
 		counts[view.ID] = [2]int64{view.AssetCount, view.DescendantAssetCount}
+		referencedCounts[view.ID] = view.DescendantReferencedAssetCount
 	}
 	copiedFolder, err := folders.FindSystem(workspace, model.AssetFolderSystemKeyCanvasProject, copied.ID)
 	if err != nil {
@@ -88,6 +90,15 @@ func TestCopiedCanvasFolderListsReusedAssets(t *testing.T) {
 	}
 	if got := counts[copiedFolder.ParentID][1]; got != 3 {
 		t.Fatalf("canvas workshop total = %d, want each asset once", got)
+	}
+	if got := referencedCounts[copiedFolder.ID]; got != 2 {
+		t.Fatalf("copied canvas referenced = %d, want hero and ref reused from the original", got)
+	}
+	if got := referencedCounts[originalFolder.ID]; got != 0 {
+		t.Fatalf("original canvas referenced = %d, want none", got)
+	}
+	if got := referencedCounts[copiedFolder.ParentID]; got != 0 {
+		t.Fatalf("canvas workshop referenced = %d, reuse inside the subtree is not external", got)
 	}
 
 	list := func(folderID string, descendants bool) string {

@@ -12,7 +12,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -32,13 +31,9 @@ const (
 	// AssetTrashMaintenanceInterval bounds cleanup delay without polling storage aggressively.
 	AssetTrashMaintenanceInterval = 10 * time.Minute
 	// assetUploadNameFirstCopy is the first suffix for a duplicate manual-upload
-	// name in one folder: "a.png" becomes "a (2).png", matching batch downloads.
+	// name in one folder: a second "a" becomes "a (2)", matching batch downloads.
 	assetUploadNameFirstCopy = 2
 )
-
-// assetUploadNameExtension mirrors the client's extension detection so "(n)"
-// lands before ".png" but not inside names like "v1.2 final".
-var assetUploadNameExtension = regexp.MustCompile(`\.[A-Za-z0-9]{1,6}$`)
 
 // AssetTrashExpiresAt returns the stored expiry, or trashedAt + 30 days when the
 // legacy row has no trash_expires_at.
@@ -452,7 +447,7 @@ func (s *AssetService) Upload(ctx context.Context, input AssetUploadInput) (mode
 	if registration.SourceType == model.AssetSourceManualUpload {
 		s.uploadNameMu.Lock()
 		unlockName = s.uploadNameMu.Unlock
-		name, err = s.availableUploadName(workspaceID, registration.FolderID, input.Name)
+		name, err = s.availableUploadName(workspaceID, registration.FolderID, trimAssetMediaExtension(input.Name))
 		if err != nil {
 			unlockName()
 			if input.IdempotencyKey == "" {
@@ -514,27 +509,24 @@ func (s *AssetService) Upload(ctx context.Context, input AssetUploadInput) (mode
 }
 
 // availableUploadName keeps name when no live library asset in folderID uses it
-// (case-insensitively) and otherwise returns the first free "name (n).ext".
+// and otherwise returns the first free "name (n)". Names are compared
+// case-insensitively and without media extensions, so an older "a.png" still
+// reserves "a".
 func (s *AssetService) availableUploadName(workspaceID string, folderID string, name string) (string, error) {
-	extension := assetUploadNameExtension.FindString(name)
-	if extension == name {
-		extension = ""
-	}
-	stem := strings.TrimSuffix(name, extension)
 	// The keyword match is a superset of exact names; equality is checked below.
 	siblings, _, err := s.repo.ListLibrary(repository.AssetLibraryFilter{
-		Unpaged: true, WorkspaceID: workspaceID, FilterFolder: true, FolderIDs: []string{folderID}, Keyword: stem,
+		Unpaged: true, WorkspaceID: workspaceID, FilterFolder: true, FolderIDs: []string{folderID}, Keyword: name,
 	})
 	if err != nil {
 		return "", err
 	}
 	taken := make(map[string]bool, len(siblings))
 	for _, sibling := range siblings {
-		taken[strings.ToLower(sibling.Name)] = true
+		taken[strings.ToLower(trimAssetMediaExtension(sibling.Name))] = true
 	}
 	candidate := name
 	for copyIndex := assetUploadNameFirstCopy; taken[strings.ToLower(candidate)]; copyIndex++ {
-		candidate = fmt.Sprintf("%s (%d)%s", stem, copyIndex, extension)
+		candidate = fmt.Sprintf("%s (%d)", name, copyIndex)
 	}
 	return candidate, nil
 }

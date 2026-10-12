@@ -20,6 +20,21 @@ var assetContentTypeExtensions = map[string]string{
 	"audio/opus": ".opus", "audio/aac": ".aac", "audio/flac": ".flac", "audio/mp4": ".m4a", "audio/pcm": ".pcm",
 }
 
+// trimAssetMediaExtension drops a trailing media extension ("cat.webp" -> "cat")
+// because display names are extension-free; a name that is only an extension
+// is kept as is.
+func trimAssetMediaExtension(name string) string {
+	name = strings.TrimSpace(name)
+	extension := filepath.Ext(name)
+	if !assetMediaExtension.MatchString(extension) {
+		return name
+	}
+	if stem := strings.TrimSpace(strings.TrimSuffix(name, extension)); stem != "" {
+		return stem
+	}
+	return name
+}
+
 // AssetDownloadFileName preserves editable library names without requiring users
 // to include an extension in the display name. Storage keys are unchanged.
 func AssetDownloadFileName(asset model.Asset) string {

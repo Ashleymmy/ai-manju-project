@@ -60,6 +60,9 @@ type AssetFolderView struct {
 	model.AssetFolder
 	AssetCount           int64 `json:"asset_count"`
 	DescendantAssetCount int64 `json:"descendant_asset_count"`
+	// DescendantReferencedAssetCount is the part of DescendantAssetCount stored
+	// in other canvases and only shown here because this subtree reuses them.
+	DescendantReferencedAssetCount int64 `json:"descendant_referenced_asset_count"`
 	// CanvasDeleted marks a retained canvas archive whose canvas no longer exists.
 	CanvasDeleted bool `json:"canvas_deleted,omitempty"`
 }
@@ -131,9 +134,20 @@ func (s *AssetFolderService) EnsureDefaults(userID string, scope string) (AssetD
 }
 
 func (s *AssetFolderService) ensureDefaultsForWorkspace(userID string, workspaceID string) (AssetDefaultFolders, error) {
-	root, err := s.ensureSystemFolder(userID, workspaceID, "", "系统归档", model.AssetFolderSystemKeyRoot, "workspace", "", 0)
+	root, err := s.ensureSystemFolder(userID, workspaceID, "", model.AssetFolderSystemRootName, model.AssetFolderSystemKeyRoot, "workspace", "", 0)
 	if err != nil {
 		return AssetDefaultFolders{}, err
+	}
+	// Older roots were named "系统归档", which blocked users from creating a visible
+	// top-level folder with that name. A rename conflict only keeps the old name.
+	if root.Name != model.AssetFolderSystemRootName {
+		renamed := root
+		renamed.Name, renamed.NormalizedName, _ = normalizeAssetFolderName(model.AssetFolderSystemRootName)
+		if updated, renameErr := s.folders.Update(renamed, workspaceID); renameErr == nil {
+			root = updated
+		} else if !errors.Is(renameErr, repository.ErrAssetFolderConflict) {
+			return AssetDefaultFolders{}, renameErr
+		}
 	}
 	definitions := []struct {
 		name string
@@ -247,8 +261,9 @@ func (s *AssetFolderService) List(userID string, scope string) ([]AssetFolderVie
 		for _, id := range descendants {
 			descendantCount += counts[id]
 		}
-		descendantCount += int64(len(referenced.shownIn(append([]string{folder.ID}, descendants...))))
-		result = append(result, AssetFolderView{AssetFolder: folder, AssetCount: assetCount, DescendantAssetCount: descendantCount, CanvasDeleted: deletedCanvas[folder.ID]})
+		referencedCount := int64(len(referenced.shownIn(append([]string{folder.ID}, descendants...))))
+		descendantCount += referencedCount
+		result = append(result, AssetFolderView{AssetFolder: folder, AssetCount: assetCount, DescendantAssetCount: descendantCount, DescendantReferencedAssetCount: referencedCount, CanvasDeleted: deletedCanvas[folder.ID]})
 	}
 	return result, nil
 }

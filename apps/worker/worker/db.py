@@ -32,6 +32,9 @@ RECOVERY_ACCESS_FAILURE_LIMIT = 3
 RECOVERY_INITIAL_DELAY_SECONDS = 30
 RECOVERY_MAX_DELAY_SECONDS = 5 * 60
 RECOVERY_ACCESS_CODES = {"video_recovery_http_401", "video_recovery_http_403", "video_recovery_http_404"}
+# Must match the API's model.AssetFolderSystemRootName; the hidden root must not
+# take a name users may give their own top-level folders.
+ASSET_FOLDER_SYSTEM_ROOT_NAME = "__system_root__"
 
 
 def recovery_budget_exhausted(checkpoint, now=None):
@@ -667,10 +670,10 @@ class JobStore:
                 kind, system_key, source_ref_type, source_ref_id, system_identity,
                 sort_order, created_at, updated_at
             )
-            VALUES (%s, %s, %s, '', '系统归档', '系统归档', 'system', 'system_root', 'workspace', '', %s, 0, timezone('utc', now()), timezone('utc', now()))
+            VALUES (%s, %s, %s, '', %s, %s, 'system', 'system_root', 'workspace', '', %s, 0, timezone('utc', now()), timezone('utc', now()))
             ON CONFLICT DO NOTHING
             """,
-            (root_id, workspace_id, created_by, root_identity),
+            (root_id, workspace_id, created_by, ASSET_FOLDER_SYSTEM_ROOT_NAME, ASSET_FOLDER_SYSTEM_ROOT_NAME, root_identity),
         )
         cur.execute("SELECT id FROM asset_folders WHERE system_identity = %s LIMIT 1", (root_identity,))
         root = cur.fetchone()

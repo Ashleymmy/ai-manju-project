@@ -1235,7 +1235,7 @@ func (s *ComicAssetService) stageComicReferenceInputs(ctx context.Context, batch
 	scope := WorkspaceScopeFromID(batch.WorkspaceID)
 	uploads := make([]JobInputUpload, 0, len(assetIDs))
 	readers := make([]io.ReadCloser, 0, len(assetIDs))
-	for index, assetID := range assetIDs {
+	for _, assetID := range assetIDs {
 		content, err := s.assetService.OpenContent(ctx, assetID, batch.UserID, scope)
 		if err != nil || content.Asset.Type != "image" {
 			if content.Reader != nil {
@@ -1247,9 +1247,8 @@ func (s *ComicAssetService) stageComicReferenceInputs(ctx context.Context, batch
 			return nil, ErrComicReferenceAsset
 		}
 		readers = append(readers, content.Reader)
-		fileName := defaultStringValue(content.Asset.Name, fmt.Sprintf("reference_%d.png", index+1))
 		uploads = append(uploads, JobInputUpload{
-			FieldName: "image", FileName: fileName, ContentType: content.Asset.ContentType, Reader: content.Reader,
+			FieldName: "image", FileName: AssetDownloadFileName(content.Asset), ContentType: content.Asset.ContentType, Reader: content.Reader,
 		})
 	}
 	staged, err := s.jobInputs.Stage(ctx, batch.WorkspaceID, uploads)

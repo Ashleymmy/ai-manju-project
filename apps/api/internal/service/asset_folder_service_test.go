@@ -86,6 +86,11 @@ func assertAssetFolderPresentationUpgrade(t *testing.T, service *AssetFolderServ
 	if _, err := repo.Update(legacy, legacy.WorkspaceID); err != nil {
 		t.Fatal(err)
 	}
+	legacyRoot := defaults.Root
+	legacyRoot.Name, legacyRoot.NormalizedName = "系统归档", "系统归档"
+	if _, err := repo.Update(legacyRoot, legacy.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
 	legacyCanvas := defaults.Canvas
 	legacyCanvas.SortOrder = 40
 	if _, err := repo.Update(legacyCanvas, legacy.WorkspaceID); err != nil {
@@ -122,7 +127,16 @@ func assertAssetFolderPresentationUpgrade(t *testing.T, service *AssetFolderServ
 	if err != nil || preserved.Name != child.Name || preserved.ParentID != legacy.ID {
 		t.Fatalf("user child was changed: %+v, %v", preserved, err)
 	}
-	if err := repo.DeleteByIDs([]string{child.ID}, legacy.WorkspaceID); err != nil {
+	root, err := repo.GetByWorkspace(legacyRoot.ID, legacy.WorkspaceID)
+	if err != nil || root.Name != model.AssetFolderSystemRootName || root.ID != defaults.Root.ID {
+		t.Fatalf("hidden root was not renamed in place: %+v, %v", root, err)
+	}
+	// The old root name must be free for a visible top-level user folder.
+	named, err := service.Create(userID, scope, AssetFolderCreateInput{Name: "系统归档"})
+	if err != nil || named.ParentID != "" {
+		t.Fatalf("user folder named like the old root = %+v, %v", named, err)
+	}
+	if err := repo.DeleteByIDs([]string{child.ID, named.ID}, legacy.WorkspaceID); err != nil {
 		t.Fatal(err)
 	}
 }

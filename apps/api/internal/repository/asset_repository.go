@@ -18,6 +18,16 @@ var ErrAssetNotFound = errors.New("asset not found")
 const AssetLibrarySortTypeCreatedAtDesc = "type_created_at_desc"
 const assetLibraryTypeOrderSQL = "CASE type WHEN 'text' THEN 0 WHEN 'image' THEN 1 WHEN 'video' THEN 2 WHEN 'audio' THEN 3 ELSE 4 END ASC, created_at DESC, id DESC"
 
+// assetMatchesSourceFilter treats SD-channel videos generated in a canvas as
+// canvas assets: they keep the sd_video marker but users created them there.
+// GormAssetRepository.ListLibrary must express the same rule in SQL.
+func assetMatchesSourceFilter(asset model.Asset, sourceType string) bool {
+	if asset.SourceType == sourceType {
+		return true
+	}
+	return sourceType == model.AssetSourceCanvas && asset.SourceType == model.AssetSourceSDVideo && asset.SourceProjectID != ""
+}
+
 func assetLibraryTypeRank(kind string) int {
 	switch kind {
 	case "text":
@@ -246,7 +256,7 @@ func (r *MemoryAssetRepository) ListLibrary(filter AssetLibraryFilter) ([]model.
 		if filter.Category != "" && asset.Category != filter.Category {
 			continue
 		}
-		if filter.SourceType != "" && asset.SourceType != filter.SourceType {
+		if filter.SourceType != "" && !assetMatchesSourceFilter(asset, filter.SourceType) {
 			continue
 		}
 		if filter.SourceProjectID != "" && asset.SourceProjectID != filter.SourceProjectID {
@@ -628,7 +638,9 @@ func (r *GormAssetRepository) ListLibrary(filter AssetLibraryFilter) ([]model.As
 	if filter.Category != "" {
 		query = query.Where("category = ?", filter.Category)
 	}
-	if filter.SourceType != "" {
+	if filter.SourceType == model.AssetSourceCanvas {
+		query = query.Where("(source_type = ? OR (source_type = ? AND source_project_id <> ''))", model.AssetSourceCanvas, model.AssetSourceSDVideo)
+	} else if filter.SourceType != "" {
 		query = query.Where("source_type = ?", filter.SourceType)
 	}
 	if filter.SourceProjectID != "" {
