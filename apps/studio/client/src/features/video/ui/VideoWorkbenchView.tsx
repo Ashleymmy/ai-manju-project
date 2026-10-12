@@ -16,6 +16,7 @@ import {
   type Asset,
   type SeedanceAsset,
 } from "@/entities/asset";
+import { assetDownloadFileName } from "@/entities/asset/fileName";
 import { cancelJob, jobProgressNotice } from "@/entities/job";
 
 import { publicApiError, toastGenerationError } from "@/shared/api/errors";
@@ -838,7 +839,8 @@ export default function VideoWorkbenchView({ ownerId }: { ownerId: string }) {
             if (!response.ok) throw new Error(`${asset.name} 读取失败`);
             return response.blob();
           });
-          const file = new File([blob], asset.name || `${asset.id}.${kind}`, { type: asset.content_type || blob.type });
+          const type = asset.content_type || blob.type;
+          const file = new File([blob], assetDownloadFileName({ name: asset.name || asset.id, type: kind, content_type: type }), { type });
           let reference: WorkbenchReference;
           if (kind === "image") reference = await createImageWorkbenchReference(file, () => url, revokeUrl);
           else if (kind === "video") reference = await createVideoWorkbenchReference(file, () => url, revokeUrl);

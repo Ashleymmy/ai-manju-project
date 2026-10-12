@@ -4,8 +4,11 @@ import { ArrowDownToLine, ArrowUpRight, Check, ChevronRight, FileText, FolderOpe
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+  folderOptionLabel,
+  visibleAssetLibraryFolders,
   type Asset,
 } from "@/entities/asset";
+import { flattenFolderTree, folderPathLabel } from "@/lib/asset-folder-tree";
 import {
   type ComicAnalysisDetail,
   type ComicAsset,
@@ -197,7 +200,13 @@ export function ComicAssetsView() {
   const models: CapabilityModelCatalog | null = textModelsQuery.data || null;
   const imageModels: CapabilityModelCatalog | null =
     imageModelsQuery.data || null;
-  const folders = foldersQuery.data || [];
+  const folderOptions = useMemo(() => {
+    const visibleFolders = visibleAssetLibraryFolders(foldersQuery.data || []);
+    return flattenFolderTree(visibleFolders).map(({ folder }) => ({
+      id: folder.id,
+      label: folderOptionLabel(folderPathLabel(visibleFolders, folder.id), folder),
+    }));
+  }, [foldersQuery.data]);
   const referenceCandidates = referenceAssetsQuery.data || [];
 
   const activeRevision = useMemo(() => activeComicRevision(analysis), [analysis]);
@@ -1006,7 +1015,7 @@ export function ComicAssetsView() {
             <label>每资产张数<select value={generationVariants} onChange={(event) => setGenerationVariants(Number(event.target.value))}>{[1, 2, 3, 4].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
             <label>并发<select value={generationConcurrency} onChange={(event) => setGenerationConcurrency(Number(event.target.value) === 1 ? 1 : 2)}><option value={1}>1</option><option value={2}>2</option></select></label>
           </div>
-          <label>落库目录<select value={destinationMode === "auto" ? "" : destinationFolderId} onChange={(event) => { const value = event.target.value; setDestinationMode(value ? "custom" : "auto"); setDestinationFolderId(value); }}><option value="">自动归档目录</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
+          <label>落库目录<select value={destinationMode === "auto" ? "" : destinationFolderId} onChange={(event) => { const value = event.target.value; setDestinationMode(value ? "custom" : "auto"); setDestinationFolderId(value); }}><option value="">自动归档目录</option>{folderOptions.map((folder) => <option key={folder.id} value={folder.id}>{folder.label}</option>)}</select></label>
           <label className="comic-check-line"><input type="checkbox" checked={categorySubfolders} onChange={(event) => setCategorySubfolders(event.target.checked)} /> 按类别创建子文件夹</label>
           <div className="comic-reference-block">
             <div className="reference-manager-head"><span>参考资产 {referenceAssets.length}/6</span><div><button onClick={() => setReferencePickerOpen((value) => !value)}><ImageIcon size={13} /> {referencePickerOpen ? "收起" : "选择"}</button>{referenceAssets.length > 0 && <button onClick={() => setReferenceAssets([])}>清空</button>}</div></div>

@@ -70,13 +70,18 @@
   .asset-transfer-header { padding: 14px; }
   .asset-transfer-header-note { display: none; }
   .asset-transfer-list { padding: 0 14px; }
-  .asset-transfer-row { grid-template-columns: 30px minmax(0,1fr) auto; gap: 8px 10px; }
-  .asset-transfer-file-icon { grid-row: 1 / 3; align-self: start; }
-  .asset-transfer-row-action { grid-column: 2 / 4; justify-content: flex-start; }
-  .asset-transfer-row-action:has(.asset-transfer-unavailable):not(:has(button)) { display: none; }
+  .asset-transfer-row { grid-template-columns: 30px minmax(0,1fr) auto auto; gap: 8px 10px; }
+  .asset-transfer-row-action { gap: 6px; }
   .asset-transfer-meta { gap: 2px 6px; }
   .asset-transfer-meta > * + *::before { margin-right: 6px; }
   .asset-transfer-footer { padding: 10px 14px; }
+}
+/* Only very narrow panels move the actions under the file name. */
+@container (max-width: 380px) {
+  .asset-transfer-row { grid-template-columns: 30px minmax(0,1fr) auto; }
+  .asset-transfer-file-icon { grid-row: 1 / 3; align-self: start; }
+  .asset-transfer-row-action { grid-column: 2 / 4; justify-content: flex-start; }
+  .asset-transfer-row-action:has(.asset-transfer-unavailable):not(:has(button)) { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .asset-transfer-status *, .asset-transfer-status *::before { animation: none !important; transition: none !important; }

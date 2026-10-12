@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { collectFolderSubtreeIds, flattenFolderTree, folderPathLabel, type FolderLike } from "./asset-folder-tree";
+import { collectFolderSubtreeIds, flattenFolderTree, folderPathLabel, planFolderShift, reorderableFolderSiblings, type FolderLike } from "./asset-folder-tree";
 import { visibleAssetLibraryFolders, type AssetFolder } from "@/entities/asset";
 
 function folder(id: string, parentId = "", name = id, sortOrder = 0): FolderLike {
@@ -24,7 +24,7 @@ describe("asset folder tree", () => {
     ];
     const visible = visibleAssetLibraryFolders(stored);
     expect(flattenFolderTree(visible).map(row => row.folder.name)).toEqual([
-      "画布工坊", "生图工作台", "资产助手", "项目", "漫剧资产助手", "待整理",
+      "漫剧资产助手", "画布工坊", "生图工作台", "资产助手", "项目", "待整理",
     ]);
     expect(folderPathLabel(visible, "child")).toBe("资产助手 / 项目");
     expect(visible.find(item => item.id === "comic")?.descendant_asset_count).toBe(2);
@@ -83,6 +83,27 @@ describe("asset folder tree", () => {
     expect(visible.some(item => item.id === "system")).toBe(false);
     expect(visible.some(item => item.id === "user-root")).toBe(true);
     expect(stored.find(item => item.id === "a")?.parent_id).toBe("system");
+  });
+
+  it("shifts user folders among user siblings only, renumbering ties so the swap sticks", () => {
+    const stored: AssetFolder[] = [
+      { ...folder("root", "", "系统归档"), kind: "system", system_key: "system_root", asset_count: 0, descendant_asset_count: 0 },
+      { ...folder("canvas", "root", "画布工坊"), kind: "system", system_key: "canvas", asset_count: 0, descendant_asset_count: 0 },
+      { ...folder("image", "root", "生图工作台", 30), kind: "system", system_key: "image_workbench", asset_count: 0, descendant_asset_count: 0 },
+      ...["11", "2", "兴建鲁王宫设计"].map(name => ({ ...folder(name, "", name), kind: "user" as const, asset_count: 0, descendant_asset_count: 0 })),
+    ];
+    const visible = visibleAssetLibraryFolders(stored);
+    expect(flattenFolderTree(visible).map(row => row.folder.name)).toEqual(["11", "2", "兴建鲁王宫设计", "画布工坊", "生图工作台"]);
+    expect(reorderableFolderSiblings(visible, visible.find(item => item.id === "canvas")!)).toEqual([]);
+
+    const up = planFolderShift(visible, "兴建鲁王宫设计", -1);
+    expect(up.map(({ folder: item, sortOrder }) => [item.id, sortOrder])).toEqual([["兴建鲁王宫设计", 1], ["2", 2]]);
+    const applied = visible.map(item => ({ ...item, sort_order: up.find(change => change.folder.id === item.id)?.sortOrder ?? item.sort_order }));
+    expect(flattenFolderTree(applied).map(row => row.folder.name)).toEqual(["11", "兴建鲁王宫设计", "2", "画布工坊", "生图工作台"]);
+
+    expect(planFolderShift(applied, "11", -1)).toEqual([]);
+    expect(planFolderShift(applied, "2", 1)).toEqual([]);
+    expect(planFolderShift(applied, "canvas", 1)).toEqual([]);
   });
 
   it("treats folders with a missing parent as roots", () => {

@@ -6,6 +6,7 @@ export type FolderLike = {
   parent_id: string;
   name: string;
   sort_order: number;
+  kind?: string;
 };
 
 export type FolderTreeRow<T extends FolderLike> = {
@@ -19,8 +20,39 @@ export type FolderTreeRow<T extends FolderLike> = {
   ancestorLast: boolean[];
 };
 
+function isSystemFolder(folder: FolderLike) {
+  return folder.kind === "system";
+}
+
+/** 同级内用户文件夹排在系统文件夹之前，二者的 sort_order 互不干扰。 */
 function compareFolders(a: FolderLike, b: FolderLike) {
-  return (a.sort_order - b.sort_order) || a.name.localeCompare(b.name, "zh-CN");
+  return (Number(isSystemFolder(a)) - Number(isSystemFolder(b)))
+    || (a.sort_order - b.sort_order)
+    || a.name.localeCompare(b.name, "zh-CN");
+}
+
+/** 与 folder 同级、可由用户调整顺序的文件夹（不含系统文件夹），按展示顺序排列。 */
+export function reorderableFolderSiblings<T extends FolderLike>(folders: T[], folder: T): T[] {
+  if (isSystemFolder(folder)) return [];
+  const parentId = folder.parent_id || "";
+  return folders
+    .filter((item) => !isSystemFolder(item) && (item.parent_id || "") === parentId)
+    .sort(compareFolders);
+}
+
+/** 上移/下移：交换后把同级用户文件夹重排为 0..n-1，只返回 sort_order 有变化的项；无法移动时返回空数组。 */
+export function planFolderShift<T extends FolderLike>(folders: T[], folderId: string, direction: -1 | 1): Array<{ folder: T; sortOrder: number }> {
+  const folder = folders.find((item) => item.id === folderId);
+  if (!folder) return [];
+  const siblings = reorderableFolderSiblings(folders, folder);
+  const index = siblings.findIndex((item) => item.id === folderId);
+  const targetIndex = index + direction;
+  if (index < 0 || targetIndex < 0 || targetIndex >= siblings.length) return [];
+  const reordered = siblings.slice();
+  [reordered[index], reordered[targetIndex]] = [reordered[targetIndex], reordered[index]];
+  return reordered
+    .map((item, sortOrder) => ({ folder: item, sortOrder }))
+    .filter(({ folder: item, sortOrder }) => item.sort_order !== sortOrder);
 }
 
 /** 扁平列表 → 深度优先树序；父节点缺失的文件夹按根级处理（防脏数据断链）。 */

@@ -94,6 +94,8 @@ export type AssetFolder = {
   source_ref_type?: string;
   asset_count: number;
   descendant_asset_count: number;
+  /** Part of descendant_asset_count stored in other canvases and reused in this subtree. */
+  descendant_referenced_asset_count?: number;
   sort_order: number;
   /** A retained canvas archive whose canvas has been deleted. */
   canvas_deleted?: boolean;

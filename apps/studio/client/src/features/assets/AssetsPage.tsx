@@ -5,27 +5,38 @@ import {
   ArrowUp,
   AudioLines,
   ChevronRight,
+  CircleDashed,
+  Clapperboard,
   Download,
+  Flame,
+  Folder,
   FolderInput,
   FolderOpen,
   FolderX,
   Image as ImageIcon,
+  Inbox,
+  LayoutGrid,
+  Library,
   Loader2,
   Music2,
+  Palette,
   Pencil,
   Play,
   Plus,
   RefreshCcw,
   Search,
+  Sparkles,
   Star,
   Tag,
   ThumbsDown,
   Trash2,
   Upload,
+  UserRound,
   Video,
   X,
   ZoomIn,
   ZoomOut,
+  type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -87,7 +98,6 @@ import type { WorkspaceScope } from "@/shared/config";
 import { importTaskManager, useImportTask } from "./model/importTaskManager";
 import { isAssetPackageFile } from "./model/assetPackageFile";
 import { useAssetGridSize } from "./model/useAssetGridSize";
-import { useLibraryTreeWidth } from "./model/useLibraryTreeWidth";
 import { useWheelScrollChaining } from "@/shared/lib/useWheelScrollChaining";
 import { isAssetFavorited, nextAssetReaction } from "./model/reactions";
 import { formatTrashCountdown, isTrashCountdownUrgent, remainingTrashDays } from "./model/trashRetention";
@@ -100,10 +110,14 @@ import { updateAssetCategories } from "./model/bulkCategory";
 import { AssetPreviewLightbox } from "./ui/AssetPreviewLightbox";
 import { AssetThumbnail } from "./ui/AssetThumbnail";
 import { AssetTagFilter } from "./ui/AssetTagFilter";
+import { AssetLibraryToolbar } from "./ui/AssetLibraryToolbar";
+import { AssetSelectionBar, PageSelectAll } from "./ui/AssetSelectionBar";
 import {
   collectFolderSubtreeIds,
   flattenFolderTree,
   folderPathLabel,
+  planFolderShift,
+  reorderableFolderSiblings,
 } from "./model/folderTree";
 import {
   useAssetExportsQuery,
@@ -151,15 +165,42 @@ const sourceTypeOptions: Array<Option<AssetSourceType | "">> = [
   { value: "unknown", label: "未知" },
 ];
 
-const smartViews: Array<{ value: SmartView; label: string }> = [
-  { value: "all", label: "全部资产" },
-  { value: "favorite", label: "已收藏" },
-  { value: "dislike", label: "已踩" },
-  { value: "unused", label: "未使用" },
-  { value: "frequent", label: "高频调用" },
-  { value: "seedance", label: "真人素材" },
-  { value: "trash", label: "回收站" },
+const smartViews: Array<{ value: SmartView; label: string; icon: LucideIcon }> = [
+  { value: "all", label: "全部资产", icon: LayoutGrid },
+  { value: "favorite", label: "已收藏", icon: Star },
+  { value: "dislike", label: "已踩", icon: ThumbsDown },
+  { value: "unused", label: "未使用", icon: CircleDashed },
+  { value: "frequent", label: "高频调用", icon: Flame },
+  { value: "seedance", label: "真人素材", icon: UserRound },
+  { value: "trash", label: "回收站", icon: Trash2 },
 ];
+
+/** Built-in source folders get their own icon so they read apart from user folders. */
+const SYSTEM_FOLDER_ICONS: Record<string, LucideIcon> = {
+  canvas: Palette,
+  image_workbench: ImageIcon,
+  video_workbench: Clapperboard,
+  comic: Sparkles,
+  unsorted: Inbox,
+};
+
+function folderIcon(folder: AssetFolder, expanded: boolean): LucideIcon {
+  if (folder.canvas_deleted) return FolderX;
+  return (folder.kind === "system" && SYSTEM_FOLDER_ICONS[folder.system_key || ""]) || (expanded ? FolderOpen : Folder);
+}
+
+function folderCountTitle(folder: AssetFolder) {
+  const total = folder.descendant_asset_count ?? folder.asset_count;
+  const referenced = folder.descendant_referenced_asset_count || 0;
+  if (!total) return "暂无资产";
+  if (!referenced) return `共 ${total} 个资产`;
+  return `共 ${total} 个资产：存放于此 ${total - referenced} 个 · 引用其他目录 ${referenced} 个`;
+}
+
+/** Linked canvas archives can be removed; fixed system destinations cannot. */
+function canDeleteFolder(folder: AssetFolder | undefined) {
+  return folder?.kind === "user" || folder?.system_key === "canvas_project";
+}
 
 function initialScopeFromSearch(): WorkspaceScope {
   return new URLSearchParams(window.location.search).get("scope") === "team" ? "team" : "personal";
@@ -204,7 +245,6 @@ export function AssetLibraryView() {
   const [keyword, setKeyword] = useState("");
   const [debouncedKeyword, setDebouncedKeyword] = useState("");
   const [activeFolderId, setActiveFolderId] = useState("");
-  const [moveFolderId, setMoveFolderId] = useState("");
   const [category, setCategory] = useState<AssetCategory | "">("");
   const [sourceType, setSourceType] = useState<AssetSourceType | "">("");
   const [assetType, setAssetType] = useState<Asset["type"] | "">("");
@@ -228,8 +268,7 @@ export function AssetLibraryView() {
   const importTask = useImportTask();
   const packageBusy = importTask.preparing || importTask.task?.status === "running" ? "import" : "";
   const packageInputRef = useRef<HTMLInputElement>(null);
-  const [showExportTasks, setShowExportTasks] = useState(false);
-  const [showImportTasks, setShowImportTasks] = useState(false);
+  const [showTasks, setShowTasks] = useState(false);
   const [deletingExportId, setDeletingExportId] = useState("");
   const [noteDraft, setNoteDraft] = useState("");
   const [detailName, setDetailName] = useState("");
@@ -248,16 +287,16 @@ export function AssetLibraryView() {
   const selected = selectedAssets.length === 1 ? selectedAssets[0] : assetRecords.find((asset) => asset.id === selectedId) || assets[0];
   const assetTags = useMemo(() => tags.filter(tag => tag.asset_enabled), [tags]);
   const activeFolder = folders.find((folder) => folder.id === activeFolderId);
-  // Linked canvas archives can be removed; fixed system destinations cannot.
-  const canDeleteActiveFolder = activeFolder?.kind === "user" || activeFolder?.system_key === "canvas_project";
   const navigationFolders = useMemo(() => visibleAssetLibraryFolders(folders), [folders]);
   const folderRows = useMemo(() => flattenFolderTree(navigationFolders), [navigationFolders]);
   const moveFolderRows = useMemo(
     () => folderRows.filter(({ depth }) => depth < ASSET_MOVE_FOLDER_MAX_LEVELS),
     [folderRows],
   );
-  // A deeper sidebar selection must not leave an invisible move destination active.
-  const visibleMoveFolderId = moveFolderRows.some(({ folder }) => folder.id === moveFolderId) ? moveFolderId : "";
+  const moveTargets = useMemo(
+    () => moveFolderRows.map(({ folder }) => ({ id: folder.id, label: folderOptionLabel(folderPathLabel(navigationFolders, folder.id), folder) })),
+    [moveFolderRows, navigationFolders],
+  );
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<string[]>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("ai-manju:asset-folder-collapsed") || "[]");
@@ -267,7 +306,6 @@ export function AssetLibraryView() {
     }
   });
   const collapsedFolderSet = useMemo(() => new Set(collapsedFolderIds), [collapsedFolderIds]);
-  const libraryTree = useLibraryTreeWidth();
   const visibleFolderRows = useMemo(
     () => folderRows.filter((row) => !row.ancestorIds.some((id) => collapsedFolderSet.has(id))),
     [folderRows, collapsedFolderSet],
@@ -329,7 +367,7 @@ export function AssetLibraryView() {
     scope,
     sendPanelOpen
   );
-  const exportsQuery = useAssetExportsQuery(scope, refreshKey, showExportTasks);
+  const exportsQuery = useAssetExportsQuery(scope, refreshKey, showTasks);
   const lineage = lineageQuery.data || null;
   const usageEvents = useMemo(
     () => usageQuery.data?.items || [],
@@ -352,7 +390,6 @@ export function AssetLibraryView() {
 
   useEffect(() => {
     setActiveFolderId("");
-    setMoveFolderId("");
     setSelectedIds([]);
     setSelectedTagIds([]);
     setSendPanelOpen(false);
@@ -464,7 +501,7 @@ export function AssetLibraryView() {
   }, [exportsQuery.refetch]);
 
   const importAssetPackage = async (file: File) => {
-    setShowImportTasks(true);
+    setShowTasks(true);
     try { await importTaskManager.start(file, scope, activeFolderId || undefined); }
     catch (error) { toast.error(publicApiError(error, "无法开始导入")); }
   };
@@ -521,6 +558,20 @@ export function AssetLibraryView() {
   const toggleSelectedAsset = (id: string) => setSelectedIds((ids) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]);
   const toggleFilterTag = (id: string) => setSelectedTagIds((ids) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]);
   const bulkIds = selectedIdsFromUi.length ? selectedIdsFromUi : [];
+  const hasSelection = selectedIds.length > 0;
+  useEffect(() => {
+    if (!hasSelection) return;
+    const clearOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      // Escape belongs to an open menu, dialog or preview first.
+      if (document.querySelector("[role='menu'], [role='dialog'], .asset-lightbox")) return;
+      setSelectedIds([]);
+    };
+    window.addEventListener("keydown", clearOnEscape);
+    return () => window.removeEventListener("keydown", clearOnEscape);
+  }, [hasSelection]);
 
   const saveNote = async () => {
     if (!selected) return;
@@ -583,18 +634,17 @@ export function AssetLibraryView() {
   };
 
   const shiftFolder = async (folder: AssetFolder, direction: -1 | 1) => {
-    const siblings = folders
-      .filter((item) => (item.parent_id || "") === (folder.parent_id || ""))
-      .sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name, "zh-CN"));
-    const index = siblings.findIndex((item) => item.id === folder.id);
-    const target = siblings[index + direction];
-    if (!target) return;
+    const updates = planFolderShift(navigationFolders, folder.id, direction);
+    if (!updates.length) return;
     try {
-      await updateAssetFolder(folder.id, { name: folder.name, parent_id: folder.parent_id || undefined, sort_order: target.sort_order }, scope);
-      await updateAssetFolder(target.id, { name: target.name, parent_id: target.parent_id || undefined, sort_order: folder.sort_order }, scope);
-      refresh();
+      for (const { folder: item, sortOrder } of updates) {
+        const stored = folders.find((candidate) => candidate.id === item.id) || item;
+        await updateAssetFolder(item.id, { name: stored.name, parent_id: stored.parent_id || undefined, sort_order: sortOrder }, scope);
+      }
     } catch (error) {
       toast.error(publicApiError(error, "调整文件夹排序失败"));
+    } finally {
+      refresh();
     }
   };
 
@@ -691,11 +741,15 @@ export function AssetLibraryView() {
     refresh();
   };
 
-  const moveSelectedAssets = async () => {
-    if (!bulkIds.length || !visibleMoveFolderId) return;
-    await bulkMoveAssets(bulkIds, visibleMoveFolderId, scope);
-    toast.success(`已移动 ${bulkIds.length} 个资产`);
-    refresh();
+  const moveSelectedAssets = async (folderId: string) => {
+    if (!bulkIds.length || !folderId) return;
+    try {
+      await bulkMoveAssets(bulkIds, folderId, scope);
+      toast.success(`已移动 ${bulkIds.length} 个资产`);
+      refresh();
+    } catch (error) {
+      toast.error(publicApiError(error, "移动资产失败"));
+    }
   };
 
   const createFolder = async () => {
@@ -705,7 +759,6 @@ export function AssetLibraryView() {
       const created = await createAssetFolder({ name, parent_id: activeFolderId || undefined }, scope);
       setFolders((items) => [...items, created]);
       setActiveFolderId(created.id);
-      setMoveFolderId(created.id);
       toast.success("资产文件夹已创建");
       refresh();
     } catch (error) {
@@ -713,26 +766,25 @@ export function AssetLibraryView() {
     }
   };
 
-  const deleteFolder = async () => {
-    if (!activeFolder || !canDeleteActiveFolder) return;
+  const deleteFolder = async (folder: AssetFolder) => {
+    if (!canDeleteFolder(folder)) return;
     try {
-      if (activeFolder.system_key === "canvas_project") {
+      if (folder.system_key === "canvas_project") {
         // Read fresh project state: another tab may have just deleted the canvas.
         const projects = await getProjectSummaries(scope);
-        if (projects.some((project) => project.id === activeFolder.source_ref_id)) {
+        if (projects.some((project) => project.id === folder.source_ref_id)) {
           toast.info("关联画布尚未删除，请先在「全部项目」中删除该画布，再删除此文件夹。");
           return;
         }
       }
-      const message = activeFolder.system_key === "canvas_project"
-        ? `删除文件夹"${activeFolder.name}"及其全部子文件夹？其中资产会保留并移至“画布工坊”。`
-        : `删除文件夹"${activeFolder.name}"及其子文件夹？其中资产会回到默认归档目录。`;
+      const message = folder.system_key === "canvas_project"
+        ? `删除文件夹"${folder.name}"及其全部子文件夹？其中资产会保留并移至“画布工坊”。`
+        : `删除文件夹"${folder.name}"及其子文件夹？其中资产会回到默认归档目录。`;
       if (!window.confirm(message)) return;
-      const result = await deleteAssetFolder(activeFolderId, scope);
-      const deletedIds = collectFolderSubtreeIds(folders, activeFolderId);
+      const result = await deleteAssetFolder(folder.id, scope);
+      const deletedIds = collectFolderSubtreeIds(folders, folder.id);
       setFolders((items) => items.filter((item) => !deletedIds.has(item.id)));
-      setActiveFolderId("");
-      setMoveFolderId("");
+      if (deletedIds.has(activeFolderId)) setActiveFolderId("");
       toast.success(`文件夹已删除，迁移资产 ${result.moved_assets || 0} 个`);
       refresh();
     } catch (error) {
@@ -780,17 +832,13 @@ export function AssetLibraryView() {
         }, scope);
       }
       toast.success("导出任务已创建");
-      setShowExportTasks(true);
+      setShowTasks(true);
       void reloadExports();
     } catch (error) {
       toast.error(publicApiError(error, "创建导出任务失败"));
     } finally {
       setExportBusy("");
     }
-  };
-
-  const exportAssetPackage = async () => {
-    await createExport("selected");
   };
 
   const openInImageWorkbench = () => {
@@ -854,26 +902,39 @@ export function AssetLibraryView() {
       actions={<div className="scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => setScope(item.value)}>{item.label}</button>)}</div>} />
     <AssetTagFilter key={scope} tags={tags} selectedIds={selectedTagIds} match={tagMatch}
       onToggle={toggleFilterTag} onClear={() => setSelectedTagIds([])} onMatchChange={setTagMatch} />
-    <div className={libraryTree.dragging ? "library-workspace resizing" : "library-workspace"} style={libraryTree.workspaceStyle}>
+    <div className="library-workspace">
       <aside className="library-tree">
-        <div {...libraryTree.resizerProps} className={libraryTree.dragging ? "library-tree-resizer dragging" : "library-tree-resizer"} />
         <p className="field-label">SMART VIEWS</p>
-        {smartViews.map((view) => <button className={smartView === view.value ? "selected" : ""} onClick={() => setSmartView(view.value)} key={view.value}>{view.label}</button>)}
+        {smartViews.map((view) => (
+          <button className={smartView === view.value ? "selected" : ""} onClick={() => setSmartView(view.value)} key={view.value}>
+            <span><view.icon size={13} className="tree-icon" />{view.label}</span>
+          </button>
+        ))}
         <hr />
-        <p className="field-label">FOLDERS</p>
-        <button className={!activeFolderId ? "selected" : ""} onClick={() => setActiveFolderId("")}>全部目录</button>
+        <div className="library-tree-heading">
+          <p className="field-label">FOLDERS</p>
+          <button type="button" title={activeFolder ? `在“${activeFolder.name}”下新建文件夹` : "新建文件夹"} aria-label="新建文件夹" onClick={() => void createFolder()}><Plus size={12} /></button>
+        </div>
+        <button className={!activeFolderId ? "selected" : ""} onClick={() => setActiveFolderId("")}>
+          <span><Library size={13} className="tree-icon" />全部目录</span>
+        </button>
         {visibleFolderRows.map(({ folder, depth, hasChildren, ancestorLast }) => {
-          const siblings = folders.filter((item) => (item.parent_id || "") === (folder.parent_id || ""));
+          const siblings = reorderableFolderSiblings(navigationFolders, folder);
           const siblingIndex = siblings.findIndex((item) => item.id === folder.id);
           const editable = folder.kind !== "system";
+          // Live canvases are removed from 全部项目; only orphaned archives offer delete here.
+          const deletable = canDeleteFolder(folder) && (editable || Boolean(folder.canvas_deleted));
           const collapsed = collapsedFolderSet.has(folder.id);
+          const FolderIcon = folderIcon(folder, hasChildren && !collapsed);
+          const count = folder.descendant_asset_count ?? folder.asset_count;
+          const pathLabel = folderPathLabel(navigationFolders, folder.id);
           return (
             <div key={folder.id} className="folder-row-wrap">
               <button
                 className={["folder-row", activeFolderId === folder.id ? "selected" : "", folder.canvas_deleted ? "canvas-deleted" : ""].filter(Boolean).join(" ")}
                 style={{ paddingLeft: 6 + depth * 14 }}
-                title={folder.canvas_deleted ? `${folderPathLabel(navigationFolders, folder.id)}\n画布已删除，仅保留资产` : folderPathLabel(navigationFolders, folder.id)}
-                onClick={() => { setActiveFolderId(folder.id); setMoveFolderId(folder.id); }}>
+                title={[pathLabel, folder.canvas_deleted ? "画布已删除，仅保留资产" : "", folderCountTitle(folder)].filter(Boolean).join("\n")}
+                onClick={() => setActiveFolderId(folder.id)}>
                 {ancestorLast.map((isLast, level) => (isLast ? null : <i key={level} className="folder-guide" style={{ left: 6 + level * 14 + 6 }} />))}
                 {hasChildren ? (
                   <span
@@ -891,16 +952,21 @@ export function AssetLibraryView() {
                 ) : (
                   <span className="folder-toggle placeholder" />
                 )}
-                {folder.canvas_deleted ? <FolderX size={12} className="folder-icon" /> : <FolderOpen size={12} className="folder-icon" />}
+                <FolderIcon size={12} className="folder-icon" />
                 <span className="folder-name">{folder.name}</span>
-                <b className="folder-count">{folder.descendant_asset_count ?? folder.asset_count}</b>
+                {count ? <b className="folder-count">{count}</b> : null}
               </button>
-              {editable ? (
+              {editable || deletable ? (
                 <span className="folder-row-actions">
-                  <button type="button" title="重命名文件夹" onClick={() => void renameFolder(folder)}><Pencil size={11} /></button>
-                  <button type="button" title="上移" disabled={siblingIndex <= 0} onClick={() => void shiftFolder(folder, -1)}><ArrowUp size={11} /></button>
-                  <button type="button" title="下移" disabled={siblingIndex < 0 || siblingIndex >= siblings.length - 1} onClick={() => void shiftFolder(folder, 1)}><ArrowDown size={11} /></button>
-                  <button type="button" title="调整层级" onClick={() => setFolderMoveFor((current) => current === folder.id ? "" : folder.id)}><FolderInput size={11} /></button>
+                  {editable ? (
+                    <>
+                      <button type="button" title="重命名文件夹" onClick={() => void renameFolder(folder)}><Pencil size={11} /></button>
+                      <button type="button" title="上移" disabled={siblingIndex <= 0} onClick={() => void shiftFolder(folder, -1)}><ArrowUp size={11} /></button>
+                      <button type="button" title="下移" disabled={siblingIndex < 0 || siblingIndex >= siblings.length - 1} onClick={() => void shiftFolder(folder, 1)}><ArrowDown size={11} /></button>
+                      <button type="button" title="调整层级" onClick={() => setFolderMoveFor((current) => current === folder.id ? "" : folder.id)}><FolderInput size={11} /></button>
+                    </>
+                  ) : null}
+                  {deletable ? <button type="button" className="danger" title="删除文件夹" onClick={() => void deleteFolder(folder)}><Trash2 size={11} /></button> : null}
                 </span>
               ) : null}
               {folderMoveFor === folder.id ? (
@@ -925,31 +991,24 @@ export function AssetLibraryView() {
             </div>
           );
         })}
-        <hr />
-        <div className="library-tree-actions">
-          <button type="button" onClick={() => void createFolder()}><Plus size={14} /> 新建文件夹</button>
-          <button type="button" onClick={() => void deleteFolder()} disabled={!canDeleteActiveFolder} title={activeFolder && !canDeleteActiveFolder ? "系统固定目录不可删除" : undefined}><Trash2 size={14} /> 删除当前文件夹</button>
-        </div>
       </aside>
       <section className="asset-browser" style={gridSize.gridStyle} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (smartView !== "seedance") void handleFiles(event.dataTransfer.files); }}>{smartView === "seedance" ? <SeedanceAssetPanel scope={scope} /> : <>
         <div className="asset-browser-top"><div><button className="breadcrumb">{scope === "personal" ? "个人素材" : "团队素材"} <ChevronRight size={13} /></button><h2>{activeFolder?.name || smartViews.find((item) => item.value === smartView)?.label}</h2></div><div className="tag-search"><Search size={15} /><input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索资产名称、来源或标签" /></div></div>
-        <div className="asset-filter-bar">
-          <select value={category} onChange={(event) => setCategory(event.target.value as AssetCategory | "")}>{assetCategoryOptions.map((item) => <option key={item.value || "all"} value={item.value}>{item.label}</option>)}</select>
-          <select value={sourceType} onChange={(event) => setSourceType(event.target.value as AssetSourceType | "")}>{sourceTypeOptions.map((item) => <option key={item.value || "all"} value={item.value}>{item.label}</option>)}</select>
-          <select value={assetType} onChange={(event) => setAssetType(event.target.value as Asset["type"] | "")}><option value="">全部类型</option><option value="image">图片</option><option value="video">视频</option><option value="audio">音频</option></select>
-          <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as typeof sortOrder)}><option value="created_at_desc">最新优先</option><option value="created_at_asc">最早优先</option><option value="name_asc">名称 A-Z</option><option value="name_desc">名称 Z-A</option></select>
-          <input className="asset-date-input" type="date" value={createdFrom} onChange={(event) => setCreatedFrom(event.target.value)} title="创建时间起" />
-          <input className="asset-date-input" type="date" value={createdTo} onChange={(event) => setCreatedTo(event.target.value)} title="创建时间止" />
-          <button className="outline-button small" disabled={uploading} onClick={() => fileInputRef.current?.click()}><Upload size={15} /> {uploading ? "上传中…" : "导入资产"}</button>
-        </div>
-        <div className="asset-bulk-bar"><label><input type="checkbox" checked={assets.length > 0 && selectedIds.length === assets.length} onChange={(event) => setSelectedIds(event.target.checked ? assets.map((asset) => asset.id) : [])} /> 本页全选</label><span aria-live="polite">已选 {bulkIds.length} 项</span><button disabled={!bulkIds.length} onClick={() => setSelectedIds([])}>取消选择</button><select className="asset-move-folder-select" aria-label="移动到目录" title="仅显示一级、二级文件夹" value={visibleMoveFolderId} onChange={(event) => setMoveFolderId(event.target.value)}><option value="">移动到目录…</option>{moveFolderRows.map(({ folder }) => <option key={folder.id} value={folder.id}>{folderOptionLabel(folderPathLabel(navigationFolders, folder.id), folder)}</option>)}</select><button onClick={() => void moveSelectedAssets()} disabled={!visibleMoveFolderId || !bulkIds.length}>移动</button><button onClick={() => void deleteOrRestore()} disabled={!bulkIds.length}>{smartView === "trash" ? "恢复" : "删除"}</button>{smartView === "trash" && <button onClick={() => void permanentDeleteSelected()} disabled={!bulkIds.length}>永久删除</button>}{smartView === "trash" && <button onClick={() => void emptyTrash()}>清空回收站</button>}<button className="asset-bulk-tags-trigger" onClick={() => setBulkTagTarget({ ids: [...bulkIds], scope })} disabled={!bulkIds.length || smartView === "trash"}><Tag size={14} /> 批量标签</button><button onClick={() => void createExport("selected")} disabled={exportBusy === "selected" || !bulkIds.length}>导出选中</button><button onClick={() => void createExport("filter")} disabled={exportBusy === "filter"}>导出筛选</button><button onClick={() => void createExport("folder")} disabled={!activeFolderId || exportBusy === "folder"}>导出目录</button><button onClick={() => void exportAssetPackage()} disabled={!bulkIds.length || exportBusy === "selected"}>打包选中</button><button onClick={() => packageInputRef.current?.click()} disabled={packageBusy === "import"}>{packageBusy === "import" ? "导入中…" : "导入资产包"}</button>
-          <button aria-expanded={showExportTasks} onClick={() => setShowExportTasks(value => !value)}>{showExportTasks ? "收起导出任务" : "导出任务"}</button>
-          <button aria-expanded={showImportTasks} onClick={() => setShowImportTasks(value => !value)}>{showImportTasks ? "收起导入任务" : "导入任务"}</button>
-        </div>
-        {uploadPreviews.some(item => item.scope === scope) && <div className="asset-thumb-grid" aria-label="正在上传的素材">{uploadPreviews.filter(item => item.scope === scope).map(item => <article key={item.id} className="library-asset"><div className="library-asset-preview">{item.url ? <img src={item.url} alt={item.name} /> : <div className="empty-output"><Upload size={22} /></div>}<div><b>{item.name}</b><small>上传中…</small></div></div></article>)}</div>}
+        <AssetLibraryToolbar
+          category={category} categoryOptions={assetCategoryOptions} onCategoryChange={(value) => setCategory(value as AssetCategory | "")}
+          sourceType={sourceType} sourceOptions={sourceTypeOptions} onSourceTypeChange={(value) => setSourceType(value as AssetSourceType | "")}
+          assetType={assetType} onAssetTypeChange={(value) => setAssetType(value as Asset["type"] | "")}
+          createdFrom={createdFrom} createdTo={createdTo} onDateRangeChange={(from, to) => { setCreatedFrom(from); setCreatedTo(to); }}
+          sortOrder={sortOrder} onSortOrderChange={setSortOrder}
+          tasksOpen={showTasks} importRunning={packageBusy === "import"} onToggleTasks={() => setShowTasks(value => !value)}
+          exportBusy={exportBusy} folderExportAvailable={Boolean(activeFolderId)} onExport={(mode) => void createExport(mode)}
+          uploading={uploading} packageImporting={packageBusy === "import"}
+          onImportFiles={() => fileInputRef.current?.click()} onImportPackage={() => packageInputRef.current?.click()}
+        />
+        {showTasks && <div className="asset-task-area">
         <AssetTransferStatus
           key={scope}
-          batches={showExportTasks ? exportBatches : []} showExports={showExportTasks}
+          batches={exportBatches} showExports
           exportLoading={exportsQuery.isFetching}
           exportError={exportsQuery.error ? publicApiError(exportsQuery.error, "读取导出任务失败") : undefined}
           onReloadExports={() => { void reloadExports(); }}
@@ -964,15 +1023,32 @@ export function AssetLibraryView() {
           onDownload={batch => { void startAssetExportDownload(batch.id, scope).catch(error => toast.error(publicApiError(error, "下载失败"))); }}
           onCancel={batch => { void cancelAssetExport(batch.id, scope).then(reloadExports).catch(error => toast.error(publicApiError(error, "取消失败"))); }}
         />
-        {showImportTasks && !importTask.open && <AssetImportTaskPanel />}
-        <div className="asset-grid-toolbar">
-          <p className="asset-selection-hint">按住鼠标左键拖动框选 · Ctrl / ⌘ / Shift 可追加选择 · 双击预览</p>
+        {!importTask.open && <AssetImportTaskPanel />}
+        </div>}
+        {bulkIds.length ? (
+          <AssetSelectionBar
+            total={assets.length} selectedCount={bulkIds.length}
+            onSelectAll={(all) => setSelectedIds(all ? assets.map((asset) => asset.id) : [])}
+            onClear={() => setSelectedIds([])}
+            trash={smartView === "trash"}
+            moveTargets={moveTargets}
+            onMove={(folderId) => void moveSelectedAssets(folderId)}
+            onEditTags={() => setBulkTagTarget({ ids: [...bulkIds], scope })}
+            exportBusy={exportBusy === "selected"} onExport={() => void createExport("selected")}
+            onDelete={() => void deleteOrRestore()} onRestore={() => void deleteOrRestore()}
+            onPermanentDelete={() => void permanentDeleteSelected()}
+          />
+        ) : <div className="asset-grid-toolbar">
+          <PageSelectAll total={assets.length} selected={0} onChange={(all) => setSelectedIds(all ? assets.map((asset) => asset.id) : [])} />
+          <p className="asset-selection-hint">拖动框选 · Ctrl / ⌘ / Shift 追加 · 双击预览</p>
+          {smartView === "trash" ? <button type="button" className="asset-empty-trash" onClick={() => void emptyTrash()}><Trash2 size={14} />清空回收站</button> : null}
           <div className="asset-grid-size" role="group" aria-label="资产缩略图大小" data-keep-asset-selection="true">
             <button type="button" aria-label="放大资产缩略图" title="放大缩略图，每行显示更少资产" disabled={!gridSize.canZoomIn} onClick={gridSize.zoomIn}><ZoomIn size={16} /></button>
             <output aria-live="polite" aria-label="每行资产列数">{gridSize.columns} 列</output>
             <button type="button" aria-label="缩小资产缩略图" title="缩小缩略图，每行显示更多资产" disabled={!gridSize.canZoomOut} onClick={gridSize.zoomOut}><ZoomOut size={16} /></button>
           </div>
-        </div>
+        </div>}
+        {uploadPreviews.some(item => item.scope === scope) && <div className="asset-thumb-grid" aria-label="正在上传的素材">{uploadPreviews.filter(item => item.scope === scope).map(item => <article key={item.id} className="library-asset"><div className="library-asset-preview">{item.url ? <img src={item.url} alt={item.name} /> : <div className="empty-output"><Upload size={22} /></div>}<div><b>{item.name}</b><small>上传中…</small></div></div></article>)}</div>}
         <div className="asset-grid-scroll" key={JSON.stringify([scope, smartView, query])} ref={gridSize.containerRef} data-keep-asset-selection="true" role="region" aria-label="资产列表" tabIndex={0}>
         {loading ? <div className="empty-output"><Loader2 className="spin" size={26} /><p>正在读取资产…</p></div> : assets.length ? <AssetSelectionArea key={`${scope}:${page}:${activeFolderId}:${smartView}`} selectedIds={selectedIds} onSelectionChange={setSelectedIds}><div className="asset-thumb-grid">{assets.map((asset) => {
           const favorited = isAssetFavorited(asset.user_state?.reaction);

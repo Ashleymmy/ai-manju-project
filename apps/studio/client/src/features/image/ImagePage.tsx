@@ -37,6 +37,7 @@ import {
   type Asset,
 } from "@/entities/asset";
 import { useAuth } from "@/contexts/AuthContext";
+import { assetDownloadFileName } from "@/entities/asset/fileName";
 import { useImageTaskSession } from "./model/useImageTaskSession";
 import { createProject } from "@/entities/project";
 import type { PromptPreset } from "@/entities/prompt";
@@ -267,7 +268,8 @@ export function ImageWorkbenchView() {
       const url = await getAssetContentObjectUrl(asset.id, scope);
       const blob = await fetch(url).then((response) => response.blob());
       URL.revokeObjectURL(url);
-      addReferenceFiles([new File([blob], asset.name || `${asset.id}.png`, { type: blob.type || "image/png" })]);
+      const type = blob.type || "image/png";
+      addReferenceFiles([new File([blob], assetDownloadFileName({ name: asset.name || asset.id, type: "image", content_type: type }), { type })]);
     } catch (error) {
       toast.error(publicApiError(error, "读取资产内容失败"));
     }
@@ -453,10 +455,11 @@ export function ImageWorkbenchView() {
   };
 
   const addResultAsReference = async (image: GeneratedImage) => {
-    if (image.assetId) return addAssetAsReference({ id: image.assetId, name: image.name || `${image.assetId}.png` });
+    if (image.assetId) return addAssetAsReference({ id: image.assetId, name: image.name || image.assetId });
     if (!image.src) return;
     const blob = await fetch(image.src).then((response) => response.blob());
-    addReferenceFiles([new File([blob], image.name || `${image.id}.png`, { type: blob.type || "image/png" })]);
+    const type = blob.type || "image/png";
+    addReferenceFiles([new File([blob], assetDownloadFileName({ name: image.name || image.id, type: "image", content_type: type }), { type })]);
   };
 
   const sendToCanvas = async () => {
