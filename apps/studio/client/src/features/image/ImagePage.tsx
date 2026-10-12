@@ -763,7 +763,7 @@ export function ImageWorkbenchView() {
               setWidth(snapped.width);
               setHeight(snapped.height);
             }
-          }}>{modelOptions(catalog?.models || [], model).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
+          }}>{modelOptions(catalog?.models || [], model, catalog?.labels).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
         </div>
         <div className="composer-options">
           <label>质量<div className="ratio-buttons">{(["auto", "high", "medium", "low"] as const).map((q) => <button key={q} className={quality === q ? "active" : ""} onClick={() => {

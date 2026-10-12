@@ -109,7 +109,7 @@ import {
   type SeedanceAsset,
 } from "@/entities/asset";
 import { cancelJob, getJobs } from "@/entities/job";
-import { canvasGenerationModelOptions, canvasModelName, canvasVideoModelOptions, pickDefaultCanvasVideoModel } from "./domain/generationModels";
+import { canvasGenerationModelOptions, canvasHistoryModelName, canvasModelName, canvasVideoModelOptions, pickDefaultCanvasVideoModel } from "./domain/generationModels";
 import type { CanvasLibraryCategory } from "./domain/assetFolders";
 import { archiveCanvasMediaAsset, resolveCanvasArchiveFolder } from "./services/assetArchive";
 import { syncCanvasNodeAssetName } from "./services/assetNames";
@@ -419,11 +419,6 @@ function formatCanvasSyncTime(value: string) {
   if (!value) return "";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("zh-CN");
-}
-
-// 模型 id 形如 "provider_xxx::gpt-image-1"：界面展示只保留 :: 后的纯模型名
-function shortModelName(model: string) {
-  return model.split("::").at(-1) || model;
 }
 
 function starterNodes(): CanvasNodeData[] {
@@ -5088,7 +5083,7 @@ export default function CanvasWorkspaceViewContent() {
           formatModel: (model, kind) => {
             if (!model) return "—";
             if (kind === "image") return imageModelLabel(model, modelCatalog || undefined);
-            return shortModelName(model);
+            return canvasHistoryModelName(model, textModelLabels);
           },
           onOpenChange: setGenerationHistoryOpen,
           onApply: applyGenerationHistoryItem,

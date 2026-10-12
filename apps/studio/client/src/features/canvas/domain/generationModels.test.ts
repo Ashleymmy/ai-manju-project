@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canvasGenerationModelOptions, canvasModelName, canvasVideoModelOptions, pickDefaultCanvasVideoModel } from "./generationModels";
+import { canvasGenerationModelOptions, canvasHistoryModelName, canvasModelName, canvasVideoModelOptions, pickDefaultCanvasVideoModel } from "./generationModels";
 
 describe("canvas generation model choices", () => {
   it("defaults to the available yuntu Seedance Fast entry over the saved global preference", () => {
@@ -58,6 +58,43 @@ describe("canvas generation model choices", () => {
     ], "provider::gpt-image-1.5")).toEqual([
       { value: "provider::gpt-image-2", label: "gpt-image-2" },
     ]);
+  });
+
+  it("names history videos with the same catalog label as the node chip", () => {
+    const labels = {
+      "mobile::doubao-seedance-2-0-260128": "Seedance 2.0",
+      "yuntu::ep-20260128123456-abcde": "yuntu Seedance Fast",
+      "sdvideo/seedance-2.0-ark": "Seedance 2.0 · 火山方舟官方",
+    };
+    for (const [selector, label] of Object.entries(labels)) {
+      expect(canvasHistoryModelName(selector, labels)).toBe(label);
+    }
+    expect(canvasHistoryModelName("ep-20260128123456-abcde", labels)).toBe("yuntu Seedance Fast");
+    expect(canvasHistoryModelName("removed::doubao-seedance-2-0-260128", labels)).toBe("doubao-seedance-2-0-260128");
+    expect(canvasHistoryModelName("wan3.0-video", labels)).toBe("wan3.0-video");
+    expect(canvasHistoryModelName("  ", labels)).toBe("");
+  });
+
+  it("uses the admin display name when set and the model ID itself otherwise", () => {
+    const labels = {
+      "chinamobil::doubao-seedance-2-0-260128": "chinaMobil-sd2.0",
+      "chinamobil::doubao-seedance-2-5-260628": "chinaMobil-sd2.5",
+      "zzdh::zzdh-minimax-h3-限时优惠-多参考图生-480p": "字字动画h3 480",
+      "zzdh::zzdh-minimax-h3-限时优惠-多参考图生-768p": "字字动画h3-768",
+    };
+    for (const [selector, label] of Object.entries(labels)) {
+      expect(canvasHistoryModelName(selector, labels)).toBe(label);
+    }
+    for (const model of ["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]) {
+      expect(canvasHistoryModelName(`suixiang::${model}`, labels)).toBe(model);
+      expect(canvasModelName(`suixiang::${model}`, labels)).toBe(model);
+    }
+  });
+
+  it("does not guess a history label when suppliers disagree on a bare model ID", () => {
+    const labels = { "a::doubao-seedance-2-0-260128": "c20", "b::doubao-seedance-2-0-260128": "Seedance 2.0" };
+    expect(canvasHistoryModelName("doubao-seedance-2-0-260128", labels)).toBe("doubao-seedance-2-0-260128");
+    expect(canvasHistoryModelName("doubao-seedance-2-0-260128", { ...labels, "b::doubao-seedance-2-0-260128": "c20" })).toBe("c20");
   });
 
   it("keeps an existing canvas selection when its supplier is no longer first", () => {

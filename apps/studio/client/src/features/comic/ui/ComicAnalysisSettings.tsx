@@ -2,7 +2,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { CapabilityModelCatalog } from "@/entities/model";
-import { modelName, modelOptions, resolveModel } from "@/shared/lib/modelSelection";
+import { modelDisplayName, modelOptions, resolveModel } from "@/shared/lib/modelSelection";
 
 import { COMIC_ANALYSIS_INSTRUCTION_MAX_LENGTH } from "../model/constants";
 import "./comic-analysis-settings.css";
@@ -22,7 +22,7 @@ type Props = {
 export function ComicAnalysisSettings({ catalog, loading, error, disabled, onRefresh, model, onModelChange, instruction, onInstructionChange }: Props) {
   const available = error ? [] : catalog?.models || [];
   const selected = resolveModel(available, model);
-  const options = modelOptions(available, selected);
+  const options = modelOptions(available, selected, catalog?.labels);
   const placeholder = loading ? "正在获取文本模型…" : error ? "模型加载失败" : "暂无可用文本模型";
 
   return (
@@ -35,7 +35,7 @@ export function ComicAnalysisSettings({ catalog, loading, error, disabled, onRef
         <div className="comic-analysis-model-controls">
           <Select value={selected} onValueChange={onModelChange} disabled={disabled || loading || !options.length}>
             <SelectTrigger id="comic-analysis-model" className="comic-analysis-model-trigger" aria-label="分析模型">
-              <SelectValue placeholder={placeholder}>{loading ? placeholder : selected ? modelName(selected) : placeholder}</SelectValue>
+              <SelectValue placeholder={placeholder}>{loading ? placeholder : selected ? modelDisplayName(selected, catalog?.labels) : placeholder}</SelectValue>
             </SelectTrigger>
             <SelectContent className="comic-analysis-model-menu" align="start" sideOffset={6}>
               {options.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}

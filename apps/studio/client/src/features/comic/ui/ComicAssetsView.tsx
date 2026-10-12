@@ -928,7 +928,7 @@ export function ComicAssetsView() {
           <p className="eyebrow">ANALYSIS SETTINGS</p>
           <label>项目名称<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：雨幕收容所" /></label>
           <label>风格基调<input value={stylePreset} onChange={(event) => setStylePreset(event.target.value)} placeholder="例如：现实感悬疑" /></label>
-          <label>文本模型<select value={model} onChange={(event) => setModel(event.target.value)}><option value="">选择文本模型</option>{modelOptions(models?.models || [], model).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label>文本模型<select value={model} onChange={(event) => setModel(event.target.value)}><option value="">选择文本模型</option>{modelOptions(models?.models || [], model, models?.labels).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label>全局美术风格<input list="art-style-options" value={globalArtStyle} onChange={(event) => setGlobalArtStyle(event.target.value)} placeholder="选择或输入美术风格" /><datalist id="art-style-options"><option value="3D动漫PBR" /><option value="国风动画" /><option value="二维赛璐璐" /><option value="微写实动画" /><option value="东方赛博水墨" /></datalist></label>
           <label>首次分析方向<textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="请选择性参照某板，不需遵循有规范特性或逻辑性性求的颜色、场景和道具。" /></label>
           <hr />
@@ -995,10 +995,10 @@ export function ComicAssetsView() {
         <aside className="comic-generation-panel">
           <p className="eyebrow">PROMPT DIRECTION</p>
           <textarea value={optimizeDirection} onChange={(event) => setOptimizeDirection(event.target.value)} />
-          <label>文本模型<select value={model} onChange={(event) => setModel(event.target.value)}>{modelOptions(models?.models || [], model).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label>文本模型<select value={model} onChange={(event) => setModel(event.target.value)}>{modelOptions(models?.models || [], model, models?.labels).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
           <hr />
           <p className="eyebrow">BATCH GENERATION</p>
-          <label>图像模型<select value={generationModel} onChange={(event) => setGenerationModel(event.target.value)}>{modelOptions(imageModels?.models || [], generationModel).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label>图像模型<select value={generationModel} onChange={(event) => setGenerationModel(event.target.value)}>{modelOptions(imageModels?.models || [], generationModel, imageModels?.labels).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
           <div className="comic-batch-grid">
             <label>尺寸<select value={generationSize} onChange={(event) => setGenerationSize(event.target.value)}><option value="auto">AUTO</option><option value="1:1">1:1</option><option value="16:9">16:9</option><option value="9:16">9:16</option></select></label>
             <label>质量<select value={generationQuality} onChange={(event) => setGenerationQuality(event.target.value)}><option value="auto">AUTO</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label>

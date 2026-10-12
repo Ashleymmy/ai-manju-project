@@ -413,7 +413,7 @@ export function SettingsView() {
                 <label>
                   默认图像模型
                   <select value={imageModel} onChange={(event) => setImageModel(event.target.value)}>
-                    {modelOptions(aiCatalog?.imageModels || [], imageModel).map(({ value, label }) => (
+                    {modelOptions(aiCatalog?.imageModels || [], imageModel, aiCatalog?.modelLabels).map(({ value, label }) => (
                       <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
@@ -459,7 +459,7 @@ export function SettingsView() {
                   默认视频模型
                   <select value={videoModel} onChange={(event) => setVideoModel(event.target.value)}>
                     <option value="">未设置</option>
-                    {modelOptions(aiCatalog?.videoModels || [], videoModel).map(({ value, label }) => (
+                    {modelOptions(aiCatalog?.videoModels || [], videoModel, aiCatalog?.modelLabels).map(({ value, label }) => (
                       <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
@@ -493,7 +493,7 @@ export function SettingsView() {
                   默认音频模型
                   <select value={audioModel} onChange={(event) => setAudioModel(event.target.value)}>
                     <option value="">未设置</option>
-                    {modelOptions(aiCatalog?.audioModels || [], audioModel).map(({ value, label }) => (
+                    {modelOptions(aiCatalog?.audioModels || [], audioModel, aiCatalog?.modelLabels).map(({ value, label }) => (
                       <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
@@ -527,7 +527,7 @@ export function SettingsView() {
                   默认文本模型
                   <select value={textModel} onChange={(event) => setTextModel(event.target.value)}>
                     <option value="">未设置</option>
-                    {modelOptions(aiCatalog?.textModels || [], textModel).map(({ value, label }) => (
+                    {modelOptions(aiCatalog?.textModels || [], textModel, aiCatalog?.modelLabels).map(({ value, label }) => (
                       <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
