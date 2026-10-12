@@ -997,7 +997,8 @@ export function ComicAssetsView() {
           <textarea value={optimizeDirection} onChange={(event) => setOptimizeDirection(event.target.value)} />
           <hr />
           <p className="eyebrow">BATCH GENERATION</p>
-          <label>图像模型<select value={generationModel} onChange={(event) => setGenerationModel(event.target.value)}>{modelOptions(imageModels?.models || [], generationModel, imageModels?.labels).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
+          {/* [画布别名] */}
+          <label>图像模型<select value={generationModel} onChange={(event) => setGenerationModel(event.target.value)}>{modelOptions(imageModels?.models || [], generationModel, imageModels?.labels, imageModels?.nicknames).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
           <div className="comic-batch-grid">
             <label>尺寸<select value={generationSize} onChange={(event) => setGenerationSize(event.target.value)}><option value="auto">AUTO</option><option value="1:1">1:1</option><option value="16:9">16:9</option><option value="9:16">9:16</option></select></label>
             <label>质量<select value={generationQuality} onChange={(event) => setGenerationQuality(event.target.value)}><option value="auto">AUTO</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label>

@@ -12,6 +12,8 @@ export type AiModelsResponse = {
   default_video_model?: ModelDescriptor;
   default_audio_model?: ModelDescriptor;
   model_labels?: Record<string, string>;
+  /** [画布别名] 真实模型 ID → 成员侧显示名，只用于成员界面。 */
+  model_nicknames?: Record<string, string>;
   model_provider_names?: Record<string, string>;
   video_model_protocols?: Record<string, "seedance" | "openai">;
   video_model_durations?: Record<string, number[]>;
@@ -24,6 +26,8 @@ export type CapabilityModelCatalog = {
   defaultModel: string;
   labels: Record<string, string>;
   providerNames: Record<string, string>;
+  /** [画布别名] */
+  nicknames?: Record<string, string>;
 };
 
 export type CapabilityModelCatalogOptions = {
@@ -44,4 +48,6 @@ export type ModelCatalog = {
   defaultAudioModel: string;
   modelLabels: Record<string, string>;
   modelProviderNames: Record<string, string>;
+  /** [画布别名] */
+  modelNicknames?: Record<string, string>;
 };

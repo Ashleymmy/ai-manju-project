@@ -35,6 +35,7 @@ import { MonitoringPanel } from "./MonitoringPanel";
 import { GenerationRecoveryPanel } from "./GenerationRecoveryPanel";
 import { OrdersPanel } from "./OrdersPanel";
 import { PlansConfigPanel } from "./PlansConfigPanel";
+import { CanvasNicknamesPanel } from "./CanvasNicknamesPanel"; // [画布别名]
 import { ModelPricesPanel } from "./ModelPricesPanel";
 import { ProvidersPanel } from "./ProvidersPanel";
 import { SeedanceAssetsPanel } from "./SeedanceAssetsPanel";
@@ -119,6 +120,7 @@ export default function AdminWorkspaceView() {
         queryClient.invalidateQueries({ queryKey: ["admin", "usage-report"] }),
         queryClient.invalidateQueries({ queryKey: ["admin", "cost-rates"] }),
         queryClient.invalidateQueries({ queryKey: ["admin", "model-prices"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin", "canvas-nicknames"] }), // [画布别名]
         queryClient.invalidateQueries({ queryKey: ["admin", "generation-recovery"] }),
         plansConfigController.reload(),
         dashboardController.reload(),
@@ -213,6 +215,8 @@ export default function AdminWorkspaceView() {
           {tab === "plans-config" ? (
             <PlansConfigPanel controller={plansConfigController} readOnly={readOnly} />
           ) : null}
+          {/* [画布别名] */}
+          {tab === "canvas-nicknames" ? <CanvasNicknamesPanel readOnly={readOnly} /> : null}
           {tab === "model-prices" ? <ModelPricesPanel readOnly={readOnly} /> : null}
           {tab === "invites" ? (
             <InvitesPanel controller={invitesController} />

@@ -33,6 +33,7 @@ type ModelProviderHandler struct {
 	gateSecret  string
 	sdVideo     *sdvideo.Client
 	modelFamily func(string) string
+	nicknames   func() map[string]string // [画布别名]
 }
 
 type modelProviderRequest struct {
@@ -836,7 +837,25 @@ func (h *ModelProviderHandler) AggregatedModels(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	response.OK(c, aggregateModelProviders(configs, h.modelFamily))
+	result := aggregateModelProviders(configs, h.modelFamily)
+	result["model_nicknames"] = h.canvasModelNicknames() // [画布别名]
+	response.OK(c, result)
+}
+
+// [画布别名] SetCanvasModelNicknameSource supplies the global real-model-ID nickname table
+// shown to members; model_labels stay untouched for administrators.
+func (h *ModelProviderHandler) SetCanvasModelNicknameSource(load func() map[string]string) {
+	h.nicknames = load
+}
+
+func (h *ModelProviderHandler) canvasModelNicknames() map[string]string {
+	if h.nicknames == nil {
+		return map[string]string{}
+	}
+	if nicknames := h.nicknames(); nicknames != nil {
+		return nicknames
+	}
+	return map[string]string{}
 }
 
 // AggregatedModelsWithSDVideo keeps the browser-facing model contract stable
@@ -853,6 +872,7 @@ func (h *ModelProviderHandler) AggregatedModelsWithSDVideo(c *gin.Context, clien
 		return
 	}
 	result := aggregateModelProviders(configs, h.modelFamily)
+	result["model_nicknames"] = h.canvasModelNicknames() // [画布别名]
 	if client == nil || !client.Enabled() {
 		response.OK(c, result)
 		return

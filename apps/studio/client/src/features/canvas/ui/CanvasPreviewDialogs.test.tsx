@@ -62,6 +62,22 @@ describe("canvas image preview resolution", () => {
     expect(labels.indexOf("分辨率")).toBe(labels.indexOf("文件大小") - 1);
   });
 
+  // [画布别名]
+  it("keeps the standard model name and shows the canvas nickname as a tag", async () => {
+    await act(async () => root.render(<CanvasImagePreviewDialog
+      node={node} source="/image-a.png" siblings={[node]} selectedNodeId={node.id}
+      previews={{}} modelLabel="gpt-image-2" modelNickname="image2" creatorLabel="测试用户"
+      onSelectNode={vi.fn()} onSetBatchPrimary={vi.fn()} onDetachBatchChild={vi.fn()}
+      onDownload={vi.fn()} onClose={vi.fn()}
+    />));
+    const model = Array.from(document.querySelectorAll(".preview-detail-rows > div"))
+      .find(row => row.querySelector("span")?.textContent === "模型")!.querySelector("b")!;
+    expect(model.firstChild?.textContent).toBe("gpt-image-2");
+    expect(model.querySelector(".canvas-model-nickname")?.textContent).toBe("image2");
+    await render();
+    expect(document.querySelector(".canvas-model-nickname")).toBeNull();
+  });
+
   it("keeps requested pixels separate from a provider's actual lower resolution", async () => {
     await render({ ...node, metadata: { ...node.metadata, requestedImageSize: "3840x2160" } });
     await load(image(), 1024, 1024);

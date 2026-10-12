@@ -11,12 +11,14 @@ import {
   Settings2,
   Coins,
   ShoppingCart,
+  Tags,
   Users,
 } from "lucide-react";
 
 export type AdminTab =
   | "users"
   | "providers"
+  | "canvas-nicknames" // [画布别名]
   | "announcements"
   | "monitoring"
   | "seedance"
@@ -34,6 +36,7 @@ export type AdminTab =
 export const adminTabPaths: Record<AdminTab, string> = {
   users: "/admin/users",
   providers: "/admin/model-hub",
+  "canvas-nicknames": "/admin/canvas-nicknames", // [画布别名]
   announcements: "/admin/announcements",
   monitoring: "/admin",
   seedance: "/admin/seedance-assets",
@@ -52,6 +55,7 @@ export const adminTabPaths: Record<AdminTab, string> = {
 export const adminTabs = [
   ["users", "成员管理", Users],
   ["providers", "模型接入", ServerCog],
+  ["canvas-nicknames", "画布别名", Tags], // [画布别名]
   ["announcements", "系统公告", Bell],
   ["monitoring", "运行监控", Activity],
   ["seedance", "Seedance 素材", Database],
@@ -69,6 +73,7 @@ export const adminTabs = [
 export function adminTabFromLocation(pathname: string, hash: string): AdminTab {
   if (pathname === "/admin/users") return "users";
   if (pathname === "/admin/model-provider" || pathname === "/admin/model-hub") return "providers";
+  if (pathname === "/admin/canvas-nicknames") return "canvas-nicknames"; // [画布别名]
   if (pathname === "/admin/announcements") return "announcements";
   if (pathname === "/admin/seedance-assets") return "seedance";
   /* ---- WP-M7 会员系统后台 8 模块 ---- */

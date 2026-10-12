@@ -71,6 +71,7 @@ const legacyRoutes = legacyStudioRoutePaths.map((path, index) =>
 const adminRoutes = [
   "/admin/users",
   "/admin/model-provider",
+  "/admin/canvas-nicknames", // [画布别名]
   "/admin/announcements",
   "/admin/seedance-assets",
   // WP-M7 会员系统后台 8 模块（features/admin/model/routes.ts 同步维护）

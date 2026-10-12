@@ -69,6 +69,23 @@ it("explains unloadable history media, blocks applying it and lets the user relo
   expect(onApply).toHaveBeenCalledWith("ok");
 });
 
+// [画布别名]
+it("keeps the standard model name in history and shows the canvas nickname as a tag", async () => {
+  const generated = { ...item("a", "data:image/png;base64,AA==", "2026-09-20T12:00:00Z"), model: "p::gpt-image-2" };
+  await act(async () => root.render(<CanvasGenerationHistoryDialog open items={[generated]}
+    formatModel={() => "gpt-image-2"} formatModelNickname={() => "image2"}
+    onOpenChange={vi.fn()} onApply={vi.fn()} />));
+  const row = Array.from(document.querySelectorAll(".canvas-generation-history-detail dl > div"))
+    .find(div => div.querySelector("dt")?.textContent === "生成模型")!;
+  expect(row.querySelector("dd")?.firstChild?.textContent).toBe("gpt-image-2");
+  expect(row.querySelector(".canvas-model-nickname")?.textContent).toBe("image2");
+
+  await act(async () => root.render(<CanvasGenerationHistoryDialog open items={[generated]}
+    formatModel={() => "gpt-image-2"} formatModelNickname={() => ""}
+    onOpenChange={vi.fn()} onApply={vi.fn()} />));
+  expect(document.querySelector(".canvas-model-nickname")).toBeNull();
+});
+
 it("gives visible feedback when refreshing previews that were already fine", async () => {
   vi.useFakeTimers();
   try {

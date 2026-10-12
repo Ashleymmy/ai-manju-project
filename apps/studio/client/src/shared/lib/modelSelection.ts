@@ -24,7 +24,18 @@ export function pinnedTextModelLabel(model: string) {
 // SD-video selectors identify managed slots, not user-facing model names.
 const SDVIDEO_MODEL_PREFIX = "sdvideo/";
 
-export function modelDisplayName(model: string, labels: Record<string, string> = {}) {
+/**
+ * [画布别名] 按真实模型 ID 全局配置，只给成员侧模型选择与历史标签使用；
+ * modelDisplayName / modelOptions / videoModelOptions 的 nicknames 参数同属此功能。
+ * 路由、计费、后台记录与默认模型匹配仍用真实 ID 和管理员显示名。
+ */
+export function modelNickname(model: string, nicknames: Record<string, string> = {}) {
+  return nicknames[modelName(model)]?.trim() || "";
+}
+
+export function modelDisplayName(model: string, labels: Record<string, string> = {}, nicknames: Record<string, string> = {}) {
+  const nickname = modelNickname(model, nicknames);
+  if (nickname) return nickname;
   // Names are presentation only. Resolve them by the exact provider selector
   // so another account's alias cannot replace this model's saved name.
   const label = labels[model]?.trim();
@@ -45,14 +56,14 @@ export function visibleImageModels(models: string[]) {
 }
 
 /** Keep the saved selector for routing while showing each real model once. */
-export function modelOptions(models: string[], selected = "", labels: Record<string, string> = {}) {
+export function modelOptions(models: string[], selected = "", labels: Record<string, string> = {}, nicknames: Record<string, string> = {}) {
   const grouped = new Map<string, { value: string; label: string }>();
   for (const value of models) {
     const name = modelName(value);
     if (!name || HIDDEN_IMAGE_MODEL_NAMES.has(name)) continue;
     const selector = selected && modelName(selected) === name ? selected : value;
     if (!grouped.has(name) || value === selected) {
-      grouped.set(name, { value: selector, label: modelDisplayName(selector, labels) });
+      grouped.set(name, { value: selector, label: modelDisplayName(selector, labels, nicknames) });
     }
   }
   return [...grouped.values()];
@@ -64,6 +75,7 @@ export function videoModelOptions(
   selected = "",
   labels: Record<string, string> = {},
   providerNames: Record<string, string> = {},
+  nicknames: Record<string, string> = {},
 ) {
   const values = [...new Set(models.filter(value => modelName(value)))];
   // Preserve a saved route for context, but never let an absent/unauthorized
@@ -72,7 +84,7 @@ export function videoModelOptions(
   const counts = new Map<string, number>();
   for (const value of values) counts.set(modelName(value), (counts.get(modelName(value)) || 0) + 1);
   return values.map(value => {
-    const label = modelDisplayName(value, labels);
+    const label = modelDisplayName(value, labels, nicknames);
     const provider = providerNames[value]?.trim();
     const displayLabel = provider && (counts.get(modelName(value)) || 0) > 1 ? `${label} · ${provider}` : label;
     return models.includes(value)

@@ -19,6 +19,7 @@ export function ParamsBar({
   models,
   labels,
   providerNames,
+  nicknames,
   config,
   onChange,
   disabled,
@@ -27,6 +28,8 @@ export function ParamsBar({
   models: string[];
   labels: Record<string, string>;
   providerNames?: Record<string, string>;
+  /** [画布别名] */
+  nicknames?: Record<string, string>;
   config: VideoGenerationConfig;
   onChange: (config: VideoGenerationConfig) => void;
   disabled: boolean;
@@ -50,8 +53,8 @@ export function ParamsBar({
           onChange={(event) => patch({ model: event.target.value })}
         >
           {!models.length ? <option value="">未配置</option> : null}
-          {/* 展示模型名称，option value 保留完整调用标识。 */}
-          {videoModelOptions(models, normalized.model, labels, providerNames).map(({ value, label, disabled }) => <option key={value} value={value} disabled={disabled}>{label}</option>)}
+          {/* 展示模型名称，option value 保留完整调用标识。[画布别名] 有别名时显示别名。 */}
+          {videoModelOptions(models, normalized.model, labels, providerNames, nicknames).map(({ value, label, disabled }) => <option key={value} value={value} disabled={disabled}>{label}</option>)}
         </select>
       </div>
       <div className="wb-param-group">

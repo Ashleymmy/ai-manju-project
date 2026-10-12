@@ -97,6 +97,8 @@ export type CanvasImagePreviewDialogProps = {
   selectedNodeId: string;
   previews: Record<string, string>;
   modelLabel: string;
+  /** [画布别名] 保留标准名，别名只作为旁边的标签。 */
+  modelNickname?: string;
   createdAt?: string;
   creatorLabel: string;
   onSelectNode: (nodeId: string) => void;
@@ -117,6 +119,7 @@ export function CanvasImagePreviewDialog({
   selectedNodeId,
   previews,
   modelLabel,
+  modelNickname = "",
   createdAt,
   creatorLabel,
   onSelectNode,
@@ -218,7 +221,11 @@ export function CanvasImagePreviewDialog({
               <p className="preview-detail-prompt">{promptTextFromNode(node) || "—"}</p>
               <h4>信息</h4>
               <div className="preview-detail-rows">
-                <div><span>模型</span><b>{modelLabel}</b></div>
+                {/* [画布别名] */}
+                <div><span>模型</span><b className="preview-detail-model">
+                  {modelLabel}
+                  {modelNickname && modelNickname !== modelLabel ? <span className="canvas-model-nickname" title="画布别名">{modelNickname}</span> : null}
+                </b></div>
                 <div><span>质量</span><b>{stringValue(node.metadata?.quality) || "auto"}</b></div>
                 <div><span>宽高比</span><b>{stringValue(node.metadata?.size) || "auto"}</b></div>
                 {node.metadata?.requestedImageSize ? <div><span>请求尺寸</span><b>{stringValue(node.metadata.requestedImageSize).replace("x", " × ")} px</b></div> : null}

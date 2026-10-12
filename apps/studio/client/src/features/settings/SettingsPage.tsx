@@ -409,7 +409,8 @@ export function SettingsView() {
                 <label>
                   默认图像模型
                   <select value={imageModel} onChange={(event) => setImageModel(event.target.value)}>
-                    {modelOptions(aiCatalog?.imageModels || [], imageModel, aiCatalog?.modelLabels).map(({ value, label }) => (
+                    {/* [画布别名] */}
+                    {modelOptions(aiCatalog?.imageModels || [], imageModel, aiCatalog?.modelLabels, aiCatalog?.modelNicknames).map(({ value, label }) => (
                       <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
@@ -455,7 +456,8 @@ export function SettingsView() {
                   默认视频模型
                   <select value={videoModel} onChange={(event) => setVideoModel(event.target.value)}>
                     <option value="">未设置</option>
-                    {modelOptions(aiCatalog?.videoModels || [], videoModel, aiCatalog?.modelLabels).map(({ value, label }) => (
+                    {/* [画布别名] */}
+                    {modelOptions(aiCatalog?.videoModels || [], videoModel, aiCatalog?.modelLabels, aiCatalog?.modelNicknames).map(({ value, label }) => (
                       <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
@@ -489,7 +491,8 @@ export function SettingsView() {
                   默认音频模型
                   <select value={audioModel} onChange={(event) => setAudioModel(event.target.value)}>
                     <option value="">未设置</option>
-                    {modelOptions(aiCatalog?.audioModels || [], audioModel, aiCatalog?.modelLabels).map(({ value, label }) => (
+                    {/* [画布别名] */}
+                    {modelOptions(aiCatalog?.audioModels || [], audioModel, aiCatalog?.modelLabels, aiCatalog?.modelNicknames).map(({ value, label }) => (
                       <option key={value} value={value}>{label}</option>
                     ))}
                   </select>

@@ -315,6 +315,7 @@ var adminEditableConfigKeys = map[string]bool{
 	model.BillingConfigKeyActivity:         true,
 	model.BillingConfigKeyPricingRules:     true,
 	model.BillingConfigKeyGiftPacks:        true,
+	model.BillingConfigKeyCanvasNicknames:  true, // [画布别名]
 }
 
 // ModelPrices returns the effective catalog, including defaults before the first save.

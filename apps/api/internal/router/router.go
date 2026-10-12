@@ -161,6 +161,8 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	modelProviderHandler.SetBackgroundUserRepository(repos.userRepo)
 	memberHandler.SetModelProviderHandler(modelProviderHandler)
 	modelProviderHandler.SetVideoModelFamilyResolver(service.NewCreditPricer(repos.billingRepo).ResolveModelFamily)
+	// [画布别名]
+	modelProviderHandler.SetCanvasModelNicknameSource(func() map[string]string { return service.LoadCanvasModelNicknames(repos.billingRepo) })
 	comicAssetService := service.NewComicAssetService(repos.comicAssetRepo, jobService)
 	comicAssetService.SetSourceStorage(assetStore)
 	comicAssetService.SetReferenceServices(assetService, jobInputService)

@@ -33,6 +33,9 @@ func validateBillingConfig(key string, raw json.RawMessage) error {
 	case model.BillingConfigKeyModelPrices:
 		_, err := service.ParseModelCreditPrices(raw)
 		return err
+	case model.BillingConfigKeyCanvasNicknames: // [画布别名]
+		_, err := service.ParseCanvasModelNicknames(raw)
+		return err
 	case model.BillingConfigKeyRegisterBonus:
 		return integer(raw, 0, maxAdminTestCredits)
 	case model.BillingConfigKeyRegisterBonusTTL, model.BillingConfigKeyInviteRewardTTL:

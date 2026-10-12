@@ -64,7 +64,8 @@ function CreationBudgetForm({ available }: { available?: number }) {
         <span className="creation-budget-select">
           <select id={modelId} aria-label="图片模型" value={model} disabled={!catalog.data?.models.length || catalog.isError} onChange={event => { setModel(event.target.value); setQuality(""); }}>
             <option value="" disabled>{catalog.isPending ? "正在读取模型…" : "选择图片模型"}</option>
-            {modelOptions(catalog.data?.models || [], model, catalog.data?.labels).map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+            {/* [画布别名] */}
+            {modelOptions(catalog.data?.models || [], model, catalog.data?.labels, catalog.data?.nicknames).map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
           <ChevronDown size={14} aria-hidden="true" />
         </span>

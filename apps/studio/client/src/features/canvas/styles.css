@@ -1612,6 +1612,20 @@
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
 }
+/* [画布别名] 历史与预览中的别名标签 */
+.canvas-model-nickname {
+  flex: 0 1 auto;
+  overflow: hidden;
+  padding: 1px 6px;
+  border: 1px solid rgba(240, 160, 90, 0.35);
+  border-radius: 4px;
+  background: rgba(240, 160, 90, 0.12);
+  color: #f0b27a;
+  font-size: 10px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .canvas-generation-history-detail > label {
   display: flex;
   flex: 1 1 auto;
@@ -3039,6 +3053,14 @@ button.canvas-seedance-registration.is-error { color: #fca5a5; background: rgba(
 }
 .preview-detail-rows span { color: #a9a9a9; }
 .preview-detail-rows b { color: #d6d9d3; font-weight: 500; }
+/* [画布别名] */
+.preview-detail-rows b.preview-detail-model {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.preview-detail-rows .canvas-model-nickname { color: #f0b27a; font-weight: 400; }
 .preview-detail-actions {
   display: flex;
   gap: 8px;

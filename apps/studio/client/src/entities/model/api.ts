@@ -57,6 +57,7 @@ export async function fetchModelCatalog(): Promise<ModelCatalog> {
     defaultAudioModel: preferredModel(defaultAudioModel, audioModels),
     modelLabels,
     modelProviderNames: normalizeStringRecord(data.model_provider_names),
+    modelNicknames: normalizeStringRecord(data.model_nicknames), // [画布别名]
   };
 }
 
@@ -76,6 +77,7 @@ export async function fetchTextModelCatalog(
     defaultModel: preferredModel(defaultModel, models),
     labels: modelMetadata(data.model_labels, normalizeMetadata),
     providerNames: modelMetadata(data.model_provider_names, normalizeMetadata),
+    nicknames: normalizeStringRecord(data.model_nicknames), // [画布别名]
   };
 }
 
@@ -95,6 +97,7 @@ export async function fetchImageModelCatalog(
     defaultModel: pickDefaultImageModel(models, defaultModel),
     labels: modelMetadata(data.model_labels, normalizeMetadata),
     providerNames: modelMetadata(data.model_provider_names, normalizeMetadata),
+    nicknames: normalizeStringRecord(data.model_nicknames), // [画布别名]
   };
 }
 

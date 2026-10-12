@@ -32,6 +32,8 @@ export type CanvasGenerationHistoryDialogProps = {
   onRetry?: () => void;
   preferredNodeId?: string;
   formatModel?: (model: string, kind: CanvasGenerationHistoryKind) => string;
+  /** [画布别名] 历史保留标准名，别名只作为旁边的标签。 */
+  formatModelNickname?: (model: string, kind: CanvasGenerationHistoryKind) => string;
   onOpenChange: (open: boolean) => void;
   onApply: (nodeId: string) => void;
 };
@@ -179,6 +181,7 @@ export function CanvasGenerationHistoryDialog({
   onRetry,
   preferredNodeId = "",
   formatModel,
+  formatModelNickname,
   onOpenChange,
   onApply,
 }: CanvasGenerationHistoryDialogProps) {
@@ -272,6 +275,8 @@ export function CanvasGenerationHistoryDialog({
   const modelLabel = selected
     ? (formatModel?.(selected.model, selected.kind) || selected.model || "—")
     : "—";
+  // [画布别名]
+  const modelNickname = selected?.model ? formatModelNickname?.(selected.model, selected.kind) || "" : "";
   // Applying media that cannot load would only place a broken node on the canvas.
   const selectedUnavailable = !selected?.previewUrl || failedUrls.has(selected.previewUrl);
 
@@ -343,7 +348,12 @@ export function CanvasGenerationHistoryDialog({
                   </div>
                   <div>
                     <dt>生成模型</dt>
-                    <dd>{modelLabel}</dd>
+                    <dd>
+                      {modelLabel}
+                      {modelNickname && modelNickname !== modelLabel ? (
+                        <span className="canvas-model-nickname" title="画布别名">{modelNickname}</span>
+                      ) : null}
+                    </dd>
                   </div>
                   <div>
                     <dt>方式</dt>

@@ -1,7 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { modelDisplayName, modelName, modelOptions, pinnedTextModelLabel, resolveModel, videoModelOptions } from "./modelSelection";
+import { modelDisplayName, modelName, modelNickname, modelOptions, pinnedTextModelLabel, resolveModel, videoModelOptions } from "./modelSelection";
 
 describe("shared generation model selection", () => {
+  // [画布别名]
+  it("shows canvas nicknames by real model ID in member pickers without changing routing values", () => {
+    const nicknames = { "gpt-image-2": " image2 ", "sdvideo/seedance-2.0": "sd2.0" };
+    const labels = { "a::gpt-image-2": "GPT Image 2" };
+    expect(modelNickname("b::gpt-image-2", nicknames)).toBe("image2");
+    expect(modelNickname("gpt-image-2", nicknames)).toBe("image2");
+    expect(modelNickname("a::other", nicknames)).toBe("");
+    expect(modelDisplayName("a::gpt-image-2", labels)).toBe("GPT Image 2");
+    expect(modelDisplayName("a::gpt-image-2", labels, nicknames)).toBe("image2");
+    expect(modelOptions(["a::gpt-image-2", "a::other"], "", labels, nicknames)).toEqual([
+      { value: "a::gpt-image-2", label: "image2" }, { value: "a::other", label: "other" },
+    ]);
+    const names = { "a::gpt-image-2": "甲", "b::gpt-image-2": "乙" };
+    expect(videoModelOptions(["a::gpt-image-2", "b::gpt-image-2", "sdvideo/seedance-2.0"], "", {}, names, nicknames)).toEqual([
+      { value: "a::gpt-image-2", label: "image2 · 甲" },
+      { value: "b::gpt-image-2", label: "image2 · 乙" },
+      { value: "sdvideo/seedance-2.0", label: "sd2.0" },
+    ]);
+  });
   it("recognizes only the pinned text model, including a vendor-prefixed id", () => {
     expect(pinnedTextModelLabel("provider::deepseek-v4-flash")).toBe("deepseek-v4-flash");
     expect(pinnedTextModelLabel("provider::DeepSeek/DeepSeek-V4-Flash")).toBe("deepseek-v4-flash");

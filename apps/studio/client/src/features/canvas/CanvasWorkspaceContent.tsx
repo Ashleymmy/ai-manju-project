@@ -2,7 +2,7 @@ import { CanvasPricingContext, CanvasGenerationPrice } from "./ui/CanvasGenerati
 import { CreditBalance } from "@/features/member";
 import { registrationProviderId, savedSeedanceRegistration, seedanceRegistrationKey, seedanceRegistrationPhase, seedanceRegistrationSource } from "./services/seedanceRegistration";
 import { useCanvasSeedanceRegistration } from "./controllers/useCanvasSeedanceRegistration";
-import { pickDefaultImageModel, resolveModel } from "@/shared/lib/modelSelection";
+import { modelNickname, pickDefaultImageModel, resolveModel } from "@/shared/lib/modelSelection";
 import { canvasEmptyImageRequestDimensions, canvasImageGenerationSettings, canvasImageGenerationSettingsIssue } from "./domain/imageGenerationSettings";
 import { canvasImageGenerationError } from "./domain/imageGenerationError";
 import {
@@ -283,7 +283,7 @@ import {
   buildCanvasSnapshot,
   canvasAgentSnapshotFromCanvas,
 } from "@/features/canvas/domain/snapshotCodec";
-import { ensureUniqueCanvasNodeTitles, renameCanvasNode } from "@/features/canvas/domain/nodeTitles";
+import { ensureUniqueCanvasNodeTitles, isGeneratedCanvasNode, renameCanvasNode } from "@/features/canvas/domain/nodeTitles";
 import {
   assetIdFromNode,
   imageSrcFromNode,
@@ -594,6 +594,8 @@ export default function CanvasWorkspaceViewContent() {
   const [audioModel, setAudioModel] = useState("");
   const [textModelLabels, setTextModelLabels] = useState<Record<string, string>>({});
   const [modelProviderNames, setModelProviderNames] = useState<Record<string, string>>({});
+  // [画布别名] 选择器显示别名；历史与预览保留标准名，别名作标签。
+  const [modelNicknames, setModelNicknames] = useState<Record<string, string>>({});
   const [promptPresets, setPromptPresets] = useState<PromptPreset[]>([]);
   const [wheelZoomRequiresCtrl, setWheelZoomRequiresCtrl] = useState(true);
   const runningNodeIdValues = useCanvasStore((state) => state.generation.runningNodeIds);
@@ -912,6 +914,8 @@ export default function CanvasWorkspaceViewContent() {
   const originalMaskImage = useCanvasOriginalImage(imageMaskNode, projectSessionController.canonicalScope || "personal");
   const imageMaskPreview = originalMaskImage.source;
   const imagePreviewNode = imagePreviewNodeId ? nodeMap.get(imagePreviewNodeId) : undefined;
+  // 预览只展示真正生成该图的模型；导入的图片没有生成模型，不回退到当前选中的模型。
+  const imagePreviewModel = imagePreviewNode && isGeneratedCanvasNode(imagePreviewNode) ? stringValue(imagePreviewNode.metadata?.model) : "";
   const originalImagePreview = useCanvasOriginalImage(imagePreviewNode, projectSessionController.canonicalScope || "personal");
   /** 预览弹窗的兄弟图集合：批次根 → [根, ...子图]；子图 → 同组全部；独立节点 → 自身。 */
   const imagePreviewSiblings = useMemo(() => {
@@ -1378,10 +1382,12 @@ export default function CanvasWorkspaceViewContent() {
             defaultModel: aiModelsResult.value.defaultImageModel,
             labels: aiModelsResult.value.modelLabels,
             providerNames: aiModelsResult.value.modelProviderNames,
+            nicknames: aiModelsResult.value.modelNicknames, // [画布别名]
           } : null;
         if (imageCatalog) {
           const catalog = imageCatalog;
           setModelCatalog(catalog);
+          setModelNicknames(catalog.nicknames || {}); // [画布别名]
           setImageModel((current) => resolveModel(catalog.models, current)
             || pickDefaultImageModel(catalog.models, resolveModel(catalog.models, preferredModel) || catalog.defaultModel));
         } else {
@@ -1393,6 +1399,7 @@ export default function CanvasWorkspaceViewContent() {
           setAudioModels(catalog.audioModels);
           setTextModelLabels(catalog.modelLabels);
           setModelProviderNames(catalog.modelProviderNames);
+          setModelNicknames(catalog.modelNicknames || {}); // [画布别名]
           setTextModel(catalog.defaultTextModel);
           setVideoModel((current) => resolveModel(catalog.videoModels, current)
             || pickDefaultCanvasVideoModel(catalog.videoModels, catalog.modelLabels, catalog.modelProviderNames,
@@ -4538,7 +4545,8 @@ export default function CanvasWorkspaceViewContent() {
             <select aria-label="目标视频模型" className="h-10 rounded-md border border-input bg-background px-3"
               value={registrationTarget?.model || ""} onChange={(event) => { setRegistrationTarget((current) => current ? { ...current, model: event.target.value } : null); }}>
               {!videoModels.some(isSeedanceVideoModel) && <option value="">暂无支持素材注册的视频模型</option>}
-              {videoModels.filter(isSeedanceVideoModel).map((model) => <option key={model} value={model}>{canvasModelName(model, textModelLabels)}{model.startsWith("sdvideo/") ? " · SD-video" : " · 独立 Provider"}</option>)}
+              {/* [画布别名] */}
+              {videoModels.filter(isSeedanceVideoModel).map((model) => <option key={model} value={model}>{canvasModelName(model, textModelLabels, modelNicknames)}{model.startsWith("sdvideo/") ? " · SD-video" : " · 独立 Provider"}</option>)}
             </select>
           </label>
           <DialogFooter>
@@ -4872,14 +4880,15 @@ export default function CanvasWorkspaceViewContent() {
           storyboardBusy={storyboardBusy}
           selectedGenerationMode={selectedGenerationMode}
           selectedGenerationModel={selectedGenerationModel}
-          selectedGenerationModelLabel={canvasModelName(selectedGenerationModel, textModelLabels) || "选择模型"}
+          // [画布别名] 模型选择显示别名
+          selectedGenerationModelLabel={canvasModelName(selectedGenerationModel, textModelLabels, modelNicknames) || "选择模型"}
           generationModelOptions={selectedGenerationMode === "text"
             ? []
             : selectedGenerationMode === "image"
-              ? canvasGenerationModelOptions(modelCatalog?.models || [], selectedGenerationModel, modelCatalog?.labels)
+              ? canvasGenerationModelOptions(modelCatalog?.models || [], selectedGenerationModel, modelCatalog?.labels, modelNicknames)
               : selectedGenerationMode === "video"
-                ? canvasVideoModelOptions(videoModels, selectedGenerationModel, textModelLabels, modelProviderNames)
-                : canvasGenerationModelOptions(audioModels, selectedGenerationModel, textModelLabels)}
+                ? canvasVideoModelOptions(videoModels, selectedGenerationModel, textModelLabels, modelProviderNames, modelNicknames)
+                : canvasGenerationModelOptions(audioModels, selectedGenerationModel, textModelLabels, modelNicknames)}
           selectedVideoConfig={selectedVideoConfig || null}
           selectedVideoSeedance={selectedVideoSeedance}
           selectedVideoDurations={selectedVideoConfig
@@ -5035,7 +5044,9 @@ export default function CanvasWorkspaceViewContent() {
           loading: originalImagePreview.loading, error: originalImagePreview.error,
           originalBytes: originalImagePreview.bytes, onRetry: originalImagePreview.retry,
           selectedNodeId: imagePreviewNodeId, previews,
-          modelLabel: imagePreviewNode ? imageModelLabel(modelFromNode(imagePreviewNode, imageModel), modelCatalog || undefined) : "—",
+          modelLabel: imagePreviewModel ? imageModelLabel(imagePreviewModel, modelCatalog || undefined) : "—",
+          // [画布别名]
+          modelNickname: imagePreviewModel ? modelNickname(imagePreviewModel, modelNicknames) : "",
           createdAt: previewAssetMeta.createdAt,
           creatorLabel: user?.display_name || user?.username || "—",
           onSelectNode: setImagePreviewNodeId,
@@ -5073,6 +5084,7 @@ export default function CanvasWorkspaceViewContent() {
             if (kind === "image") return imageModelLabel(model, modelCatalog || undefined);
             return canvasHistoryModelName(model, textModelLabels);
           },
+          formatModelNickname: (model) => modelNickname(model, modelNicknames), // [画布别名]
           onOpenChange: setGenerationHistoryOpen,
           onApply: applyGenerationHistoryItem,
         }}
