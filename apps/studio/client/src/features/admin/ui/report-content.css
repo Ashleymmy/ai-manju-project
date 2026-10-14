@@ -35,8 +35,20 @@
   border-radius: 5px;
   background: var(--card);
   color: var(--foreground);
-  font: inherit;
+  /* Label line-height is 1.55. Inheriting it into a 36px control clips
+     glyphs, and light color-scheme paints native date text nearly black. */
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: inherit;
+  line-height: normal;
+  color-scheme: dark;
   box-shadow: none;
+}
+.admin-report-filters input:is([type="date"], [type="datetime-local"]) {
+  /* The calendar glyph is 22px and otherwise covers the end of the value.
+     Native datetime text also needs a little more than 36px or the digits clip. */
+  height: 40px;
+  padding-right: 30px;
 }
 .admin-report-content .admin-report-button {
   display: inline-flex;
@@ -78,9 +90,10 @@
   grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.5fr) auto;
   margin-top: 8px;
 }
-/* Usage: scope (time range, member, status) on the first row; IDs, model and actions on the second. */
+/* Usage: the time range takes a full row so both datetime values stay visible.
+   Remaining fields wrap at 220px instead of being crushed into five columns. */
 .admin-report-content .admin-report-filters--usage {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
 }
 .usage-filter-range,
 .usage-filter-field {
@@ -92,15 +105,17 @@
   line-height: 1.5;
 }
 .admin-report-filters .usage-filter-range {
-  grid-column: span 2;
+  grid-column: 1 / -1;
 }
 .usage-filter-range > div {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .usage-filter-range > div > input {
-  flex: 1 1 0;
+  flex: 1 1 12.5rem;
+  min-width: min(100%, 12.5rem);
 }
 .usage-filter-range i {
   flex: none;
@@ -127,6 +142,7 @@
   background: var(--card);
   color: var(--foreground);
   font: inherit;
+  line-height: normal;
   text-align: left;
   cursor: pointer;
 }
@@ -555,11 +571,7 @@
   overflow-wrap: anywhere;
 }
 @media (max-width: 1280px) {
-  .admin-report-content .admin-report-filters--usage {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
   .admin-report-filters--usage .admin-report-filter-actions {
-    grid-column: span 3;
     justify-content: flex-end;
   }
   .admin-report-filters--usage .admin-report-filter-actions > button {
@@ -586,11 +598,10 @@
   .admin-report-content .admin-report-filters {
     grid-template-columns: minmax(0, 1fr);
   }
-  .admin-report-filters .admin-report-wide,
-  .admin-report-filters .usage-filter-range {
+  .admin-report-filters .admin-report-wide {
     grid-column: auto;
   }
-  .usage-filter-range > div {
-    flex-wrap: wrap;
+  .admin-report-filters .usage-filter-range {
+    grid-column: 1 / -1;
   }
 }

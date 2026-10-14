@@ -1,5 +1,9 @@
 import { CANVAS_CLONE_EXECUTION_IDENTITY_KEYS } from "./clipboard";
-import { assetIdFromNode, imageSrcFromNode, looksLikeImageSource } from "./nodes";
+import {
+  assetIdFromNode,
+  imageSrcFromNode,
+  looksLikeImageSource,
+} from "./nodes";
 import { promptTextFromNode } from "./nodeUtils";
 import type { CanvasNodeData, CanvasNodeGenerationRevision } from "./types";
 import { numberValue, stringValue } from "./value";
@@ -16,6 +20,8 @@ export type CanvasGenerationHistoryItem = {
   previewUrl: string;
   assetId: string;
   seed: string;
+  /** Studio job id shown in the admin console. Empty when the record cannot be linked. */
+  jobId: string;
   size: string;
   seconds: string;
   typeLabel: string;
@@ -31,9 +37,18 @@ export type CanvasGenerationHistoryGroup = {
 export type CanvasGenerationHistoryAsset = {
   id: string;
   created_at?: string;
+  source_job_id?: string;
 };
 
-const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"] as const;
+const WEEKDAYS = [
+  "周日",
+  "周一",
+  "周二",
+  "周三",
+  "周四",
+  "周五",
+  "周六",
+] as const;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function pad2(value: number) {
@@ -41,7 +56,11 @@ function pad2(value: number) {
 }
 
 function startOfLocalDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate()
+  ).getTime();
 }
 
 export function formatCanvasGenerationClock(iso: string) {
@@ -71,23 +90,35 @@ export function canvasGenerationHistoryDayLabel(iso: string, now = new Date()) {
   const stamp = Date.parse(iso);
   if (!Number.isFinite(stamp)) return "未标注时间";
   const date = new Date(stamp);
-  const diffDays = Math.round((startOfLocalDay(now) - startOfLocalDay(date)) / MS_PER_DAY);
+  const diffDays = Math.round(
+    (startOfLocalDay(now) - startOfLocalDay(date)) / MS_PER_DAY
+  );
   if (diffDays === 0) return "今天";
   if (diffDays === 1) return "昨天";
   return `${date.getMonth() + 1}月${date.getDate()}日 ${WEEKDAYS[date.getDay()]}`;
 }
 
-export function canvasGenerationHistoryMonthLabel(year: number, monthIndex: number) {
+export function canvasGenerationHistoryMonthLabel(
+  year: number,
+  monthIndex: number
+) {
   return `${year}年${monthIndex + 1}月`;
 }
 
-export function canvasGenerationHistoryMonthFromIso(iso: string, fallback = new Date()) {
+export function canvasGenerationHistoryMonthFromIso(
+  iso: string,
+  fallback = new Date()
+) {
   const stamp = Date.parse(iso);
   const date = Number.isFinite(stamp) ? new Date(stamp) : fallback;
   return { year: date.getFullYear(), monthIndex: date.getMonth() };
 }
 
-export function shiftCanvasGenerationHistoryMonth(year: number, monthIndex: number, delta: number) {
+export function shiftCanvasGenerationHistoryMonth(
+  year: number,
+  monthIndex: number,
+  delta: number
+) {
   const date = new Date(year, monthIndex + delta, 1);
   return { year: date.getFullYear(), monthIndex: date.getMonth() };
 }
@@ -103,7 +134,7 @@ export type CanvasGenerationHistoryMonthCell = {
 export function buildCanvasGenerationHistoryMonth(
   items: readonly CanvasGenerationHistoryItem[],
   year: number,
-  monthIndex: number,
+  monthIndex: number
 ): CanvasGenerationHistoryMonthCell[][] {
   const byDay = new Map<string, CanvasGenerationHistoryItem[]>();
   for (const item of items) {
@@ -124,13 +155,14 @@ export function buildCanvasGenerationHistoryMonth(
       row.push({
         key: `${isoDate}-${week}-${weekday}`,
         day: cursor.getDate(),
-        inMonth: cursor.getFullYear() === year && cursor.getMonth() === monthIndex,
+        inMonth:
+          cursor.getFullYear() === year && cursor.getMonth() === monthIndex,
         isoDate,
         items: byDay.get(isoDate) || [],
       });
       cursor.setDate(cursor.getDate() + 1);
     }
-    const allOutside = row.every((cell) => !cell.inMonth);
+    const allOutside = row.every(cell => !cell.inMonth);
     if (allOutside && week > 0) break;
     weeks.push(row);
   }
@@ -146,7 +178,10 @@ function historySizeLabel(node: CanvasNodeData) {
   return "";
 }
 
-function historyModeLabel(node: CanvasNodeData, kind: CanvasGenerationHistoryKind) {
+function historyModeLabel(
+  node: CanvasNodeData,
+  kind: CanvasGenerationHistoryKind
+) {
   if (kind === "video") {
     const sub = stringValue(node.metadata?.videoSubMode);
     if (sub === "image" || sub === "firstlast") return "图生视频";
@@ -160,17 +195,34 @@ function historyModeLabel(node: CanvasNodeData, kind: CanvasGenerationHistoryKin
 
 function historySeed(node: CanvasNodeData) {
   const seed = node.metadata?.seed;
-  if (typeof seed === "number" && Number.isFinite(seed)) return String(Math.trunc(seed));
+  if (typeof seed === "number" && Number.isFinite(seed))
+    return String(Math.trunc(seed));
   const text = stringValue(seed);
   if (text) return text;
   return node.id;
+}
+
+export function preferredStudioJobId(...candidates: unknown[]) {
+  const values = candidates.map(value => stringValue(value)).filter(Boolean);
+  return values.find(value => value.startsWith("job_")) || values[0] || "";
+}
+
+function historyJobId(
+  stored: unknown,
+  assetId: string,
+  jobIds: ReadonlyMap<string, string>
+) {
+  return preferredStudioJobId(stored, assetId ? jobIds.get(assetId) : "");
 }
 
 /** Keep a bounded stack of overwritten generations so history can still show them. */
 const MAX_GENERATION_REVISIONS = 40;
 const HISTORY_REVISION_SEP = "::rev::";
 
-export function canvasGenerationHistoryItemId(nodeId: string, revisionId?: string) {
+export function canvasGenerationHistoryItemId(
+  nodeId: string,
+  revisionId?: string
+) {
   return revisionId ? `${nodeId}${HISTORY_REVISION_SEP}${revisionId}` : nodeId;
 }
 
@@ -185,9 +237,10 @@ export function parseCanvasGenerationHistoryItemId(id: string) {
 
 export function snapshotCanvasGenerationRevision(
   node: CanvasNodeData,
-  revisionId: string,
+  revisionId: string
 ): CanvasNodeGenerationRevision | null {
-  const kind = node.kind === "video" ? "video" : node.kind === "image" ? "image" : null;
+  const kind =
+    node.kind === "video" ? "video" : node.kind === "image" ? "image" : null;
   if (!kind) return null;
   const assetId = assetIdFromNode(node);
   const imageSrc = looksLikeStoredImageSrc(node);
@@ -202,10 +255,15 @@ export function snapshotCanvasGenerationRevision(
     assetId,
     imageSrc: assetId ? undefined : imageSrc,
     seed: historySeed(node),
+    generationJobId:
+      stringValue(node.metadata?.generationJobId) ||
+      stringValue(node.metadata?.jobId) ||
+      undefined,
     size: historySizeLabel(node),
     imageResolution: stringValue(node.metadata?.imageResolution) || undefined,
     quality: stringValue(node.metadata?.quality) || undefined,
-    requestedImageSize: stringValue(node.metadata?.requestedImageSize) || undefined,
+    requestedImageSize:
+      stringValue(node.metadata?.requestedImageSize) || undefined,
     seconds: stringValue(node.metadata?.seconds),
     width: node.width,
     height: node.height,
@@ -232,25 +290,40 @@ function revisionImageSrc(revision: CanvasNodeGenerationRevision) {
 
 export function appendCanvasGenerationRevision(
   node: CanvasNodeData,
-  revisionId: string,
+  revisionId: string
 ): CanvasNodeGenerationRevision[] {
   const existing = Array.isArray(node.metadata?.generationRevisions)
-    ? node.metadata.generationRevisions.filter((item): item is CanvasNodeGenerationRevision => Boolean(item?.id))
+    ? node.metadata.generationRevisions.filter(
+        (item): item is CanvasNodeGenerationRevision => Boolean(item?.id)
+      )
     : [];
   const snapshot = snapshotCanvasGenerationRevision(node, revisionId);
   if (!snapshot) return existing;
-  const duplicate = existing.some((item) => (
-    (snapshot.assetId && item.assetId === snapshot.assetId)
-    || (!snapshot.assetId && snapshot.imageSrc && item.imageSrc === snapshot.imageSrc)
-  ));
+  const duplicate = existing.some(
+    item =>
+      (snapshot.assetId && item.assetId === snapshot.assetId) ||
+      (!snapshot.assetId &&
+        snapshot.imageSrc &&
+        item.imageSrc === snapshot.imageSrc)
+  );
   if (duplicate) return existing;
   return [snapshot, ...existing].slice(0, MAX_GENERATION_REVISIONS);
 }
 
-export function collectCanvasPreviewAssetRefs(nodes: readonly CanvasNodeData[]) {
-  const refs: Array<{ id: string; kind: "image" | "video" | "audio"; scope?: "personal" | "team" }> = [];
+export function collectCanvasPreviewAssetRefs(
+  nodes: readonly CanvasNodeData[]
+) {
+  const refs: Array<{
+    id: string;
+    kind: "image" | "video" | "audio";
+    scope?: "personal" | "team";
+  }> = [];
   const seen = new Set<string>();
-  const push = (id: string, kind: "image" | "video" | "audio", scope?: "personal" | "team") => {
+  const push = (
+    id: string,
+    kind: "image" | "video" | "audio",
+    scope?: "personal" | "team"
+  ) => {
     const key = `${scope || ""}:${kind}:${id}`;
     if (!id || seen.has(key)) return;
     seen.add(key);
@@ -261,14 +334,22 @@ export function collectCanvasPreviewAssetRefs(nodes: readonly CanvasNodeData[]) 
     if (id) {
       push(
         id,
-        node.kind === "video" ? "video" : node.kind === "audio" ? "audio" : "image",
-        node.metadata?.assetScope,
+        node.kind === "video"
+          ? "video"
+          : node.kind === "audio"
+            ? "audio"
+            : "image",
+        node.metadata?.assetScope
       );
     }
     for (const revision of node.metadata?.generationRevisions || []) {
       const revId = stringValue(revision.assetId);
       if (!revId) continue;
-      push(revId, revision.kind === "video" ? "video" : "image", revision.assetScope || node.metadata?.assetScope);
+      push(
+        revId,
+        revision.kind === "video" ? "video" : "image",
+        revision.assetScope || node.metadata?.assetScope
+      );
     }
   }
   return refs;
@@ -277,17 +358,30 @@ export function collectCanvasPreviewAssetRefs(nodes: readonly CanvasNodeData[]) 
 export function collectCanvasGenerationHistory(
   nodes: readonly CanvasNodeData[],
   previews: Record<string, string> = {},
-  assets: readonly CanvasGenerationHistoryAsset[] = [],
+  assets: readonly CanvasGenerationHistoryAsset[] = []
 ): CanvasGenerationHistoryItem[] {
-  const createdAtByAsset = new Map(assets.map(asset => [asset.id, stringValue(asset.created_at)]));
+  const createdAtByAsset = new Map<string, string>();
+  const jobIdByAsset = new Map<string, string>();
+  for (const asset of assets) {
+    if (!asset.id) continue;
+    const createdAt = stringValue(asset.created_at);
+    if (createdAt && !createdAtByAsset.has(asset.id))
+      createdAtByAsset.set(asset.id, createdAt);
+    const sourceJobId = stringValue(asset.source_job_id);
+    if (sourceJobId) jobIdByAsset.set(asset.id, sourceJobId);
+  }
   const items: CanvasGenerationHistoryItem[] = [];
   for (const node of nodes) {
-    const kind = node.kind === "video" ? "video" : node.kind === "image" ? "image" : null;
+    const kind =
+      node.kind === "video" ? "video" : node.kind === "image" ? "image" : null;
     if (!kind) continue;
     if (node.metadata?.appliedFromHistory) continue;
     const currentAssetId = assetIdFromNode(node);
     const currentPreview = imageSrcFromNode(node, previews);
-    const includeCurrent = node.metadata?.status !== "loading" && node.metadata?.status !== "error" && Boolean(currentAssetId || currentPreview);
+    const includeCurrent =
+      node.metadata?.status !== "loading" &&
+      node.metadata?.status !== "error" &&
+      Boolean(currentAssetId || currentPreview);
     if (includeCurrent) {
       items.push({
         nodeId: node.id,
@@ -295,42 +389,60 @@ export function collectCanvasGenerationHistory(
         title: node.title || (kind === "video" ? "生成视频" : "生成图片"),
         prompt: promptTextFromNode(node),
         model: stringValue(node.metadata?.model),
-        generatedAt: stringValue(node.metadata?.generatedAt)
-          || (currentAssetId ? createdAtByAsset.get(currentAssetId) || "" : ""),
+        generatedAt:
+          stringValue(node.metadata?.generatedAt) ||
+          (currentAssetId ? createdAtByAsset.get(currentAssetId) || "" : ""),
         previewUrl: currentPreview,
         assetId: currentAssetId,
         seed: historySeed(node),
+        jobId: historyJobId(
+          node.metadata?.generationJobId,
+          currentAssetId,
+          jobIdByAsset
+        ),
         size: historySizeLabel(node),
         seconds: stringValue(node.metadata?.seconds),
         typeLabel: kind === "video" ? "视频生成" : "图片生成",
         modeLabel: historyModeLabel(node, kind),
       });
     }
-    const revisions = Array.isArray(node.metadata?.generationRevisions) ? node.metadata.generationRevisions : [];
+    const revisions = Array.isArray(node.metadata?.generationRevisions)
+      ? node.metadata.generationRevisions
+      : [];
     for (const revision of revisions) {
       if (!revision?.id) continue;
       const assetId = stringValue(revision.assetId);
-      const previewUrl = (assetId && previews[assetId]) || revisionImageSrc(revision);
+      const previewUrl =
+        (assetId && previews[assetId]) || revisionImageSrc(revision);
       if (!assetId && !previewUrl) continue;
       if (includeCurrent && assetId && assetId === currentAssetId) continue;
       const revisionKind = revision.kind === "video" ? "video" : "image";
       items.push({
         nodeId: canvasGenerationHistoryItemId(node.id, revision.id),
         kind: revisionKind,
-        title: stringValue(revision.title) || (revisionKind === "video" ? "生成视频" : "生成图片"),
+        title:
+          stringValue(revision.title) ||
+          (revisionKind === "video" ? "生成视频" : "生成图片"),
         prompt: stringValue(revision.prompt),
         model: stringValue(revision.model),
-        generatedAt: stringValue(revision.generatedAt)
-          || (assetId ? createdAtByAsset.get(assetId) || "" : ""),
+        generatedAt:
+          stringValue(revision.generatedAt) ||
+          (assetId ? createdAtByAsset.get(assetId) || "" : ""),
         previewUrl,
         assetId,
-        seed: typeof revision.seed === "number" && Number.isFinite(revision.seed)
-          ? String(Math.trunc(revision.seed))
-          : (stringValue(revision.seed) || revision.id),
+        seed:
+          typeof revision.seed === "number" && Number.isFinite(revision.seed)
+            ? String(Math.trunc(revision.seed))
+            : stringValue(revision.seed) || revision.id,
+        jobId: historyJobId(revision.generationJobId, assetId, jobIdByAsset),
         size: stringValue(revision.size),
         seconds: stringValue(revision.seconds),
-        typeLabel: stringValue(revision.typeLabel) || (revisionKind === "video" ? "视频生成" : "图片生成"),
-        modeLabel: stringValue(revision.modeLabel) || (revisionKind === "video" ? "文生视频" : "文生图"),
+        typeLabel:
+          stringValue(revision.typeLabel) ||
+          (revisionKind === "video" ? "视频生成" : "图片生成"),
+        modeLabel:
+          stringValue(revision.modeLabel) ||
+          (revisionKind === "video" ? "文生视频" : "文生图"),
       });
     }
   }
@@ -363,7 +475,7 @@ const HISTORY_CLONE_STRIP_KEYS = [
 /** 把历史记录对应的节点复制成画布上的独立图片 / 视频，不带批次关系和入边。 */
 export function cloneCanvasNodeFromGenerationHistory(
   source: CanvasNodeData,
-  options: { id: string; x: number; y: number },
+  options: { id: string; x: number; y: number }
 ): CanvasNodeData {
   const metadata = { ...(source.metadata || {}) };
   for (const key of HISTORY_CLONE_STRIP_KEYS) delete metadata[key];
@@ -380,7 +492,7 @@ export function cloneCanvasNodeFromGenerationHistory(
 export function cloneCanvasNodeFromGenerationRevision(
   host: CanvasNodeData,
   revision: CanvasNodeGenerationRevision,
-  options: { id: string; x: number; y: number },
+  options: { id: string; x: number; y: number }
 ): CanvasNodeData {
   const kind = revision.kind === "video" ? "video" : "image";
   const metadata = { ...(host.metadata || {}) };
@@ -394,7 +506,8 @@ export function cloneCanvasNodeFromGenerationRevision(
   metadata.composerContent = prompt;
   metadata.content = prompt;
   metadata.model = stringValue(revision.model) || metadata.model;
-  metadata.generatedAt = stringValue(revision.generatedAt) || metadata.generatedAt;
+  metadata.generatedAt =
+    stringValue(revision.generatedAt) || metadata.generatedAt;
   metadata.seed = stringValue(revision.seed) || revision.seed || metadata.seed;
   metadata.size = stringValue(revision.size) || metadata.size;
   metadata.imageResolution = revision.imageResolution;
@@ -403,8 +516,10 @@ export function cloneCanvasNodeFromGenerationRevision(
   metadata.seconds = stringValue(revision.seconds) || metadata.seconds;
   metadata.mimeType = stringValue(revision.mimeType) || metadata.mimeType;
   metadata.bytes = numberValue(revision.bytes) ?? metadata.bytes;
-  metadata.naturalWidth = numberValue(revision.naturalWidth) ?? metadata.naturalWidth;
-  metadata.naturalHeight = numberValue(revision.naturalHeight) ?? metadata.naturalHeight;
+  metadata.naturalWidth =
+    numberValue(revision.naturalWidth) ?? metadata.naturalWidth;
+  metadata.naturalHeight =
+    numberValue(revision.naturalHeight) ?? metadata.naturalHeight;
   metadata.status = "success";
   metadata.errorDetails = undefined;
   return {
@@ -426,7 +541,7 @@ export function cloneCanvasNodeFromGenerationRevision(
 export function groupCanvasGenerationHistory(
   items: readonly CanvasGenerationHistoryItem[],
   kind: CanvasGenerationHistoryKind,
-  now = new Date(),
+  now = new Date()
 ): CanvasGenerationHistoryGroup[] {
   const filtered = items.filter(item => item.kind === kind);
   const groups: CanvasGenerationHistoryGroup[] = [];

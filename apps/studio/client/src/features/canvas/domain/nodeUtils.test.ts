@@ -15,6 +15,9 @@ import {
   fitCanvasVideoNodeSize,
   shapeEmptyCanvasImageFrame,
   imageResolutionFromNode,
+  preferredCanvasImageCount,
+  preferredCanvasImageSize,
+  preferredCanvasVideoSize,
   isCanvasImageResolutionAvailable,
   isAbortError,
   modelFromNode,
@@ -323,6 +326,18 @@ describe("canvas node utilities", () => {
     expect(fitted.width / fitted.height).toBeCloseTo(width / height, 8);
     expect(fitted.width).toBeLessThanOrEqual(320);
     expect(fitted.height).toBeLessThanOrEqual(560);
+  });
+
+  it("maps preference size and count onto canvas-supported values", () => {
+    expect(preferredCanvasImageSize("")).toBe("4:3");
+    expect(preferredCanvasImageSize("auto")).toBe("4:3");
+    expect(preferredCanvasImageSize("1:1")).toBe("4:3");
+    expect(preferredCanvasImageSize("16:9")).toBe("16:9");
+    expect(preferredCanvasVideoSize("")).toBe("16:9");
+    expect(preferredCanvasVideoSize("9:16")).toBe("9:16");
+    expect(preferredCanvasImageCount(3, 1)).toBe(1);
+    expect(preferredCanvasImageCount(4, 1)).toBe(4);
+    expect(preferredCanvasImageCount("5", 2)).toBe(2);
   });
 
   it("defaults canvas image params to 1K, 4:3, and low quality", () => {

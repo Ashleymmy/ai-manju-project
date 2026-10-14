@@ -30,6 +30,16 @@ import {
 import type { ModelCatalog } from "@/entities/model";
 import type { PromptPreset } from "@/entities/prompt";
 import { publicApiError } from "@/shared/api/errors";
+import { IMAGE_GENERATION_COUNTS } from "@/shared/config/generation";
+import {
+  CANVAS_IMAGE_DEFAULT_SIZE,
+  CANVAS_IMAGE_SIZE_OPTIONS,
+  CANVAS_VIDEO_DEFAULT_RATIO,
+  CANVAS_VIDEO_SIZE_OPTIONS,
+  preferredCanvasImageCount,
+  preferredCanvasImageSize,
+  preferredCanvasVideoSize,
+} from "@/features/canvas/domain/nodeUtils";
 
 import { updatePreferences } from "./api";
 import {
@@ -123,6 +133,17 @@ function phaseLabel(phase: AppSyncProgressEvent["phase"]) {
   );
 }
 
+function stepGenerationCount(current: number, direction: -1 | 1) {
+  const index = IMAGE_GENERATION_COUNTS.indexOf(
+    current as (typeof IMAGE_GENERATION_COUNTS)[number]
+  );
+  const next = Math.min(
+    IMAGE_GENERATION_COUNTS.length - 1,
+    Math.max(0, (index < 0 ? 0 : index) + direction)
+  );
+  return IMAGE_GENERATION_COUNTS[next];
+}
+
 export function SettingsView() {
   const bootstrapInitializedRef = useRef(false);
   const preferencesQuery = usePreferencesQuery();
@@ -134,10 +155,11 @@ export function SettingsView() {
   const [ctrlZoom, setCtrlZoom] = useState(false);
   const [middleButtonHint, setMiddleButtonHint] = useState(true);
   const [imageModel, setImageModel] = useState("");
-  const [imageSize, setImageSize] = useState("1:1");
+  const [imageSize, setImageSize] = useState<string>(CANVAS_IMAGE_DEFAULT_SIZE);
   const [imageQuality, setImageQuality] = useState("auto");
   const [imageCount, setImageCount] = useState(1);
   const [videoModel, setVideoModel] = useState("");
+  const [videoSize, setVideoSize] = useState(CANVAS_VIDEO_DEFAULT_RATIO);
   const [videoSeconds, setVideoSeconds] = useState("6");
   const [videoQuality, setVideoQuality] = useState("720");
   const [videoGenerateAudio, setVideoGenerateAudio] = useState(true);
@@ -148,7 +170,9 @@ export function SettingsView() {
   const [audioSpeed, setAudioSpeed] = useState("1");
   const [audioInstructions, setAudioInstructions] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
-  const [canvasImageCount, setCanvasImageCount] = useState(3);
+  const [canvasImageCount, setCanvasImageCount] = useState<number>(
+    IMAGE_GENERATION_COUNTS[0]
+  );
   const [shortcuts, setShortcuts] = useState<CanvasShortcutBindings>({
     ...DEFAULT_CANVAS_SHORTCUTS,
   });
@@ -257,16 +281,13 @@ export function SettingsView() {
       resolveModel(catalog.imageModels, generation.imageModel || "") ||
         catalog.defaultImageModel
     );
-    setImageSize(
-      generation.size === "auto" ||
-        generation.size === "adaptive" ||
-        !generation.size
-        ? "1:1"
-        : generation.size
-    );
+    setImageSize(preferredCanvasImageSize(generation.size));
+    setVideoSize(preferredCanvasVideoSize(generation.videoSize));
     setImageQuality(generation.quality || "auto");
-    setImageCount(Math.max(1, Number(generation.count || 1)));
-    setCanvasImageCount(Math.max(1, Number(generation.canvasImageCount || 3)));
+    setImageCount(preferredCanvasImageCount(generation.count, 1));
+    setCanvasImageCount(
+      preferredCanvasImageCount(generation.canvasImageCount, generation.count)
+    );
     setVideoModel(
       resolveModel(catalog.videoModels, generation.videoModel || "") ||
         catalog.defaultVideoModel
@@ -355,6 +376,7 @@ export function SettingsView() {
           count: String(imageCount),
           canvasImageCount: String(canvasImageCount),
           videoModel,
+          videoSize,
           videoSeconds,
           vquality: videoQuality,
           videoGenerateAudio: String(videoGenerateAudio),
@@ -384,11 +406,12 @@ export function SettingsView() {
   const resetDefaults = () => {
     if (!window.confirm("恢复全部偏好为默认值？点击保存后生效。")) return;
     setImageModel(aiCatalog?.defaultImageModel || "");
-    setImageSize("1:1");
+    setImageSize(CANVAS_IMAGE_DEFAULT_SIZE);
     setImageQuality("auto");
-    setImageCount(1);
-    setCanvasImageCount(3);
+    setImageCount(IMAGE_GENERATION_COUNTS[0]);
+    setCanvasImageCount(IMAGE_GENERATION_COUNTS[0]);
     setVideoModel(aiCatalog?.defaultVideoModel || "");
+    setVideoSize(CANVAS_VIDEO_DEFAULT_RATIO);
     setVideoSeconds("6");
     setVideoQuality("720");
     setVideoGenerateAudio(true);
@@ -484,9 +507,11 @@ export function SettingsView() {
                     value={imageSize}
                     onChange={event => setImageSize(event.target.value)}
                   >
-                    <option value="1:1">1:1</option>
-                    <option value="16:9">16:9</option>
-                    <option value="9:16">9:16</option>
+                    {CANVAS_IMAGE_SIZE_OPTIONS.map(ratio => (
+                      <option key={ratio} value={ratio}>
+                        {ratio}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label>
@@ -505,16 +530,18 @@ export function SettingsView() {
                   图像数量
                   <div className="stepper">
                     <button
+                      type="button"
                       onClick={() =>
-                        setImageCount(value => Math.max(1, value - 1))
+                        setImageCount(value => stepGenerationCount(value, -1))
                       }
                     >
                       −
                     </button>
-                    <b>{String(imageCount).padStart(2, "0")}</b>
+                    <b>{imageCount}</b>
                     <button
+                      type="button"
                       onClick={() =>
-                        setImageCount(value => Math.min(15, value + 1))
+                        setImageCount(value => stepGenerationCount(value, 1))
                       }
                     >
                       +
@@ -525,16 +552,22 @@ export function SettingsView() {
                   画布默认张数
                   <div className="stepper">
                     <button
+                      type="button"
                       onClick={() =>
-                        setCanvasImageCount(value => Math.max(1, value - 1))
+                        setCanvasImageCount(value =>
+                          stepGenerationCount(value, -1)
+                        )
                       }
                     >
                       −
                     </button>
-                    <b>{String(canvasImageCount).padStart(2, "0")}</b>
+                    <b>{canvasImageCount}</b>
                     <button
+                      type="button"
                       onClick={() =>
-                        setCanvasImageCount(value => Math.min(15, value + 1))
+                        setCanvasImageCount(value =>
+                          stepGenerationCount(value, 1)
+                        )
                       }
                     >
                       +
@@ -560,6 +593,19 @@ export function SettingsView() {
                     ).map(({ value, label }) => (
                       <option key={value} value={value}>
                         {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  默认画幅
+                  <select
+                    value={videoSize}
+                    onChange={event => setVideoSize(event.target.value)}
+                  >
+                    {CANVAS_VIDEO_SIZE_OPTIONS.map(ratio => (
+                      <option key={ratio} value={ratio}>
+                        {ratio}
                       </option>
                     ))}
                   </select>

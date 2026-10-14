@@ -14,6 +14,8 @@ export type CanvasNodeGenerationRevision = {
   assetId?: string;
   imageSrc?: string;
   seed?: string | number;
+  /** Studio job id (`job_…`), the same id shown in the admin console. */
+  generationJobId?: string;
   size?: string;
   imageResolution?: string;
   quality?: string;
@@ -43,7 +45,8 @@ export type CanvasNodeKind =
 export type CanvasGenerationMode = "text" | "image" | "video" | "audio";
 export type CanvasNodeStatus = "idle" | "loading" | "success" | "error";
 export type CanvasBackgroundMode = "dots" | "lines" | "blank";
-export type ImageSizeValue = "auto" | "panorama" | `${number}:${number}` | `${number}x${number}`;
+export type ImageSizeValue =
+  "auto" | "panorama" | `${number}:${number}` | `${number}x${number}`;
 export type ImageQualityValue = "auto" | "low" | "medium" | "high";
 
 export type CanvasImageReferenceSnapshot = {
@@ -74,6 +77,8 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   errorDetails?: string;
   generationMode?: CanvasGenerationMode;
   jobId?: string;
+  /** Finished generation's studio job id. Unlike jobId, this survives completion. */
+  generationJobId?: string;
   jobProgress?: number;
   /** Waiting for a submission slot; no server job has been accepted yet. */
   generationQueued?: boolean;
@@ -105,7 +110,12 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   /** Asset whose stored natural size came from a thumbnail; its original still needs to be read. */
   naturalSizeProbeAssetId?: string;
   /** Box the user arranged an image node in, and the frame an automatic ratio fit gave it inside that box. */
-  imageLayoutBox?: { width: number; height: number; fitWidth: number; fitHeight: number };
+  imageLayoutBox?: {
+    width: number;
+    height: number;
+    fitWidth: number;
+    fitHeight: number;
+  };
   promptPanelWidth?: number;
   /** User-selected inspector height in screen pixels; absent means content-sized. */
   promptPanelHeight?: number;

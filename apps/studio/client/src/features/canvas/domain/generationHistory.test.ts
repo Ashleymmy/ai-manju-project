@@ -14,7 +14,10 @@ import {
 } from "./generationHistory";
 import type { CanvasNodeData } from "./types";
 
-function node(id: string, values: Partial<CanvasNodeData> = {}): CanvasNodeData {
+function node(
+  id: string,
+  values: Partial<CanvasNodeData> = {}
+): CanvasNodeData {
   return {
     id,
     kind: "image",
@@ -29,54 +32,79 @@ function node(id: string, values: Partial<CanvasNodeData> = {}): CanvasNodeData 
 }
 
 describe("collectCanvasGenerationHistory", () => {
-  it.each(["loading", "error"] as const)("重新生成处于 %s 时仍能取回旧图", status => {
-    const previous = node("image", {
-      metadata: { status: "success", assetId: "asset-old", prompt: "旧提示词" },
-    });
-    const revisions = appendCanvasGenerationRevision(previous, "old");
-    const items = collectCanvasGenerationHistory([{
-      ...previous,
-      metadata: { ...previous.metadata, status, generationRevisions: revisions },
-    }], { "asset-old": "blob:old" });
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({
-      nodeId: canvasGenerationHistoryItemId("image", "old"),
-      assetId: "asset-old",
-      previewUrl: "blob:old",
-      prompt: "旧提示词",
-    });
-  });
+  it.each(["loading", "error"] as const)(
+    "重新生成处于 %s 时仍能取回旧图",
+    status => {
+      const previous = node("image", {
+        metadata: {
+          status: "success",
+          assetId: "asset-old",
+          prompt: "旧提示词",
+        },
+      });
+      const revisions = appendCanvasGenerationRevision(previous, "old");
+      const items = collectCanvasGenerationHistory(
+        [
+          {
+            ...previous,
+            metadata: {
+              ...previous.metadata,
+              status,
+              generationRevisions: revisions,
+            },
+          },
+        ],
+        { "asset-old": "blob:old" }
+      );
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({
+        nodeId: canvasGenerationHistoryItemId("image", "old"),
+        assetId: "asset-old",
+        previewUrl: "blob:old",
+        prompt: "旧提示词",
+      });
+    }
+  );
 
   it("收集已完成的图片和视频，跳过占位、进行中的任务和历史插入副本", () => {
-    const items = collectCanvasGenerationHistory([
-      node("idle"),
-      node("loading", { metadata: { status: "loading", assetId: "a" } }),
-      node("failed", { metadata: { status: "error", assetId: "broken" } }),
-      node("copy", { metadata: { status: "success", assetId: "asset-copy", appliedFromHistory: true } }),
-      node("image-1", {
-        title: "夜景",
-        metadata: {
-          status: "success",
-          assetId: "asset-image",
-          prompt: "雨夜街道",
-          model: "seedream",
-          generatedAt: "2026-09-10T08:12:00.000Z",
-          seed: 42,
-          size: "16:9",
-        },
-      }),
-      node("video-1", {
-        kind: "video",
-        title: "运镜",
-        metadata: {
-          status: "success",
-          assetId: "asset-video",
-          prompt: "缓慢推近",
-          generatedAt: "2026-09-09T12:00:00.000Z",
-          seconds: "5",
-        },
-      }),
-    ], { "asset-image": "blob:image", "asset-video": "blob:video" });
+    const items = collectCanvasGenerationHistory(
+      [
+        node("idle"),
+        node("loading", { metadata: { status: "loading", assetId: "a" } }),
+        node("failed", { metadata: { status: "error", assetId: "broken" } }),
+        node("copy", {
+          metadata: {
+            status: "success",
+            assetId: "asset-copy",
+            appliedFromHistory: true,
+          },
+        }),
+        node("image-1", {
+          title: "夜景",
+          metadata: {
+            status: "success",
+            assetId: "asset-image",
+            prompt: "雨夜街道",
+            model: "seedream",
+            generatedAt: "2026-09-10T08:12:00.000Z",
+            seed: 42,
+            size: "16:9",
+          },
+        }),
+        node("video-1", {
+          kind: "video",
+          title: "运镜",
+          metadata: {
+            status: "success",
+            assetId: "asset-video",
+            prompt: "缓慢推近",
+            generatedAt: "2026-09-09T12:00:00.000Z",
+            seconds: "5",
+          },
+        }),
+      ],
+      { "asset-image": "blob:image", "asset-video": "blob:video" }
+    );
 
     expect(items.map(item => item.nodeId)).toEqual(["image-1", "video-1"]);
     expect(items[0]).toMatchObject({
@@ -92,49 +120,120 @@ describe("collectCanvasGenerationHistory", () => {
       typeLabel: "视频生成",
       modeLabel: "文生视频",
       seconds: "5",
+      jobId: "",
     });
+    expect(items[0]?.jobId).toBe("");
+  });
+
+  it("任务 ID 使用后台 job_ 编号，不用生成种子或节点 ID", () => {
+    const items = collectCanvasGenerationHistory(
+      [
+        node("image-seed", {
+          metadata: {
+            status: "success",
+            assetId: "asset-seed",
+            seed: 42,
+            generatedAt: "2026-09-10T08:12:00.000Z",
+          },
+        }),
+        node("image-stored", {
+          metadata: {
+            status: "success",
+            assetId: "asset-stored",
+            seed: 7,
+            generationJobId: "job_stored",
+            generatedAt: "2026-09-11T08:12:00.000Z",
+          },
+        }),
+        node("image-asset", {
+          metadata: {
+            status: "success",
+            assetId: "asset-linked",
+            seed: 9,
+            generatedAt: "2026-09-12T08:12:00.000Z",
+          },
+        }),
+      ],
+      {},
+      [
+        { id: "asset-linked", source_job_id: "job_linked" },
+        { id: "asset-seed", source_job_id: "provider-task" },
+      ]
+    );
+    expect(items.find(item => item.nodeId === "image-seed")).toMatchObject({
+      seed: "42",
+      jobId: "provider-task",
+    });
+    expect(items.find(item => item.nodeId === "image-stored")?.jobId).toBe(
+      "job_stored"
+    );
+    expect(items.find(item => item.nodeId === "image-asset")?.jobId).toBe(
+      "job_linked"
+    );
   });
 
   it("折叠批次的子图也会进入历史，资产创建时间可补日期", () => {
-    const items = collectCanvasGenerationHistory([
-      node("root", {
-        metadata: { isBatchRoot: true, batchChildIds: ["child"], assetId: "asset-root", status: "success" },
-      }),
-      node("child", {
-        metadata: { batchRootId: "root", assetId: "asset-child", status: "success" },
-      }),
-    ], {}, [
-      { id: "asset-child", created_at: "2026-08-30T03:04:00.000Z" },
-    ]);
+    const items = collectCanvasGenerationHistory(
+      [
+        node("root", {
+          metadata: {
+            isBatchRoot: true,
+            batchChildIds: ["child"],
+            assetId: "asset-root",
+            status: "success",
+          },
+        }),
+        node("child", {
+          metadata: {
+            batchRootId: "root",
+            assetId: "asset-child",
+            status: "success",
+          },
+        }),
+      ],
+      {},
+      [{ id: "asset-child", created_at: "2026-08-30T03:04:00.000Z" }]
+    );
     expect(items.map(item => item.nodeId)).toEqual(["child", "root"]);
     expect(items[0]?.generatedAt).toBe("2026-08-30T03:04:00.000Z");
   });
 
   it("被覆盖的旧图会作为独立历史记录保留", () => {
-    const items = collectCanvasGenerationHistory([
-      node("live", {
-        title: "新图",
-        metadata: {
-          status: "success",
-          assetId: "asset-new",
-          prompt: "新提示词",
-          generatedAt: "2026-09-10T10:00:00.000Z",
-          generationRevisions: [{
-            id: "rev-old",
-            kind: "image",
-            title: "旧图",
-            prompt: "旧提示词",
-            assetId: "asset-old",
-            generatedAt: "2026-09-09T08:00:00.000Z",
-            typeLabel: "图片生成",
-            modeLabel: "文生图",
-          }],
-        },
-      }),
-    ], { "asset-new": "blob:new", "asset-old": "blob:old" });
-    expect(items.map(item => [item.nodeId, item.assetId, item.previewUrl])).toEqual([
+    const items = collectCanvasGenerationHistory(
+      [
+        node("live", {
+          title: "新图",
+          metadata: {
+            status: "success",
+            assetId: "asset-new",
+            prompt: "新提示词",
+            generatedAt: "2026-09-10T10:00:00.000Z",
+            generationRevisions: [
+              {
+                id: "rev-old",
+                kind: "image",
+                title: "旧图",
+                prompt: "旧提示词",
+                assetId: "asset-old",
+                generatedAt: "2026-09-09T08:00:00.000Z",
+                typeLabel: "图片生成",
+                modeLabel: "文生图",
+              },
+            ],
+          },
+        }),
+      ],
+      { "asset-new": "blob:new", "asset-old": "blob:old" }
+    );
+    expect(
+      items.map(item => [item.nodeId, item.assetId, item.previewUrl])
+    ).toEqual([
       ["live", "asset-new", "blob:new"],
-      [canvasGenerationHistoryItemId("live", "rev-old"), "asset-old", "blob:old"],
+      [
+        canvasGenerationHistoryItemId("live", "rev-old"),
+        "asset-old",
+        "blob:old",
+      ],
     ]);
     expect(parseCanvasGenerationHistoryItemId(items[1]!.nodeId)).toEqual({
       nodeId: "live",
@@ -147,19 +246,43 @@ describe("collectCanvasGenerationHistory", () => {
       metadata: {
         status: "error",
         generationRevisions: [
-          { id: "rev-filename", kind: "image", imageSrc: "55c9b01b-3772-4b79-a71c-72f94a75d911.png", assetId: "" },
-          { id: "rev-prompt", kind: "image", imageSrc: "@[node:961ce488-ba81-4e53-a362-8489eff08b3c]", assetId: "" },
-          { id: "rev-data", kind: "image", imageSrc: "data:image/png;base64,AA==", assetId: "" },
+          {
+            id: "rev-filename",
+            kind: "image",
+            imageSrc: "55c9b01b-3772-4b79-a71c-72f94a75d911.png",
+            assetId: "",
+          },
+          {
+            id: "rev-prompt",
+            kind: "image",
+            imageSrc: "@[node:961ce488-ba81-4e53-a362-8489eff08b3c]",
+            assetId: "",
+          },
+          {
+            id: "rev-data",
+            kind: "image",
+            imageSrc: "data:image/png;base64,AA==",
+            assetId: "",
+          },
           { id: "rev-asset", kind: "image", assetId: "asset-old" },
         ],
       },
     });
-    const items = collectCanvasGenerationHistory([stopped], { "asset-old": "blob:old" });
+    const items = collectCanvasGenerationHistory([stopped], {
+      "asset-old": "blob:old",
+    });
     expect(items.map(item => [item.nodeId, item.previewUrl])).toEqual([
       [canvasGenerationHistoryItemId("stopped", "rev-asset"), "blob:old"],
-      [canvasGenerationHistoryItemId("stopped", "rev-data"), "data:image/png;base64,AA=="],
+      [
+        canvasGenerationHistoryItemId("stopped", "rev-data"),
+        "data:image/png;base64,AA==",
+      ],
     ]);
-    const restored = cloneCanvasNodeFromGenerationRevision(stopped, stopped.metadata!.generationRevisions![0]!, { id: "copy", x: 0, y: 0 });
+    const restored = cloneCanvasNodeFromGenerationRevision(
+      stopped,
+      stopped.metadata!.generationRevisions![0]!,
+      { id: "copy", x: 0, y: 0 }
+    );
     expect(restored.imageSrc).toBeUndefined();
   });
 });
@@ -167,70 +290,76 @@ describe("collectCanvasGenerationHistory", () => {
 describe("groupCanvasGenerationHistory", () => {
   it("按本地日历把记录分成今天、昨天和具体日期", () => {
     const now = new Date(2026, 8, 10, 16, 0, 0);
-    const groups = groupCanvasGenerationHistory([
-      {
-        nodeId: "a",
-        kind: "image",
-        title: "a",
-        prompt: "",
-        model: "",
-        generatedAt: new Date(2026, 8, 10, 9, 8, 4).toISOString(),
-        previewUrl: "",
-        assetId: "",
-        seed: "a",
-        size: "",
-        seconds: "",
-        typeLabel: "图片生成",
-        modeLabel: "文生图",
-      },
-      {
-        nodeId: "b",
-        kind: "image",
-        title: "b",
-        prompt: "",
-        model: "",
-        generatedAt: new Date(2026, 8, 9, 18, 0, 0).toISOString(),
-        previewUrl: "",
-        assetId: "",
-        seed: "b",
-        size: "",
-        seconds: "",
-        typeLabel: "图片生成",
-        modeLabel: "文生图",
-      },
-      {
-        nodeId: "c",
-        kind: "video",
-        title: "c",
-        prompt: "",
-        model: "",
-        generatedAt: new Date(2026, 8, 10, 10, 0, 0).toISOString(),
-        previewUrl: "",
-        assetId: "",
-        seed: "c",
-        size: "",
-        seconds: "",
-        typeLabel: "视频生成",
-        modeLabel: "文生视频",
-      },
-      {
-        nodeId: "d",
-        kind: "image",
-        title: "d",
-        prompt: "",
-        model: "",
-        generatedAt: new Date(2026, 7, 30, 11, 0, 0).toISOString(),
-        previewUrl: "",
-        assetId: "",
-        seed: "d",
-        size: "",
-        seconds: "",
-        typeLabel: "图片生成",
-        modeLabel: "文生图",
-      },
-    ], "image", now);
+    const groups = groupCanvasGenerationHistory(
+      [
+        {
+          nodeId: "a",
+          kind: "image",
+          title: "a",
+          prompt: "",
+          model: "",
+          generatedAt: new Date(2026, 8, 10, 9, 8, 4).toISOString(),
+          previewUrl: "",
+          assetId: "",
+          seed: "a",
+          size: "",
+          seconds: "",
+          typeLabel: "图片生成",
+          modeLabel: "文生图",
+        },
+        {
+          nodeId: "b",
+          kind: "image",
+          title: "b",
+          prompt: "",
+          model: "",
+          generatedAt: new Date(2026, 8, 9, 18, 0, 0).toISOString(),
+          previewUrl: "",
+          assetId: "",
+          seed: "b",
+          size: "",
+          seconds: "",
+          typeLabel: "图片生成",
+          modeLabel: "文生图",
+        },
+        {
+          nodeId: "c",
+          kind: "video",
+          title: "c",
+          prompt: "",
+          model: "",
+          generatedAt: new Date(2026, 8, 10, 10, 0, 0).toISOString(),
+          previewUrl: "",
+          assetId: "",
+          seed: "c",
+          size: "",
+          seconds: "",
+          typeLabel: "视频生成",
+          modeLabel: "文生视频",
+        },
+        {
+          nodeId: "d",
+          kind: "image",
+          title: "d",
+          prompt: "",
+          model: "",
+          generatedAt: new Date(2026, 7, 30, 11, 0, 0).toISOString(),
+          previewUrl: "",
+          assetId: "",
+          seed: "d",
+          size: "",
+          seconds: "",
+          typeLabel: "图片生成",
+          modeLabel: "文生图",
+        },
+      ],
+      "image",
+      now
+    );
 
-    expect(groups.map(group => [group.label, group.items.map(item => item.nodeId)])).toEqual([
+    expect(
+      groups.map(group => [group.label, group.items.map(item => item.nodeId)])
+    ).toEqual([
       ["今天", ["a"]],
       ["昨天", ["b"]],
       ["8月30日 周日", ["d"]],
@@ -240,46 +369,58 @@ describe("groupCanvasGenerationHistory", () => {
 
 describe("formatCanvasGenerationClock", () => {
   it("缩略图时间显示时分秒", () => {
-    expect(formatCanvasGenerationClock(new Date(2026, 8, 10, 9, 8, 4).toISOString())).toBe("09:08:04");
+    expect(
+      formatCanvasGenerationClock(new Date(2026, 8, 10, 9, 8, 4).toISOString())
+    ).toBe("09:08:04");
   });
 });
 
 describe("buildCanvasGenerationHistoryMonth", () => {
   it("按周日开始排出月份格子，并把当天记录挂到对应日期", () => {
-    const weeks = buildCanvasGenerationHistoryMonth([
-      {
-        nodeId: "a",
-        kind: "image",
-        title: "a",
-        prompt: "",
-        model: "",
-        generatedAt: new Date(2026, 8, 10, 9, 8, 4).toISOString(),
-        previewUrl: "",
-        assetId: "",
-        seed: "a",
-        size: "",
-        seconds: "",
-        typeLabel: "图片生成",
-        modeLabel: "文生图",
-      },
-      {
-        nodeId: "b",
-        kind: "image",
-        title: "b",
-        prompt: "",
-        model: "",
-        generatedAt: new Date(2026, 7, 30, 11, 0, 0).toISOString(),
-        previewUrl: "",
-        assetId: "",
-        seed: "b",
-        size: "",
-        seconds: "",
-        typeLabel: "图片生成",
-        modeLabel: "文生图",
-      },
-    ], 2026, 8);
+    const weeks = buildCanvasGenerationHistoryMonth(
+      [
+        {
+          nodeId: "a",
+          kind: "image",
+          title: "a",
+          prompt: "",
+          model: "",
+          generatedAt: new Date(2026, 8, 10, 9, 8, 4).toISOString(),
+          previewUrl: "",
+          assetId: "",
+          seed: "a",
+          size: "",
+          seconds: "",
+          typeLabel: "图片生成",
+          modeLabel: "文生图",
+        },
+        {
+          nodeId: "b",
+          kind: "image",
+          title: "b",
+          prompt: "",
+          model: "",
+          generatedAt: new Date(2026, 7, 30, 11, 0, 0).toISOString(),
+          previewUrl: "",
+          assetId: "",
+          seed: "b",
+          size: "",
+          seconds: "",
+          typeLabel: "图片生成",
+          modeLabel: "文生图",
+        },
+      ],
+      2026,
+      8
+    );
 
-    expect(weeks[0]?.map(cell => [cell.day, cell.inMonth, cell.items.map(item => item.nodeId)])).toEqual([
+    expect(
+      weeks[0]?.map(cell => [
+        cell.day,
+        cell.inMonth,
+        cell.items.map(item => item.nodeId),
+      ])
+    ).toEqual([
       [30, false, ["b"]],
       [31, false, []],
       [1, true, []],
@@ -291,44 +432,122 @@ describe("buildCanvasGenerationHistoryMonth", () => {
     expect(weeks[1]?.[4]).toMatchObject({
       day: 10,
       inMonth: true,
-      isoDate: canvasGenerationHistoryDayKey(new Date(2026, 8, 10, 9, 8, 4).toISOString()),
+      isoDate: canvasGenerationHistoryDayKey(
+        new Date(2026, 8, 10, 9, 8, 4).toISOString()
+      ),
     });
     expect(weeks[1]?.[4]?.items.map(item => item.nodeId)).toEqual(["a"]);
   });
 });
 
 describe("cloneCanvasNodeFromGenerationHistory", () => {
-  it.each(["image", "video"] as const)("restores independent %s history and revision nodes without original execution identities", kind => {
-    const source = node("original", { kind, content: "原有内容", imageAssetId: "current-asset", metadata: {
-      prompt: "原提示词", model: "current-model", seconds: "8", assetId: "current-asset", assetScope: "team",
-      generationReceipt: { key: "generation", userId: "owner", scope: "team", projectId: "project", projectKey: "team:project",
-        kind: "audio", nodeId: "original", originNodeId: "original", prompt: "原提示词", model: "audio-model" },
-      pendingAudioUpload: { key: "upload", fileName: "voice.mp3", contentType: "audio/mpeg", bytes: 5, createdAt: "2026-09-25" },
-      promptOptimizationReceipt: { version: 1, key: "optimization", userId: "owner", scope: "team", projectId: "project", projectKey: "team:project",
-        nodeId: "original", kind, prompt: "原提示词", model: "text-model", state: "pending" },
-    } });
-    const before = structuredClone(source);
-    const historical = cloneCanvasNodeFromGenerationHistory(source, { id: "history-copy", x: 400, y: 300 });
-    const revision = { id: "old", kind, title: "以前的内容", assetId: "revision-asset", assetScope: "personal" as const,
-      prompt: "以前的提示词", model: "revision-model", seconds: "12", size: "16:9" };
-    const revisionBefore = structuredClone(revision);
-    const restored = cloneCanvasNodeFromGenerationRevision(source, revision, { id: "revision-copy", x: 700, y: 300 });
-    for (const copy of [historical, restored]) {
-      expect(copy.kind).toBe(kind);
-      expect(copy.metadata?.appliedFromHistory).toBe(true);
-      expect(copy.metadata).not.toHaveProperty("generationReceipt");
-      expect(copy.metadata).not.toHaveProperty("pendingAudioUpload");
-      expect(copy.metadata).not.toHaveProperty("promptOptimizationReceipt");
+  it.each(["image", "video"] as const)(
+    "restores independent %s history and revision nodes without original execution identities",
+    kind => {
+      const source = node("original", {
+        kind,
+        content: "原有内容",
+        imageAssetId: "current-asset",
+        metadata: {
+          prompt: "原提示词",
+          model: "current-model",
+          seconds: "8",
+          assetId: "current-asset",
+          assetScope: "team",
+          generationReceipt: {
+            key: "generation",
+            userId: "owner",
+            scope: "team",
+            projectId: "project",
+            projectKey: "team:project",
+            kind: "audio",
+            nodeId: "original",
+            originNodeId: "original",
+            prompt: "原提示词",
+            model: "audio-model",
+          },
+          pendingAudioUpload: {
+            key: "upload",
+            fileName: "voice.mp3",
+            contentType: "audio/mpeg",
+            bytes: 5,
+            createdAt: "2026-09-25",
+          },
+          promptOptimizationReceipt: {
+            version: 1,
+            key: "optimization",
+            userId: "owner",
+            scope: "team",
+            projectId: "project",
+            projectKey: "team:project",
+            nodeId: "original",
+            kind,
+            prompt: "原提示词",
+            model: "text-model",
+            state: "pending",
+          },
+        },
+      });
+      const before = structuredClone(source);
+      const historical = cloneCanvasNodeFromGenerationHistory(source, {
+        id: "history-copy",
+        x: 400,
+        y: 300,
+      });
+      const revision = {
+        id: "old",
+        kind,
+        title: "以前的内容",
+        assetId: "revision-asset",
+        assetScope: "personal" as const,
+        prompt: "以前的提示词",
+        model: "revision-model",
+        seconds: "12",
+        size: "16:9",
+      };
+      const revisionBefore = structuredClone(revision);
+      const restored = cloneCanvasNodeFromGenerationRevision(source, revision, {
+        id: "revision-copy",
+        x: 700,
+        y: 300,
+      });
+      for (const copy of [historical, restored]) {
+        expect(copy.kind).toBe(kind);
+        expect(copy.metadata?.appliedFromHistory).toBe(true);
+        expect(copy.metadata).not.toHaveProperty("generationReceipt");
+        expect(copy.metadata).not.toHaveProperty("pendingAudioUpload");
+        expect(copy.metadata).not.toHaveProperty("promptOptimizationReceipt");
+      }
+      expect(historical).toMatchObject({
+        id: "history-copy",
+        content: "原有内容",
+        imageAssetId: "current-asset",
+        metadata: {
+          prompt: "原提示词",
+          model: "current-model",
+          seconds: "8",
+          assetId: "current-asset",
+          assetScope: "team",
+        },
+      });
+      expect(restored).toMatchObject({
+        id: "revision-copy",
+        content: "以前的提示词",
+        imageAssetId: "revision-asset",
+        metadata: {
+          prompt: "以前的提示词",
+          model: "revision-model",
+          seconds: "12",
+          size: "16:9",
+          assetId: "revision-asset",
+          assetScope: "personal",
+          status: "success",
+        },
+      });
+      expect(source).toEqual(before);
+      expect(revision).toEqual(revisionBefore);
     }
-    expect(historical).toMatchObject({ id: "history-copy", content: "原有内容", imageAssetId: "current-asset", metadata: {
-      prompt: "原提示词", model: "current-model", seconds: "8", assetId: "current-asset", assetScope: "team",
-    } });
-    expect(restored).toMatchObject({ id: "revision-copy", content: "以前的提示词", imageAssetId: "revision-asset", metadata: {
-      prompt: "以前的提示词", model: "revision-model", seconds: "12", size: "16:9", assetId: "revision-asset", assetScope: "personal", status: "success",
-    } });
-    expect(source).toEqual(before);
-    expect(revision).toEqual(revisionBefore);
-  });
+  );
 
   it("复制为独立节点并去掉批次关系", () => {
     const cloned = cloneCanvasNodeFromGenerationHistory(
@@ -346,7 +565,7 @@ describe("cloneCanvasNodeFromGenerationHistory", () => {
           jobId: "job-1",
         },
       }),
-      { id: "new-node", x: 100, y: 200 },
+      { id: "new-node", x: 100, y: 200 }
     );
     expect(cloned).toMatchObject({
       id: "new-node",
@@ -374,23 +593,29 @@ describe("cloneCanvasNodeFromGenerationHistory", () => {
         assetId: "asset-new",
         prompt: "新提示词",
         composerContent: "@[node:new-reference] 新提示词",
-        generationRevisions: [{
-          id: "rev-old",
-          kind: "image",
-          title: "旧图",
-          prompt: "旧提示词",
-          assetId: "asset-old",
-          generatedAt: "2026-09-09T08:00:00.000Z",
-          width: 400,
-          height: 300,
-        }],
+        generationRevisions: [
+          {
+            id: "rev-old",
+            kind: "image",
+            title: "旧图",
+            prompt: "旧提示词",
+            assetId: "asset-old",
+            generatedAt: "2026-09-09T08:00:00.000Z",
+            width: 400,
+            height: 300,
+          },
+        ],
       },
     });
-    const cloned = cloneCanvasNodeFromGenerationRevision(host, host.metadata!.generationRevisions![0], {
-      id: "restored",
-      x: 80,
-      y: 90,
-    });
+    const cloned = cloneCanvasNodeFromGenerationRevision(
+      host,
+      host.metadata!.generationRevisions![0],
+      {
+        id: "restored",
+        x: 80,
+        y: 90,
+      }
+    );
     expect(cloned).toMatchObject({
       id: "restored",
       title: "旧图",
@@ -410,44 +635,96 @@ describe("cloneCanvasNodeFromGenerationHistory", () => {
 
 describe("appendCanvasGenerationRevision", () => {
   it("restores image settings with their revision instead of inheriting a newer request", () => {
-    const original = node("original", { imageAssetId: "old", metadata: {
-      imageResolution: "2K", quality: "high", requestedImageSize: "2720x1536",
-    } });
+    const original = node("original", {
+      imageAssetId: "old",
+      metadata: {
+        imageResolution: "2K",
+        quality: "high",
+        requestedImageSize: "2720x1536",
+      },
+    });
     const [revision] = appendCanvasGenerationRevision(original, "rev");
-    const host = node("latest", { metadata: { imageResolution: "4K", quality: "low", requestedImageSize: "3840x2160" } });
-    const restored = cloneCanvasNodeFromGenerationRevision(host, revision, { id: "restored", x: 0, y: 0 });
-    expect(restored.metadata).toMatchObject({ imageResolution: "2K", quality: "high", requestedImageSize: "2720x1536" });
-    const legacy = cloneCanvasNodeFromGenerationRevision(host, { id: "legacy", assetId: "old" }, { id: "restored", x: 0, y: 0 });
+    const host = node("latest", {
+      metadata: {
+        imageResolution: "4K",
+        quality: "low",
+        requestedImageSize: "3840x2160",
+      },
+    });
+    const restored = cloneCanvasNodeFromGenerationRevision(host, revision, {
+      id: "restored",
+      x: 0,
+      y: 0,
+    });
+    expect(restored.metadata).toMatchObject({
+      imageResolution: "2K",
+      quality: "high",
+      requestedImageSize: "2720x1536",
+    });
+    const legacy = cloneCanvasNodeFromGenerationRevision(
+      host,
+      { id: "legacy", assetId: "old" },
+      { id: "restored", x: 0, y: 0 }
+    );
     expect(legacy.metadata?.requestedImageSize).toBeUndefined();
   });
 
-  it.each(["image", "video"] as const)("only archives real media, not empty %s prompt text", kind => {
-    expect(appendCanvasGenerationRevision(node("empty", { kind, metadata: { content: "a prompt", prompt: "a prompt" } }), "rev")).toEqual([]);
-    const revisions = appendCanvasGenerationRevision(node("media", { kind, imageSrc: "https://media.example.test/result", metadata: { prompt: "a prompt" } }), "rev");
-    expect(revisions).toEqual([expect.objectContaining({ kind, imageSrc: "https://media.example.test/result" })]);
-  });
+  it.each(["image", "video"] as const)(
+    "only archives real media, not empty %s prompt text",
+    kind => {
+      expect(
+        appendCanvasGenerationRevision(
+          node("empty", {
+            kind,
+            metadata: { content: "a prompt", prompt: "a prompt" },
+          }),
+          "rev"
+        )
+      ).toEqual([]);
+      const revisions = appendCanvasGenerationRevision(
+        node("media", {
+          kind,
+          imageSrc: "https://media.example.test/result",
+          metadata: { prompt: "a prompt" },
+        }),
+        "rev"
+      );
+      expect(revisions).toEqual([
+        expect.objectContaining({
+          kind,
+          imageSrc: "https://media.example.test/result",
+        }),
+      ]);
+    }
+  );
 
   it("把当前图片归档进版本栈且不去重失败", () => {
-    const revisions = appendCanvasGenerationRevision(node("live", {
-      title: "圣诞",
-      imageAssetId: "asset-a",
-      metadata: {
-        status: "success",
-        assetId: "asset-a",
-        prompt: "圣诞树",
-        generatedAt: "2026-09-10T08:00:00.000Z",
-      },
-    }), "rev-1");
+    const revisions = appendCanvasGenerationRevision(
+      node("live", {
+        title: "圣诞",
+        imageAssetId: "asset-a",
+        metadata: {
+          status: "success",
+          assetId: "asset-a",
+          prompt: "圣诞树",
+          generatedAt: "2026-09-10T08:00:00.000Z",
+        },
+      }),
+      "rev-1"
+    );
     expect(revisions).toHaveLength(1);
     expect(revisions[0]).toMatchObject({
       id: "rev-1",
       assetId: "asset-a",
       prompt: "圣诞树",
     });
-    const again = appendCanvasGenerationRevision(node("live", {
-      imageAssetId: "asset-a",
-      metadata: { assetId: "asset-a", generationRevisions: revisions },
-    }), "rev-2");
+    const again = appendCanvasGenerationRevision(
+      node("live", {
+        imageAssetId: "asset-a",
+        metadata: { assetId: "asset-a", generationRevisions: revisions },
+      }),
+      "rev-2"
+    );
     expect(again).toHaveLength(1);
     expect(again[0]?.id).toBe("rev-1");
   });

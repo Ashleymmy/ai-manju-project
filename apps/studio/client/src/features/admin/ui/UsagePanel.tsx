@@ -19,7 +19,10 @@ import {
   type UsageFilters,
   type UsageRow,
 } from "../services/adminUsageApi";
+import { request } from "@/shared/api/http";
 import { publicApiError } from "@/shared/api/errors";
+import type { AiModelsResponse } from "@/entities/model";
+import { usageModelLabel } from "../model/usageModelLabel";
 import { AdminPagination, AdminQueryState } from "./components/adminBits";
 import { UsageCostDialog } from "./UsageCostDialogs";
 import { UsageMemberPicker } from "./UsageMemberPicker";
@@ -94,6 +97,30 @@ export function UsagePanel({
     queryFn: getCostRates,
     enabled: section === "rates",
   });
+  const modelLabels = useQuery({
+    queryKey: ["admin", "usage-model-labels"],
+    queryFn: async () =>
+      (await request<AiModelsResponse>("/api/ai/models")).model_labels || {},
+    staleTime: 60_000,
+  });
+  const modelName = (
+    row: Pick<UsageRow, "model" | "studio_model" | "provider">
+  ) =>
+    usageModelLabel({
+      model: row.model,
+      studioModel: row.studio_model,
+      provider: row.provider,
+      labels: modelLabels.data,
+    });
+  const groupModelName = (group: { key: string; label: string }) => {
+    const slash = group.key.indexOf("/");
+    return usageModelLabel({
+      model: slash >= 0 ? group.key.slice(slash + 1) : group.key,
+      studioModel: group.label,
+      provider: slash >= 0 ? group.key.slice(0, slash) : "",
+      labels: modelLabels.data,
+    });
+  };
   const apply = () => {
     if (
       !draft.start ||
@@ -219,7 +246,11 @@ export function UsagePanel({
                 apply();
               }}
             >
-              <div className="usage-filter-range" role="group" aria-labelledby={rangeLabelId}>
+              <div
+                className="usage-filter-range"
+                role="group"
+                aria-labelledby={rangeLabelId}
+              >
                 <span id={rangeLabelId}>时间范围（结束时间不含）</span>
                 <div>
                   <Input
@@ -304,7 +335,10 @@ export function UsagePanel({
                 />
               </label>
               <div className="admin-report-filter-actions">
-                <button className="admin-report-button admin-report-button--primary" type="submit">
+                <button
+                  className="admin-report-button admin-report-button--primary"
+                  type="submit"
+                >
                   <Search size={16} /> 查询
                 </button>
                 <button
@@ -429,6 +463,8 @@ export function UsagePanel({
                             >
                               {group.label || group.key || "未记录"}
                             </button>
+                          ) : filters.group_by === "model" ? (
+                            groupModelName(group)
                           ) : (
                             group.label || "未记录"
                           )}
@@ -502,8 +538,13 @@ export function UsagePanel({
                           </small>
                         </td>
                         <td>
-                          {row.model || "未记录模型"}
-                          <small>{row.provider || "供应商未记录"}</small>
+                          {modelName(row)}
+                          <small>
+                            {row.model && modelName(row) !== row.model
+                              ? `${row.model} · `
+                              : ""}
+                            {row.provider || "供应商未记录"}
+                          </small>
                         </td>
                         <td>
                           <span>{STATUS_LABELS[row.status] || row.status}</span>
@@ -633,7 +674,8 @@ export function UsagePanel({
                 项目: detail.project_name || detail.project_id || "未关联项目",
                 工作区: detail.workspace_id || "未记录",
                 任务类型: detail.task_type,
-                模型: detail.model || "未记录",
+                模型: modelName(detail),
+                接入编号: detail.model || "未记录",
                 供应商: detail.provider || "未记录",
                 创建时间: formatDateTime(detail.created_at),
                 开始时间: detail.started_at

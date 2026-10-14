@@ -425,7 +425,8 @@ export class CanvasGenerationJobsController {
           current,
           input.targetNodeId,
           archived,
-          input.prompt
+          input.prompt,
+          request.jobId || input.existingJobId
         )
       );
       this.forgetCanvasJob(
@@ -876,7 +877,8 @@ export class CanvasGenerationJobsController {
           task!,
           input.originNodeId,
           input.referenceInputs,
-          input.scope
+          input.scope,
+          task?.id || request.jobId
         )
       );
       this.forgetCanvasJob(input.targetNodeId, task?.id || request.jobId);

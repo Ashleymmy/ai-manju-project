@@ -63,6 +63,7 @@ import { ImageEditToolIcon } from "@/features/canvas/ui/ImageEditToolIcon";
 import {
   VIDEO_SUBMODES,
   CANVAS_IMAGE_RESOLUTIONS,
+  CANVAS_IMAGE_SIZE_OPTIONS,
   isCanvasImageResolutionAvailable,
   editableNodeKind,
   imageCountFromNode,
@@ -914,20 +915,7 @@ export function CanvasInspector({
                     <div className="param-group">
                       <span className="param-group-label">比例</span>
                       <div className="param-ratio-grid">
-                        {[
-                          "1:1",
-                          "2:1",
-                          "4:3",
-                          "3:4",
-                          "5:4",
-                          "4:5",
-                          "3:2",
-                          "2:3",
-                          "21:9",
-                          "9:21",
-                          "16:9",
-                          "9:16",
-                        ].map(ratio => (
+                        {CANVAS_IMAGE_SIZE_OPTIONS.map(ratio => (
                           <button
                             key={ratio}
                             type="button"

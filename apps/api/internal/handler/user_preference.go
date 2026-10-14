@@ -126,9 +126,10 @@ func DefaultUserPreferences() UserPreferences {
 			"textModel":          "",
 			"audioModel":         "",
 			"quality":            "auto",
-			"size":               "1:1",
+			"size":               "4:3",
 			"count":              "1",
-			"canvasImageCount":   "3",
+			"canvasImageCount":   "1",
+			"videoSize":          "16:9",
 			"videoSeconds":       "6",
 			"vquality":           "720",
 			"videoGenerateAudio": "true",
@@ -163,7 +164,7 @@ func sanitizeGeneration(value map[string]any) map[string]any {
 	allowed := map[string]bool{
 		"imageModel": true, "videoModel": true, "textModel": true, "audioModel": true,
 		"quality": true, "size": true, "count": true, "canvasImageCount": true,
-		"videoSeconds": true, "vquality": true, "videoGenerateAudio": true, "videoWatermark": true,
+		"videoSize": true, "videoSeconds": true, "vquality": true, "videoGenerateAudio": true, "videoWatermark": true,
 		"audioVoice": true, "audioFormat": true, "audioSpeed": true, "audioInstructions": true,
 		"systemPrompt": true,
 	}

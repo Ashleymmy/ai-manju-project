@@ -303,8 +303,13 @@ export function ImageWorkbenchView() {
     if (!preferences) return;
     setPromptPresets(preferences.canvas?.promptPresets || []);
     const generation = preferences.generation || {};
-    if (generation.size && ["1:1", "16:9", "9:16"].includes(generation.size)) {
-      const nextSize = generation.size as ImageWorkbenchSizeOption;
+    const savedSize = generation.size;
+    if (
+      savedSize &&
+      (IMAGE_WORKBENCH_SIZE_OPTIONS as readonly string[]).includes(savedSize) &&
+      isImageWorkbenchSizeAvailable(savedSize as ImageWorkbenchSizeOption)
+    ) {
+      const nextSize = savedSize as ImageWorkbenchSizeOption;
       setSize(nextSize);
       const pixels = workbenchPixelDimensions(nextSize, quality);
       if (pixels) {

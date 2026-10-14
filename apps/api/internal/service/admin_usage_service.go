@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ type UsageRow struct {
 	Internal            bool       `json:"internal"`
 	TaskType            string     `json:"task_type"`
 	Model               string     `json:"model"`
+	StudioModel         string     `json:"studio_model"`
 	Provider            string     `json:"provider"`
 	Status              string     `json:"status"`
 	QueuePhase          string     `json:"queue_phase"`
@@ -224,6 +226,8 @@ func (s *AdminUsageService) Report(f UsageFilter) (UsageReport, error) {
 		if g == nil {
 			g = &UsageGroup{Key: key, Label: label}
 			groups[key] = g
+		} else if f.GroupBy == "model" && usageLabelIsEndpoint(g.Label, key) && !usageLabelIsEndpoint(label, key) {
+			g.Label = label
 		}
 		addUsageTotals(&g.UsageTotals, row)
 	}
@@ -265,6 +269,7 @@ func usageJobRow(j model.Job) UsageRow {
 	_ = json.Unmarshal(j.Payload, &payload)
 	row := UsageRow{JobID: j.ID, UserID: j.UserID, WorkspaceID: j.WorkspaceID, TaskType: j.Type, Status: j.Status, QueuePhase: j.QueuePhase, CreatedAt: j.CreatedAt, StartedAt: j.StartedAt, FinishedAt: j.FinishedAt, Attempts: j.Attempts, CreditStatus: "untracked", Provider: j.ExternalProvider}
 	row.Model = usageString(payload, "model", "model_id")
+	row.StudioModel = usageString(payload, "studio_model")
 	if row.Provider == "" {
 		row.Provider = usageString(payload, "provider_id", "provider")
 	}
@@ -275,7 +280,7 @@ func usageJobRow(j model.Job) UsageRow {
 		}
 	}
 	row.Resolution = usageString(payload, "resolution", "size")
-	row.DurationSeconds = usageNumber(payload, "duration_sec", "duration_seconds", "duration")
+	row.DurationSeconds = usageNumber(payload, "billable_duration_sec", "actual_duration_sec", "duration_sec", "duration_seconds", "duration", "seconds")
 	row.OutputCount = usageNumber(payload, "n", "num_images", "count")
 	if row.OutputCount == 0 && strings.HasPrefix(j.Type, "image.") {
 		row.OutputCount = 1
@@ -294,6 +299,9 @@ func attachConsumption(row *UsageRow, c model.TaskConsumption) {
 	}
 	var p map[string]any
 	_ = json.Unmarshal(c.Params, &p)
+	if pricing := usageString(p, "pricing_model"); pricing != "" && (usageCatalogName(row.StudioModel) == "" || strings.EqualFold(usageCatalogName(row.StudioModel), row.Model)) {
+		row.StudioModel = pricing
+	}
 	row.PendingReason = ""
 	row.PendingAgeSeconds = 0
 	if c.Status == model.TaskConsumptionStatusReserved {
@@ -316,12 +324,51 @@ func attachConsumption(row *UsageRow, c model.TaskConsumption) {
 		}
 	}
 	if row.DurationSeconds == 0 {
-		row.DurationSeconds = usageNumber(p, "duration_sec", "duration")
+		row.DurationSeconds = usageNumber(p, "billable_duration_sec", "actual_duration_sec", "duration_sec", "duration_seconds", "duration", "seconds")
 	}
 	if row.Resolution == "" {
 		row.Resolution = usageString(p, "resolution", "size")
 	}
 }
+func usageCatalogName(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(value, "sdvideo/") {
+		return strings.TrimPrefix(value, "sdvideo/")
+	}
+	if i := strings.LastIndex(value, "::"); i >= 0 {
+		return strings.TrimSpace(value[i+2:])
+	}
+	return value
+}
+
+// Prefer the catalog name the member selected. Keep the upstream endpoint ID
+// when that is all the job recorded.
+func usageLabelIsEndpoint(label, key string) bool {
+	endpoint := key
+	if i := strings.LastIndex(key, "/"); i >= 0 {
+		endpoint = key[i+1:]
+	}
+	return strings.TrimSpace(label) == "" || strings.EqualFold(strings.TrimSpace(label), endpoint)
+}
+
+func UsageModelLabel(r UsageRow) string {
+	name := usageCatalogName(r.StudioModel)
+	endpoint := strings.TrimSpace(r.Model)
+	if name != "" && !strings.EqualFold(name, endpoint) {
+		return name
+	}
+	if endpoint != "" {
+		return endpoint
+	}
+	if name != "" {
+		return name
+	}
+	return "未记录模型"
+}
+
 func usageString(p map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if v, ok := p[key].(string); ok && strings.TrimSpace(v) != "" {
@@ -331,15 +378,47 @@ func usageString(p map[string]any, keys ...string) string {
 	return ""
 }
 func usageNumber(p map[string]any, keys ...string) float64 {
+	if p == nil {
+		return 0
+	}
 	for _, key := range keys {
-		if v, ok := p[key].(float64); ok && v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0) {
+		if v, ok := usageFloat(p[key]); ok && v > 0 {
 			return v
 		}
 	}
 	return 0
 }
+
+func usageFloat(value any) (float64, bool) {
+	switch n := value.(type) {
+	case float64:
+		if math.IsNaN(n) || math.IsInf(n, 0) {
+			return 0, false
+		}
+		return n, true
+	case string:
+		n = strings.TrimSpace(n)
+		if n == "" || n == "-1" {
+			return 0, false
+		}
+		parsed, err := strconv.ParseFloat(n, 64)
+		return parsed, err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0)
+	default:
+		return 0, false
+	}
+}
+
+func usageRateMatches(rate model.ModelCostRate, row UsageRow) bool {
+	name := strings.TrimSpace(rate.Model)
+	if name == "" {
+		return false
+	}
+	return strings.EqualFold(name, strings.TrimSpace(row.Model)) ||
+		strings.EqualFold(name, strings.TrimSpace(row.StudioModel)) ||
+		strings.EqualFold(name, usageCatalogName(row.StudioModel))
+}
 func matchesUsage(r UsageRow, f UsageFilter) bool {
-	return (f.UserID == "" || r.UserID == f.UserID) && (f.ProjectID == "" || r.ProjectID == f.ProjectID || (f.ProjectID == "unassigned" && r.ProjectID == "")) && (f.JobID == "" || strings.Contains(r.JobID, f.JobID)) && (f.Model == "" || strings.Contains(strings.ToLower(r.Model), strings.ToLower(f.Model))) && (f.Provider == "" || r.Provider == f.Provider) && (f.Status == "" || r.Status == f.Status) && (f.TaskType == "" || r.TaskType == f.TaskType) && (f.MemberKind == "" || (f.MemberKind == "internal" && r.Internal) || (f.MemberKind == "external" && !r.Internal))
+	return (f.UserID == "" || r.UserID == f.UserID) && (f.ProjectID == "" || r.ProjectID == f.ProjectID || (f.ProjectID == "unassigned" && r.ProjectID == "")) && (f.JobID == "" || strings.Contains(r.JobID, f.JobID)) && (f.Model == "" || strings.Contains(strings.ToLower(r.Model), strings.ToLower(f.Model)) || strings.Contains(strings.ToLower(r.StudioModel), strings.ToLower(f.Model)) || strings.Contains(strings.ToLower(usageCatalogName(r.StudioModel)), strings.ToLower(f.Model))) && (f.Provider == "" || r.Provider == f.Provider) && (f.Status == "" || r.Status == f.Status) && (f.TaskType == "" || r.TaskType == f.TaskType) && (f.MemberKind == "" || (f.MemberKind == "internal" && r.Internal) || (f.MemberKind == "external" && !r.Internal))
 }
 
 func estimateUsageCost(row *UsageRow, rates []model.ModelCostRate) {
@@ -351,7 +430,7 @@ func estimateUsageCost(row *UsageRow, rates []model.ModelCostRate) {
 	var rate *model.ModelCostRate
 	for i := range rates {
 		v := &rates[i]
-		if v.Model != row.Model || v.EffectiveAt.After(row.CreatedAt) || (v.Provider != "" && v.Provider != row.Provider) {
+		if !usageRateMatches(*v, *row) || v.EffectiveAt.After(row.CreatedAt) || (v.Provider != "" && v.Provider != row.Provider) {
 			continue
 		}
 		if rate == nil || (rate.Provider == "" && v.Provider != "") {
@@ -425,7 +504,7 @@ func usageGroupKey(r UsageRow, f UsageFilter) (string, string) {
 		}
 		return r.ProjectID, label
 	case "model":
-		return r.Provider + "/" + r.Model, r.Model
+		return r.Provider + "/" + r.Model, UsageModelLabel(r)
 	case "task":
 		return r.JobID, r.JobID
 	default:

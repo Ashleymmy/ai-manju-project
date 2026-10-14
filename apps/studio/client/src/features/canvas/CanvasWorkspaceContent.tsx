@@ -441,9 +441,11 @@ import {
   modelFromNode,
   nodeEditorTextFromNode,
   promptTextFromNode,
+  preferredCanvasImageCount,
+  preferredCanvasImageSize,
+  preferredCanvasVideoSize,
   sizeFromNode,
   videoConfigFromNode,
-  CANVAS_VIDEO_DEFAULT_RATIO,
   videoFileName,
   videoProviderFromNode,
   audioConfigFromNode,
@@ -734,6 +736,9 @@ export default function CanvasWorkspaceViewContent() {
   const shortcutsRef = useRef<CanvasShortcutBindings>({
     ...DEFAULT_CANVAS_SHORTCUTS,
   });
+  const preferredImageSizeRef = useRef(preferredCanvasImageSize(""));
+  const preferredVideoSizeRef = useRef(preferredCanvasVideoSize(""));
+  const preferredImageCountRef = useRef(preferredCanvasImageCount(1, 1));
   // 快捷键处理器声明在生成逻辑之前，用 ref 间接调用以避免前向引用。
   const runSelectedGenerationRef = useRef<() => Promise<void>>(
     async () => undefined
@@ -1195,10 +1200,19 @@ export default function CanvasWorkspaceViewContent() {
   const generationHistoryItems = useMemo(
     () =>
       mergeCanvasGenerationHistory(
-        collectCanvasGenerationHistory(nodes, previews, canvasAssets),
+        collectCanvasGenerationHistory(nodes, previews, [
+          ...canvasAssets,
+          ...serverVideoHistory.assets,
+        ]),
         collectCanvasGenerationHistory(historyAssetNodes)
       ),
-    [canvasAssets, nodes, previews, historyAssetNodes]
+    [
+      canvasAssets,
+      nodes,
+      previews,
+      historyAssetNodes,
+      serverVideoHistory.assets,
+    ]
   );
   // 视口裁剪（移植自旧优化引擎的可见区剔除思路）：只为"可视范围 + 600px 屏幕缓冲"内的节点挂载 DOM。
   // 缓冲区同时保证节点入场动画在屏外播完，正常平移不会看到节点闪现；缩略图/连线仍用全量 visibleNodes。
@@ -1992,6 +2006,17 @@ export default function CanvasWorkspaceViewContent() {
           ? preferencesResult.value.generation?.audioModel || ""
           : "";
       if (preferencesResult.status === "fulfilled") {
+        const generation = preferencesResult.value.generation || {};
+        preferredImageSizeRef.current = preferredCanvasImageSize(
+          generation.size
+        );
+        preferredVideoSizeRef.current = preferredCanvasVideoSize(
+          generation.videoSize
+        );
+        preferredImageCountRef.current = preferredCanvasImageCount(
+          generation.canvasImageCount,
+          generation.count
+        );
         setPromptPresets(preferencesResult.value.canvas?.promptPresets || []);
         setWheelZoomRequiresCtrl(
           preferencesResult.value.canvas?.wheelZoomRequiresCtrl !== false
@@ -2618,7 +2643,10 @@ export default function CanvasWorkspaceViewContent() {
         status: "idle",
         ...canvasImageParamDefaults(),
         ...(normalizedKind === "video"
-          ? { size: CANVAS_VIDEO_DEFAULT_RATIO }
+          ? { size: preferredVideoSizeRef.current }
+          : {}),
+        ...(normalizedKind === "image" || normalizedKind === "config"
+          ? { size: preferredImageSizeRef.current }
           : {}),
         resolution: "720p",
         seconds: "5",
@@ -2627,7 +2655,10 @@ export default function CanvasWorkspaceViewContent() {
         audioFormat: "mp3",
         audioSpeed: "1",
         audioInstructions: "",
-        count: 1,
+        count:
+          normalizedKind === "image" || normalizedKind === "config"
+            ? preferredImageCountRef.current
+            : 1,
         ...(normalizedKind === "director"
           ? {
               directorInstanceId: `director-${crypto.randomUUID()}`,

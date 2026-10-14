@@ -5,7 +5,10 @@ import {
   type VideoProvider,
 } from "@/features/video";
 import { isHiddenImageModel } from "@/shared/lib/modelSelection";
-import { MAX_IMAGE_GENERATION_COUNT } from "@/shared/config/generation";
+import {
+  IMAGE_GENERATION_COUNTS,
+  MAX_IMAGE_GENERATION_COUNT,
+} from "@/shared/config/generation";
 import { normalizeCanvasAudioGenerationConfig } from "./audioConfig";
 import {
   canvasTextComposerValue,
@@ -48,6 +51,22 @@ export const CANVAS_IMAGE_NODE_MIN_HEIGHT = 90;
 /** Allow one rounded pixel when reading older saved frames. */
 const CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE = 1;
 
+/** 画布图片可选比例。设置页和节点比例选择共用，避免再各写一套。 */
+export const CANVAS_IMAGE_SIZE_OPTIONS = [
+  "1:1",
+  "2:1",
+  "4:3",
+  "3:4",
+  "5:4",
+  "4:5",
+  "3:2",
+  "2:3",
+  "21:9",
+  "9:21",
+  "16:9",
+  "9:16",
+] as const;
+
 /** 画布图片「详细参数」默认：1K、4:3、低。旧的自适应比例在读取时改成 4:3。 */
 export const CANVAS_IMAGE_DEFAULT_RESOLUTION = "1K" as const;
 export const CANVAS_IMAGE_DEFAULT_SIZE = "4:3" as const;
@@ -75,6 +94,14 @@ const CANVAS_VIDEO_NODE_MAX_HEIGHT = CANVAS_IMAGE_NODE_MAX_HEIGHT;
 
 /** 视频节点使用明确比例；旧的自适应设置回退到横屏。 */
 export const CANVAS_VIDEO_DEFAULT_RATIO = "16:9";
+export const CANVAS_VIDEO_SIZE_OPTIONS = [
+  "16:9",
+  "9:16",
+  "1:1",
+  "4:3",
+  "3:4",
+  "21:9",
+] as const;
 /** OpenAI-compatible video providers express the same landscape default in pixels. */
 export const CANVAS_VIDEO_DEFAULT_SIZE = "1280x720";
 
@@ -570,6 +597,44 @@ export function qualityFromNode(node: CanvasNodeData): ImageQualityValue {
   const value = stringValue(node.metadata?.quality).toLowerCase();
   if (value === "low" || value === "medium" || value === "high") return value;
   return CANVAS_IMAGE_DEFAULT_QUALITY;
+}
+
+export function preferredCanvasImageSize(value: unknown) {
+  const size = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  // The old settings default was 1:1. Canvas image nodes are 4:3.
+  if (!size || size === "auto" || size === "adaptive" || size === "1:1") {
+    return CANVAS_IMAGE_DEFAULT_SIZE;
+  }
+  return (CANVAS_IMAGE_SIZE_OPTIONS as readonly string[]).includes(size)
+    ? size
+    : CANVAS_IMAGE_DEFAULT_SIZE;
+}
+
+export function preferredCanvasVideoSize(value: unknown) {
+  const size = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return (CANVAS_VIDEO_SIZE_OPTIONS as readonly string[]).includes(size)
+    ? size
+    : CANVAS_VIDEO_DEFAULT_RATIO;
+}
+
+/** Canvas quick choices are 1/2/4/6. An old saved 3 falls through to the image count. */
+export function preferredCanvasImageCount(
+  canvasCount: unknown,
+  imageCount: unknown
+) {
+  const listed = (value: unknown) => {
+    const count = Math.floor(Number(value));
+    return (IMAGE_GENERATION_COUNTS as readonly number[]).includes(count)
+      ? count
+      : 0;
+  };
+  return (
+    listed(canvasCount) || listed(imageCount) || IMAGE_GENERATION_COUNTS[0]
+  );
 }
 
 export function imageCountFromNode(node: CanvasNodeData) {

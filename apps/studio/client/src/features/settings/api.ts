@@ -16,6 +16,7 @@ export type UserGenerationPreferences = {
   size?: string;
   count?: string;
   canvasImageCount?: string;
+  videoSize?: string;
   videoSeconds?: string;
   vquality?: string;
   videoGenerateAudio?: string;
@@ -29,8 +30,14 @@ export type UserGenerationPreferences = {
 
 export type UserShortcutPreferences = Record<string, string[]>;
 
-export type ProjectGroupPreference = { id: string; title: string; projectIds: string[] };
-export type ProjectGroupPreferences = Partial<Record<"personal" | "team", ProjectGroupPreference[]>>;
+export type ProjectGroupPreference = {
+  id: string;
+  title: string;
+  projectIds: string[];
+};
+export type ProjectGroupPreferences = Partial<
+  Record<"personal" | "team", ProjectGroupPreference[]>
+>;
 
 export type UserPreferences = {
   generation?: UserGenerationPreferences;
@@ -59,7 +66,10 @@ export function getPreferences() {
 }
 
 export function updatePreferences(preferences: UserPreferencesPayload) {
-  return request<UserPreferences>("/api/user/preferences", { method: "PUT", body: preferences });
+  return request<UserPreferences>("/api/user/preferences", {
+    method: "PUT",
+    body: preferences,
+  });
 }
 
 export function getModels() {

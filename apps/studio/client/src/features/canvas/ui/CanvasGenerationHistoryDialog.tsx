@@ -1,6 +1,16 @@
 import { VideoThumbnail, videoPosterUrl } from "@/shared/ui/VideoThumbnail";
 import { RetryImage } from "@/shared/ui/RetryImage";
-import { Check, ChevronLeft, ChevronRight, Copy, Film, History, Image as ImageIcon, Plus, RotateCcw } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Film,
+  History,
+  Image as ImageIcon,
+  Plus,
+  RotateCcw,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
@@ -33,7 +43,10 @@ export type CanvasGenerationHistoryDialogProps = {
   preferredNodeId?: string;
   formatModel?: (model: string, kind: CanvasGenerationHistoryKind) => string;
   /** [画布别名] 历史保留标准名，别名只作为旁边的标签。 */
-  formatModelNickname?: (model: string, kind: CanvasGenerationHistoryKind) => string;
+  formatModelNickname?: (
+    model: string,
+    kind: CanvasGenerationHistoryKind
+  ) => string;
   onOpenChange: (open: boolean) => void;
   onApply: (nodeId: string) => void;
 };
@@ -47,12 +60,13 @@ const HISTORY_REFRESH_DONE_MS = 1500;
 function cloneDecodedImageSrc(src: string) {
   if (!src || typeof document === "undefined") return "";
   // naturalWidth is known once the header arrives; copying before `complete` yields a black frame.
-  const live = Array.from(document.images).find((img) => (
-    img.src === src
-    && img.complete
-    && img.naturalWidth > 0
-    && !img.closest(".canvas-generation-history-dialog")
-  ));
+  const live = Array.from(document.images).find(
+    img =>
+      img.src === src &&
+      img.complete &&
+      img.naturalWidth > 0 &&
+      !img.closest(".canvas-generation-history-dialog")
+  );
   if (!live) return "";
   try {
     const canvas = document.createElement("canvas");
@@ -116,7 +130,8 @@ function HistoryMedia({
     );
   }
   if (kind === "video") {
-    if (!videoControls) return <VideoThumbnail src={src} alt={alt || "视频封面"} />;
+    if (!videoControls)
+      return <VideoThumbnail src={src} alt={alt || "视频封面"} />;
     return (
       <video
         src={src}
@@ -167,7 +182,12 @@ function HistoryThumb({
       title={item.title}
       onClick={() => onSelect(item.nodeId)}
     >
-      <HistoryMedia key={retryRevision} url={item.previewUrl} kind={item.kind} onFailed={onFailed} />
+      <HistoryMedia
+        key={retryRevision}
+        url={item.previewUrl}
+        kind={item.kind}
+        onFailed={onFailed}
+      />
       <em>{formatCanvasGenerationClock(item.generatedAt) || "--:--:--"}</em>
     </button>
   );
@@ -195,42 +215,84 @@ export function CanvasGenerationHistoryDialog({
   });
   const appliedOpen = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [failedUrls, setFailedUrls] = useState<ReadonlySet<string>>(() => new Set());
+  const [failedUrls, setFailedUrls] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
   const [retryRevision, setRetryRevision] = useState(0);
   const markFailed = useCallback((url: string) => {
-    setFailedUrls(current => current.has(url) ? current : new Set(current).add(url));
+    setFailedUrls(current =>
+      current.has(url) ? current : new Set(current).add(url)
+    );
   }, []);
   const retryFailedMedia = () => {
     setFailedUrls(new Set());
     setRetryRevision(value => value + 1);
   };
-  const [refreshState, setRefreshState] = useState<"idle" | "refreshing" | "done">("idle");
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(refreshTimer.current), []);
+  const [refreshState, setRefreshState] = useState<
+    "idle" | "refreshing" | "done"
+  >("idle");
+  const [copiedJobId, setCopiedJobId] = useState("");
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
+  useEffect(
+    () => () => {
+      clearTimeout(refreshTimer.current);
+      clearTimeout(copyTimer.current);
+    },
+    []
+  );
   const refreshAllMedia = () => {
     clearTimeout(refreshTimer.current);
     retryFailedMedia();
     setRefreshState("refreshing");
     refreshTimer.current = setTimeout(() => {
       setRefreshState("done");
-      refreshTimer.current = setTimeout(() => setRefreshState("idle"), HISTORY_REFRESH_DONE_MS);
+      refreshTimer.current = setTimeout(
+        () => setRefreshState("idle"),
+        HISTORY_REFRESH_DONE_MS
+      );
     }, HISTORY_REFRESH_SPIN_MS);
   };
-  const refreshLabel = refreshState === "refreshing"
-    ? "刷新中…"
-    : failedUrls.size
-      ? `${failedUrls.size} 项${refreshState === "done" ? "仍无法显示 · 重试" : "未显示 · 刷新"}`
-      : refreshState === "done" ? "已刷新" : "刷新";
-  const groups = useMemo(() => groupCanvasGenerationHistory(items, kind), [items, kind]);
-  const visibleItems = useMemo(() => groups.flatMap(group => group.items), [groups]);
-  const selected = visibleItems.find(item => item.nodeId === selectedId) || visibleItems[0];
+  const refreshLabel =
+    refreshState === "refreshing"
+      ? "刷新中…"
+      : failedUrls.size
+        ? `${failedUrls.size} 项${refreshState === "done" ? "仍无法显示 · 重试" : "未显示 · 刷新"}`
+        : refreshState === "done"
+          ? "已刷新"
+          : "刷新";
+  const groups = useMemo(
+    () => groupCanvasGenerationHistory(items, kind),
+    [items, kind]
+  );
+  const visibleItems = useMemo(
+    () => groups.flatMap(group => group.items),
+    [groups]
+  );
+  const selected =
+    visibleItems.find(item => item.nodeId === selectedId) || visibleItems[0];
   const monthWeeks = useMemo(
-    () => buildCanvasGenerationHistoryMonth(visibleItems, monthCursor.year, monthCursor.monthIndex),
-    [monthCursor.monthIndex, monthCursor.year, visibleItems],
+    () =>
+      buildCanvasGenerationHistoryMonth(
+        visibleItems,
+        monthCursor.year,
+        monthCursor.monthIndex
+      ),
+    [monthCursor.monthIndex, monthCursor.year, visibleItems]
   );
   const monthDayItems = useMemo(
-    () => monthDayKey ? visibleItems.filter((item) => canvasGenerationHistoryDayKey(item.generatedAt) === monthDayKey) : [],
-    [monthDayKey, visibleItems],
+    () =>
+      monthDayKey
+        ? visibleItems.filter(
+            item =>
+              canvasGenerationHistoryDayKey(item.generatedAt) === monthDayKey
+          )
+        : [],
+    [monthDayKey, visibleItems]
   );
 
   useEffect(() => {
@@ -247,14 +309,16 @@ export function CanvasGenerationHistoryDialog({
       if (preferred) setKind(preferred.kind);
       const nextKind = preferred?.kind || kind;
       const nextVisible = items.filter(item => item.kind === nextKind);
-      setSelectedId(preferred && preferred.kind === nextKind
-        ? preferred.nodeId
-        : (nextVisible[0]?.nodeId || ""));
+      setSelectedId(
+        preferred && preferred.kind === nextKind
+          ? preferred.nodeId
+          : nextVisible[0]?.nodeId || ""
+      );
       appliedOpen.current = true;
       return;
     }
-    setSelectedId((current) => {
-      const ids = new Set(visibleItems.map((item) => item.nodeId));
+    setSelectedId(current => {
+      const ids = new Set(visibleItems.map(item => item.nodeId));
       if (ids.has(current)) return current;
       return visibleItems[0]?.nodeId || "";
     });
@@ -273,31 +337,44 @@ export function CanvasGenerationHistoryDialog({
   }, [open, viewMode]);
 
   const modelLabel = selected
-    ? (formatModel?.(selected.model, selected.kind) || selected.model || "—")
+    ? formatModel?.(selected.model, selected.kind) || selected.model || "—"
     : "—";
   // [画布别名]
-  const modelNickname = selected?.model ? formatModelNickname?.(selected.model, selected.kind) || "" : "";
+  const modelNickname = selected?.model
+    ? formatModelNickname?.(selected.model, selected.kind) || ""
+    : "";
   // Applying media that cannot load would only place a broken node on the canvas.
-  const selectedUnavailable = !selected?.previewUrl || failedUrls.has(selected.previewUrl);
+  const selectedUnavailable =
+    !selected?.previewUrl || failedUrls.has(selected.previewUrl);
 
-  const copySeed = async () => {
-    if (!selected?.seed) return;
+  const copyJobId = async () => {
+    const jobId = selected?.jobId;
+    if (!jobId) return;
     try {
-      await navigator.clipboard.writeText(selected.seed);
+      await navigator.clipboard.writeText(jobId);
     } catch {
-      /* ignore clipboard failures */
+      return;
     }
+    setCopiedJobId(jobId);
+    clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopiedJobId(""), 1600);
   };
 
-  const selectedDayKey = selected ? canvasGenerationHistoryDayKey(selected.generatedAt) : "";
+  const selectedDayKey = selected
+    ? canvasGenerationHistoryDayKey(selected.generatedAt)
+    : "";
 
   const setHistoryView = (next: CanvasGenerationHistoryView) => {
     setViewMode(next);
     if (next !== "month") setMonthDayKey("");
   };
 
-  const openMonthDay = (isoDate: string, itemsForDay: CanvasGenerationHistoryItem[]) => {
-    const next = itemsForDay.find((item) => item.nodeId === selectedId) || itemsForDay[0];
+  const openMonthDay = (
+    isoDate: string,
+    itemsForDay: CanvasGenerationHistoryItem[]
+  ) => {
+    const next =
+      itemsForDay.find(item => item.nodeId === selectedId) || itemsForDay[0];
     if (!next) return;
     setSelectedId(next.nodeId);
     setMonthDayKey(isoDate);
@@ -305,13 +382,29 @@ export function CanvasGenerationHistoryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-[1100px] canvas-generation-history-dialog" showCloseButton>
+      <DialogContent
+        className="p-0 gap-0 overflow-hidden sm:max-w-[1100px] canvas-generation-history-dialog"
+        showCloseButton
+      >
         <DialogHeader className="sr-only">
           <DialogTitle>生成历史</DialogTitle>
-          <DialogDescription>查看当前画布内的图片和视频生成记录。</DialogDescription>
+          <DialogDescription>
+            查看当前画布内的图片和视频生成记录。
+          </DialogDescription>
         </DialogHeader>
-        {loading && <p role="status" className="px-4 py-2 text-sm">正在读取服务端视频历史…</p>}
-        {error && <p role="alert" className="px-4 py-2 text-sm">{error} <button type="button" onClick={onRetry}>重试</button></p>}
+        {loading && (
+          <p role="status" className="px-4 py-2 text-sm">
+            正在读取服务端视频历史…
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="px-4 py-2 text-sm">
+            {error}{" "}
+            <button type="button" onClick={onRetry}>
+              重试
+            </button>
+          </p>
+        )}
         <div className="canvas-generation-history-shell">
           <aside className="canvas-generation-history-detail">
             {selected ? (
@@ -332,10 +425,40 @@ export function CanvasGenerationHistoryDialog({
                   <div>
                     <dt>任务 ID</dt>
                     <dd>
-                      <b title={selected.seed}>{selected.seed}</b>
-                      <button type="button" title="复制" onClick={() => void copySeed()}>
-                        <Copy size={12} />
-                      </button>
+                      <b
+                        className="canvas-generation-history-job-id"
+                        title={
+                          selected.jobId || "这条记录没有可对照的后台任务号"
+                        }
+                      >
+                        {selected.jobId || "—"}
+                      </b>
+                      {selected.jobId ? (
+                        <button
+                          type="button"
+                          className={
+                            copiedJobId === selected.jobId ? "is-copied" : ""
+                          }
+                          title={
+                            copiedJobId === selected.jobId ? "已复制" : "复制"
+                          }
+                          aria-label={
+                            copiedJobId === selected.jobId
+                              ? "已复制"
+                              : "复制任务 ID"
+                          }
+                          onClick={() => void copyJobId()}
+                        >
+                          {copiedJobId === selected.jobId ? (
+                            <Check size={12} />
+                          ) : (
+                            <Copy size={12} />
+                          )}
+                          {copiedJobId === selected.jobId ? (
+                            <span>已复制</span>
+                          ) : null}
+                        </button>
+                      ) : null}
                     </dd>
                   </div>
                   <div>
@@ -344,14 +467,21 @@ export function CanvasGenerationHistoryDialog({
                   </div>
                   <div>
                     <dt>生成时间</dt>
-                    <dd>{formatCanvasGenerationDateTime(selected.generatedAt)}</dd>
+                    <dd>
+                      {formatCanvasGenerationDateTime(selected.generatedAt)}
+                    </dd>
                   </div>
                   <div>
                     <dt>生成模型</dt>
                     <dd>
                       {modelLabel}
                       {modelNickname && modelNickname !== modelLabel ? (
-                        <span className="canvas-model-nickname" title="画布别名">{modelNickname}</span>
+                        <span
+                          className="canvas-model-nickname"
+                          title="画布别名"
+                        >
+                          {modelNickname}
+                        </span>
                       ) : null}
                     </dd>
                   </div>
@@ -380,7 +510,11 @@ export function CanvasGenerationHistoryDialog({
                   className="vermilion-button"
                   type="button"
                   disabled={selectedUnavailable}
-                  title={selectedUnavailable ? `${selected.kind === "video" ? "视频" : "图片"}无法加载，暂不能应用到画布` : undefined}
+                  title={
+                    selectedUnavailable
+                      ? `${selected.kind === "video" ? "视频" : "图片"}无法加载，暂不能应用到画布`
+                      : undefined
+                  }
                   onClick={() => onApply(selected.nodeId)}
                 >
                   <Plus size={14} />
@@ -397,10 +531,18 @@ export function CanvasGenerationHistoryDialog({
           <section className="canvas-generation-history-gallery">
             <div className="canvas-generation-history-toolbar">
               <div className="scope-switch">
-                <button type="button" className={kind === "image" ? "active" : ""} onClick={() => setKind("image")}>
+                <button
+                  type="button"
+                  className={kind === "image" ? "active" : ""}
+                  onClick={() => setKind("image")}
+                >
                   图片
                 </button>
-                <button type="button" className={kind === "video" ? "active" : ""} onClick={() => setKind("video")}>
+                <button
+                  type="button"
+                  className={kind === "video" ? "active" : ""}
+                  onClick={() => setKind("video")}
+                >
                   视频
                 </button>
               </div>
@@ -411,17 +553,29 @@ export function CanvasGenerationHistoryDialog({
                     "canvas-generation-history-refresh",
                     failedUrls.size ? "has-failures" : "",
                     refreshState === "refreshing" ? "is-refreshing" : "",
-                    refreshState === "done" && !failedUrls.size ? "is-done" : "",
-                  ].filter(Boolean).join(" ")}
+                    refreshState === "done" && !failedUrls.size
+                      ? "is-done"
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   title="重新加载全部预览"
                   disabled={refreshState === "refreshing"}
                   aria-live="polite"
                   onClick={refreshAllMedia}
                 >
-                  {refreshState === "done" && !failedUrls.size ? <Check size={13} /> : <RotateCcw size={13} />}
+                  {refreshState === "done" && !failedUrls.size ? (
+                    <Check size={13} />
+                  ) : (
+                    <RotateCcw size={13} />
+                  )}
                   {refreshLabel}
                 </button>
-                <div className="canvas-generation-history-views" role="tablist" aria-label="查看方式">
+                <div
+                  className="canvas-generation-history-views"
+                  role="tablist"
+                  aria-label="查看方式"
+                >
                   <button
                     type="button"
                     className={viewMode === "tile" ? "active" : ""}
@@ -456,22 +610,35 @@ export function CanvasGenerationHistoryDialog({
               {!visibleItems.length ? (
                 <div className="canvas-generation-history-empty">
                   <History size={26} />
-                  <p>{kind === "video" ? "当前画布还没有视频生成记录" : "当前画布还没有图片生成记录"}</p>
+                  <p>
+                    {kind === "video"
+                      ? "当前画布还没有视频生成记录"
+                      : "当前画布还没有图片生成记录"}
+                  </p>
                 </div>
               ) : viewMode === "month" ? (
                 <div className="canvas-generation-history-month">
                   {monthDayKey ? (
                     <>
                       <div className="canvas-generation-history-month-nav day-open">
-                        <button type="button" onClick={() => setMonthDayKey("")}>
+                        <button
+                          type="button"
+                          onClick={() => setMonthDayKey("")}
+                        >
                           <ChevronLeft size={16} />
                           返回
                         </button>
-                        <b>{monthDayItems[0] ? canvasGenerationHistoryDayLabel(monthDayItems[0].generatedAt) : monthDayKey}</b>
+                        <b>
+                          {monthDayItems[0]
+                            ? canvasGenerationHistoryDayLabel(
+                                monthDayItems[0].generatedAt
+                              )
+                            : monthDayKey}
+                        </b>
                       </div>
                       {monthDayItems.length ? (
                         <div className="canvas-generation-history-grid">
-                          {monthDayItems.map((item) => (
+                          {monthDayItems.map(item => (
                             <HistoryThumb
                               key={item.nodeId}
                               item={item}
@@ -485,7 +652,9 @@ export function CanvasGenerationHistoryDialog({
                       ) : (
                         <div className="canvas-generation-history-empty">
                           <History size={26} />
-                          <p>这一天没有{kind === "video" ? "视频" : "图片"}记录</p>
+                          <p>
+                            这一天没有{kind === "video" ? "视频" : "图片"}记录
+                          </p>
                         </div>
                       )}
                     </>
@@ -495,61 +664,106 @@ export function CanvasGenerationHistoryDialog({
                         <button
                           type="button"
                           title="上个月"
-                          onClick={() => setMonthCursor((current) => shiftCanvasGenerationHistoryMonth(current.year, current.monthIndex, -1))}
+                          onClick={() =>
+                            setMonthCursor(current =>
+                              shiftCanvasGenerationHistoryMonth(
+                                current.year,
+                                current.monthIndex,
+                                -1
+                              )
+                            )
+                          }
                         >
                           <ChevronLeft size={16} />
                         </button>
-                        <b>{canvasGenerationHistoryMonthLabel(monthCursor.year, monthCursor.monthIndex)}</b>
+                        <b>
+                          {canvasGenerationHistoryMonthLabel(
+                            monthCursor.year,
+                            monthCursor.monthIndex
+                          )}
+                        </b>
                         <button
                           type="button"
                           title="下个月"
-                          onClick={() => setMonthCursor((current) => shiftCanvasGenerationHistoryMonth(current.year, current.monthIndex, 1))}
+                          onClick={() =>
+                            setMonthCursor(current =>
+                              shiftCanvasGenerationHistoryMonth(
+                                current.year,
+                                current.monthIndex,
+                                1
+                              )
+                            )
+                          }
                         >
                           <ChevronRight size={16} />
                         </button>
                       </div>
                       <div className="canvas-generation-history-month-grid">
-                        {MONTH_WEEKDAYS.map((label) => (
+                        {MONTH_WEEKDAYS.map(label => (
                           <span key={label}>{label}</span>
                         ))}
-                        {monthWeeks.flatMap((week) => week.map((cell) => {
-                          const active = Boolean(selectedDayKey && cell.isoDate === selectedDayKey);
-                          const cover = cell.items.find((item) => item.nodeId === selectedId) || cell.items[0];
-                          const count = cell.items.length;
-                          return (
-                            <button
-                              key={cell.key}
-                              type="button"
-                              className={[
-                                cell.inMonth ? "" : "muted",
-                                count ? "has-items" : "",
-                                active ? "selected" : "",
-                              ].filter(Boolean).join(" ")}
-                              disabled={!count}
-                              title={count
-                                ? `查看当天 ${count} ${kind === "video" ? "个视频" : "张图片"}`
-                                : undefined}
-                              onClick={() => openMonthDay(cell.isoDate, cell.items)}
-                            >
-                              <b>{cell.day}</b>
-                              {cover ? <HistoryMedia key={retryRevision} url={cover.previewUrl} kind={cover.kind} onFailed={markFailed} /> : null}
-                              {count > 1 ? <i>{count}</i> : null}
-                            </button>
-                          );
-                        }))}
+                        {monthWeeks.flatMap(week =>
+                          week.map(cell => {
+                            const active = Boolean(
+                              selectedDayKey && cell.isoDate === selectedDayKey
+                            );
+                            const cover =
+                              cell.items.find(
+                                item => item.nodeId === selectedId
+                              ) || cell.items[0];
+                            const count = cell.items.length;
+                            return (
+                              <button
+                                key={cell.key}
+                                type="button"
+                                className={[
+                                  cell.inMonth ? "" : "muted",
+                                  count ? "has-items" : "",
+                                  active ? "selected" : "",
+                                ]
+                                  .filter(Boolean)
+                                  .join(" ")}
+                                disabled={!count}
+                                title={
+                                  count
+                                    ? `查看当天 ${count} ${kind === "video" ? "个视频" : "张图片"}`
+                                    : undefined
+                                }
+                                onClick={() =>
+                                  openMonthDay(cell.isoDate, cell.items)
+                                }
+                              >
+                                <b>{cell.day}</b>
+                                {cover ? (
+                                  <HistoryMedia
+                                    key={retryRevision}
+                                    url={cover.previewUrl}
+                                    kind={cover.kind}
+                                    onFailed={markFailed}
+                                  />
+                                ) : null}
+                                {count > 1 ? <i>{count}</i> : null}
+                              </button>
+                            );
+                          })
+                        )}
                       </div>
                     </>
                   )}
                 </div>
               ) : (
-                groups.map((group) => (
+                groups.map(group => (
                   <div
                     key={group.key}
-                    className={viewMode === "day" ? "canvas-generation-history-agenda" : "canvas-generation-history-group"}
+                    className={
+                      viewMode === "day"
+                        ? "canvas-generation-history-agenda"
+                        : "canvas-generation-history-group"
+                    }
                   >
                     <h3>{group.label}</h3>
                     <div className="canvas-generation-history-grid">
-                      {group.items.map((item) => (
+                      {group.items.map(item => (
                         <HistoryThumb
                           key={item.nodeId}
                           item={item}
