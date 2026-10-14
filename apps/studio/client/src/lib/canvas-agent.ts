@@ -51,14 +51,35 @@ export type CanvasAgentExecutionResult = {
 };
 
 export type CanvasAgentOp =
-  | { type: "add_node"; id?: string; nodeType?: string; title?: string; position?: { x: number; y: number }; x?: number; y?: number; width?: number; height?: number; metadata?: Record<string, unknown> }
-  | { type: "update_node"; id: string; patch?: Partial<CanvasAgentNode>; metadata?: Record<string, unknown> }
+  | {
+      type: "add_node";
+      id?: string;
+      nodeType?: string;
+      title?: string;
+      position?: { x: number; y: number };
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+      metadata?: Record<string, unknown>;
+    }
+  | {
+      type: "update_node";
+      id: string;
+      patch?: Partial<CanvasAgentNode>;
+      metadata?: Record<string, unknown>;
+    }
   | { type: "delete_node"; id?: string; ids?: string[]; nodeType?: string }
   | { type: "delete_connections"; id?: string; ids?: string[]; all?: boolean }
   | { type: "connect_nodes"; id?: string; fromNodeId: string; toNodeId: string }
   | { type: "set_viewport"; viewport: CanvasAgentViewport }
   | { type: "select_nodes"; ids: string[] }
-  | { type: "run_generation"; nodeId: string; mode?: CanvasAgentGenerationMode; prompt?: string };
+  | {
+      type: "run_generation";
+      nodeId: string;
+      mode?: CanvasAgentGenerationMode;
+      prompt?: string;
+    };
 
 export type CanvasAgentToolName =
   | "canvas_get_state"
@@ -121,25 +142,55 @@ const workspaceTools = new Set<CanvasAgentToolName>([
   "canvas_cancel_job",
 ]);
 
-const objectParameters = { type: "object", additionalProperties: true } as const;
+const objectParameters = {
+  type: "object",
+  additionalProperties: true,
+} as const;
 
-function tool(name: CanvasAgentToolName, description: string): CanvasAgentFunctionTool {
-  return { type: "function", function: { name, description, parameters: objectParameters } };
+function tool(
+  name: CanvasAgentToolName,
+  description: string
+): CanvasAgentFunctionTool {
+  return {
+    type: "function",
+    function: { name, description, parameters: objectParameters },
+  };
 }
 
 export const CANVAS_AGENT_TOOLS: readonly CanvasAgentFunctionTool[] = [
   tool("canvas_get_state", "读取当前画布节点、连线、选区和视口。"),
   tool("canvas_get_selection", "读取当前画布选中的节点。"),
   tool("canvas_export_snapshot", "导出当前画布快照。"),
-  tool("canvas_search_assets", "搜索当前 workspace 的资产库。参数可包含 keyword、assetType、category、sourceType、limit。"),
-  tool("canvas_add_assets", "把资产库素材添加到当前画布。参数包含 assetIds、x、y、direction、gap。"),
-  tool("canvas_list_jobs", "读取当前 workspace 的生成任务。参数可包含 statuses、types、limit。"),
+  tool(
+    "canvas_search_assets",
+    "搜索当前 workspace 的资产库。参数可包含 keyword、assetType、category、sourceType、limit。"
+  ),
+  tool(
+    "canvas_add_assets",
+    "把资产库素材添加到当前画布。参数包含 assetIds、x、y、direction、gap。"
+  ),
+  tool(
+    "canvas_list_jobs",
+    "读取当前 workspace 的生成任务。参数可包含 statuses、types、limit。"
+  ),
   tool("canvas_cancel_job", "取消生成任务。参数包含 jobId。"),
   tool("canvas_apply_ops", "批量执行画布操作。参数包含 ops 数组。"),
-  tool("canvas_create_node", "创建任意节点。参数包含 nodeType、title、x、y、width、height、metadata。"),
-  tool("canvas_create_text_node", "创建单个文本节点。参数包含 text、title、x、y。"),
-  tool("canvas_create_text_nodes", "批量创建文本节点。参数包含 items、x、y、gap、direction。"),
-  tool("canvas_create_config_node", "创建生成配置节点。参数包含 prompt、mode、model、size、quality、count、seconds、autoRun。"),
+  tool(
+    "canvas_create_node",
+    "创建任意节点。参数包含 nodeType、title、x、y、width、height、metadata。"
+  ),
+  tool(
+    "canvas_create_text_node",
+    "创建单个文本节点。参数包含 text、title、x、y。"
+  ),
+  tool(
+    "canvas_create_text_nodes",
+    "批量创建文本节点。参数包含 items、x、y、gap、direction。"
+  ),
+  tool(
+    "canvas_create_config_node",
+    "创建生成配置节点。参数包含 prompt、mode、model、size、quality、count、seconds、autoRun。"
+  ),
   tool("canvas_create_image_prompt_flow", "创建提示词和图片生成配置流程。"),
   tool("canvas_create_generation_flow", "创建文本、图片、视频或音频生成流程。"),
   tool("canvas_generate_text", "创建并运行文本生成流程。"),
@@ -157,17 +208,25 @@ export const CANVAS_AGENT_TOOLS: readonly CanvasAgentFunctionTool[] = [
   tool("canvas_run_generation", "触发指定节点生成。"),
 ];
 
-const toolNames = new Set<CanvasAgentToolName>(CANVAS_AGENT_TOOLS.map((item) => item.function.name));
+const toolNames = new Set<CanvasAgentToolName>(
+  CANVAS_AGENT_TOOLS.map(item => item.function.name)
+);
 
-export function isCanvasAgentReadTool(name: string): name is CanvasAgentToolName {
+export function isCanvasAgentReadTool(
+  name: string
+): name is CanvasAgentToolName {
   return readTools.has(name as CanvasAgentToolName);
 }
 
-export function isCanvasAgentToolName(name: string): name is CanvasAgentToolName {
+export function isCanvasAgentToolName(
+  name: string
+): name is CanvasAgentToolName {
   return toolNames.has(name as CanvasAgentToolName);
 }
 
-export function isCanvasAgentWorkspaceTool(name: string): name is CanvasAgentToolName {
+export function isCanvasAgentWorkspaceTool(
+  name: string
+): name is CanvasAgentToolName {
   return workspaceTools.has(name as CanvasAgentToolName);
 }
 
@@ -178,7 +237,7 @@ export function compactCanvasAgentSnapshot(snapshot: CanvasAgentSnapshot) {
     title: snapshot.title,
     viewport: snapshot.viewport,
     selectedNodeIds: snapshot.selectedNodeIds,
-    nodes: snapshot.nodes.map((node) => ({
+    nodes: snapshot.nodes.map(node => ({
       id: node.id,
       type: node.type,
       title: node.title,
@@ -193,11 +252,16 @@ export function compactCanvasAgentSnapshot(snapshot: CanvasAgentSnapshot) {
 
 export function summarizeCanvasAgentOps(ops: readonly CanvasAgentOp[] = []) {
   const counts = new Map<string, number>();
-  ops.forEach((op) => counts.set(op.type, (counts.get(op.type) || 0) + 1));
-  return Array.from(counts).map(([type, count]) => `${opLabel(type)} ${count}`).join("，");
+  ops.forEach(op => counts.set(op.type, (counts.get(op.type) || 0) + 1));
+  return Array.from(counts)
+    .map(([type, count]) => `${opLabel(type)} ${count}`)
+    .join("，");
 }
 
-export function applyCanvasAgentOps(snapshot: CanvasAgentSnapshot, ops: readonly CanvasAgentOp[] = []): CanvasAgentSnapshot {
+export function applyCanvasAgentOps(
+  snapshot: CanvasAgentSnapshot,
+  ops: readonly CanvasAgentOp[] = []
+): CanvasAgentSnapshot {
   let nodes = snapshot.nodes;
   let connections = snapshot.connections;
   let selectedNodeIds = snapshot.selectedNodeIds;
@@ -212,119 +276,272 @@ export function applyCanvasAgentOps(snapshot: CanvasAgentSnapshot, ops: readonly
         type: nodeType,
         kind: nodeType,
         title: op.title || spec.title,
-        content: stringValue(op.metadata?.content) || stringValue(op.metadata?.prompt),
-        position: op.position || { x: op.x ?? index * 36, y: op.y ?? index * 36 },
+        content:
+          stringValue(op.metadata?.content) || stringValue(op.metadata?.prompt),
+        position: op.position || {
+          x: op.x ?? index * 36,
+          y: op.y ?? index * 36,
+        },
         width: positiveNumber(op.width, spec.width),
         height: positiveNumber(op.height, spec.height),
-        metadata: { ...spec.metadata, ...(nodeType === "config" ? { size: "auto" } : {}), ...op.metadata },
+        metadata: {
+          ...spec.metadata,
+          ...(nodeType === "config" ? { size: "4:3" } : {}),
+          ...op.metadata,
+        },
       };
       nodes = [...nodes, node];
       selectedNodeIds = [node.id];
       return;
     }
     if (op.type === "update_node") {
-      nodes = nodes.map((node) => node.id === op.id ? {
-        ...node,
-        ...op.patch,
-        metadata: { ...node.metadata, ...op.patch?.metadata, ...op.metadata },
-      } : node);
+      nodes = nodes.map(node =>
+        node.id === op.id
+          ? {
+              ...node,
+              ...op.patch,
+              metadata: {
+                ...node.metadata,
+                ...op.patch?.metadata,
+                ...op.metadata,
+              },
+            }
+          : node
+      );
       return;
     }
     if (op.type === "delete_node") {
-      const ids = new Set(op.ids || (op.id ? [op.id] : op.nodeType ? nodes.filter((node) => node.type === op.nodeType).map((node) => node.id) : []));
-      nodes = nodes.filter((node) => !ids.has(node.id));
-      connections = connections.filter((edge) => !ids.has(edge.fromNodeId) && !ids.has(edge.toNodeId));
-      selectedNodeIds = selectedNodeIds.filter((id) => !ids.has(id));
+      const ids = new Set(
+        op.ids ||
+          (op.id
+            ? [op.id]
+            : op.nodeType
+              ? nodes
+                  .filter(node => node.type === op.nodeType)
+                  .map(node => node.id)
+              : [])
+      );
+      nodes = nodes.filter(node => !ids.has(node.id));
+      connections = connections.filter(
+        edge => !ids.has(edge.fromNodeId) && !ids.has(edge.toNodeId)
+      );
+      selectedNodeIds = selectedNodeIds.filter(id => !ids.has(id));
       return;
     }
     if (op.type === "delete_connections") {
       const ids = new Set(op.ids || (op.id ? [op.id] : []));
-      connections = op.all ? [] : connections.filter((edge) => !ids.has(edge.id));
+      connections = op.all ? [] : connections.filter(edge => !ids.has(edge.id));
       return;
     }
     if (op.type === "connect_nodes") {
-      const valid = nodes.some((node) => node.id === op.fromNodeId) && nodes.some((node) => node.id === op.toNodeId);
-      const exists = connections.some((edge) => edge.fromNodeId === op.fromNodeId && edge.toNodeId === op.toNodeId);
+      const valid =
+        nodes.some(node => node.id === op.fromNodeId) &&
+        nodes.some(node => node.id === op.toNodeId);
+      const exists = connections.some(
+        edge =>
+          edge.fromNodeId === op.fromNodeId && edge.toNodeId === op.toNodeId
+      );
       if (valid && !exists && op.fromNodeId !== op.toNodeId) {
-        connections = [...connections, { id: op.id || crypto.randomUUID(), fromNodeId: op.fromNodeId, toNodeId: op.toNodeId }];
+        connections = [
+          ...connections,
+          {
+            id: op.id || crypto.randomUUID(),
+            fromNodeId: op.fromNodeId,
+            toNodeId: op.toNodeId,
+          },
+        ];
       }
       return;
     }
     if (op.type === "select_nodes") {
-      selectedNodeIds = op.ids.filter((id) => nodes.some((node) => node.id === id));
+      selectedNodeIds = op.ids.filter(id => nodes.some(node => node.id === id));
       return;
     }
-    if (op.type === "set_viewport") viewport = normalizeViewport(op.viewport, viewport);
+    if (op.type === "set_viewport")
+      viewport = normalizeViewport(op.viewport, viewport);
   });
 
-  return { ...snapshot, protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION,
-    nodes: placeCanvasAgentGenerationFlows(snapshot.nodes, nodes), connections, selectedNodeIds, viewport };
+  return {
+    ...snapshot,
+    protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION,
+    nodes: placeCanvasAgentGenerationFlows(snapshot.nodes, nodes),
+    connections,
+    selectedNodeIds,
+    viewport,
+  };
 }
 
 export function canvasAgentToolToOps(
   name: string,
   input: Record<string, unknown>,
-  snapshot: CanvasAgentSnapshot,
+  snapshot: CanvasAgentSnapshot
 ): CanvasAgentOp[] {
   if (name === "canvas_apply_ops") return requireOps(input.ops);
-  if (name === "canvas_create_node") return [{
-    type: "add_node",
-    nodeType: stringValue(input.nodeType),
-    title: stringValue(input.title) || undefined,
-    x: finiteNumber(input.x),
-    y: finiteNumber(input.y),
-    width: finiteNumber(input.width),
-    height: finiteNumber(input.height),
-    metadata: recordValue(input.metadata),
-  }];
-  if (name === "canvas_create_text_node") return [textNodeOp(input, finiteNumber(input.x) ?? nextCanvasX(snapshot), finiteNumber(input.y) ?? 0)];
+  if (name === "canvas_create_node")
+    return [
+      {
+        type: "add_node",
+        nodeType: stringValue(input.nodeType),
+        title: stringValue(input.title) || undefined,
+        x: finiteNumber(input.x),
+        y: finiteNumber(input.y),
+        width: finiteNumber(input.width),
+        height: finiteNumber(input.height),
+        metadata: recordValue(input.metadata),
+      },
+    ];
+  if (name === "canvas_create_text_node")
+    return [
+      textNodeOp(
+        input,
+        finiteNumber(input.x) ?? nextCanvasX(snapshot),
+        finiteNumber(input.y) ?? 0
+      ),
+    ];
   if (name === "canvas_create_text_nodes") {
-    const items = Array.isArray(input.items) ? input.items.filter(isRecord) : [];
+    const items = Array.isArray(input.items)
+      ? input.items.filter(isRecord)
+      : [];
     const x = finiteNumber(input.x) ?? nextCanvasX(snapshot);
     const y = finiteNumber(input.y) ?? 0;
     const gap = finiteNumber(input.gap) ?? 40;
     const direction = input.direction === "row" ? "row" : "column";
-    return items.map((item, index) => textNodeOp(
-      item,
-      finiteNumber(item.x) ?? (direction === "row" ? x + index * (340 + gap) : x),
-      finiteNumber(item.y) ?? (direction === "row" ? y : y + index * (220 + gap)),
-    ));
+    return items.map((item, index) =>
+      textNodeOp(
+        item,
+        finiteNumber(item.x) ??
+          (direction === "row" ? x + index * (340 + gap) : x),
+        finiteNumber(item.y) ??
+          (direction === "row" ? y : y + index * (220 + gap))
+      )
+    );
   }
   if (name === "canvas_create_config_node") {
     const id = `config-${crypto.randomUUID()}`;
-    const op = configNodeOp(id, input, finiteNumber(input.x) ?? nextCanvasX(snapshot), finiteNumber(input.y) ?? 0);
-    return [op, ...(input.autoRun ? [runGenerationOp(id, generationMode(input.mode), stringValue(input.prompt))] : [])];
+    const op = configNodeOp(
+      id,
+      input,
+      finiteNumber(input.x) ?? nextCanvasX(snapshot),
+      finiteNumber(input.y) ?? 0
+    );
+    return [
+      op,
+      ...(input.autoRun
+        ? [
+            runGenerationOp(
+              id,
+              generationMode(input.mode),
+              stringValue(input.prompt)
+            ),
+          ]
+        : []),
+    ];
   }
-  if (name === "canvas_create_image_prompt_flow") return generationFlowOps({ ...input, mode: "image" }, snapshot);
-  if (name === "canvas_create_generation_flow") return generationFlowOps(input, snapshot);
-  if (name.startsWith("canvas_generate_")) return generationFlowOps({ ...input, mode: name.replace("canvas_generate_", ""), autoRun: true }, snapshot);
-  if (name === "canvas_update_node") return [{ type: "update_node", id: stringValue(input.id), patch: recordValue(input.patch) as Partial<CanvasAgentNode>, metadata: recordValue(input.metadata) }];
-  if (name === "canvas_update_node_text") return [{ type: "update_node", id: stringValue(input.id), patch: stringValue(input.title) ? { title: stringValue(input.title) } : undefined, metadata: { content: stringValue(input.text), prompt: stringValue(input.text), status: "success" } }];
+  if (name === "canvas_create_image_prompt_flow")
+    return generationFlowOps({ ...input, mode: "image" }, snapshot);
+  if (name === "canvas_create_generation_flow")
+    return generationFlowOps(input, snapshot);
+  if (name.startsWith("canvas_generate_"))
+    return generationFlowOps(
+      { ...input, mode: name.replace("canvas_generate_", ""), autoRun: true },
+      snapshot
+    );
+  if (name === "canvas_update_node")
+    return [
+      {
+        type: "update_node",
+        id: stringValue(input.id),
+        patch: recordValue(input.patch) as Partial<CanvasAgentNode>,
+        metadata: recordValue(input.metadata),
+      },
+    ];
+  if (name === "canvas_update_node_text")
+    return [
+      {
+        type: "update_node",
+        id: stringValue(input.id),
+        patch: stringValue(input.title)
+          ? { title: stringValue(input.title) }
+          : undefined,
+        metadata: {
+          content: stringValue(input.text),
+          prompt: stringValue(input.text),
+          status: "success",
+        },
+      },
+    ];
   if (name === "canvas_move_nodes") {
-    const items = Array.isArray(input.items) ? input.items.filter(isRecord) : [];
-    return items.map((item) => {
+    const items = Array.isArray(input.items)
+      ? input.items.filter(isRecord)
+      : [];
+    return items.map(item => {
       const id = stringValue(item.id);
-      const current = snapshot.nodes.find((node) => node.id === id);
+      const current = snapshot.nodes.find(node => node.id === id);
       return {
         type: "update_node" as const,
         id,
-        patch: { position: {
-          x: finiteNumber(item.x) ?? ((current?.position.x || 0) + (finiteNumber(item.dx) || 0)),
-          y: finiteNumber(item.y) ?? ((current?.position.y || 0) + (finiteNumber(item.dy) || 0)),
-        } },
+        patch: {
+          position: {
+            x:
+              finiteNumber(item.x) ??
+              (current?.position.x || 0) + (finiteNumber(item.dx) || 0),
+            y:
+              finiteNumber(item.y) ??
+              (current?.position.y || 0) + (finiteNumber(item.dy) || 0),
+          },
+        },
       };
     });
   }
-  if (name === "canvas_resize_node") return [{ type: "update_node", id: stringValue(input.id), patch: { width: finiteNumber(input.width), height: finiteNumber(input.height) }, metadata: typeof input.freeResize === "boolean" ? { freeResize: input.freeResize } : undefined }];
-  if (name === "canvas_delete_nodes") return [{ type: "delete_node", ids: stringValues(input.ids) }];
-  if (name === "canvas_connect_nodes") return (Array.isArray(input.connections) ? input.connections.filter(isRecord) : []).map((edge) => ({ type: "connect_nodes" as const, fromNodeId: stringValue(edge.fromNodeId), toNodeId: stringValue(edge.toNodeId) }));
-  if (name === "canvas_select_nodes") return [{ type: "select_nodes", ids: stringValues(input.ids) }];
-  if (name === "canvas_set_viewport") return [{ type: "set_viewport", viewport: normalizeViewport(input.viewport, snapshot.viewport) }];
-  if (name === "canvas_run_generation") return [runGenerationOp(stringValue(input.nodeId), generationMode(input.mode), stringValue(input.prompt))];
+  if (name === "canvas_resize_node")
+    return [
+      {
+        type: "update_node",
+        id: stringValue(input.id),
+        patch: {
+          width: finiteNumber(input.width),
+          height: finiteNumber(input.height),
+        },
+        metadata:
+          typeof input.freeResize === "boolean"
+            ? { freeResize: input.freeResize }
+            : undefined,
+      },
+    ];
+  if (name === "canvas_delete_nodes")
+    return [{ type: "delete_node", ids: stringValues(input.ids) }];
+  if (name === "canvas_connect_nodes")
+    return (
+      Array.isArray(input.connections) ? input.connections.filter(isRecord) : []
+    ).map(edge => ({
+      type: "connect_nodes" as const,
+      fromNodeId: stringValue(edge.fromNodeId),
+      toNodeId: stringValue(edge.toNodeId),
+    }));
+  if (name === "canvas_select_nodes")
+    return [{ type: "select_nodes", ids: stringValues(input.ids) }];
+  if (name === "canvas_set_viewport")
+    return [
+      {
+        type: "set_viewport",
+        viewport: normalizeViewport(input.viewport, snapshot.viewport),
+      },
+    ];
+  if (name === "canvas_run_generation")
+    return [
+      runGenerationOp(
+        stringValue(input.nodeId),
+        generationMode(input.mode),
+        stringValue(input.prompt)
+      ),
+    ];
   return [];
 }
 
-function generationFlowOps(input: Record<string, unknown>, snapshot: CanvasAgentSnapshot): CanvasAgentOp[] {
+function generationFlowOps(
+  input: Record<string, unknown>,
+  snapshot: CanvasAgentSnapshot
+): CanvasAgentOp[] {
   const mode = generationMode(input.mode);
   const prompt = stringValue(input.prompt);
   const x = finiteNumber(input.x) ?? nextCanvasX(snapshot);
@@ -332,26 +549,60 @@ function generationFlowOps(input: Record<string, unknown>, snapshot: CanvasAgent
   const textId = `text-${crypto.randomUUID()}`;
   const configId = `config-${crypto.randomUUID()}`;
   const referenceNodeIds = stringValues(input.referenceNodeIds);
-  const composer = [`@[node:${textId}]`, ...referenceNodeIds.map((id) => `@[node:${id}]`)].join("\n");
+  const composer = [
+    `@[node:${textId}]`,
+    ...referenceNodeIds.map(id => `@[node:${id}]`),
+  ].join("\n");
   const ops: CanvasAgentOp[] = [
-    textNodeOp({ text: prompt, title: stringValue(input.title) || "提示词" }, x, y, textId),
+    textNodeOp(
+      { text: prompt, title: stringValue(input.title) || "提示词" },
+      x,
+      y,
+      textId
+    ),
     configNodeOp(configId, { ...input, prompt: composer }, x + 420, y),
     { type: "connect_nodes", fromNodeId: textId, toNodeId: configId },
-    ...referenceNodeIds.map((fromNodeId): CanvasAgentOp => ({ type: "connect_nodes", fromNodeId, toNodeId: configId })),
+    ...referenceNodeIds.map((fromNodeId): CanvasAgentOp => ({
+      type: "connect_nodes",
+      fromNodeId,
+      toNodeId: configId,
+    })),
     { type: "select_nodes", ids: [configId] },
     ...(input.autoRun ? [runGenerationOp(configId, mode, composer)] : []),
   ];
-  return ops.map(op => op.type === "add_node"
-    ? { ...op, metadata: { ...op.metadata, agentGenerationFlowId: configId } }
-    : op);
+  return ops.map(op =>
+    op.type === "add_node"
+      ? { ...op, metadata: { ...op.metadata, agentGenerationFlowId: configId } }
+      : op
+  );
 }
 
-function textNodeOp(input: Record<string, unknown>, x: number, y: number, id?: string): CanvasAgentOp {
+function textNodeOp(
+  input: Record<string, unknown>,
+  x: number,
+  y: number,
+  id?: string
+): CanvasAgentOp {
   const text = stringValue(input.text);
-  return { type: "add_node", id, nodeType: "text", title: stringValue(input.title) || "文本", x, y, width: finiteNumber(input.width), height: finiteNumber(input.height), metadata: { content: text, prompt: text, status: "success" } };
+  return {
+    type: "add_node",
+    id,
+    nodeType: "text",
+    title: stringValue(input.title) || "文本",
+    x,
+    y,
+    width: finiteNumber(input.width),
+    height: finiteNumber(input.height),
+    metadata: { content: text, prompt: text, status: "success" },
+  };
 }
 
-function configNodeOp(id: string, input: Record<string, unknown>, x: number, y: number): CanvasAgentOp {
+function configNodeOp(
+  id: string,
+  input: Record<string, unknown>,
+  x: number,
+  y: number
+): CanvasAgentOp {
   const mode = generationMode(input.mode);
   const prompt = stringValue(input.prompt);
   return {
@@ -385,25 +636,43 @@ function configNodeOp(id: string, input: Record<string, unknown>, x: number, y: 
   };
 }
 
-function runGenerationOp(nodeId: string, mode: CanvasAgentGenerationMode, prompt?: string): CanvasAgentOp {
+function runGenerationOp(
+  nodeId: string,
+  mode: CanvasAgentGenerationMode,
+  prompt?: string
+): CanvasAgentOp {
   return { type: "run_generation", nodeId, mode, prompt };
 }
 
 function requireOps(value: unknown) {
-  return Array.isArray(value) ? value.filter((item): item is CanvasAgentOp => isRecord(item) && typeof item.type === "string") : [];
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is CanvasAgentOp =>
+          isRecord(item) && typeof item.type === "string"
+      )
+    : [];
 }
 
 function nextCanvasX(snapshot: CanvasAgentSnapshot) {
-  return snapshot.nodes.length ? Math.max(...snapshot.nodes.map((node) => node.position.x + node.width)) + 80 : 0;
+  return snapshot.nodes.length
+    ? Math.max(...snapshot.nodes.map(node => node.position.x + node.width)) + 80
+    : 0;
 }
 
 function normalizeNodeType(value: unknown) {
   const type = stringValue(value).toLowerCase();
-  return type === "image" || type === "config" || type === "video" || type === "audio" ? type : "text";
+  return type === "image" ||
+    type === "config" ||
+    type === "video" ||
+    type === "audio"
+    ? type
+    : "text";
 }
 
 function generationMode(value: unknown): CanvasAgentGenerationMode {
-  return value === "text" || value === "video" || value === "audio" ? value : "image";
+  return value === "text" || value === "video" || value === "audio"
+    ? value
+    : "image";
 }
 
 function generationTitle(mode: CanvasAgentGenerationMode) {
@@ -414,11 +683,40 @@ function generationTitle(mode: CanvasAgentGenerationMode) {
 }
 
 function nodeSpec(type: string) {
-  if (type === "image") return { title: "图片", width: 320, height: 238, metadata: { status: "idle" } };
-  if (type === "video") return { title: "视频", width: 420, height: 260, metadata: { status: "idle", generationMode: "video" } };
-  if (type === "audio") return { title: "音频", width: 360, height: 120, metadata: { status: "idle", generationMode: "audio" } };
-  if (type === "config") return { title: "生成配置", width: 360, height: 260, metadata: { status: "idle", generationMode: "image", size: "auto" } };
-  return { title: "文本", width: 300, height: 170, metadata: { status: "success" } };
+  if (type === "image")
+    return {
+      title: "图片",
+      width: 320,
+      height: 238,
+      metadata: { status: "idle" },
+    };
+  if (type === "video")
+    return {
+      title: "视频",
+      width: 420,
+      height: 260,
+      metadata: { status: "idle", generationMode: "video" },
+    };
+  if (type === "audio")
+    return {
+      title: "音频",
+      width: 360,
+      height: 120,
+      metadata: { status: "idle", generationMode: "audio" },
+    };
+  if (type === "config")
+    return {
+      title: "生成配置",
+      width: 360,
+      height: 260,
+      metadata: { status: "idle", generationMode: "image", size: "4:3" },
+    };
+  return {
+    title: "文本",
+    width: 300,
+    height: 170,
+    metadata: { status: "success" },
+  };
 }
 
 function normalizeViewport(value: unknown, fallback: CanvasAgentViewport) {
@@ -457,7 +755,14 @@ function stringValue(value: unknown) {
 }
 
 function stringValues(value: unknown) {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim()) : [];
+  return Array.isArray(value)
+    ? value
+        .filter(
+          (item): item is string =>
+            typeof item === "string" && Boolean(item.trim())
+        )
+        .map(item => item.trim())
+    : [];
 }
 
 function recordValue(value: unknown) {
@@ -469,7 +774,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function definedFields(value: Record<string, unknown>) {
-  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined && item !== ""));
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([, item]) => item !== undefined && item !== ""
+    )
+  );
 }
 
 function compactAgentMetadata(metadata: Record<string, unknown> | undefined) {

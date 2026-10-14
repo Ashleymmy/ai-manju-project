@@ -23,7 +23,7 @@ describe("Chat project flow", () => {
           metadata: {
             content: "雨夜追逐",
             status: "idle",
-            size: "auto",
+            size: "4:3",
             quality: "low",
             imageResolution: "1K",
             count: 1,
@@ -42,7 +42,7 @@ describe("Chat project flow", () => {
             content: "雨夜追逐",
             generationMode: "image",
             status: "idle",
-            size: "auto",
+            size: "4:3",
             quality: "low",
             imageResolution: "1K",
             count: 1,
@@ -131,18 +131,24 @@ describe("Chat project flow", () => {
     try {
       const flow = createChatProjectFlow({
         navigate: vi.fn(),
-        createProject: vi.fn().mockResolvedValue({ id: "project-selected-model" }),
+        createProject: vi
+          .fn()
+          .mockResolvedValue({ id: "project-selected-model" }),
         createId: () => "node-id",
         model: "provider-b::text-model",
       });
       await flow("雨夜追逐");
 
       expect(consumeCanvasBootstrapPayload("other-project")).toBeNull();
-      expect(consumeCanvasBootstrapPayload("project-selected-model")).toMatchObject({
+      expect(
+        consumeCanvasBootstrapPayload("project-selected-model")
+      ).toMatchObject({
         prompt: "雨夜追逐",
         model: "provider-b::text-model",
       });
-      expect(consumeCanvasBootstrapPayload("project-selected-model")).toBeNull();
+      expect(
+        consumeCanvasBootstrapPayload("project-selected-model")
+      ).toBeNull();
     } finally {
       vi.unstubAllGlobals();
     }

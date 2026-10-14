@@ -918,7 +918,7 @@ func (h *ModelProviderHandler) AggregatedModelsWithSDVideo(c *gin.Context, clien
 		}
 		providerNames[encoded] = "SD-video"
 		caps := catalogVideoCapabilities(key)
-		caps.Resolutions, caps.Ratios, caps.Supports, caps.HasAudio = item.Resolutions, item.Ratios, item.Supports, item.HasAudio
+		caps.Resolutions, caps.Ratios, caps.Supports, caps.HasAudio = item.Resolutions, withoutAutomaticVideoRatios(item.Ratios), item.Supports, item.HasAudio
 		if item.References != nil {
 			caps.References = item.References
 		}

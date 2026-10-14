@@ -1,50 +1,184 @@
 import { createContext, useContext } from "react";
 import { GenerationPrice } from "@/features/member";
-import { canvasImageAutoReferenceSize, canvasImageGenerationSettings } from "../domain/imageGenerationSettings";
-import { generationModeFromNode, imageCountFromNode, modelFromNode, promptTextFromNode, videoConfigFromNode } from "../domain/nodeUtils";
-import { extractCanvasMentionTokens, type CanvasMentionReference } from "../domain/mentions";
+import {
+  canvasImageAutoReferenceSize,
+  canvasImageGenerationSettings,
+} from "../domain/imageGenerationSettings";
+import {
+  generationModeFromNode,
+  imageCountFromNode,
+  isAutomaticImageSize,
+  modelFromNode,
+  promptTextFromNode,
+  storedImageSize,
+  videoConfigFromNode,
+} from "../domain/nodeUtils";
+import { assetIdFromNode, imageSrcFromNode } from "../domain/nodes";
+import {
+  extractCanvasMentionTokens,
+  type CanvasMentionReference,
+} from "../domain/mentions";
 import type { CanvasNodeData, CanvasEdgeData } from "../domain/types";
 import { buildCanvasGenerationInputs } from "../domain/connections";
 import { canvasSeedanceVideoReferences } from "../domain/video";
 
 /** Default models and reference resolver are the same ones used by canvas submission. */
-export const CanvasPricingContext = createContext({ imageModel: "", videoModel: "", nodes: [] as CanvasNodeData[], edges: [] as CanvasEdgeData[], references: (_id: string): CanvasMentionReference[] => [] });
+export const CanvasPricingContext = createContext({
+  imageModel: "",
+  videoModel: "",
+  nodes: [] as CanvasNodeData[],
+  edges: [] as CanvasEdgeData[],
+  references: (_id: string): CanvasMentionReference[] => [],
+});
 
-export function CanvasGenerationPrice({ node, edit = false, panorama = false, compact = false }: { node: CanvasNodeData; edit?: boolean; panorama?: boolean; compact?: boolean }) {
+export function CanvasGenerationPrice({
+  node,
+  edit = false,
+  panorama = false,
+  compact = false,
+}: {
+  node: CanvasNodeData;
+  edit?: boolean;
+  panorama?: boolean;
+  compact?: boolean;
+}) {
   const context = useContext(CanvasPricingContext);
   const mode = edit ? "image" : generationModeFromNode(node);
   const retry = !edit && node.metadata?.status === "error";
-  const mentioned = new Set(extractCanvasMentionTokens(promptTextFromNode(node)).map(token => token.key));
-  const refs = context.references(node.id).filter(ref => (mentioned.has(ref.key) || (mode === "video" && !mentioned.size && ref.upstreamDistance !== undefined)) && ref.nodeId !== node.id);
-  if (mode !== "image" && mode !== "video") return <GenerationPrice kind="free" compact={compact} />;
+  const mentioned = new Set(
+    extractCanvasMentionTokens(promptTextFromNode(node)).map(token => token.key)
+  );
+  const refs = context
+    .references(node.id)
+    .filter(
+      ref =>
+        (mentioned.has(ref.key) ||
+          (mode === "video" &&
+            !mentioned.size &&
+            ref.upstreamDistance !== undefined)) &&
+        ref.nodeId !== node.id
+    );
+  if (mode !== "image" && mode !== "video")
+    return <GenerationPrice kind="free" compact={compact} />;
   if (mode === "video") {
     const config = videoConfigFromNode(node, context.videoModel);
     // Match submission's topology resolution (including config nodes), not all
     // upstream media. Retries prefer current inputs and only then the snapshot.
-    const inputs = mentioned.size ? refs.map(ref => ({ type: ref.kind, nodeId: ref.nodeId })) : buildCanvasGenerationInputs(node.id, context.nodes, context.edges);
-    const missingMention = [...mentioned].some(key => !refs.some(ref => ref.key === key));
-    const useSnapshot = retry && (missingMention || (!inputs.length && !mentioned.size));
+    const inputs = mentioned.size
+      ? refs.map(ref => ({ type: ref.kind, nodeId: ref.nodeId }))
+      : buildCanvasGenerationInputs(node.id, context.nodes, context.edges);
+    const missingMention = [...mentioned].some(
+      key => !refs.some(ref => ref.key === key)
+    );
+    const useSnapshot =
+      retry && (missingMention || (!inputs.length && !mentioned.size));
     // Older nodes may have persisted their own output as a reference before
     // standalone video retries were fixed. Never charge or submit that stale
     // self-reference; only upstream/current inputs are real references.
-    const videoInputs = (useSnapshot ? node.metadata?.videoReferenceInputs?.items ?? [] : inputs)
-      .filter(input => input.nodeId !== node.id);
-    const registered = canvasSeedanceVideoReferences(node.metadata?.seedanceMaterialAssets, node.metadata?.seedanceVolcanoAssets);
-    const referenceVideos = videoInputs.filter(item => item.type === "video").length + registered.videos.length;
-    return <GenerationPrice kind="video" model={config.model} seconds={config.seconds} resolution={config.resolution} audio={config.generateAudio} referenceVideos={referenceVideos} compact={compact} />;
+    const videoInputs = (
+      useSnapshot ? (node.metadata?.videoReferenceInputs?.items ?? []) : inputs
+    ).filter(input => input.nodeId !== node.id);
+    const registered = canvasSeedanceVideoReferences(
+      node.metadata?.seedanceMaterialAssets,
+      node.metadata?.seedanceVolcanoAssets
+    );
+    const referenceVideos =
+      videoInputs.filter(item => item.type === "video").length +
+      registered.videos.length;
+    return (
+      <GenerationPrice
+        kind="video"
+        model={config.model}
+        seconds={config.seconds}
+        resolution={config.resolution}
+        audio={config.generateAudio}
+        referenceVideos={referenceVideos}
+        compact={compact}
+      />
+    );
   }
-  const tasks = retry ? node.metadata?.isBatchRoot
-    ? context.nodes.filter(item => (item.id === node.id || node.metadata?.batchChildIds?.includes(item.id)) && item.metadata?.status === "error").length : 1
+  const tasks = retry
+    ? node.metadata?.isBatchRoot
+      ? context.nodes.filter(
+          item =>
+            (item.id === node.id ||
+              node.metadata?.batchChildIds?.includes(item.id)) &&
+            item.metadata?.status === "error"
+        ).length
+      : 1
     : imageCountFromNode(node);
-  const autoReference = edit || retry || panorama ? undefined : canvasImageAutoReferenceSize(node, context.references(node.id), context.nodes);
-  return <GenerationPrice model={modelFromNode(node, context.imageModel)} {...canvasImageGenerationSettings(node, panorama ? "2:1" : undefined, modelFromNode(node, context.imageModel), typeof autoReference === "object" ? autoReference : undefined)} references={edit ? 1 : retry ? node.metadata?.referenceInputs?.length ?? 0 : refs.filter(ref => ref.kind === "image").length} tasks={edit ? 1 : tasks} compact={compact} />;
+  const autoReference =
+    edit || retry || panorama
+      ? undefined
+      : canvasImageAutoReferenceSize(
+          node,
+          context.references(node.id),
+          context.nodes
+        );
+  return (
+    <GenerationPrice
+      model={modelFromNode(node, context.imageModel)}
+      {...canvasImageGenerationSettings(
+        node,
+        panorama ? "2:1" : undefined,
+        modelFromNode(node, context.imageModel),
+        typeof autoReference === "object" ? autoReference : undefined
+      )}
+      references={
+        edit
+          ? 1
+          : retry
+            ? (node.metadata?.referenceInputs?.length ?? 0)
+            : refs.filter(ref => ref.kind === "image").length
+      }
+      tasks={edit ? 1 : tasks}
+      compact={compact}
+    />
+  );
 }
 
-/** The parameter panel shows the size submission will request, including auto ratio from references. */
+/** Finished adaptive results keep their own pixels. A later generation uses the current default ratio. */
 export function CanvasImageRequestSize({ node }: { node: CanvasNodeData }) {
+  const stored = storedImageSize(node);
+  const width = Number(node.metadata?.naturalWidth);
+  const height = Number(node.metadata?.naturalHeight);
+  const hasGeneratedImage = Boolean(
+    assetIdFromNode(node) || node.imageSrc || imageSrcFromNode(node, {})
+  );
+  if (
+    stored &&
+    isAutomaticImageSize(stored) &&
+    hasGeneratedImage &&
+    width > 0 &&
+    height > 0
+  ) {
+    return (
+      <span className="param-group-label">
+        当前成图：{width} × {height} px
+      </span>
+    );
+  }
   const context = useContext(CanvasPricingContext);
-  const reference = canvasImageAutoReferenceSize(node, context.references(node.id), context.nodes);
-  if (reference === "unknown") return <span className="param-group-label">请求尺寸：按参考图比例（提交时读取）</span>;
-  const size = canvasImageGenerationSettings(node, undefined, undefined, reference).size.replace("x", " × ");
-  return <span className="param-group-label">请求尺寸：{size} px{reference ? "（跟随参考图）" : ""}</span>;
+  const reference = canvasImageAutoReferenceSize(
+    node,
+    context.references(node.id),
+    context.nodes
+  );
+  if (reference === "unknown")
+    return (
+      <span className="param-group-label">
+        请求尺寸：按参考图比例（提交时读取）
+      </span>
+    );
+  const size = canvasImageGenerationSettings(
+    node,
+    undefined,
+    undefined,
+    reference
+  ).size.replace("x", " × ");
+  return (
+    <span className="param-group-label">
+      请求尺寸：{size} px{reference ? "（跟随参考图）" : ""}
+    </span>
+  );
 }

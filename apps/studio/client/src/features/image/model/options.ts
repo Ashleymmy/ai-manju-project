@@ -13,7 +13,6 @@ export const IMAGE_WORKBENCH_SIZE_OPTIONS = [
   "9:16(2x)",
   "16:9(4k)",
   "9:16(4k)",
-  "auto",
 ] as const;
 
 /**
@@ -30,12 +29,19 @@ export const IMAGE_WORKBENCH_UNAVAILABLE_SIZE_OPTIONS = [
   "9:16(4k)",
 ] as const;
 
-export type ImageWorkbenchSizeOption = (typeof IMAGE_WORKBENCH_SIZE_OPTIONS)[number];
-export type ImageWorkbenchQuality = NonNullable<ImageGenerationInput["quality"]>;
+export type ImageWorkbenchSizeOption =
+  (typeof IMAGE_WORKBENCH_SIZE_OPTIONS)[number];
+export type ImageWorkbenchQuality = NonNullable<
+  ImageGenerationInput["quality"]
+>;
 export type ImagePixelSize = { width: number; height: number };
 
-export function isImageWorkbenchSizeAvailable(size: ImageWorkbenchSizeOption): boolean {
-  return !(IMAGE_WORKBENCH_UNAVAILABLE_SIZE_OPTIONS as readonly string[]).includes(size);
+export function isImageWorkbenchSizeAvailable(
+  size: ImageWorkbenchSizeOption
+): boolean {
+  return !(
+    IMAGE_WORKBENCH_UNAVAILABLE_SIZE_OPTIONS as readonly string[]
+  ).includes(size);
 }
 
 type ImageWorkbenchRequestOptions = {
@@ -56,7 +62,9 @@ const IMAGE_QUALITY_BASE: Record<string, number> = {
   hd: 2048,
 };
 
-const FLIPPED_SIZE_OPTION: Partial<Record<ImageWorkbenchSizeOption, ImageWorkbenchSizeOption>> = {
+const FLIPPED_SIZE_OPTION: Partial<
+  Record<ImageWorkbenchSizeOption, ImageWorkbenchSizeOption>
+> = {
   "3:2": "2:3",
   "2:3": "3:2",
   "4:3": "3:4",
@@ -69,7 +77,10 @@ const FLIPPED_SIZE_OPTION: Partial<Record<ImageWorkbenchSizeOption, ImageWorkben
   "9:16(4k)": "16:9(4k)",
 };
 
-const BASE_RATIO_OPTIONS: Array<{ option: ImageWorkbenchSizeOption; ratio: number }> = [
+const BASE_RATIO_OPTIONS: Array<{
+  option: ImageWorkbenchSizeOption;
+  ratio: number;
+}> = [
   { option: "1:1", ratio: 1 },
   { option: "3:2", ratio: 3 / 2 },
   { option: "2:3", ratio: 2 / 3 },
@@ -81,7 +92,7 @@ const BASE_RATIO_OPTIONS: Array<{ option: ImageWorkbenchSizeOption; ratio: numbe
 
 export function resolveImageWorkbenchRequestOptions(
   size: ImageWorkbenchSizeOption,
-  quality: ImageWorkbenchQuality,
+  quality: ImageWorkbenchQuality
 ): ImageWorkbenchRequestOptions {
   switch (size) {
     case "1:1(2x)":
@@ -101,10 +112,9 @@ export function resolveImageWorkbenchRequestOptions(
 
 export function workbenchPixelDimensions(
   option: ImageWorkbenchSizeOption,
-  quality: ImageWorkbenchQuality,
+  quality: ImageWorkbenchQuality
 ): ImagePixelSize | null {
   const resolved = resolveImageWorkbenchRequestOptions(option, quality);
-  if (resolved.size === "auto") return null;
   return ratioToPixelSize(resolved.size, resolved.quality);
 }
 
@@ -112,16 +122,19 @@ export function workbenchRequestSize(
   option: ImageWorkbenchSizeOption,
   width: number,
   height: number,
-  align16 = true,
+  align16 = true
 ): string {
-  if (option === "auto") return "auto";
   const pixels = clampImagePixelSize({ width, height }, align16);
   return `${pixels.width}x${pixels.height}`;
 }
 
-export function snapPixelSizeForModel(model: string, pixels: ImagePixelSize): ImagePixelSize {
+export function snapPixelSizeForModel(
+  model: string,
+  pixels: ImagePixelSize
+): ImagePixelSize {
   const token = model.toLowerCase();
-  const isGptImage1Family = token.includes("gpt-image-1") && !token.includes("gpt-image-2");
+  const isGptImage1Family =
+    token.includes("gpt-image-1") && !token.includes("gpt-image-2");
   if (!isGptImage1Family) return pixels;
   if (pixels.width === pixels.height) return { width: 1024, height: 1024 };
   return pixels.width > pixels.height
@@ -129,18 +142,26 @@ export function snapPixelSizeForModel(model: string, pixels: ImagePixelSize): Im
     : { width: 1024, height: 1536 };
 }
 
-export function clampImagePixelSize(size: ImagePixelSize, align16 = true): ImagePixelSize {
+export function clampImagePixelSize(
+  size: ImagePixelSize,
+  align16 = true
+): ImagePixelSize {
   return {
     width: clampImageEdge(size.width, align16),
     height: clampImageEdge(size.height, align16),
   };
 }
 
-export function flippedWorkbenchSizeOption(option: ImageWorkbenchSizeOption): ImageWorkbenchSizeOption {
+export function flippedWorkbenchSizeOption(
+  option: ImageWorkbenchSizeOption
+): ImageWorkbenchSizeOption {
   return FLIPPED_SIZE_OPTION[option] ?? option;
 }
 
-export function nearestWorkbenchSizeOption(width: number, height: number): ImageWorkbenchSizeOption {
+export function nearestWorkbenchSizeOption(
+  width: number,
+  height: number
+): ImageWorkbenchSizeOption {
   const ratio = width / Math.max(1, height);
   let best: ImageWorkbenchSizeOption = "1:1";
   let bestScore = Number.POSITIVE_INFINITY;
@@ -156,17 +177,24 @@ export function nearestWorkbenchSizeOption(width: number, height: number): Image
 
 function ratioToPixelSize(size: string, quality: string): ImagePixelSize {
   const [ratioWidth, ratioHeight] = size.split(":").map(Number);
-  const longRatio = Math.max(ratioWidth, ratioHeight) / Math.min(ratioWidth, ratioHeight);
+  const longRatio =
+    Math.max(ratioWidth, ratioHeight) / Math.min(ratioWidth, ratioHeight);
   const basePixels = IMAGE_QUALITY_BASE[quality] || 0;
   let longSide = 0;
   let shortSide = 0;
   if (basePixels > 0) {
     const targetPixels = basePixels * basePixels;
-    longSide = Math.floor(Math.sqrt(targetPixels * longRatio) / IMAGE_DIMENSION_STEP) * IMAGE_DIMENSION_STEP;
-    shortSide = Math.round(longSide / longRatio / IMAGE_DIMENSION_STEP) * IMAGE_DIMENSION_STEP;
+    longSide =
+      Math.floor(Math.sqrt(targetPixels * longRatio) / IMAGE_DIMENSION_STEP) *
+      IMAGE_DIMENSION_STEP;
+    shortSide =
+      Math.round(longSide / longRatio / IMAGE_DIMENSION_STEP) *
+      IMAGE_DIMENSION_STEP;
   } else {
     shortSide = IMAGE_DEFAULT_SHORT;
-    longSide = Math.round((shortSide * longRatio) / IMAGE_DIMENSION_STEP) * IMAGE_DIMENSION_STEP;
+    longSide =
+      Math.round((shortSide * longRatio) / IMAGE_DIMENSION_STEP) *
+      IMAGE_DIMENSION_STEP;
   }
   return ratioWidth >= ratioHeight
     ? { width: longSide, height: shortSide }
@@ -174,7 +202,13 @@ function ratioToPixelSize(size: string, quality: string): ImagePixelSize {
 }
 
 function clampImageEdge(value: number, align16: boolean) {
-  const n = Math.max(IMAGE_MIN_EDGE, Math.min(IMAGE_MAX_EDGE, Math.round(Number(value) || 0)));
+  const n = Math.max(
+    IMAGE_MIN_EDGE,
+    Math.min(IMAGE_MAX_EDGE, Math.round(Number(value) || 0))
+  );
   if (!align16) return n;
-  return Math.max(IMAGE_DIMENSION_STEP, Math.round(n / IMAGE_DIMENSION_STEP) * IMAGE_DIMENSION_STEP);
+  return Math.max(
+    IMAGE_DIMENSION_STEP,
+    Math.round(n / IMAGE_DIMENSION_STEP) * IMAGE_DIMENSION_STEP
+  );
 }

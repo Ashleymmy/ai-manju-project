@@ -1,4 +1,8 @@
-import { modelOptions, pickDefaultImageModel, resolveModel } from "@/shared/lib/modelSelection";
+import {
+  modelOptions,
+  pickDefaultImageModel,
+  resolveModel,
+} from "@/shared/lib/modelSelection";
 import {
   ArrowDown,
   ArrowDownToLine,
@@ -26,7 +30,14 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -57,12 +68,14 @@ import {
   type OutpaintMargins,
 } from "@/lib/canvas-image-data";
 
-import { CropDialog, HistoryPreviewDialog, OutpaintDialog, UpscaleDialog } from "./ui/ImageEditDialogs";
-
 import {
-  type GeneratedImage,
-  type ImageModelCatalog,
-} from "./api";
+  CropDialog,
+  HistoryPreviewDialog,
+  OutpaintDialog,
+  UpscaleDialog,
+} from "./ui/ImageEditDialogs";
+
+import { type GeneratedImage, type ImageModelCatalog } from "./api";
 import {
   IMAGE_WORKBENCH_SIZE_OPTIONS,
   isImageWorkbenchSizeAvailable,
@@ -97,15 +110,36 @@ const scopeOptions: Array<Option<WorkspaceScope>> = [
 ];
 
 function initialScopeFromSearch(): WorkspaceScope {
-  return new URLSearchParams(window.location.search).get("scope") === "team" ? "team" : "personal";
+  return new URLSearchParams(window.location.search).get("scope") === "team"
+    ? "team"
+    : "personal";
 }
 
 function canvasProjectHref(projectId: string, scope: WorkspaceScope) {
   return `/canvas/${encodeURIComponent(projectId)}?scope=${encodeURIComponent(scope)}`;
 }
 
-function SurfaceTitle({ eyebrow, title, description, actions }: { eyebrow: string; title: string; description: string; actions?: ReactNode }) {
-  return <div className="feature-title"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>{actions}</div>;
+function SurfaceTitle({
+  eyebrow,
+  title,
+  description,
+  actions,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="feature-title">
+      <div>
+        <p className="eyebrow">{eyebrow}</p>
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </div>
+      {actions}
+    </div>
+  );
 }
 
 function downloadBlob(blob: Blob, fileName: string) {
@@ -118,8 +152,18 @@ function downloadBlob(blob: Blob, fileName: string) {
 }
 
 async function dataUrlToFile(dataUrl: string, name: string) {
-  const blob = await fetch(dataUrl).then((response) => response.blob());
+  const blob = await fetch(dataUrl).then(response => response.blob());
   return new File([blob], name, { type: blob.type || "image/png" });
+}
+
+function readImagePixelSize(dataUrl: string) {
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () =>
+      resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = () => reject(new Error("无法读取扩图尺寸"));
+    image.src = dataUrl;
+  });
 }
 
 function priorityRank(value: PromptPreset["priority"]) {
@@ -127,7 +171,9 @@ function priorityRank(value: PromptPreset["priority"]) {
 }
 
 function priorityLabel(value: PromptPreset["priority"]) {
-  return { pinned: "置顶", high: "高", normal: "普通", low: "低" }[value] ?? value;
+  return (
+    { pinned: "置顶", high: "高", normal: "普通", low: "低" }[value] ?? value
+  );
 }
 
 const MAX_REFERENCE_IMAGES = 11;
@@ -135,7 +181,11 @@ const MAX_REFERENCE_IMAGES = 11;
 const LIGHTBOX_ZOOM_MIN = 0.25;
 const LIGHTBOX_ZOOM_MAX = 4;
 const LIGHTBOX_ZOOM_STEP = 0.25;
-const clampLightboxZoom = (value: number) => Math.min(LIGHTBOX_ZOOM_MAX, Math.max(LIGHTBOX_ZOOM_MIN, Math.round(value * 100) / 100));
+const clampLightboxZoom = (value: number) =>
+  Math.min(
+    LIGHTBOX_ZOOM_MAX,
+    Math.max(LIGHTBOX_ZOOM_MIN, Math.round(value * 100) / 100)
+  );
 
 type ReferenceImage = { id: string; file: File; previewUrl: string };
 
@@ -146,10 +196,12 @@ export function ImageWorkbenchView() {
   const { user } = useAuth();
   const catalogInitializedRef = useRef(false);
   const preferencesInitializedRef = useRef(false);
-  const [scope, setScope] = useState<WorkspaceScope>(() => initialScopeFromSearch());
+  const [scope, setScope] = useState<WorkspaceScope>(() =>
+    initialScopeFromSearch()
+  );
   const [model, setModel] = useState("");
   const [catalog, setCatalog] = useState<ImageModelCatalog | null>(null);
-  const [size, setSize] = useState<ImageWorkbenchSizeOption>("auto");
+  const [size, setSize] = useState<ImageWorkbenchSizeOption>("1:1");
   const [quality, setQuality] = useState<ImageWorkbenchQuality>("auto");
   const [count, setCount] = useState(1);
   const [width, setWidth] = useState(1024);
@@ -157,7 +209,9 @@ export function ImageWorkbenchView() {
   const [align16, setAlign16] = useState(true);
   // 定价规则（生成按钮旁展示约扣积分；pricing_rules 缺失时按文档默认值兜底）。
 
-  const [prompt, setPrompt] = useState("雨夜，狭长街道，潮湿沥青反射红色招牌；人物在画面右侧停留，低机位缓慢推近，电影级冷暖对比。");
+  const [prompt, setPrompt] = useState(
+    "雨夜，狭长街道，潮湿沥青反射红色招牌；人物在画面右侧停留，低机位缓慢推近，电影级冷暖对比。"
+  );
   // Prompt text before a quick preset was applied; restored when the selected preset is clicked again.
   const promptBeforePresetRef = useRef<string | null>(null);
   const [promptPresets, setPromptPresets] = useState<PromptPreset[]>([]);
@@ -165,7 +219,9 @@ export function ImageWorkbenchView() {
   const [references, setReferences] = useState<ReferenceImage[]>([]);
   const [assetPickerOpen, setAssetPickerOpen] = useState(false);
   const [assetPickerKeyword, setAssetPickerKeyword] = useState("");
-  const [assetPickerUrls, setAssetPickerUrls] = useState<Record<string, string>>({});
+  const [assetPickerUrls, setAssetPickerUrls] = useState<
+    Record<string, string>
+  >({});
   const [resultUrls, setResultUrls] = useState<Record<string, string>>({});
   const [selectedResult, setSelectedResult] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -185,9 +241,24 @@ export function ImageWorkbenchView() {
   const catalogQuery = useImageModelCatalogQuery();
   const preferencesQuery = usePreferencesQuery();
   const historyQuery = useImageHistoryQuery(scope);
-  const { result, setResult, jobId, jobProgress, jobNotice, generating, generate: runGeneration, stop: stopGeneration } = useImageTaskSession(user?.id || "", scope, {
-    onCompleted: images => { toast.success(`生成完成，共 ${images.length} 张`); void historyQuery.refetch(); },
-    onError: error => toastGenerationError(error, "图像任务暂不可用，请稍后重试查看", () => navigate("/member/plans")),
+  const {
+    result,
+    setResult,
+    jobId,
+    jobProgress,
+    jobNotice,
+    generating,
+    generate: runGeneration,
+    stop: stopGeneration,
+  } = useImageTaskSession(user?.id || "", scope, {
+    onCompleted: images => {
+      toast.success(`生成完成，共 ${images.length} 张`);
+      void historyQuery.refetch();
+    },
+    onError: error =>
+      toastGenerationError(error, "图像任务暂不可用，请稍后重试查看", () =>
+        navigate("/member/plans")
+      ),
     onStopped: () => toast.info("已停止本次生成"),
   });
   const assetPickerQuery = useImageAssetPickerQuery(
@@ -212,10 +283,17 @@ export function ImageWorkbenchView() {
       return;
     }
     setCatalog(catalogQuery.data);
-    setModel(current => resolveModel(catalogQuery.data.models, current)
-      || pickDefaultImageModel(catalogQuery.data.models,
-        resolveModel(catalogQuery.data.models, preferencesQuery.data?.generation?.imageModel || "")
-        || catalogQuery.data.defaultModel));
+    setModel(
+      current =>
+        resolveModel(catalogQuery.data.models, current) ||
+        pickDefaultImageModel(
+          catalogQuery.data.models,
+          resolveModel(
+            catalogQuery.data.models,
+            preferencesQuery.data?.generation?.imageModel || ""
+          ) || catalogQuery.data.defaultModel
+        )
+    );
   }, [catalogQuery.data, catalogQuery.error, catalogQuery.isPending]);
 
   useEffect(() => {
@@ -225,7 +303,7 @@ export function ImageWorkbenchView() {
     if (!preferences) return;
     setPromptPresets(preferences.canvas?.promptPresets || []);
     const generation = preferences.generation || {};
-    if (generation.size && ["auto", "1:1", "16:9", "9:16"].includes(generation.size)) {
+    if (generation.size && ["1:1", "16:9", "9:16"].includes(generation.size)) {
       const nextSize = generation.size as ImageWorkbenchSizeOption;
       setSize(nextSize);
       const pixels = workbenchPixelDimensions(nextSize, quality);
@@ -234,12 +312,9 @@ export function ImageWorkbenchView() {
         setHeight(pixels.height);
       }
     }
-    if (generation.count) setCount(Math.max(1, Math.min(15, Number(generation.count) || 1)));
-  }, [
-    preferencesQuery.data,
-    preferencesQuery.isPending,
-    size,
-  ]);
+    if (generation.count)
+      setCount(Math.max(1, Math.min(15, Number(generation.count) || 1)));
+  }, [preferencesQuery.data, preferencesQuery.isPending, size]);
 
   useEffect(() => {
     const presetPrompt = sessionStorage.getItem("ai-manju:image-prompt");
@@ -250,43 +325,73 @@ export function ImageWorkbenchView() {
   }, []);
 
   const addReferenceFiles = useCallback((files: FileList | File[]) => {
-    const list = Array.from(files).filter((file) => file.type.startsWith("image/"));
+    const list = Array.from(files).filter(file =>
+      file.type.startsWith("image/")
+    );
     if (!list.length) return;
-    setReferences((current) => {
+    setReferences(current => {
       const room = MAX_REFERENCE_IMAGES - current.length;
       if (room <= 0) {
         toast.error(`参考图最多 ${MAX_REFERENCE_IMAGES} 张`);
         return current;
       }
       if (list.length > room) toast.info(`参考图达到上限，仅加入前 ${room} 张`);
-      return [...current, ...list.slice(0, room).map((file) => ({ id: crypto.randomUUID(), file, previewUrl: URL.createObjectURL(file) }))];
+      return [
+        ...current,
+        ...list.slice(0, room).map(file => ({
+          id: crypto.randomUUID(),
+          file,
+          previewUrl: URL.createObjectURL(file),
+        })),
+      ];
     });
   }, []);
 
-  const addAssetAsReference = useCallback(async (asset: Pick<Asset, "id" | "name">) => {
-    try {
-      const url = await getAssetContentObjectUrl(asset.id, scope);
-      const blob = await fetch(url).then((response) => response.blob());
-      URL.revokeObjectURL(url);
-      const type = blob.type || "image/png";
-      addReferenceFiles([new File([blob], assetDownloadFileName({ name: asset.name || asset.id, type: "image", content_type: type }), { type })]);
-    } catch (error) {
-      toast.error(publicApiError(error, "读取资产内容失败"));
-    }
-  }, [addReferenceFiles, scope]);
+  const addAssetAsReference = useCallback(
+    async (asset: Pick<Asset, "id" | "name">) => {
+      try {
+        const url = await getAssetContentObjectUrl(asset.id, scope);
+        const blob = await fetch(url).then(response => response.blob());
+        URL.revokeObjectURL(url);
+        const type = blob.type || "image/png";
+        addReferenceFiles([
+          new File(
+            [blob],
+            assetDownloadFileName({
+              name: asset.name || asset.id,
+              type: "image",
+              content_type: type,
+            }),
+            { type }
+          ),
+        ]);
+      } catch (error) {
+        toast.error(publicApiError(error, "读取资产内容失败"));
+      }
+    },
+    [addReferenceFiles, scope]
+  );
 
   useEffect(() => {
-    const referenceAssetId = sessionStorage.getItem("ai-manju:image-reference-asset");
+    const referenceAssetId = sessionStorage.getItem(
+      "ai-manju:image-reference-asset"
+    );
     if (!referenceAssetId) return;
     sessionStorage.removeItem("ai-manju:image-reference-asset");
-    void addAssetAsReference({ id: referenceAssetId, name: `${referenceAssetId}.png` });
+    void addAssetAsReference({
+      id: referenceAssetId,
+      name: `${referenceAssetId}.png`,
+    });
   }, [addAssetAsReference]);
 
   useEffect(() => {
     if (!generating) return;
     setElapsedSeconds(0);
     const startedAt = Date.now();
-    const timer = window.setInterval(() => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1_000);
+    const timer = window.setInterval(
+      () => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)),
+      1_000
+    );
     return () => window.clearInterval(timer);
   }, [generating]);
 
@@ -299,22 +404,26 @@ export function ImageWorkbenchView() {
   }, [scope]);
 
   useEffect(() => {
-    const available = history.map((asset) => asset.id);
-    setSelectedHistoryIds((current) => pruneHistorySelection(current, available));
+    const available = history.map(asset => asset.id);
+    setSelectedHistoryIds(current => pruneHistorySelection(current, available));
   }, [history]);
 
   useEffect(() => {
     let disposed = false;
     const urls: Record<string, string> = {};
-    Promise.all(history.map(async (asset) => {
-      try {
-        const url = await getAssetContentObjectUrl(asset.id, scope, 320);
-        if (disposed) URL.revokeObjectURL(url);
-        else urls[asset.id] = url;
-      } catch {
-        undefined;
-      }
-    })).then(() => { if (!disposed) setHistoryUrls(urls); });
+    Promise.all(
+      history.map(async asset => {
+        try {
+          const url = await getAssetContentObjectUrl(asset.id, scope, 320);
+          if (disposed) URL.revokeObjectURL(url);
+          else urls[asset.id] = url;
+        } catch {
+          undefined;
+        }
+      })
+    ).then(() => {
+      if (!disposed) setHistoryUrls(urls);
+    });
     return () => {
       disposed = true;
       Object.values(urls).forEach(URL.revokeObjectURL);
@@ -322,19 +431,27 @@ export function ImageWorkbenchView() {
   }, [history, scope]);
 
   useEffect(() => {
-    const pending = result.filter((image) => !image.src && image.assetId);
+    const pending = result.filter(image => !image.src && image.assetId);
     if (!pending.length) return;
     let disposed = false;
     const urls: Record<string, string> = {};
-    Promise.all(pending.map(async (image) => {
-      try {
-        const url = await getAssetContentObjectUrl(image.assetId as string, scope, 640);
-        if (disposed) URL.revokeObjectURL(url);
-        else urls[image.assetId as string] = url;
-      } catch {
-        undefined;
-      }
-    })).then(() => { if (!disposed) setResultUrls(urls); });
+    Promise.all(
+      pending.map(async image => {
+        try {
+          const url = await getAssetContentObjectUrl(
+            image.assetId as string,
+            scope,
+            640
+          );
+          if (disposed) URL.revokeObjectURL(url);
+          else urls[image.assetId as string] = url;
+        } catch {
+          undefined;
+        }
+      })
+    ).then(() => {
+      if (!disposed) setResultUrls(urls);
+    });
     return () => {
       disposed = true;
       Object.values(urls).forEach(URL.revokeObjectURL);
@@ -344,27 +461,50 @@ export function ImageWorkbenchView() {
   useEffect(() => {
     let disposed = false;
     const urls: Record<string, string> = {};
-    Promise.all(assetPickerItems.map(async (asset) => {
-      try {
-        const url = await getAssetContentObjectUrl(asset.id, scope, 320);
-        if (disposed) URL.revokeObjectURL(url);
-        else urls[asset.id] = url;
-      } catch {
-        undefined;
-      }
-    })).then(() => { if (!disposed) setAssetPickerUrls(urls); });
+    Promise.all(
+      assetPickerItems.map(async asset => {
+        try {
+          const url = await getAssetContentObjectUrl(asset.id, scope, 320);
+          if (disposed) URL.revokeObjectURL(url);
+          else urls[asset.id] = url;
+        } catch {
+          undefined;
+        }
+      })
+    ).then(() => {
+      if (!disposed) setAssetPickerUrls(urls);
+    });
     return () => {
       disposed = true;
       Object.values(urls).forEach(URL.revokeObjectURL);
     };
   }, [assetPickerItems, scope]);
 
-  const selectedIndex = useMemo(() => (result[selectedResult] ? selectedResult : 0), [result, selectedResult]);
-  const selectedImage = useMemo(() => result[selectedResult] || result[0], [result, selectedResult]);
-  const visiblePromptPresets = useMemo(() => [...promptPresets]
-    .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.sort_order - b.sort_order || a.title.localeCompare(b.title, "zh-CN"))
-    .slice(0, 8), [promptPresets]);
-  const resultSrc = useCallback((image: GeneratedImage) => image.src || (image.assetId ? resultUrls[image.assetId] || "" : ""), [resultUrls]);
+  const selectedIndex = useMemo(
+    () => (result[selectedResult] ? selectedResult : 0),
+    [result, selectedResult]
+  );
+  const selectedImage = useMemo(
+    () => result[selectedResult] || result[0],
+    [result, selectedResult]
+  );
+  const visiblePromptPresets = useMemo(
+    () =>
+      [...promptPresets]
+        .sort(
+          (a, b) =>
+            priorityRank(a.priority) - priorityRank(b.priority) ||
+            a.sort_order - b.sort_order ||
+            a.title.localeCompare(b.title, "zh-CN")
+        )
+        .slice(0, 8),
+    [promptPresets]
+  );
+  const resultSrc = useCallback(
+    (image: GeneratedImage) =>
+      image.src || (image.assetId ? resultUrls[image.assetId] || "" : ""),
+    [resultUrls]
+  );
   const selectedSrc = selectedImage ? resultSrc(selectedImage) : "";
   const openLightbox = useCallback(() => {
     if (!selectedSrc) return;
@@ -374,7 +514,9 @@ export function ImageWorkbenchView() {
   /* 放大查看：Esc 关闭 */
   useEffect(() => {
     if (!lightboxOpen) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setLightboxOpen(false); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLightboxOpen(false);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [lightboxOpen]);
@@ -384,7 +526,11 @@ export function ImageWorkbenchView() {
     if (!lightboxOpen || !node) return;
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
-      setLightboxZoom((z) => clampLightboxZoom(z + (event.deltaY < 0 ? LIGHTBOX_ZOOM_STEP : -LIGHTBOX_ZOOM_STEP)));
+      setLightboxZoom(z =>
+        clampLightboxZoom(
+          z + (event.deltaY < 0 ? LIGHTBOX_ZOOM_STEP : -LIGHTBOX_ZOOM_STEP)
+        )
+      );
     };
     node.addEventListener("wheel", onWheel, { passive: false });
     return () => node.removeEventListener("wheel", onWheel);
@@ -400,34 +546,51 @@ export function ImageWorkbenchView() {
     let disposed = false;
     let objectUrl = "";
     getAssetContentObjectUrl(historyPreview.id, scope, 640)
-      .then((url) => { if (disposed) URL.revokeObjectURL(url); else { objectUrl = url; setHistoryPreviewUrl(url); } })
-      .catch(() => { if (!disposed) setHistoryPreviewUrl(""); });
-    return () => { disposed = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+      .then(url => {
+        if (disposed) URL.revokeObjectURL(url);
+        else {
+          objectUrl = url;
+          setHistoryPreviewUrl(url);
+        }
+      })
+      .catch(() => {
+        if (!disposed) setHistoryPreviewUrl("");
+      });
+    return () => {
+      disposed = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
   }, [historyPreview, historyUrls, scope]);
 
-  const removeReference = (id: string) => setReferences((items) => {
-    const target = items.find((item) => item.id === id);
-    if (target) URL.revokeObjectURL(target.previewUrl);
-    return items.filter((item) => item.id !== id);
-  });
+  const removeReference = (id: string) =>
+    setReferences(items => {
+      const target = items.find(item => item.id === id);
+      if (target) URL.revokeObjectURL(target.previewUrl);
+      return items.filter(item => item.id !== id);
+    });
 
-  const moveReference = (id: string, direction: -1 | 1) => setReferences((items) => {
-    const index = items.findIndex((item) => item.id === id);
-    const swap = index + direction;
-    if (index < 0 || swap < 0 || swap >= items.length) return items;
-    const next = [...items];
-    [next[index], next[swap]] = [next[swap], next[index]];
-    return next;
-  });
+  const moveReference = (id: string, direction: -1 | 1) =>
+    setReferences(items => {
+      const index = items.findIndex(item => item.id === id);
+      const swap = index + direction;
+      if (index < 0 || swap < 0 || swap >= items.length) return items;
+      const next = [...items];
+      [next[index], next[swap]] = [next[swap], next[index]];
+      return next;
+    });
 
   const generate = async (overrideCount?: number) => {
     if (generating || !model) return;
     setResultUrls({});
     setSelectedResult(0);
     const requestOptions = resolveImageWorkbenchRequestOptions(size, quality);
-    const pixels = snapPixelSizeForModel(model, clampImagePixelSize({ width, height }, align16));
+    const pixels = snapPixelSizeForModel(
+      model,
+      clampImagePixelSize({ width, height }, align16)
+    );
     await runGeneration({
-      model, prompt,
+      model,
+      prompt,
       size: workbenchRequestSize(size, pixels.width, pixels.height, align16),
       quality: requestOptions.quality,
       count: overrideCount ?? count,
@@ -446,7 +609,7 @@ export function ImageWorkbenchView() {
         revoke = true;
       }
       if (!src) return toast.info("此结果暂无可下载内容");
-      const blob = await fetch(src).then((response) => response.blob());
+      const blob = await fetch(src).then(response => response.blob());
       downloadBlob(blob, image.name || `${image.assetId || image.id}.png`);
       if (revoke) URL.revokeObjectURL(src);
     } catch (error) {
@@ -455,32 +618,49 @@ export function ImageWorkbenchView() {
   };
 
   const addResultAsReference = async (image: GeneratedImage) => {
-    if (image.assetId) return addAssetAsReference({ id: image.assetId, name: image.name || image.assetId });
+    if (image.assetId)
+      return addAssetAsReference({
+        id: image.assetId,
+        name: image.name || image.assetId,
+      });
     if (!image.src) return;
-    const blob = await fetch(image.src).then((response) => response.blob());
+    const blob = await fetch(image.src).then(response => response.blob());
     const type = blob.type || "image/png";
-    addReferenceFiles([new File([blob], assetDownloadFileName({ name: image.name || image.id, type: "image", content_type: type }), { type })]);
+    addReferenceFiles([
+      new File(
+        [blob],
+        assetDownloadFileName({
+          name: image.name || image.id,
+          type: "image",
+          content_type: type,
+        }),
+        { type }
+      ),
+    ]);
   };
 
   const sendToCanvas = async () => {
-    if (!selectedImage?.assetId) return toast.info("先从生成结果中选择一个已归档图片");
+    if (!selectedImage?.assetId)
+      return toast.info("先从生成结果中选择一个已归档图片");
     try {
       const project = await createProject({
         scope,
         title: `关键帧 · ${new Date().toLocaleDateString("zh-CN")}`,
         unique_title: true,
         data: {
-          nodes: [{
-            id: crypto.randomUUID(),
-            kind: "image",
-            title: selectedImage.name || "生图结果",
-            content: prompt,
-            x: 160,
-            y: 140,
-            width: 320,
-            height: 240,
-            imageAssetId: selectedImage.assetId,
-          }],
+          nodes: [
+            {
+              id: crypto.randomUUID(),
+              kind: "image",
+              title: selectedImage.name || "生图结果",
+              content: prompt,
+              x: 160,
+              y: 140,
+              width: 320,
+              height: 240,
+              imageAssetId: selectedImage.assetId,
+            },
+          ],
           edges: [],
           zoom: 90,
         },
@@ -492,15 +672,21 @@ export function ImageWorkbenchView() {
   };
 
   /* 读取选中图片的完整可用 URL（优先内存 data/blob，归档图片回源拉取） */
-  const resolveFullImageUrl = useCallback(async (image: GeneratedImage) => {
-    if (image.src) return image.src;
-    if (image.assetId) return getAssetContentObjectUrl(image.assetId, scope);
-    return "";
-  }, [scope]);
+  const resolveFullImageUrl = useCallback(
+    async (image: GeneratedImage) => {
+      if (image.src) return image.src;
+      if (image.assetId) return getAssetContentObjectUrl(image.assetId, scope);
+      return "";
+    },
+    [scope]
+  );
 
   /* 本地编辑（标注/超分/裁剪）产物：追加到结果区并选中，走与生成结果一致的预览/下载链路 */
   const pushLocalResult = (dataUrl: string, name: string) => {
-    setResult((current) => [...current, { id: crypto.randomUUID(), src: dataUrl, name }]);
+    setResult(current => [
+      ...current,
+      { id: crypto.randomUUID(), src: dataUrl, name },
+    ]);
     setSelectedResult(result.length);
     toast.success("已加入预览区域");
   };
@@ -519,13 +705,19 @@ export function ImageWorkbenchView() {
     }
   };
 
-  const runUpscale = async (targetLongEdge: number, algorithm: ImageUpscaleAlgorithm) => {
+  const runUpscale = async (
+    targetLongEdge: number,
+    algorithm: ImageUpscaleAlgorithm
+  ) => {
     if (!selectedImage || editBusy) return;
     setEditBusy(true);
     try {
-      const url = editUrl || await resolveFullImageUrl(selectedImage);
+      const url = editUrl || (await resolveFullImageUrl(selectedImage));
       const dataUrl = await upscaleDataUrl(url, { targetLongEdge, algorithm });
-      pushLocalResult(dataUrl, `${selectedImage.name || "结果"}-超分${targetLongEdge}`);
+      pushLocalResult(
+        dataUrl,
+        `${selectedImage.name || "结果"}-超分${targetLongEdge}`
+      );
       setUpscaleOpen(false);
     } catch (error) {
       toast.error(publicApiError(error, "超分失败"));
@@ -538,7 +730,7 @@ export function ImageWorkbenchView() {
     if (!selectedImage || editBusy) return;
     setEditBusy(true);
     try {
-      const url = editUrl || await resolveFullImageUrl(selectedImage);
+      const url = editUrl || (await resolveFullImageUrl(selectedImage));
       const dataUrl = await cropDataUrl(url, rect);
       pushLocalResult(dataUrl, `${selectedImage.name || "结果"}-裁剪`);
       setCropOpen(false);
@@ -559,10 +751,35 @@ export function ImageWorkbenchView() {
       const url = await resolveFullImageUrl(selectedImage);
       if (!url) throw new Error("当前图片还没有可用内容");
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-      const referenceFile = await dataUrlToFile(await createOutpaintSourceDataUrl(url, margins), "outpaint-source.png");
-      const maskFile = await dataUrlToFile(await createOutpaintMaskDataUrl(url, margins), "outpaint-mask.png");
-      return { model, prompt: promptText, size: "auto", quality, count: 1,
-        referenceFiles: [referenceFile], maskFile, scope, sourceType: "image_workbench" };
+      const sourceDataUrl = await createOutpaintSourceDataUrl(url, margins);
+      const expanded = await readImagePixelSize(sourceDataUrl);
+      const outpaintRatio = nearestWorkbenchSizeOption(
+        expanded.width,
+        expanded.height
+      );
+      const outpaintPixels = workbenchPixelDimensions(
+        outpaintRatio,
+        quality
+      ) ?? { width: 1024, height: 1024 };
+      const referenceFile = await dataUrlToFile(
+        sourceDataUrl,
+        "outpaint-source.png"
+      );
+      const maskFile = await dataUrlToFile(
+        await createOutpaintMaskDataUrl(url, margins),
+        "outpaint-mask.png"
+      );
+      return {
+        model,
+        prompt: promptText,
+        size: `${outpaintPixels.width}x${outpaintPixels.height}`,
+        quality,
+        count: 1,
+        referenceFiles: [referenceFile],
+        maskFile,
+        scope,
+        sourceType: "image_workbench",
+      };
     });
   };
 
@@ -570,7 +787,14 @@ export function ImageWorkbenchView() {
   const loadAssetIntoPreview = (asset: Asset) => {
     if (generating) return toast.info("任务执行中，完成后再载入");
     setHistoryPreview(null);
-    setResult([{ id: asset.id, assetId: asset.id, src: historyUrls[asset.id] || "", name: asset.name }]);
+    setResult([
+      {
+        id: asset.id,
+        assetId: asset.id,
+        src: historyUrls[asset.id] || "",
+        name: asset.name,
+      },
+    ]);
     setSelectedResult(0);
     toast.info("已载入预览区域，可使用下方编辑功能");
   };
@@ -578,7 +802,7 @@ export function ImageWorkbenchView() {
   const downloadHistoryAsset = async (asset: Asset) => {
     try {
       const url = await getAssetContentObjectUrl(asset.id, scope);
-      const blob = await fetch(url).then((response) => response.blob());
+      const blob = await fetch(url).then(response => response.blob());
       downloadBlob(blob, asset.name);
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -590,22 +814,29 @@ export function ImageWorkbenchView() {
   const removeResult = (index: number) => {
     const target = result[index];
     const next = result.filter((_, itemIndex) => itemIndex !== index);
-    if (target?.src?.startsWith("blob:") && !Object.values(resultUrls).includes(target.src)) URL.revokeObjectURL(target.src);
+    if (
+      target?.src?.startsWith("blob:") &&
+      !Object.values(resultUrls).includes(target.src)
+    )
+      URL.revokeObjectURL(target.src);
     setResult(next);
-    setSelectedResult((current) => (current >= next.length ? Math.max(0, next.length - 1) : current));
+    setSelectedResult(current =>
+      current >= next.length ? Math.max(0, next.length - 1) : current
+    );
     toast.info("已从预览区域移除");
   };
 
   const canEditPreview = Boolean(selectedImage) && !generating;
-  const historyIds = useMemo(() => history.map((asset) => asset.id), [history]);
-  const allHistorySelected = historyIds.length > 0 && selectedHistoryIds.length === historyIds.length;
+  const historyIds = useMemo(() => history.map(asset => asset.id), [history]);
+  const allHistorySelected =
+    historyIds.length > 0 && selectedHistoryIds.length === historyIds.length;
 
   const toggleHistorySelected = (assetId: string) => {
-    setSelectedHistoryIds((current) => toggleHistorySelection(current, assetId));
+    setSelectedHistoryIds(current => toggleHistorySelection(current, assetId));
   };
 
   const toggleSelectAllHistory = () => {
-    setSelectedHistoryIds((current) => nextHistorySelectAll(current, historyIds));
+    setSelectedHistoryIds(current => nextHistorySelectAll(current, historyIds));
   };
 
   const deleteSelectedHistory = async () => {
@@ -614,9 +845,15 @@ export function ImageWorkbenchView() {
     try {
       const preflight = await preflightAssetTrash(selectedHistoryIds, scope);
       const count = preflight.total || selectedHistoryIds.length;
-      if (!window.confirm(`将 ${count} 条生成记录移入回收站，已有引用仍可读。继续？`)) return;
+      if (
+        !window.confirm(
+          `将 ${count} 条生成记录移入回收站，已有引用仍可读。继续？`
+        )
+      )
+        return;
       await trashAssets(selectedHistoryIds, scope);
-      if (historyPreview && selectedHistoryIds.includes(historyPreview.id)) setHistoryPreview(null);
+      if (historyPreview && selectedHistoryIds.includes(historyPreview.id))
+        setHistoryPreview(null);
       setSelectedHistoryIds([]);
       reloadHistory();
       toast.success(`已移入回收站 ${count} 条记录`);
@@ -627,303 +864,913 @@ export function ImageWorkbenchView() {
     }
   };
 
-  return <div className="feature-page image-page">
-    <input ref={referenceInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { if (event.target.files) addReferenceFiles(event.target.files); event.target.value = ""; }} />
-    <PromptLibraryDialog open={promptLibraryOpen} onOpenChange={setPromptLibraryOpen} onSelect={(value) => { setPrompt(value); setPromptLibraryOpen(false); }} />
-    <SurfaceTitle eyebrow="KEYFRAME / NEW" title="图片生成" description="走真实模型与队列，支持参考图编辑，把结果直接送回画布。"
-      actions={<div className="scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => setScope(item.value)}>{item.label}</button>)}</div>} />
-    <div className="image-workbench">
-      <aside className="generation-history-sidebar">
-        <div className="history-sidebar-header">
-          <h2 className="eyebrow">生成记录</h2>
-          <span>{history.length}</span>
-        </div>
-        <div className="history-sidebar-actions">
-          <button
-            type="button"
-            className="outline-button small"
-            onClick={toggleSelectAllHistory}
-            disabled={!history.length || historyBusy}
-          >
-            {allHistorySelected ? "取消全选" : "全选"}
-          </button>
-          <button
-            type="button"
-            className="outline-button small"
-            onClick={() => void deleteSelectedHistory()}
-            disabled={!selectedHistoryIds.length || historyBusy}
-          >
-            <Trash2 size={14} /> {historyBusy ? "删除中…" : selectedHistoryIds.length ? `删除 ${selectedHistoryIds.length}` : "删除"}
-          </button>
-        </div>
-        <div className="history-sidebar-content">
-          {history.length > 0 ? (
-            <div className="history-card-list">
-              {history.map((asset) => {
-                const checked = selectedHistoryIds.includes(asset.id);
-                return (
-                <article
-                  className={checked ? "history-card selected" : "history-card"}
-                  key={asset.id}
-                >
-                  <label
-                    className="history-card-check"
-                    onClick={(event) => event.stopPropagation()}
-                    onKeyDown={(event) => event.stopPropagation()}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleHistorySelected(asset.id)}
-                      aria-label={`选择 ${asset.name || "生成记录"}`}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="history-card-preview"
-                    title="左键放大预览 · 右键载入预览区域"
-                    onClick={() => setHistoryPreview(asset)}
-                    onContextMenu={(event) => { event.preventDefault(); loadAssetIntoPreview(asset); }}
-                  >
-                    {historyUrls[asset.id] ? (
-                      <img src={historyUrls[asset.id]} alt={asset.name} />
-                    ) : (
-                      <div className="empty-thumbnail"><ImageIcon size={20} /></div>
-                    )}
-                    <div className="history-card-overlay">
-                      <b>{asset.name}</b>
-                      <small>{new Date(asset.created_at || Date.now()).toLocaleDateString()}</small>
-                      <span>左键预览 · 右键载入预览区</span>
-                    </div>
-                  </button>
-                </article>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="history-empty">
-              <ImageIcon size={32} />
-              <p>还没有生成记录</p>
-            </div>
-          )}
-        </div>
-      </aside>
-      <section className="image-composer" onPaste={(event) => {
-        const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
-        if (files.length) { event.preventDefault(); addReferenceFiles(files); }
-      }}>
-        <div className="image-composer-scroll" role="region" aria-label="图片生成设置" tabIndex={0}>
-        <div className="composer-heading">
-          <p className="eyebrow">SETUP / FRAME</p>
-          <h3>生成设定</h3>
-        </div>
-        <label className="prompt-editor"><span>SHOT PROMPT</span><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} /><small>{prompt.length} 字符</small></label>
-        <div className="workbench-preset-strip" role="group" aria-label="提示词快捷选择">
-          <div className="workbench-preset-heading">
-            <span className="workbench-preset-label">常用提示词</span>
-            <button type="button" className="workbench-preset-library" onClick={() => setPromptLibraryOpen(true)}>
-              <BookOpen size={14} aria-hidden="true" />
-              <span>提示词库</span>
-              <ChevronRight size={13} aria-hidden="true" />
+  return (
+    <div className="feature-page image-page">
+      <input
+        ref={referenceInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={event => {
+          if (event.target.files) addReferenceFiles(event.target.files);
+          event.target.value = "";
+        }}
+      />
+      <PromptLibraryDialog
+        open={promptLibraryOpen}
+        onOpenChange={setPromptLibraryOpen}
+        onSelect={value => {
+          setPrompt(value);
+          setPromptLibraryOpen(false);
+        }}
+      />
+      <SurfaceTitle
+        eyebrow="KEYFRAME / NEW"
+        title="图片生成"
+        description="走真实模型与队列，支持参考图编辑，把结果直接送回画布。"
+        actions={
+          <div className="scope-switch">
+            {scopeOptions.map(item => (
+              <button
+                key={item.value}
+                className={scope === item.value ? "active" : ""}
+                onClick={() => setScope(item.value)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        }
+      />
+      <div className="image-workbench">
+        <aside className="generation-history-sidebar">
+          <div className="history-sidebar-header">
+            <h2 className="eyebrow">生成记录</h2>
+            <span>{history.length}</span>
+          </div>
+          <div className="history-sidebar-actions">
+            <button
+              type="button"
+              className="outline-button small"
+              onClick={toggleSelectAllHistory}
+              disabled={!history.length || historyBusy}
+            >
+              {allHistorySelected ? "取消全选" : "全选"}
+            </button>
+            <button
+              type="button"
+              className="outline-button small"
+              onClick={() => void deleteSelectedHistory()}
+              disabled={!selectedHistoryIds.length || historyBusy}
+            >
+              <Trash2 size={14} />{" "}
+              {historyBusy
+                ? "删除中…"
+                : selectedHistoryIds.length
+                  ? `删除 ${selectedHistoryIds.length}`
+                  : "删除"}
             </button>
           </div>
-          {visiblePromptPresets.length ? (
-            <div className="workbench-preset-items">
-              {visiblePromptPresets.map((preset) => {
-                const selected = Boolean(preset.prompt.trim()) && prompt.trim() === preset.prompt.trim();
-                return <button type="button" className="workbench-preset-chip" key={preset.id}
-                  title={`${priorityLabel(preset.priority)} · ${preset.title}\n${preset.prompt}${selected ? "\n再次点击取消选用" : ""}`}
-                  aria-pressed={selected}
-                  onClick={() => {
-                    if (selected) {
-                      setPrompt(promptBeforePresetRef.current ?? "");
-                      promptBeforePresetRef.current = null;
-                      return;
-                    }
-                    const fromPreset = visiblePromptPresets.some((item) => item.prompt.trim() && item.prompt.trim() === prompt.trim());
-                    if (!fromPreset) promptBeforePresetRef.current = prompt;
-                    setPrompt(preset.prompt);
-                  }}>
-                  <span>{preset.title}</span>
-                  <Check size={12} aria-hidden="true" />
-                </button>;
-              })}
-            </div>
-          ) : <p className="workbench-preset-empty">在提示词库中保存常用内容，即可快捷选用</p>}
-        </div>
-        <div className="reference-manager">
-          <div className="reference-manager-head"><span>参考图 {references.length}/{MAX_REFERENCE_IMAGES}</span><div><button onClick={() => referenceInputRef.current?.click()}><Upload size={13} /> 上传</button><button onClick={() => setAssetPickerOpen((value) => !value)}><ImagePlus size={13} /> 从资产库</button>{references.length > 0 && <button onClick={() => { references.forEach((item) => URL.revokeObjectURL(item.previewUrl)); setReferences([]); }}>清空</button>}</div></div>
-          {references.length ? <div className="reference-strip">{references.map((reference, index) => <div className="reference-thumb" key={reference.id}><img src={reference.previewUrl} alt={reference.file.name} /><span>{index + 1}</span><div className="reference-thumb-actions"><button title="前移" disabled={index === 0} onClick={() => moveReference(reference.id, -1)}><ArrowUp size={12} /></button><button title="后移" disabled={index === references.length - 1} onClick={() => moveReference(reference.id, 1)}><ArrowDown size={12} /></button><button title="移除" onClick={() => removeReference(reference.id)}><X size={12} /></button></div></div>)}</div> : <p className="reference-empty">粘贴、上传或从资产库选择参考图后，会自动走图生图编辑链路。</p>}
-          {assetPickerOpen && <div className="reference-asset-picker"><div className="tag-search"><Search size={14} /><input value={assetPickerKeyword} onChange={(event) => setAssetPickerKeyword(event.target.value)} placeholder="搜索资产库图片" /></div><div className="reference-asset-grid">{assetPickerItems.map((asset) => <button key={asset.id} title={asset.name} onClick={() => void addAssetAsReference(asset)}>{assetPickerUrls[asset.id] ? <img src={assetPickerUrls[asset.id]} alt={asset.name} /> : <ImageIcon size={18} />}<span>{asset.name}</span></button>)}{!assetPickerItems.length && <small>没有匹配的图片资产</small>}</div></div>}
-        </div>
-        <div className="composer-options">
-          <label>模型<select value={model} onChange={(e) => {
-            const nextModel = e.target.value;
-            setModel(nextModel);
-            const pixels = workbenchPixelDimensions(size, quality);
-            if (pixels) {
-              const snapped = snapPixelSizeForModel(nextModel, pixels);
-              setWidth(snapped.width);
-              setHeight(snapped.height);
-            }
-          }}>{/* [画布别名] */}{modelOptions(catalog?.models || [], model, catalog?.labels, catalog?.nicknames).map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label>
-        </div>
-        <div className="composer-options">
-          <label>质量<div className="ratio-buttons">{(["auto", "high", "medium", "low"] as const).map((q) => <button key={q} className={quality === q ? "active" : ""} onClick={() => {
-            setQuality(q);
-            const pixels = workbenchPixelDimensions(size, q);
-            if (pixels) {
-              const snapped = snapPixelSizeForModel(model, pixels);
-              setWidth(snapped.width);
-              setHeight(snapped.height);
-            }
-          }}>{q === "auto" ? "自动" : q === "high" ? "高" : q === "medium" ? "中" : "低"}</button>)}</div></label>
-          <label>数量<div className="counter"><button onClick={() => setCount((v) => Math.max(1, v - 1))}>−</button><input type="number" value={count} onChange={(e) => setCount(Math.max(1, Math.min(15, Number(e.target.value) || 1)))} min="1" max="15" /><button onClick={() => setCount((v) => Math.min(15, v + 1))}>+</button></div></label>
-        </div>
-        <div className="composer-size-settings">
-          <label>尺寸<div className="size-inputs"><span>W</span><input type="number" value={width} onChange={(e) => {
-            const nextWidth = Number(e.target.value);
-            setWidth(nextWidth);
-            if (size !== "auto" && !size.includes("(")) setSize(nearestWorkbenchSizeOption(nextWidth, height));
-          }} min="256" max="3840" step={align16 ? "16" : "1"} /><button className="swap-size" onClick={() => {
-            setWidth(height);
-            setHeight(width);
-            setSize(flippedWorkbenchSizeOption(size));
-          }}>⇄</button><span>H</span><input type="number" value={height} onChange={(e) => {
-            const nextHeight = Number(e.target.value);
-            setHeight(nextHeight);
-            if (size !== "auto" && !size.includes("(")) setSize(nearestWorkbenchSizeOption(width, nextHeight));
-          }} min="256" max="3840" step={align16 ? "16" : "1"} /><label className="align-toggle"><input type="checkbox" checked={align16} onChange={(e) => {
-            const next = e.target.checked;
-            setAlign16(next);
-            if (next) {
-              const pixels = clampImagePixelSize({ width, height }, true);
-              setWidth(pixels.width);
-              setHeight(pixels.height);
-            }
-          }} /><span>16倍数对齐</span></label></div></label>
-        </div>
-        <div className="composer-ratio-grid">
-          <label>宽高比</label>
-          <div className="ratio-grid">{IMAGE_WORKBENCH_SIZE_OPTIONS.map((ratio) => <button key={ratio} type="button" disabled={!isImageWorkbenchSizeAvailable(ratio)} title={isImageWorkbenchSizeAvailable(ratio) ? ratio : `${ratio}：当前生图模型暂只支持 1K`} className={size === ratio ? "active" : ""} onClick={() => {
-            const resolved = resolveImageWorkbenchRequestOptions(ratio, quality);
-            setSize(ratio);
-            if (resolved.quality !== quality) setQuality(resolved.quality);
-            const pixels = workbenchPixelDimensions(ratio, resolved.quality);
-            if (pixels) {
-              const snapped = snapPixelSizeForModel(model, pixels);
-              setWidth(snapped.width);
-              setHeight(snapped.height);
-            }
-          }}>{ratio}</button>)}</div>
-        </div>
-        </div>
-        <div className="image-generation-footer">
-          {generating && <div className="job-progress"><i style={{ width: `${jobProgress}%` }} /></div>}
-          <div className="generate-row">
-            <button className="vermilion-button generate-frame" disabled={generating || !model} onClick={() => void generate()}><WandSparkles size={17} /> {generating ? `生成中 ${jobProgress}% · ${elapsedSeconds}s` : references.length ? "生成编辑结果" : "生成关键帧"}</button>
-            {generating && <button className="outline-button small" onClick={stopGeneration}><Square size={14} /> 停止</button>}
-            <small className="generate-cost-hint" aria-hidden={generating} style={{ visibility: generating ? "hidden" : undefined }}>
-              <GenerationPrice model={model} size={workbenchRequestSize(size, snapPixelSizeForModel(model, clampImagePixelSize({ width, height }, align16)).width, snapPixelSizeForModel(model, clampImagePixelSize({ width, height }, align16)).height, align16)} quality={resolveImageWorkbenchRequestOptions(size, quality).quality} count={count} references={references.length} /> · 成功才扣费
-            </small>
+          <div className="history-sidebar-content">
+            {history.length > 0 ? (
+              <div className="history-card-list">
+                {history.map(asset => {
+                  const checked = selectedHistoryIds.includes(asset.id);
+                  return (
+                    <article
+                      className={
+                        checked ? "history-card selected" : "history-card"
+                      }
+                      key={asset.id}
+                    >
+                      <label
+                        className="history-card-check"
+                        onClick={event => event.stopPropagation()}
+                        onKeyDown={event => event.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleHistorySelected(asset.id)}
+                          aria-label={`选择 ${asset.name || "生成记录"}`}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="history-card-preview"
+                        title="左键放大预览 · 右键载入预览区域"
+                        onClick={() => setHistoryPreview(asset)}
+                        onContextMenu={event => {
+                          event.preventDefault();
+                          loadAssetIntoPreview(asset);
+                        }}
+                      >
+                        {historyUrls[asset.id] ? (
+                          <img src={historyUrls[asset.id]} alt={asset.name} />
+                        ) : (
+                          <div className="empty-thumbnail">
+                            <ImageIcon size={20} />
+                          </div>
+                        )}
+                        <div className="history-card-overlay">
+                          <b>{asset.name}</b>
+                          <small>
+                            {new Date(
+                              asset.created_at || Date.now()
+                            ).toLocaleDateString()}
+                          </small>
+                          <span>左键预览 · 右键载入预览区</span>
+                        </div>
+                      </button>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="history-empty">
+                <ImageIcon size={32} />
+                <p>还没有生成记录</p>
+              </div>
+            )}
           </div>
-        </div>
-      </section>
-      <aside className="generation-output">
-        <div className="output-heading"><div><p className="eyebrow">RESULTS / {String(result.length).padStart(2, "0")}</p><h3>{generating ? "任务执行中" : result.length ? "本次落点" : "等待落点"}</h3>{jobId && <small>JOB · {jobId}</small>}</div>{result.length > 0 && !generating && <button className="outline-button small" onClick={() => void generate(1)}><RefreshCcw size={13} /> 重试一张 <GenerationPrice model={model} size={workbenchRequestSize(size, snapPixelSizeForModel(model, clampImagePixelSize({ width, height }, align16)).width, snapPixelSizeForModel(model, clampImagePixelSize({ width, height }, align16)).height, align16)} quality={resolveImageWorkbenchRequestOptions(size, quality).quality} count={1} references={references.length} /></button>}</div>
-        {generating ? (
-          <div className="result-stage generating">
-            <div className="generation-waiting">
-              <span className="waiting-ring"><Loader2 className="spin" size={24} /></span>
-              <p role="status" aria-live="polite">{jobNotice || "图片生成中"}</p>
-              <small>{jobProgress}% · 已等待 {elapsedSeconds}s</small>
-              <div className="waiting-progress"><i style={{ width: `${Math.max(jobProgress, 6)}%` }} /></div>
+        </aside>
+        <section
+          className="image-composer"
+          onPaste={event => {
+            const files = Array.from(event.clipboardData?.files || []).filter(
+              file => file.type.startsWith("image/")
+            );
+            if (files.length) {
+              event.preventDefault();
+              addReferenceFiles(files);
+            }
+          }}
+        >
+          <div
+            className="image-composer-scroll"
+            role="region"
+            aria-label="图片生成设置"
+            tabIndex={0}
+          >
+            <div className="composer-heading">
+              <p className="eyebrow">SETUP / FRAME</p>
+              <h3>生成设定</h3>
             </div>
-          </div>
-        ) : result.length ? (
-          <>
-            <div className="result-stage">
-              {selectedImage && resultSrc(selectedImage) ? (
-                <img className="result-stage-image" src={resultSrc(selectedImage)} alt={selectedImage.name || "结果"} title="点击放大查看" onClick={openLightbox} />
+            <label className="prompt-editor">
+              <span>SHOT PROMPT</span>
+              <textarea
+                value={prompt}
+                onChange={e => setPrompt(e.target.value)}
+              />
+              <small>{prompt.length} 字符</small>
+            </label>
+            <div
+              className="workbench-preset-strip"
+              role="group"
+              aria-label="提示词快捷选择"
+            >
+              <div className="workbench-preset-heading">
+                <span className="workbench-preset-label">常用提示词</span>
+                <button
+                  type="button"
+                  className="workbench-preset-library"
+                  onClick={() => setPromptLibraryOpen(true)}
+                >
+                  <BookOpen size={14} aria-hidden="true" />
+                  <span>提示词库</span>
+                  <ChevronRight size={13} aria-hidden="true" />
+                </button>
+              </div>
+              {visiblePromptPresets.length ? (
+                <div className="workbench-preset-items">
+                  {visiblePromptPresets.map(preset => {
+                    const selected =
+                      Boolean(preset.prompt.trim()) &&
+                      prompt.trim() === preset.prompt.trim();
+                    return (
+                      <button
+                        type="button"
+                        className="workbench-preset-chip"
+                        key={preset.id}
+                        title={`${priorityLabel(preset.priority)} · ${preset.title}\n${preset.prompt}${selected ? "\n再次点击取消选用" : ""}`}
+                        aria-pressed={selected}
+                        onClick={() => {
+                          if (selected) {
+                            setPrompt(promptBeforePresetRef.current ?? "");
+                            promptBeforePresetRef.current = null;
+                            return;
+                          }
+                          const fromPreset = visiblePromptPresets.some(
+                            item =>
+                              item.prompt.trim() &&
+                              item.prompt.trim() === prompt.trim()
+                          );
+                          if (!fromPreset)
+                            promptBeforePresetRef.current = prompt;
+                          setPrompt(preset.prompt);
+                        }}
+                      >
+                        <span>{preset.title}</span>
+                        <Check size={12} aria-hidden="true" />
+                      </button>
+                    );
+                  })}
+                </div>
               ) : (
-                <div className="empty-output"><Loader2 className="spin" size={20} /><p>正在读取生成结果…</p></div>
+                <p className="workbench-preset-empty">
+                  在提示词库中保存常用内容，即可快捷选用
+                </p>
               )}
-              {selectedImage && <span className="result-stage-tag">V-{String(selectedIndex + 1).padStart(2, "0")} / {String(result.length).padStart(2, "0")}</span>}
-              {selectedSrc && <button className="result-stage-zoom" title="放大查看" onClick={openLightbox}><Maximize2 size={13} /></button>}
-              {selectedImage && <button className="result-stage-remove" title="从预览区域移除" onClick={() => removeResult(selectedIndex)}><Trash2 size={13} /></button>}
             </div>
-            {result.length > 1 && (
-              <div className="result-strip">
-                {result.map((image, index) => (
-                  <button key={image.id} className={index === selectedResult ? "result-thumb selected" : "result-thumb"} title={image.name || `V-${index + 1}`} onClick={() => setSelectedResult(index)}>
-                    {resultSrc(image) ? <img src={resultSrc(image)} alt={image.name || "结果"} /> : <Loader2 className="spin" size={14} />}
-                    <span>V-{String(index + 1).padStart(2, "0")}</span>
-                    {index === selectedResult && <i><Check size={11} /></i>}
-                    <b className="result-thumb-remove" title="从预览区域移除" onClick={(event) => { event.stopPropagation(); removeResult(index); }}><X size={10} /></b>
+            <div className="reference-manager">
+              <div className="reference-manager-head">
+                <span>
+                  参考图 {references.length}/{MAX_REFERENCE_IMAGES}
+                </span>
+                <div>
+                  <button onClick={() => referenceInputRef.current?.click()}>
+                    <Upload size={13} /> 上传
+                  </button>
+                  <button onClick={() => setAssetPickerOpen(value => !value)}>
+                    <ImagePlus size={13} /> 从资产库
+                  </button>
+                  {references.length > 0 && (
+                    <button
+                      onClick={() => {
+                        references.forEach(item =>
+                          URL.revokeObjectURL(item.previewUrl)
+                        );
+                        setReferences([]);
+                      }}
+                    >
+                      清空
+                    </button>
+                  )}
+                </div>
+              </div>
+              {references.length ? (
+                <div className="reference-strip">
+                  {references.map((reference, index) => (
+                    <div className="reference-thumb" key={reference.id}>
+                      <img
+                        src={reference.previewUrl}
+                        alt={reference.file.name}
+                      />
+                      <span>{index + 1}</span>
+                      <div className="reference-thumb-actions">
+                        <button
+                          title="前移"
+                          disabled={index === 0}
+                          onClick={() => moveReference(reference.id, -1)}
+                        >
+                          <ArrowUp size={12} />
+                        </button>
+                        <button
+                          title="后移"
+                          disabled={index === references.length - 1}
+                          onClick={() => moveReference(reference.id, 1)}
+                        >
+                          <ArrowDown size={12} />
+                        </button>
+                        <button
+                          title="移除"
+                          onClick={() => removeReference(reference.id)}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="reference-empty">
+                  粘贴、上传或从资产库选择参考图后，会自动走图生图编辑链路。
+                </p>
+              )}
+              {assetPickerOpen && (
+                <div className="reference-asset-picker">
+                  <div className="tag-search">
+                    <Search size={14} />
+                    <input
+                      value={assetPickerKeyword}
+                      onChange={event =>
+                        setAssetPickerKeyword(event.target.value)
+                      }
+                      placeholder="搜索资产库图片"
+                    />
+                  </div>
+                  <div className="reference-asset-grid">
+                    {assetPickerItems.map(asset => (
+                      <button
+                        key={asset.id}
+                        title={asset.name}
+                        onClick={() => void addAssetAsReference(asset)}
+                      >
+                        {assetPickerUrls[asset.id] ? (
+                          <img
+                            src={assetPickerUrls[asset.id]}
+                            alt={asset.name}
+                          />
+                        ) : (
+                          <ImageIcon size={18} />
+                        )}
+                        <span>{asset.name}</span>
+                      </button>
+                    ))}
+                    {!assetPickerItems.length && (
+                      <small>没有匹配的图片资产</small>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="composer-options">
+              <label>
+                模型
+                <select
+                  value={model}
+                  onChange={e => {
+                    const nextModel = e.target.value;
+                    setModel(nextModel);
+                    const pixels = workbenchPixelDimensions(size, quality);
+                    if (pixels) {
+                      const snapped = snapPixelSizeForModel(nextModel, pixels);
+                      setWidth(snapped.width);
+                      setHeight(snapped.height);
+                    }
+                  }}
+                >
+                  {/* [画布别名] */}
+                  {modelOptions(
+                    catalog?.models || [],
+                    model,
+                    catalog?.labels,
+                    catalog?.nicknames
+                  ).map(({ value, label }) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="composer-options">
+              <label>
+                质量
+                <div className="ratio-buttons">
+                  {(["auto", "high", "medium", "low"] as const).map(q => (
+                    <button
+                      key={q}
+                      className={quality === q ? "active" : ""}
+                      onClick={() => {
+                        setQuality(q);
+                        const pixels = workbenchPixelDimensions(size, q);
+                        if (pixels) {
+                          const snapped = snapPixelSizeForModel(model, pixels);
+                          setWidth(snapped.width);
+                          setHeight(snapped.height);
+                        }
+                      }}
+                    >
+                      {q === "auto"
+                        ? "自动"
+                        : q === "high"
+                          ? "高"
+                          : q === "medium"
+                            ? "中"
+                            : "低"}
+                    </button>
+                  ))}
+                </div>
+              </label>
+              <label>
+                数量
+                <div className="counter">
+                  <button onClick={() => setCount(v => Math.max(1, v - 1))}>
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    value={count}
+                    onChange={e =>
+                      setCount(
+                        Math.max(1, Math.min(15, Number(e.target.value) || 1))
+                      )
+                    }
+                    min="1"
+                    max="15"
+                  />
+                  <button onClick={() => setCount(v => Math.min(15, v + 1))}>
+                    +
+                  </button>
+                </div>
+              </label>
+            </div>
+            <div className="composer-size-settings">
+              <label>
+                尺寸
+                <div className="size-inputs">
+                  <span>W</span>
+                  <input
+                    type="number"
+                    value={width}
+                    onChange={e => {
+                      const nextWidth = Number(e.target.value);
+                      setWidth(nextWidth);
+                      if (!size.includes("("))
+                        setSize(nearestWorkbenchSizeOption(nextWidth, height));
+                    }}
+                    min="256"
+                    max="3840"
+                    step={align16 ? "16" : "1"}
+                  />
+                  <button
+                    className="swap-size"
+                    onClick={() => {
+                      setWidth(height);
+                      setHeight(width);
+                      setSize(flippedWorkbenchSizeOption(size));
+                    }}
+                  >
+                    ⇄
+                  </button>
+                  <span>H</span>
+                  <input
+                    type="number"
+                    value={height}
+                    onChange={e => {
+                      const nextHeight = Number(e.target.value);
+                      setHeight(nextHeight);
+                      if (!size.includes("("))
+                        setSize(nearestWorkbenchSizeOption(width, nextHeight));
+                    }}
+                    min="256"
+                    max="3840"
+                    step={align16 ? "16" : "1"}
+                  />
+                  <label className="align-toggle">
+                    <input
+                      type="checkbox"
+                      checked={align16}
+                      onChange={e => {
+                        const next = e.target.checked;
+                        setAlign16(next);
+                        if (next) {
+                          const pixels = clampImagePixelSize(
+                            { width, height },
+                            true
+                          );
+                          setWidth(pixels.width);
+                          setHeight(pixels.height);
+                        }
+                      }}
+                    />
+                    <span>16倍数对齐</span>
+                  </label>
+                </div>
+              </label>
+            </div>
+            <div className="composer-ratio-grid">
+              <label>宽高比</label>
+              <div className="ratio-grid">
+                {IMAGE_WORKBENCH_SIZE_OPTIONS.map(ratio => (
+                  <button
+                    key={ratio}
+                    type="button"
+                    disabled={!isImageWorkbenchSizeAvailable(ratio)}
+                    title={
+                      isImageWorkbenchSizeAvailable(ratio)
+                        ? ratio
+                        : `${ratio}：当前生图模型暂只支持 1K`
+                    }
+                    className={size === ratio ? "active" : ""}
+                    onClick={() => {
+                      const resolved = resolveImageWorkbenchRequestOptions(
+                        ratio,
+                        quality
+                      );
+                      setSize(ratio);
+                      if (resolved.quality !== quality)
+                        setQuality(resolved.quality);
+                      const pixels = workbenchPixelDimensions(
+                        ratio,
+                        resolved.quality
+                      );
+                      if (pixels) {
+                        const snapped = snapPixelSizeForModel(model, pixels);
+                        setWidth(snapped.width);
+                        setHeight(snapped.height);
+                      }
+                    }}
+                  >
+                    {ratio}
                   </button>
                 ))}
               </div>
+            </div>
+          </div>
+          <div className="image-generation-footer">
+            {generating && (
+              <div className="job-progress">
+                <i style={{ width: `${jobProgress}%` }} />
+              </div>
             )}
-          </>
-        ) : (
-          <div className="empty-output"><ImageIcon size={27} /><p>生成结果会在这里形成。</p></div>
-        )}
-        <div className="edit-toolbar">
-          <span className="eyebrow">编辑</span>
-          <div className="edit-toolbar-buttons">
-            <button disabled={!canEditPreview} title={canEditPreview ? "在图片上绘制标注" : "预览区域没有图片"} onClick={() => void openEditor("annotate")}><PenLine size={13} /> 标注</button>
-            <button disabled={!canEditPreview} title={canEditPreview ? "本地超分放大" : "预览区域没有图片"} onClick={() => void openEditor("upscale")}><Sparkles size={13} /> 超分</button>
-            <button disabled={!canEditPreview || !model} title={canEditPreview ? "AI 外扩画布并补全" : "预览区域没有图片"} onClick={() => setOutpaintOpen(true)}><Expand size={13} /> 扩图</button>
-            <button disabled={!canEditPreview} title={canEditPreview ? "裁剪图片" : "预览区域没有图片"} onClick={() => void openEditor("crop")}><Crop size={13} /> 裁剪</button>
+            <div className="generate-row">
+              <button
+                className="vermilion-button generate-frame"
+                disabled={generating || !model}
+                onClick={() => void generate()}
+              >
+                <WandSparkles size={17} />{" "}
+                {generating
+                  ? `生成中 ${jobProgress}% · ${elapsedSeconds}s`
+                  : references.length
+                    ? "生成编辑结果"
+                    : "生成关键帧"}
+              </button>
+              {generating && (
+                <button
+                  className="outline-button small"
+                  onClick={stopGeneration}
+                >
+                  <Square size={14} /> 停止
+                </button>
+              )}
+              <small
+                className="generate-cost-hint"
+                aria-hidden={generating}
+                style={{ visibility: generating ? "hidden" : undefined }}
+              >
+                <GenerationPrice
+                  model={model}
+                  size={workbenchRequestSize(
+                    size,
+                    snapPixelSizeForModel(
+                      model,
+                      clampImagePixelSize({ width, height }, align16)
+                    ).width,
+                    snapPixelSizeForModel(
+                      model,
+                      clampImagePixelSize({ width, height }, align16)
+                    ).height,
+                    align16
+                  )}
+                  quality={
+                    resolveImageWorkbenchRequestOptions(size, quality).quality
+                  }
+                  count={count}
+                  references={references.length}
+                />{" "}
+                · 成功才扣费
+              </small>
+            </div>
           </div>
-        </div>
-        {selectedImage && <div className="result-actions"><button onClick={() => void downloadResult(selectedImage)}><ArrowDownToLine size={14} /> 下载</button><button onClick={() => void addResultAsReference(selectedImage)}><ImagePlus size={14} /> 设为参考图</button></div>}
-        <div className="output-foot compact"><button onClick={() => void sendToCanvas()} disabled={!selectedImage?.assetId}><Layers3 size={13} /> 送入画布</button><button onClick={() => window.location.assign(`/assets?scope=${encodeURIComponent(scope)}`)}><Clapperboard size={13} /> 查看归档</button></div>
-      </aside>
-    </div>
-    {annotateOpen && editUrl && (
-      <CanvasImageAnnotationDialog
-        dataUrl={editUrl}
-        open={annotateOpen}
-        onClose={() => setAnnotateOpen(false)}
-        onConfirm={(payload) => { setAnnotateOpen(false); pushLocalResult(payload.dataUrl, `${selectedImage?.name || "结果"}-标注`); }}
-      />
-    )}
-    <UpscaleDialog open={upscaleOpen} busy={editBusy} onClose={() => setUpscaleOpen(false)} onRun={(targetLongEdge, algorithm) => void runUpscale(targetLongEdge, algorithm)} />
-    <OutpaintDialog model={model} quality={quality} open={outpaintOpen} busy={generating} onClose={() => setOutpaintOpen(false)} onRun={(margins, promptText) => void runOutpaint(margins, promptText)} />
-    <CropDialog open={cropOpen} imageUrl={editUrl} busy={editBusy} onClose={() => setCropOpen(false)} onRun={(rect) => void runCrop(rect)} />
-    <HistoryPreviewDialog
-      asset={historyPreview}
-      imageUrl={historyPreviewUrl}
-      onClose={() => setHistoryPreview(null)}
-      onLoadIntoPreview={loadAssetIntoPreview}
-      onAddReference={(asset) => { setHistoryPreview(null); void addAssetAsReference(asset); }}
-      onDownload={(asset) => void downloadHistoryAsset(asset)}
-    />
-    {lightboxOpen && selectedSrc && (
-      <div className="image-lightbox" role="presentation" onClick={() => setLightboxOpen(false)}>
-        <div className="image-lightbox-toolbar" onClick={(event) => event.stopPropagation()}>
-          <span className="image-lightbox-title">V-{String(selectedIndex + 1).padStart(2, "0")} · {selectedImage?.name || "生成结果"}</span>
-          <div className="image-lightbox-controls">
-            <button title="缩小" disabled={lightboxZoom <= LIGHTBOX_ZOOM_MIN} onClick={() => setLightboxZoom((z) => clampLightboxZoom(z - LIGHTBOX_ZOOM_STEP))}><ZoomOut size={14} /></button>
-            <b>{Math.round(lightboxZoom * 100)}%</b>
-            <button title="放大" disabled={lightboxZoom >= LIGHTBOX_ZOOM_MAX} onClick={() => setLightboxZoom((z) => clampLightboxZoom(z + LIGHTBOX_ZOOM_STEP))}><ZoomIn size={14} /></button>
-            <button title="适配窗口" onClick={() => setLightboxZoom(1)}>适配</button>
-            {selectedImage && <button title="下载" onClick={() => void downloadResult(selectedImage)}><ArrowDownToLine size={14} /></button>}
-            <button title="关闭 (Esc)" onClick={() => setLightboxOpen(false)}><X size={15} /></button>
+        </section>
+        <aside className="generation-output">
+          <div className="output-heading">
+            <div>
+              <p className="eyebrow">
+                RESULTS / {String(result.length).padStart(2, "0")}
+              </p>
+              <h3>
+                {generating
+                  ? "任务执行中"
+                  : result.length
+                    ? "本次落点"
+                    : "等待落点"}
+              </h3>
+              {jobId && <small>JOB · {jobId}</small>}
+            </div>
+            {result.length > 0 && !generating && (
+              <button
+                className="outline-button small"
+                onClick={() => void generate(1)}
+              >
+                <RefreshCcw size={13} /> 重试一张{" "}
+                <GenerationPrice
+                  model={model}
+                  size={workbenchRequestSize(
+                    size,
+                    snapPixelSizeForModel(
+                      model,
+                      clampImagePixelSize({ width, height }, align16)
+                    ).width,
+                    snapPixelSizeForModel(
+                      model,
+                      clampImagePixelSize({ width, height }, align16)
+                    ).height,
+                    align16
+                  )}
+                  quality={
+                    resolveImageWorkbenchRequestOptions(size, quality).quality
+                  }
+                  count={1}
+                  references={references.length}
+                />
+              </button>
+            )}
           </div>
-        </div>
-        <div className="image-lightbox-stage" ref={lightboxStageRef} onClick={() => setLightboxOpen(false)}>
-          <img
-            src={selectedSrc}
-            alt={selectedImage?.name || "生成结果"}
-            style={lightboxZoom === 1 ? undefined : { maxWidth: "none", maxHeight: "none", width: `${Math.round(lightboxZoom * 100)}%` }}
-            onClick={(event) => { event.stopPropagation(); setLightboxZoom((z) => (z === 1 ? 2 : 1)); }}
-          />
-        </div>
+          {generating ? (
+            <div className="result-stage generating">
+              <div className="generation-waiting">
+                <span className="waiting-ring">
+                  <Loader2 className="spin" size={24} />
+                </span>
+                <p role="status" aria-live="polite">
+                  {jobNotice || "图片生成中"}
+                </p>
+                <small>
+                  {jobProgress}% · 已等待 {elapsedSeconds}s
+                </small>
+                <div className="waiting-progress">
+                  <i style={{ width: `${Math.max(jobProgress, 6)}%` }} />
+                </div>
+              </div>
+            </div>
+          ) : result.length ? (
+            <>
+              <div className="result-stage">
+                {selectedImage && resultSrc(selectedImage) ? (
+                  <img
+                    className="result-stage-image"
+                    src={resultSrc(selectedImage)}
+                    alt={selectedImage.name || "结果"}
+                    title="点击放大查看"
+                    onClick={openLightbox}
+                  />
+                ) : (
+                  <div className="empty-output">
+                    <Loader2 className="spin" size={20} />
+                    <p>正在读取生成结果…</p>
+                  </div>
+                )}
+                {selectedImage && (
+                  <span className="result-stage-tag">
+                    V-{String(selectedIndex + 1).padStart(2, "0")} /{" "}
+                    {String(result.length).padStart(2, "0")}
+                  </span>
+                )}
+                {selectedSrc && (
+                  <button
+                    className="result-stage-zoom"
+                    title="放大查看"
+                    onClick={openLightbox}
+                  >
+                    <Maximize2 size={13} />
+                  </button>
+                )}
+                {selectedImage && (
+                  <button
+                    className="result-stage-remove"
+                    title="从预览区域移除"
+                    onClick={() => removeResult(selectedIndex)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+              {result.length > 1 && (
+                <div className="result-strip">
+                  {result.map((image, index) => (
+                    <button
+                      key={image.id}
+                      className={
+                        index === selectedResult
+                          ? "result-thumb selected"
+                          : "result-thumb"
+                      }
+                      title={image.name || `V-${index + 1}`}
+                      onClick={() => setSelectedResult(index)}
+                    >
+                      {resultSrc(image) ? (
+                        <img
+                          src={resultSrc(image)}
+                          alt={image.name || "结果"}
+                        />
+                      ) : (
+                        <Loader2 className="spin" size={14} />
+                      )}
+                      <span>V-{String(index + 1).padStart(2, "0")}</span>
+                      {index === selectedResult && (
+                        <i>
+                          <Check size={11} />
+                        </i>
+                      )}
+                      <b
+                        className="result-thumb-remove"
+                        title="从预览区域移除"
+                        onClick={event => {
+                          event.stopPropagation();
+                          removeResult(index);
+                        }}
+                      >
+                        <X size={10} />
+                      </b>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="empty-output">
+              <ImageIcon size={27} />
+              <p>生成结果会在这里形成。</p>
+            </div>
+          )}
+          <div className="edit-toolbar">
+            <span className="eyebrow">编辑</span>
+            <div className="edit-toolbar-buttons">
+              <button
+                disabled={!canEditPreview}
+                title={canEditPreview ? "在图片上绘制标注" : "预览区域没有图片"}
+                onClick={() => void openEditor("annotate")}
+              >
+                <PenLine size={13} /> 标注
+              </button>
+              <button
+                disabled={!canEditPreview}
+                title={canEditPreview ? "本地超分放大" : "预览区域没有图片"}
+                onClick={() => void openEditor("upscale")}
+              >
+                <Sparkles size={13} /> 超分
+              </button>
+              <button
+                disabled={!canEditPreview || !model}
+                title={
+                  canEditPreview ? "AI 外扩画布并补全" : "预览区域没有图片"
+                }
+                onClick={() => setOutpaintOpen(true)}
+              >
+                <Expand size={13} /> 扩图
+              </button>
+              <button
+                disabled={!canEditPreview}
+                title={canEditPreview ? "裁剪图片" : "预览区域没有图片"}
+                onClick={() => void openEditor("crop")}
+              >
+                <Crop size={13} /> 裁剪
+              </button>
+            </div>
+          </div>
+          {selectedImage && (
+            <div className="result-actions">
+              <button onClick={() => void downloadResult(selectedImage)}>
+                <ArrowDownToLine size={14} /> 下载
+              </button>
+              <button onClick={() => void addResultAsReference(selectedImage)}>
+                <ImagePlus size={14} /> 设为参考图
+              </button>
+            </div>
+          )}
+          <div className="output-foot compact">
+            <button
+              onClick={() => void sendToCanvas()}
+              disabled={!selectedImage?.assetId}
+            >
+              <Layers3 size={13} /> 送入画布
+            </button>
+            <button
+              onClick={() =>
+                window.location.assign(
+                  `/assets?scope=${encodeURIComponent(scope)}`
+                )
+              }
+            >
+              <Clapperboard size={13} /> 查看归档
+            </button>
+          </div>
+        </aside>
       </div>
-    )}
-  </div>;
+      {annotateOpen && editUrl && (
+        <CanvasImageAnnotationDialog
+          dataUrl={editUrl}
+          open={annotateOpen}
+          onClose={() => setAnnotateOpen(false)}
+          onConfirm={payload => {
+            setAnnotateOpen(false);
+            pushLocalResult(
+              payload.dataUrl,
+              `${selectedImage?.name || "结果"}-标注`
+            );
+          }}
+        />
+      )}
+      <UpscaleDialog
+        open={upscaleOpen}
+        busy={editBusy}
+        onClose={() => setUpscaleOpen(false)}
+        onRun={(targetLongEdge, algorithm) =>
+          void runUpscale(targetLongEdge, algorithm)
+        }
+      />
+      <OutpaintDialog
+        model={model}
+        quality={quality}
+        open={outpaintOpen}
+        busy={generating}
+        onClose={() => setOutpaintOpen(false)}
+        onRun={(margins, promptText) => void runOutpaint(margins, promptText)}
+      />
+      <CropDialog
+        open={cropOpen}
+        imageUrl={editUrl}
+        busy={editBusy}
+        onClose={() => setCropOpen(false)}
+        onRun={rect => void runCrop(rect)}
+      />
+      <HistoryPreviewDialog
+        asset={historyPreview}
+        imageUrl={historyPreviewUrl}
+        onClose={() => setHistoryPreview(null)}
+        onLoadIntoPreview={loadAssetIntoPreview}
+        onAddReference={asset => {
+          setHistoryPreview(null);
+          void addAssetAsReference(asset);
+        }}
+        onDownload={asset => void downloadHistoryAsset(asset)}
+      />
+      {lightboxOpen && selectedSrc && (
+        <div
+          className="image-lightbox"
+          role="presentation"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <div
+            className="image-lightbox-toolbar"
+            onClick={event => event.stopPropagation()}
+          >
+            <span className="image-lightbox-title">
+              V-{String(selectedIndex + 1).padStart(2, "0")} ·{" "}
+              {selectedImage?.name || "生成结果"}
+            </span>
+            <div className="image-lightbox-controls">
+              <button
+                title="缩小"
+                disabled={lightboxZoom <= LIGHTBOX_ZOOM_MIN}
+                onClick={() =>
+                  setLightboxZoom(z =>
+                    clampLightboxZoom(z - LIGHTBOX_ZOOM_STEP)
+                  )
+                }
+              >
+                <ZoomOut size={14} />
+              </button>
+              <b>{Math.round(lightboxZoom * 100)}%</b>
+              <button
+                title="放大"
+                disabled={lightboxZoom >= LIGHTBOX_ZOOM_MAX}
+                onClick={() =>
+                  setLightboxZoom(z =>
+                    clampLightboxZoom(z + LIGHTBOX_ZOOM_STEP)
+                  )
+                }
+              >
+                <ZoomIn size={14} />
+              </button>
+              <button title="适配窗口" onClick={() => setLightboxZoom(1)}>
+                适配
+              </button>
+              {selectedImage && (
+                <button
+                  title="下载"
+                  onClick={() => void downloadResult(selectedImage)}
+                >
+                  <ArrowDownToLine size={14} />
+                </button>
+              )}
+              <button title="关闭 (Esc)" onClick={() => setLightboxOpen(false)}>
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+          <div
+            className="image-lightbox-stage"
+            ref={lightboxStageRef}
+            onClick={() => setLightboxOpen(false)}
+          >
+            <img
+              src={selectedSrc}
+              alt={selectedImage?.name || "生成结果"}
+              style={
+                lightboxZoom === 1
+                  ? undefined
+                  : {
+                      maxWidth: "none",
+                      maxHeight: "none",
+                      width: `${Math.round(lightboxZoom * 100)}%`,
+                    }
+              }
+              onClick={event => {
+                event.stopPropagation();
+                setLightboxZoom(z => (z === 1 ? 2 : 1));
+              }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default ImageWorkbenchView;

@@ -5,9 +5,16 @@ export type VideoModelCapabilities = {
   durations?: number[];
   has_audio?: boolean;
   references?: {
-    images: number; videos: number; audios: number; audio_only: boolean;
-    media_min_duration_ms?: number; media_max_duration_ms?: number; media_max_total_duration_ms?: number;
-    image_max_bytes?: number; video_max_bytes?: number; audio_max_bytes?: number;
+    images: number;
+    videos: number;
+    audios: number;
+    audio_only: boolean;
+    media_min_duration_ms?: number;
+    media_max_duration_ms?: number;
+    media_max_total_duration_ms?: number;
+    image_max_bytes?: number;
+    video_max_bytes?: number;
+    audio_max_bytes?: number;
   };
   frames_exclusive?: boolean;
 };
@@ -21,14 +28,36 @@ export function replaceVideoModelCapabilities(value: unknown) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
     const cap: VideoModelCapabilities = {};
     for (const field of ["resolutions", "ratios", "supports"] as const) {
-      if (Array.isArray(raw[field])) cap[field] = raw[field].filter((item: unknown): item is string => typeof item === "string");
+      if (Array.isArray(raw[field]))
+        cap[field] = raw[field].filter(
+          (item: unknown): item is string => typeof item === "string"
+        );
     }
     if (typeof raw.has_audio === "boolean") cap.has_audio = raw.has_audio;
-    if (typeof raw.frames_exclusive === "boolean") cap.frames_exclusive = raw.frames_exclusive;
-    if (raw.references && ["images", "videos", "audios"].every(key => Number.isInteger(raw.references[key]) && raw.references[key] >= 0)) {
-      cap.references = { images: raw.references.images, videos: raw.references.videos, audios: raw.references.audios, audio_only: raw.references.audio_only === true };
-      for (const field of ["media_min_duration_ms", "media_max_duration_ms", "media_max_total_duration_ms", "image_max_bytes", "video_max_bytes", "audio_max_bytes"] as const) {
-        if (Number.isFinite(raw.references[field]) && raw.references[field] > 0) cap.references[field] = raw.references[field];
+    if (typeof raw.frames_exclusive === "boolean")
+      cap.frames_exclusive = raw.frames_exclusive;
+    if (
+      raw.references &&
+      ["images", "videos", "audios"].every(
+        key => Number.isInteger(raw.references[key]) && raw.references[key] >= 0
+      )
+    ) {
+      cap.references = {
+        images: raw.references.images,
+        videos: raw.references.videos,
+        audios: raw.references.audios,
+        audio_only: raw.references.audio_only === true,
+      };
+      for (const field of [
+        "media_min_duration_ms",
+        "media_max_duration_ms",
+        "media_max_total_duration_ms",
+        "image_max_bytes",
+        "video_max_bytes",
+        "audio_max_bytes",
+      ] as const) {
+        if (Number.isFinite(raw.references[field]) && raw.references[field] > 0)
+          cap.references[field] = raw.references[field];
       }
     }
     catalog[model] = cap;
@@ -39,16 +68,47 @@ export function replaceVideoModelCapabilities(value: unknown) {
  * endpoint IDs and renamed labels never borrow another account's limits. */
 export function videoModelCapabilities(model: string): VideoModelCapabilities {
   if (catalog[model]) return catalog[model];
-  const id = (model.split("::").at(-1) || "").replace(/^sdvideo\//, "").toLowerCase();
+  const id = (model.split("::").at(-1) || "")
+    .replace(/^sdvideo\//, "")
+    .toLowerCase();
   const h3 = id.match(/^zzdh-minimax-h3-限时优惠-多参考图生-(480p|768p)$/);
-  if (h3) return { resolutions: [h3[1]], ratios: ["16:9", "9:16"], supports: ["reference_image"], has_audio: false, references: { images: 9, videos: 0, audios: 0, audio_only: false } };
-  if (/seedance/.test(id) && /(?:fast|mini)/.test(id)) return { resolutions: ["480p", "720p"] };
-  if (/wan3|wan-3/.test(id)) return { ratios: ["16:9", "9:16", "1:1", "4:3", "3:4", "adaptive"], frames_exclusive: true };
+  if (h3)
+    return {
+      resolutions: [h3[1]],
+      ratios: ["16:9", "9:16"],
+      supports: ["reference_image"],
+      has_audio: false,
+      references: { images: 9, videos: 0, audios: 0, audio_only: false },
+    };
+  if (/seedance/.test(id) && /(?:fast|mini)/.test(id))
+    return { resolutions: ["480p", "720p"] };
+  if (/wan3|wan-3/.test(id))
+    return {
+      ratios: ["16:9", "9:16", "1:1", "4:3", "3:4"],
+      frames_exclusive: true,
+    };
   return {};
 }
 
-export function videoOptionAvailable(model: string, field: "resolutions" | "ratios" | "supports", value: string) {
+export function videoOptionAvailable(
+  model: string,
+  field: "resolutions" | "ratios" | "supports",
+  value: string
+) {
   const choices = videoModelCapabilities(model)[field];
-  if (field === "ratios") value = ({ "1280x720": "16:9", "720x1280": "9:16", "1024x1024": "1:1", "1792x1024": "7:4", "1024x1792": "4:7" } as Record<string, string>)[value] || value;
-  return !choices?.length || choices.some(choice => choice.toLowerCase() === value.toLowerCase());
+  if (field === "ratios")
+    value =
+      (
+        {
+          "1280x720": "16:9",
+          "720x1280": "9:16",
+          "1024x1024": "1:1",
+          "1792x1024": "7:4",
+          "1024x1792": "4:7",
+        } as Record<string, string>
+      )[value] || value;
+  return (
+    !choices?.length ||
+    choices.some(choice => choice.toLowerCase() === value.toLowerCase())
+  );
 }

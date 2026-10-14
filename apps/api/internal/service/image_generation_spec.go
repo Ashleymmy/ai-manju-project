@@ -79,8 +79,8 @@ func normalizeImageGenerationQuality(value string) (string, error) {
 
 func normalizeImageGenerationSize(value string, quality string) (string, error) {
 	value = strings.ToLower(strings.TrimSpace(value))
-	if value == "" || value == "auto" {
-		return "", nil
+	if value == "" || value == "auto" || value == "adaptive" {
+		value = "1:1"
 	}
 	if width, height, ok := parseImageGenerationDimensions(value); ok {
 		if err := validateImageGenerationDimensions(width, height); err != nil {
@@ -90,7 +90,7 @@ func normalizeImageGenerationSize(value string, quality string) (string, error) 
 	}
 	parts := strings.Split(value, ":")
 	if len(parts) != 2 {
-		return "", fmt.Errorf("%w: use auto, 9:16, or 1024x1024", ErrImageGenerationSizeInvalid)
+		return "", fmt.Errorf("%w: use 1:1, 9:16, or 1024x1024", ErrImageGenerationSizeInvalid)
 	}
 	ratioWidth, errWidth := strconv.ParseFloat(parts[0], 64)
 	ratioHeight, errHeight := strconv.ParseFloat(parts[1], 64)

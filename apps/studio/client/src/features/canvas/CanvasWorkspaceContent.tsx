@@ -1,9 +1,27 @@
-import { CanvasPricingContext, CanvasGenerationPrice } from "./ui/CanvasGenerationPrice";
+import {
+  CanvasPricingContext,
+  CanvasGenerationPrice,
+} from "./ui/CanvasGenerationPrice";
 import { CreditBalance } from "@/features/member";
-import { registrationProviderId, savedSeedanceRegistration, seedanceRegistrationKey, seedanceRegistrationPhase, seedanceRegistrationSource } from "./services/seedanceRegistration";
+import {
+  registrationProviderId,
+  savedSeedanceRegistration,
+  seedanceRegistrationKey,
+  seedanceRegistrationPhase,
+  seedanceRegistrationSource,
+} from "./services/seedanceRegistration";
 import { useCanvasSeedanceRegistration } from "./controllers/useCanvasSeedanceRegistration";
-import { modelNickname, pickDefaultImageModel, resolveModel } from "@/shared/lib/modelSelection";
-import { canvasEmptyImageRequestDimensions, canvasImageGenerationSettings, canvasImageGenerationSettingsIssue } from "./domain/imageGenerationSettings";
+import {
+  modelNickname,
+  pickDefaultImageModel,
+  resolveModel,
+} from "@/shared/lib/modelSelection";
+import {
+  canvasEmptyImageRequestDimensions,
+  canvasImageGenerationSettings,
+  canvasImageGenerationSettingsIssue,
+  nearestExplicitImageRatio,
+} from "./domain/imageGenerationSettings";
 import { canvasImageGenerationError } from "./domain/imageGenerationError";
 import {
   Archive,
@@ -28,7 +46,17 @@ import {
   Undo2,
   Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useLocation, useSearch } from "wouter";
@@ -67,15 +95,36 @@ import { ApiError, publicApiError } from "@/shared/api/errors";
 import type { WorkspaceScope } from "@/shared/config";
 import { useCanvasOriginalImage } from "./controllers/useCanvasOriginalImage";
 import { useInspectorResize } from "./controllers/useInspectorResize";
-import { INSPECTOR_SIZE, inspectorLayout, inspectorSizeLimits, inspectorViewportForNode, savedInspectorHeight } from "./domain/inspectorSize";
+import {
+  INSPECTOR_SIZE,
+  inspectorLayout,
+  inspectorSizeLimits,
+  inspectorViewportForNode,
+  savedInspectorHeight,
+} from "./domain/inspectorSize";
 import { useCanvasServerVideoHistory } from "./controllers/useCanvasServerVideoHistory";
-import { mergeCanvasGenerationHistory, serverVideoHistoryNodes } from "./domain/serverVideoHistory";
+import {
+  mergeCanvasGenerationHistory,
+  serverVideoHistoryNodes,
+} from "./domain/serverVideoHistory";
 import { downloadCanvasOriginalMedia } from "./services/originalMedia";
 import { createCanvasSelectionDownload } from "./services/batchDownload";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
-import { readCanvasClipboardData, readSystemCanvasClipboard, type CanvasClipboardContent } from "./adapters/clipboard";
-import { isCanvasImportCandidate, prepareCanvasImportImage } from "./adapters/importImage";
-import { CANVAS_TEXT_FILE_ACCEPT, droppedCanvasText, isCanvasTextFile, readCanvasTextFile } from "./adapters/importText";
+import {
+  readCanvasClipboardData,
+  readSystemCanvasClipboard,
+  type CanvasClipboardContent,
+} from "./adapters/clipboard";
+import {
+  isCanvasImportCandidate,
+  prepareCanvasImportImage,
+} from "./adapters/importImage";
+import {
+  CANVAS_TEXT_FILE_ACCEPT,
+  droppedCanvasText,
+  isCanvasTextFile,
+  readCanvasTextFile,
+} from "./adapters/importText";
 import { CANVAS_CLIPBOARD_TOKEN_PREFIX } from "./domain/clipboard";
 import {
   createProject,
@@ -109,9 +158,18 @@ import {
   type SeedanceAsset,
 } from "@/entities/asset";
 import { cancelJob, getJobs } from "@/entities/job";
-import { canvasGenerationModelOptions, canvasHistoryModelName, canvasModelName, canvasVideoModelOptions, pickDefaultCanvasVideoModel } from "./domain/generationModels";
+import {
+  canvasGenerationModelOptions,
+  canvasHistoryModelName,
+  canvasModelName,
+  canvasVideoModelOptions,
+  pickDefaultCanvasVideoModel,
+} from "./domain/generationModels";
 import type { CanvasLibraryCategory } from "./domain/assetFolders";
-import { archiveCanvasMediaAsset, resolveCanvasArchiveFolder } from "./services/assetArchive";
+import {
+  archiveCanvasMediaAsset,
+  resolveCanvasArchiveFolder,
+} from "./services/assetArchive";
 import { syncCanvasNodeAssetName } from "./services/assetNames";
 import { assetDownloadFileName } from "@/entities/asset/fileName";
 import { useCanvasAssetNameSync } from "./controllers/useCanvasAssetNameSync";
@@ -179,12 +237,19 @@ import {
   extractServerCanvasSnapshotData,
   type CanvasSnapshotBase,
 } from "@/features/canvas/domain/snapshotRoundTrip";
-import { consumeCanvasBootstrapPayload, peekCanvasBootstrap } from "@/lib/canvas-bootstrap";
+import {
+  consumeCanvasBootstrapPayload,
+  peekCanvasBootstrap,
+} from "@/lib/canvas-bootstrap";
 import {
   deleteCanvasNodesAndEdges,
   normalizeCanvasSelectionRect,
 } from "@/features/canvas/domain/selection";
-import { DEFAULT_CANVAS_SHORTCUTS, resolveCanvasShortcuts, type CanvasShortcutBindings } from "@/features/canvas/domain/hotkeys";
+import {
+  DEFAULT_CANVAS_SHORTCUTS,
+  resolveCanvasShortcuts,
+  type CanvasShortcutBindings,
+} from "@/features/canvas/domain/hotkeys";
 import { loadSkills, type CanvasSkill } from "@/lib/skill-library";
 import type { StoryboardScene } from "@/components/StoryboardEditorDialog";
 import {
@@ -225,7 +290,10 @@ import {
   type CanvasProjectArchiveAsset,
   type CanvasProjectArchiveItem,
 } from "@/features/canvas/domain/projectArchive";
-import { buildCanvasMinimapModel, type CanvasMinimapModel } from "@/features/canvas/domain/minimap";
+import {
+  buildCanvasMinimapModel,
+  type CanvasMinimapModel,
+} from "@/features/canvas/domain/minimap";
 import {
   buildCanvasFragmentPackage,
   canvasFragmentAssetIds,
@@ -277,13 +345,20 @@ import {
   type CanvasAgentSnapshot,
 } from "@/lib/canvas-agent";
 import { canvasAgentGenerationFootprint } from "@/lib/canvas-agent-placement";
-import { fitCanvasViewport, zoomCanvasViewportAtPoint } from "@/features/canvas/domain/history";
+import {
+  fitCanvasViewport,
+  zoomCanvasViewportAtPoint,
+} from "@/features/canvas/domain/history";
 import { createZip, readZip } from "@/lib/zip";
 import {
   buildCanvasSnapshot,
   canvasAgentSnapshotFromCanvas,
 } from "@/features/canvas/domain/snapshotCodec";
-import { ensureUniqueCanvasNodeTitles, isGeneratedCanvasNode, renameCanvasNode } from "@/features/canvas/domain/nodeTitles";
+import {
+  ensureUniqueCanvasNodeTitles,
+  isGeneratedCanvasNode,
+  renameCanvasNode,
+} from "@/features/canvas/domain/nodeTitles";
 import {
   assetIdFromNode,
   imageSrcFromNode,
@@ -294,15 +369,27 @@ import {
   normalizeCanvasNode,
   normalizeCanvasNodeKind,
 } from "@/features/canvas/domain/nodes";
-import { canvasPinnedNodes, normalizeCanvasPinColor } from "@/features/canvas/domain/pin";
+import {
+  canvasPinnedNodes,
+  normalizeCanvasPinColor,
+} from "@/features/canvas/domain/pin";
 import {
   batchChildGridPosition,
   refreshImageBatchRoot,
   snapImageBatchChildrenToGrid,
   swapImageBatchPrimary,
 } from "@/features/canvas/domain/batch";
-import { isRecord, numberValue, stringValue } from "@/features/canvas/domain/value";
-import { collectCanvasGenerationHistory, cloneCanvasNodeFromGenerationHistory, cloneCanvasNodeFromGenerationRevision, parseCanvasGenerationHistoryItemId } from "@/features/canvas/domain/generationHistory";
+import {
+  isRecord,
+  numberValue,
+  stringValue,
+} from "@/features/canvas/domain/value";
+import {
+  collectCanvasGenerationHistory,
+  cloneCanvasNodeFromGenerationHistory,
+  cloneCanvasNodeFromGenerationRevision,
+  parseCanvasGenerationHistoryItemId,
+} from "@/features/canvas/domain/generationHistory";
 import {
   canvasListHref,
   canvasProjectHref,
@@ -374,7 +461,8 @@ import {
 
 type CanvasSyncStatus = "loading" | "pending" | "saving" | "synced" | "error";
 
-const defaultPrompt = "雨夜，狭长街道，潮湿沥青反射红色招牌；人物在画面右侧停留，低机位缓慢推近，电影级冷暖对比。";
+const defaultPrompt =
+  "雨夜，狭长街道，潮湿沥青反射红色招牌；人物在画面右侧停留，低机位缓慢推近，电影级冷暖对比。";
 const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用于 AI 生图的提示词。
 
 要求：
@@ -432,7 +520,14 @@ function starterNodes(): CanvasNodeData[] {
       y: 130,
       width: 290,
       height: 178,
-      metadata: { content: "", prompt: "", composerContent: "", status: "idle", ...canvasImageParamDefaults(), count: 1 },
+      metadata: {
+        content: "",
+        prompt: "",
+        composerContent: "",
+        status: "idle",
+        ...canvasImageParamDefaults(),
+        count: 1,
+      },
     },
     {
       id: crypto.randomUUID(),
@@ -443,7 +538,14 @@ function starterNodes(): CanvasNodeData[] {
       y: 82,
       width: 300,
       height: 178,
-      metadata: { content: "", prompt: "", composerContent: "", status: "idle", ...canvasImageParamDefaults(), count: 1 },
+      metadata: {
+        content: "",
+        prompt: "",
+        composerContent: "",
+        status: "idle",
+        ...canvasImageParamDefaults(),
+        count: 1,
+      },
     },
   ];
 }
@@ -465,11 +567,24 @@ function canvasArchiveMediaFileName(asset: Asset) {
   const name = safeArchiveSegment(asset.name || asset.id);
   if (/\.[a-z0-9]{2,5}$/i.test(name)) return name;
   const mimeType = asset.content_type || "";
-  const extension = asset.type === "video"
-    ? mimeType.includes("webm") ? "webm" : "mp4"
-    : asset.type === "audio"
-      ? mimeType.includes("wav") ? "wav" : mimeType.includes("mpeg") ? "mp3" : "m4a"
-      : mimeType.includes("jpeg") ? "jpg" : mimeType.includes("webp") ? "webp" : mimeType.includes("gif") ? "gif" : "png";
+  const extension =
+    asset.type === "video"
+      ? mimeType.includes("webm")
+        ? "webm"
+        : "mp4"
+      : asset.type === "audio"
+        ? mimeType.includes("wav")
+          ? "wav"
+          : mimeType.includes("mpeg")
+            ? "mp3"
+            : "m4a"
+        : mimeType.includes("jpeg")
+          ? "jpg"
+          : mimeType.includes("webp")
+            ? "webp"
+            : mimeType.includes("gif")
+              ? "gif"
+              : "png";
   return `${name}.${extension}`;
 }
 
@@ -485,125 +600,190 @@ export default function CanvasWorkspaceViewContent() {
      否则列表页点击"个人/团队空间"只改 query 时不会触发 scope 同步 */
   const searchString = useSearch();
   const { user } = useAuth();
-  const projectId = location.startsWith("/canvas/") ? decodeURIComponent(location.slice("/canvas/".length).split("?")[0]) : "";
+  const projectId = location.startsWith("/canvas/")
+    ? decodeURIComponent(location.slice("/canvas/".length).split("?")[0])
+    : "";
   const canvasCommands = useCanvasCommands();
   const canvasStore = useCanvasStoreApi();
   const queryClient = useQueryClient();
-  const scope = useCanvasStore((state) => state.session.scope);
+  const scope = useCanvasStore(state => state.session.scope);
   const setScope = canvasCommands.session.setScope;
   const [coverProjectId, setCoverProjectId] = useState("");
   /* 画布标题行内重命名：双击标题进入编辑（命名带 project 前缀，避开节点标题编辑的 titleDraft） */
   const [projectTitleEditing, setProjectTitleEditing] = useState(false);
   const [projectTitleDraft, setProjectTitleDraft] = useState("");
   const [projectTitleSaving, setProjectTitleSaving] = useState(false);
-  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(() => new Set());
+  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [projectBatchBusy, setProjectBatchBusy] = useState(false);
   const [projectDeleteIds, setProjectDeleteIds] = useState<string[]>([]);
   const [projectDeleteError, setProjectDeleteError] = useState("");
-  const projectTitle = useCanvasStore((state) => state.session.projectTitle);
+  const projectTitle = useCanvasStore(state => state.session.projectTitle);
   const setProjectTitle = canvasCommands.session.setProjectTitle;
-  const canonicalProjectScope = useCanvasStore((state) => state.session.canonicalProjectScope);
-  const setCanonicalProjectScope = canvasCommands.session.setCanonicalProjectScope;
-  const [verifiedProject, setVerifiedProject] = useState<VerifiedProjectSummary | null>(null);
-  const projectListScope = projectId ? canonicalProjectScope ?? scope : scope;
+  const canonicalProjectScope = useCanvasStore(
+    state => state.session.canonicalProjectScope
+  );
+  const setCanonicalProjectScope =
+    canvasCommands.session.setCanonicalProjectScope;
+  const [verifiedProject, setVerifiedProject] =
+    useState<VerifiedProjectSummary | null>(null);
+  const projectListScope = projectId ? (canonicalProjectScope ?? scope) : scope;
   const {
-    projects, setProjects, loading: projectListLoading, refreshing: projectListRefreshing,
-    error: projectListError, refresh: refreshProjectList,
-    warning: projectListWarning, hasCachedList: hasCachedProjectList,
-  } = useProjectSummaries(projectListScope, user?.id || "", verifiedProject?.project.id === projectId ? verifiedProject : null);
+    projects,
+    setProjects,
+    loading: projectListLoading,
+    refreshing: projectListRefreshing,
+    error: projectListError,
+    refresh: refreshProjectList,
+    warning: projectListWarning,
+    hasCachedList: hasCachedProjectList,
+  } = useProjectSummaries(
+    projectListScope,
+    user?.id || "",
+    verifiedProject?.project.id === projectId ? verifiedProject : null
+  );
   const projectListNotice = projectListError || projectListWarning;
-  const nodes = useCanvasStore((state) => state.graph.nodes);
+  const nodes = useCanvasStore(state => state.graph.nodes);
   const setNodes = canvasCommands.graph.setNodes;
-  const edges = useCanvasStore((state) => state.graph.edges);
+  const edges = useCanvasStore(state => state.graph.edges);
   const setEdges = canvasCommands.graph.setEdges;
-  const groups = useCanvasStore((state) => state.graph.groups);
+  const groups = useCanvasStore(state => state.graph.groups);
   // Marquee groups remain local until the user confirms them from the floating action bar.
-  const persistedGroups = useMemo(() => groups.filter((group) => !group.pending), [groups]);
+  const persistedGroups = useMemo(
+    () => groups.filter(group => !group.pending),
+    [groups]
+  );
   const setGroups = canvasCommands.graph.setGroups;
-  const selectedId = useCanvasStore((state) => state.graph.selectedNodeId);
+  const selectedId = useCanvasStore(state => state.graph.selectedNodeId);
   const setSelectedId = canvasCommands.graph.setSelectedNodeId;
-  const selectedNodeIdValues = useCanvasStore((state) => state.graph.selectedNodeIds);
-  const selectedNodeIds = useMemo(() => new Set(selectedNodeIdValues), [selectedNodeIdValues]);
+  const selectedNodeIdValues = useCanvasStore(
+    state => state.graph.selectedNodeIds
+  );
+  const selectedNodeIds = useMemo(
+    () => new Set(selectedNodeIdValues),
+    [selectedNodeIdValues]
+  );
   const setSelectedNodeIds = canvasCommands.graph.setSelectedNodeIds;
-  const selectedGroupId = useCanvasStore((state) => state.graph.selectedGroupId);
+  const selectedGroupId = useCanvasStore(state => state.graph.selectedGroupId);
   const [, setPendingGroupId] = useState("");
   const setSelectedGroupId = canvasCommands.graph.setSelectedGroupId;
-  const zoom = useCanvasStore((state) => state.viewport.zoom);
-  const panX = useCanvasStore((state) => state.viewport.panX);
-  const panY = useCanvasStore((state) => state.viewport.panY);
-  const backgroundMode = useCanvasStore((state) => state.viewport.backgroundMode);
+  const zoom = useCanvasStore(state => state.viewport.zoom);
+  const panX = useCanvasStore(state => state.viewport.panX);
+  const panY = useCanvasStore(state => state.viewport.panY);
+  const backgroundMode = useCanvasStore(state => state.viewport.backgroundMode);
   const setBackgroundMode = canvasCommands.viewport.setBackgroundMode;
-  const showImageInfo = useCanvasStore((state) => state.viewport.showImageInfo);
-  const loading = useCanvasStore((state) => state.session.loading);
+  const showImageInfo = useCanvasStore(state => state.viewport.showImageInfo);
+  const loading = useCanvasStore(state => state.session.loading);
   const setLoading = canvasCommands.session.setLoading;
-  const saving = useCanvasStore((state) => state.session.saving);
-  const snapshotWriteReady = useCanvasStore((state) => state.session.snapshotWriteReady);
+  const saving = useCanvasStore(state => state.session.saving);
+  const snapshotWriteReady = useCanvasStore(
+    state => state.session.snapshotWriteReady
+  );
   const setSnapshotWriteReady = canvasCommands.session.setSnapshotWriteReady;
-  const syncStatus = useCanvasStore((state) => state.session.syncStatus);
+  const syncStatus = useCanvasStore(state => state.session.syncStatus);
   const setSyncStatus = canvasCommands.session.setSyncStatus;
-  const snapshotVersion = useCanvasStore((state) => state.session.snapshotVersion);
+  const snapshotVersion = useCanvasStore(
+    state => state.session.snapshotVersion
+  );
   const setSnapshotVersion = canvasCommands.session.setSnapshotVersion;
-  const snapshotUpdatedAt = useCanvasStore((state) => state.session.snapshotUpdatedAt);
+  const snapshotUpdatedAt = useCanvasStore(
+    state => state.session.snapshotUpdatedAt
+  );
   const setSnapshotUpdatedAt = canvasCommands.session.setSnapshotUpdatedAt;
-  const syncError = useCanvasStore((state) => state.session.syncError);
+  const syncError = useCanvasStore(state => state.session.syncError);
   const setSyncError = canvasCommands.session.setSyncError;
-  const switching = useCanvasStore((state) => state.session.switching);
+  const switching = useCanvasStore(state => state.session.switching);
   const setSwitching = canvasCommands.session.setSwitching;
-  const createDialogOpen = useCanvasStore((state) => state.ui.createDialogOpen);
+  const createDialogOpen = useCanvasStore(state => state.ui.createDialogOpen);
   const setCreateDialogOpen = canvasCommands.ui.setCreateDialogOpen;
   const [createDialogTitle, setCreateDialogTitle] = useState("未命名画布");
-  const [createDialogScope, setCreateDialogScope] = useState<WorkspaceScope>(scope);
+  const [createDialogScope, setCreateDialogScope] =
+    useState<WorkspaceScope>(scope);
   const [createDialogBusy, setCreateDialogBusy] = useState(false);
   const [createDialogError, setCreateDialogError] = useState("");
-  const deleteProjectOpen = useCanvasStore((state) => state.ui.deleteProjectOpen);
+  const deleteProjectOpen = useCanvasStore(state => state.ui.deleteProjectOpen);
   const setDeleteProjectOpen = canvasCommands.ui.setDeleteProjectOpen;
   const [deleteProjectBusy, setDeleteProjectBusy] = useState(false);
   const [deleteProjectError, setDeleteProjectError] = useState("");
-  const clearCanvasOpen = useCanvasStore((state) => state.ui.clearCanvasOpen);
+  const clearCanvasOpen = useCanvasStore(state => state.ui.clearCanvasOpen);
   const setClearCanvasOpen = canvasCommands.ui.setClearCanvasOpen;
   const [clearCanvasBusy, setClearCanvasBusy] = useState(false);
   const [clearCanvasError, setClearCanvasError] = useState("");
-  const connectSelectionOpen = useCanvasStore((state) => state.ui.connectSelectionOpen);
+  const connectSelectionOpen = useCanvasStore(
+    state => state.ui.connectSelectionOpen
+  );
   const setConnectSelectionOpen = canvasCommands.ui.setConnectSelectionOpen;
-  const agentOpen = useCanvasStore((state) => state.ui.agentOpen);
+  const agentOpen = useCanvasStore(state => state.ui.agentOpen);
   const setAgentOpen = canvasCommands.ui.setAgentOpen;
-  const [agentReferenceSelection, setAgentReferenceSelection] = useState<{ projectId: string; nodeIds: string[] }>();
+  const [agentReferenceSelection, setAgentReferenceSelection] = useState<{
+    projectId: string;
+    nodeIds: string[];
+  }>();
   // 聊天台引导流程：覆盖层从首屏接管（步骤2），用户输入原文在加载完成后交接给 Agent 面板（步骤5）
-  const [bootstrapActive, setBootstrapActive] = useState(() => Boolean(projectId && peekCanvasBootstrap(projectId)));
+  const [bootstrapActive, setBootstrapActive] = useState(() =>
+    Boolean(projectId && peekCanvasBootstrap(projectId))
+  );
   const [initialPrompt, setInitialPrompt] = useState("");
   const bootstrapPromptRef = useRef("");
-  const [agentUndoSnapshot, setAgentUndoSnapshot] = useState<CanvasAgentSnapshot | null>(null);
-  const inspectorOpen = useCanvasStore((state) => state.ui.inspectorOpen);
+  const [agentUndoSnapshot, setAgentUndoSnapshot] =
+    useState<CanvasAgentSnapshot | null>(null);
+  const inspectorOpen = useCanvasStore(state => state.ui.inspectorOpen);
   const setInspectorOpen = canvasCommands.ui.setInspectorOpen;
   const [generationHistoryOpen, setGenerationHistoryOpen] = useState(false);
-  const shortcutsRef = useRef<CanvasShortcutBindings>({ ...DEFAULT_CANVAS_SHORTCUTS });
+  const shortcutsRef = useRef<CanvasShortcutBindings>({
+    ...DEFAULT_CANVAS_SHORTCUTS,
+  });
   // 快捷键处理器声明在生成逻辑之前，用 ref 间接调用以避免前向引用。
-  const runSelectedGenerationRef = useRef<() => Promise<void>>(async () => undefined);
-  const promptLibraryNodeId = useCanvasStore((state) => state.ui.promptLibraryNodeId);
+  const runSelectedGenerationRef = useRef<() => Promise<void>>(
+    async () => undefined
+  );
+  const promptLibraryNodeId = useCanvasStore(
+    state => state.ui.promptLibraryNodeId
+  );
   const setPromptLibraryNodeId = canvasCommands.ui.setPromptLibraryNodeId;
-  const seedanceAssetNodeId = useCanvasStore((state) => state.ui.seedanceAssetNodeId);
+  const seedanceAssetNodeId = useCanvasStore(
+    state => state.ui.seedanceAssetNodeId
+  );
   const setSeedanceAssetNodeId = canvasCommands.ui.setSeedanceAssetNodeId;
-  const materialNodeId = useCanvasStore((state) => state.ui.materialNodeId);
+  const materialNodeId = useCanvasStore(state => state.ui.materialNodeId);
   const setMaterialNodeId = canvasCommands.ui.setMaterialNodeId;
-  const [modelCatalog, setModelCatalog] = useState<ImageModelCatalog | null>(null);
+  const [modelCatalog, setModelCatalog] = useState<ImageModelCatalog | null>(
+    null
+  );
   const [imageModel, setImageModel] = useState("");
   const [textModel, setTextModel] = useState("");
   const [videoModels, setVideoModels] = useState<string[]>([]);
   const [videoModel, setVideoModel] = useState("");
   const [audioModels, setAudioModels] = useState<string[]>([]);
   const [audioModel, setAudioModel] = useState("");
-  const [textModelLabels, setTextModelLabels] = useState<Record<string, string>>({});
-  const [modelProviderNames, setModelProviderNames] = useState<Record<string, string>>({});
+  const [textModelLabels, setTextModelLabels] = useState<
+    Record<string, string>
+  >({});
+  const [modelProviderNames, setModelProviderNames] = useState<
+    Record<string, string>
+  >({});
   // [画布别名] 选择器显示别名；历史与预览保留标准名，别名作标签。
-  const [modelNicknames, setModelNicknames] = useState<Record<string, string>>({});
+  const [modelNicknames, setModelNicknames] = useState<Record<string, string>>(
+    {}
+  );
   const [promptPresets, setPromptPresets] = useState<PromptPreset[]>([]);
   const [wheelZoomRequiresCtrl, setWheelZoomRequiresCtrl] = useState(true);
-  const runningNodeIdValues = useCanvasStore((state) => state.generation.runningNodeIds);
-  const runningNodeIds = useMemo(() => new Set(runningNodeIdValues), [runningNodeIdValues]);
+  const runningNodeIdValues = useCanvasStore(
+    state => state.generation.runningNodeIds
+  );
+  const runningNodeIds = useMemo(
+    () => new Set(runningNodeIdValues),
+    [runningNodeIdValues]
+  );
   const setRunningNodeIds = canvasCommands.generation.setRunningNodeIds;
-  const runningGroupId = useCanvasStore((state) => state.generation.runningGroupId);
+  const runningGroupId = useCanvasStore(
+    state => state.generation.runningGroupId
+  );
   const setRunningGroupId = canvasCommands.generation.setRunningGroupId;
-  const jobProgressByNode = useCanvasStore((state) => state.generation.jobProgressByNode);
+  const jobProgressByNode = useCanvasStore(
+    state => state.generation.jobProgressByNode
+  );
   const setJobProgressByNode = canvasCommands.generation.setJobProgressByNode;
   const [uploading, setUploading] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -614,70 +794,102 @@ export default function CanvasWorkspaceViewContent() {
   const [captureFrameNodeId, setCaptureFrameNodeId] = useState("");
   const [archiveNode, setArchiveNode] = useState<CanvasNodeData | null>(null);
   const [batchArchiveNodeIds, setBatchArchiveNodeIds] = useState<string[]>([]);
-  const hoveredId = useCanvasStore((state) => state.ui.hoveredNodeId);
+  const hoveredId = useCanvasStore(state => state.ui.hoveredNodeId);
   const setHoveredId = canvasCommands.ui.setHoveredNodeId;
-  const hoveredEdgeId = useCanvasStore((state) => state.ui.hoveredEdgeId);
+  const hoveredEdgeId = useCanvasStore(state => state.ui.hoveredEdgeId);
   const setHoveredEdgeId = canvasCommands.ui.setHoveredEdgeId;
-  const selectedEdgeId = useCanvasStore((state) => state.graph.selectedEdgeId);
+  const selectedEdgeId = useCanvasStore(state => state.graph.selectedEdgeId);
   const setSelectedEdgeId = canvasCommands.graph.setSelectedEdgeId;
-  const editingInlineNodeId = useCanvasStore((state) => state.ui.editingInlineNodeId);
+  const editingInlineNodeId = useCanvasStore(
+    state => state.ui.editingInlineNodeId
+  );
   const setEditingInlineNodeId = canvasCommands.ui.setEditingInlineNodeId;
-  const titleEditingNodeId = useCanvasStore((state) => state.ui.titleEditingNodeId);
+  const titleEditingNodeId = useCanvasStore(
+    state => state.ui.titleEditingNodeId
+  );
   const setTitleEditingNodeId = canvasCommands.ui.setTitleEditingNodeId;
-  const titleDraft = useCanvasStore((state) => state.ui.titleDraft);
+  const titleDraft = useCanvasStore(state => state.ui.titleDraft);
   const setTitleDraft = canvasCommands.ui.setTitleDraft;
   const [promptOptimizing, setPromptOptimizing] = useState(false);
-  const skillLibraryOpen = useCanvasStore((state) => state.ui.skillLibraryOpen);
+  const skillLibraryOpen = useCanvasStore(state => state.ui.skillLibraryOpen);
   const setSkillLibraryOpen = canvasCommands.ui.setSkillLibraryOpen;
-  const presetManagerOpen = useCanvasStore((state) => state.ui.presetManagerOpen);
+  const presetManagerOpen = useCanvasStore(state => state.ui.presetManagerOpen);
   const setPresetManagerOpen = canvasCommands.ui.setPresetManagerOpen;
   const [styleCategory, setStyleCategory] = useState<string>("drama");
   const [enabledSkills, setEnabledSkills] = useState<CanvasSkill[]>([]);
-  const canvasSwitcherOpen = useCanvasStore((state) => state.ui.canvasSwitcherOpen);
+  const canvasSwitcherOpen = useCanvasStore(
+    state => state.ui.canvasSwitcherOpen
+  );
   const setCanvasSwitcherOpen = canvasCommands.ui.setCanvasSwitcherOpen;
-  const canvasSwitcherQuery = useCanvasStore((state) => state.ui.canvasSwitcherQuery);
+  const canvasSwitcherQuery = useCanvasStore(
+    state => state.ui.canvasSwitcherQuery
+  );
   const setCanvasSwitcherQuery = canvasCommands.ui.setCanvasSwitcherQuery;
-  const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(null);
+  const [contextMenu, setContextMenu] = useState<CanvasContextMenuState | null>(
+    null
+  );
   // 右键/双击菜单的级联子菜单：当前展开的分组 key（空串 = 全部收起）
   const [canvasSubmenuKey, setCanvasSubmenuKey] = useState("");
-  const minimapOpen = useCanvasStore((state) => state.ui.minimapOpen);
+  const minimapOpen = useCanvasStore(state => state.ui.minimapOpen);
   const setMinimapOpen = canvasCommands.ui.setMinimapOpen;
-  const [imageToolDialog, setImageToolDialog] = useState<{ nodeId: string; mode: CanvasImageToolMode } | null>(null);
-  const [imageToolDraft, setImageToolDraft] = useState<CanvasImageToolDraft>(defaultCanvasImageToolDraft);
+  const [imageToolDialog, setImageToolDialog] = useState<{
+    nodeId: string;
+    mode: CanvasImageToolMode;
+  } | null>(null);
+  const [imageToolDraft, setImageToolDraft] = useState<CanvasImageToolDraft>(
+    defaultCanvasImageToolDraft
+  );
   const [imageToolBusy, setImageToolBusy] = useState(false);
   const [imageToolError, setImageToolError] = useState("");
-  const imageAnnotationNodeId = useCanvasStore((state) => state.ui.imageAnnotationNodeId);
+  const imageAnnotationNodeId = useCanvasStore(
+    state => state.ui.imageAnnotationNodeId
+  );
   const setImageAnnotationNodeId = canvasCommands.ui.setImageAnnotationNodeId;
-  const imageMaskNodeId = useCanvasStore((state) => state.ui.imageMaskNodeId);
+  const imageMaskNodeId = useCanvasStore(state => state.ui.imageMaskNodeId);
   const setImageMaskNodeId = canvasCommands.ui.setImageMaskNodeId;
-  const imagePreviewNodeId = useCanvasStore((state) => state.ui.imagePreviewNodeId);
+  const imagePreviewNodeId = useCanvasStore(
+    state => state.ui.imagePreviewNodeId
+  );
   const setImagePreviewNodeId = canvasCommands.ui.setImagePreviewNodeId;
-  const storyboardNodeId = useCanvasStore((state) => state.ui.storyboardNodeId);
+  const storyboardNodeId = useCanvasStore(state => state.ui.storyboardNodeId);
   const setStoryboardNodeId = canvasCommands.ui.setStoryboardNodeId;
-  const storyboardEditorNodeId = useCanvasStore((state) => state.ui.storyboardEditorNodeId);
+  const storyboardEditorNodeId = useCanvasStore(
+    state => state.ui.storyboardEditorNodeId
+  );
   const setStoryboardEditorNodeId = canvasCommands.ui.setStoryboardEditorNodeId;
-  const [storyboardLayout, setStoryboardLayout] = useState<StoryboardLayout>("grid-2x2");
+  const [storyboardLayout, setStoryboardLayout] =
+    useState<StoryboardLayout>("grid-2x2");
   const [storyboardBusy, setStoryboardBusy] = useState(false);
-  const replaceImageNodeId = useCanvasStore((state) => state.ui.replaceImageNodeId);
+  const replaceImageNodeId = useCanvasStore(
+    state => state.ui.replaceImageNodeId
+  );
   const setReplaceImageNodeId = canvasCommands.ui.setReplaceImageNodeId;
-  const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
+  const [historyState, setHistoryState] = useState({
+    canUndo: false,
+    canRedo: false,
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replaceImageInputRef = useRef<HTMLInputElement>(null);
   const replaceMediaInputRef = useRef<HTMLInputElement>(null);
   const replaceMediaNodeIdRef = useRef("");
   const fragmentInputRef = useRef<HTMLInputElement>(null);
   const projectArchiveInputRef = useRef<HTMLInputElement>(null);
-  const toggleCanvasBatchRef = useRef<(nodeId: string) => void>(() => undefined);
+  const toggleCanvasBatchRef = useRef<(nodeId: string) => void>(
+    () => undefined
+  );
   const imageCropStageRef = useRef<HTMLDivElement>(null);
   const [historyController] = useState(() => new CanvasHistoryController());
   const [autosaveController] = useState(() => new CanvasAutosaveController());
   const [projectSessionController] = useState(
-    () => new CanvasProjectSessionController(autosaveController, historyController),
+    () =>
+      new CanvasProjectSessionController(autosaveController, historyController)
   );
   const [stageInteractionController] = useState(
-    () => new CanvasStageInteractionController(),
+    () => new CanvasStageInteractionController()
   );
-  const [generationController] = useState(() => new CanvasGenerationJobsController());
+  const [generationController] = useState(
+    () => new CanvasGenerationJobsController()
+  );
   const {
     abortAllGenerationRequests,
     cancelForRemovedNodes,
@@ -703,7 +915,7 @@ export default function CanvasWorkspaceViewContent() {
   const stageInteraction = useCanvasStageInteraction(
     stageInteractionController,
     stageRef,
-    { zoom, panX, panY },
+    { zoom, panX, panY }
   );
   const {
     connectFrom,
@@ -717,53 +929,99 @@ export default function CanvasWorkspaceViewContent() {
   } = stageInteraction;
   const panelRef = useRef<HTMLElement>(null);
   const [groupPanelSize, setGroupPanelSize] = useState({ width: 0, height: 0 });
-  const viewportRef = useMemo(() => ({
-    get current() {
-      const current = canvasStore.getState().viewport;
-      return { zoom: current.zoom, panX: current.panX, panY: current.panY };
-    },
-    set current(value: { zoom: number; panX: number; panY: number }) { stageInteractionController.syncViewport(value); },
-  }), [canvasStore, stageInteractionController]);
-  const nodesRef = useMemo(() => ({
-    get current() { return canvasStore.getState().graph.nodes; },
-    set current(value: CanvasNodeData[]) { canvasCommands.graph.setNodes(value); },
-  }), [canvasCommands, canvasStore]);
-  const edgesRef = useMemo(() => ({
-    get current() { return canvasStore.getState().graph.edges; },
-    set current(value: CanvasEdgeData[]) { canvasCommands.graph.setEdges(value); },
-  }), [canvasCommands, canvasStore]);
-  const groupsRef = useMemo(() => ({
-    get current() { return canvasStore.getState().graph.groups; },
-    set current(value: CanvasGroupData[]) { canvasCommands.graph.setGroups(value); },
-  }), [canvasCommands, canvasStore]);
-  const selectedNodeIdsRef = useMemo(() => ({
-    get current() { return new Set(canvasStore.getState().graph.selectedNodeIds); },
-    set current(value: Set<string>) { canvasCommands.graph.setSelectedNodeIds(value); },
-  }), [canvasCommands, canvasStore]);
-  const clipboardRef = useRef<CanvasClipboardPayload<CanvasNodeData, CanvasEdgeData> | null>(null);
+  const viewportRef = useMemo(
+    () => ({
+      get current() {
+        const current = canvasStore.getState().viewport;
+        return { zoom: current.zoom, panX: current.panX, panY: current.panY };
+      },
+      set current(value: { zoom: number; panX: number; panY: number }) {
+        stageInteractionController.syncViewport(value);
+      },
+    }),
+    [canvasStore, stageInteractionController]
+  );
+  const nodesRef = useMemo(
+    () => ({
+      get current() {
+        return canvasStore.getState().graph.nodes;
+      },
+      set current(value: CanvasNodeData[]) {
+        canvasCommands.graph.setNodes(value);
+      },
+    }),
+    [canvasCommands, canvasStore]
+  );
+  const edgesRef = useMemo(
+    () => ({
+      get current() {
+        return canvasStore.getState().graph.edges;
+      },
+      set current(value: CanvasEdgeData[]) {
+        canvasCommands.graph.setEdges(value);
+      },
+    }),
+    [canvasCommands, canvasStore]
+  );
+  const groupsRef = useMemo(
+    () => ({
+      get current() {
+        return canvasStore.getState().graph.groups;
+      },
+      set current(value: CanvasGroupData[]) {
+        canvasCommands.graph.setGroups(value);
+      },
+    }),
+    [canvasCommands, canvasStore]
+  );
+  const selectedNodeIdsRef = useMemo(
+    () => ({
+      get current() {
+        return new Set(canvasStore.getState().graph.selectedNodeIds);
+      },
+      set current(value: Set<string>) {
+        canvasCommands.graph.setSelectedNodeIds(value);
+      },
+    }),
+    [canvasCommands, canvasStore]
+  );
+  const clipboardRef = useRef<CanvasClipboardPayload<
+    CanvasNodeData,
+    CanvasEdgeData
+  > | null>(null);
   const clipboardTokenRef = useRef("");
 
-  const applyNodeSelection = useCallback((ids: Iterable<string>, primaryId = "", openInspector = false) => {
-    const next = new Set(ids);
-    const nextPrimary = primaryId && next.has(primaryId) ? primaryId : next.values().next().value || "";
-    canvasCommands.commit((state) => ({
-      graph: {
-        selectedNodeIds: [...next],
-        selectedNodeId: nextPrimary,
-        selectedGroupId: "",
-        selectedEdgeId: "",
-      },
-      ui: {
-        editingInlineNodeId: state.ui.editingInlineNodeId && !next.has(state.ui.editingInlineNodeId)
-          ? ""
-          : state.ui.editingInlineNodeId,
-        // 与旧版一致：选中单个节点即在节点下方打开编辑面板；顶栏「检查器」按钮仍可手动收起。
-        inspectorOpen: openInspector || next.size === 1,
-      },
-    }));
-  }, [canvasCommands]);
+  const applyNodeSelection = useCallback(
+    (ids: Iterable<string>, primaryId = "", openInspector = false) => {
+      const next = new Set(ids);
+      const nextPrimary =
+        primaryId && next.has(primaryId)
+          ? primaryId
+          : next.values().next().value || "";
+      canvasCommands.commit(state => ({
+        graph: {
+          selectedNodeIds: [...next],
+          selectedNodeId: nextPrimary,
+          selectedGroupId: "",
+          selectedEdgeId: "",
+        },
+        ui: {
+          editingInlineNodeId:
+            state.ui.editingInlineNodeId &&
+            !next.has(state.ui.editingInlineNodeId)
+              ? ""
+              : state.ui.editingInlineNodeId,
+          // 与旧版一致：选中单个节点即在节点下方打开编辑面板；顶栏「检查器」按钮仍可手动收起。
+          inspectorOpen: openInspector || next.size === 1,
+        },
+      }));
+    },
+    [canvasCommands]
+  );
 
-  const currentMentionScope = projectId ? canonicalProjectScope ?? scope : scope;
+  const currentMentionScope = projectId
+    ? (canonicalProjectScope ?? scope)
+    : scope;
   const {
     controller: assetsMentionsController,
     snapshot: assetsMentionsSnapshot,
@@ -778,10 +1036,17 @@ export default function CanvasWorkspaceViewContent() {
     getCanonicalScope: () => projectSessionController.canonicalScope,
     getFallbackScope: () => scope,
     getMentionScope: () => currentMentionScope,
-    getSeedanceProviderIds: () => videoModels.filter(isSeedanceVideoModel).map(registrationProviderId).filter((id): id is string => Boolean(id)),
+    getSeedanceProviderIds: () =>
+      videoModels
+        .filter(isSeedanceVideoModel)
+        .map(registrationProviderId)
+        .filter((id): id is string => Boolean(id)),
     getNodes: () => nodesRef.current,
     getEdges: () => edgesRef.current,
-    setNodes: nextNodes => { nodesRef.current = nextNodes; setNodes(nextNodes); },
+    setNodes: nextNodes => {
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
+    },
     applyNodeSelection,
     getCanvasCenter: stageInteractionController.getCanvasCenter,
     setImagePreviewNodeId,
@@ -833,7 +1098,7 @@ export default function CanvasWorkspaceViewContent() {
     thumbnails: assetPickerThumbnails,
   } = assetPicker;
 
-  const selectedNode = nodes.find((node) => node.id === selectedId);
+  const selectedNode = nodes.find(node => node.id === selectedId);
 
   /* 双击画布标题进入行内编辑；Enter/失焦提交，Esc 取消 */
   const beginTitleEdit = () => {
@@ -851,10 +1116,21 @@ export default function CanvasWorkspaceViewContent() {
     }
     setProjectTitleSaving(true);
     try {
-      await updateProject(projectId, { title: nextTitle, scope: canonicalProjectScope || "personal" });
+      await updateProject(projectId, {
+        title: nextTitle,
+        scope: canonicalProjectScope || "personal",
+      });
       setProjectTitle(nextTitle);
-      setVerifiedProject(current => current?.project.id === projectId ? { ...current, project: { ...current.project, title: nextTitle } } : current);
-      setProjects((items) => items.map((project) => project.id === projectId ? { ...project, title: nextTitle } : project));
+      setVerifiedProject(current =>
+        current?.project.id === projectId
+          ? { ...current, project: { ...current.project, title: nextTitle } }
+          : current
+      );
+      setProjects(items =>
+        items.map(project =>
+          project.id === projectId ? { ...project, title: nextTitle } : project
+        )
+      );
       toast.success("项目已重命名");
       setProjectTitleEditing(false);
     } catch (error) {
@@ -863,30 +1139,66 @@ export default function CanvasWorkspaceViewContent() {
       setProjectTitleSaving(false);
     }
   };
-  const selectedGroup = groups.find((group) => group.id === selectedGroupId);
-  const nodeMap = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const selectedGroup = groups.find(group => group.id === selectedGroupId);
+  const nodeMap = useMemo(
+    () => new Map(nodes.map(node => [node.id, node])),
+    [nodes]
+  );
   const filteredProjects = useMemo(() => {
     const query = canvasSwitcherQuery.trim().toLowerCase();
     if (!query) return projects;
-    return projects.filter((project) => project.title.toLowerCase().includes(query));
+    return projects.filter(project =>
+      project.title.toLowerCase().includes(query)
+    );
   }, [canvasSwitcherQuery, projects]);
   const materialNode = materialNodeId ? nodeMap.get(materialNodeId) : undefined;
-  const seedanceAssetNode = seedanceAssetNodeId ? nodeMap.get(seedanceAssetNodeId) : undefined;
+  const seedanceAssetNode = seedanceAssetNodeId
+    ? nodeMap.get(seedanceAssetNodeId)
+    : undefined;
   const agentSnapshot = useMemo(
-    () => canvasAgentSnapshotFromCanvas(projectId, projectTitle || "未命名画布", nodes, edges, selectedNodeIds, { zoom, panX, panY }),
-    [edges, nodes, panX, panY, projectId, projectTitle, selectedNodeIds, zoom],
+    () =>
+      canvasAgentSnapshotFromCanvas(
+        projectId,
+        projectTitle || "未命名画布",
+        nodes,
+        edges,
+        selectedNodeIds,
+        { zoom, panX, panY }
+      ),
+    [edges, nodes, panX, panY, projectId, projectTitle, selectedNodeIds, zoom]
   );
-  const visibleNodes = useMemo(() => nodes.filter((node) => !isHiddenCanvasBatchChild(node, nodes)), [nodes]);
-  const pinnedMarkers = useMemo(() => canvasPinnedNodes(visibleNodes), [visibleNodes]);
-  const serverVideoHistory = useCanvasServerVideoHistory(generationHistoryOpen && !projectSessionController.switching,
-    projectId, projectSessionController.canonicalScope,
-    nodes.filter(node => node.kind === "video").map(node => assetIdFromNode(node)).join(","));
-  const historyAssetNodes = useMemo(() => serverVideoHistoryNodes(serverVideoHistory.assets,
-    projectSessionController.canonicalScope || "personal"), [serverVideoHistory.assets, projectSessionController.canonicalScope]);
+  const visibleNodes = useMemo(
+    () => nodes.filter(node => !isHiddenCanvasBatchChild(node, nodes)),
+    [nodes]
+  );
+  const pinnedMarkers = useMemo(
+    () => canvasPinnedNodes(visibleNodes),
+    [visibleNodes]
+  );
+  const serverVideoHistory = useCanvasServerVideoHistory(
+    generationHistoryOpen && !projectSessionController.switching,
+    projectId,
+    projectSessionController.canonicalScope,
+    nodes
+      .filter(node => node.kind === "video")
+      .map(node => assetIdFromNode(node))
+      .join(",")
+  );
+  const historyAssetNodes = useMemo(
+    () =>
+      serverVideoHistoryNodes(
+        serverVideoHistory.assets,
+        projectSessionController.canonicalScope || "personal"
+      ),
+    [serverVideoHistory.assets, projectSessionController.canonicalScope]
+  );
   const generationHistoryItems = useMemo(
-    () => mergeCanvasGenerationHistory(collectCanvasGenerationHistory(nodes, previews, canvasAssets),
-      collectCanvasGenerationHistory(historyAssetNodes)),
-    [canvasAssets, nodes, previews, historyAssetNodes],
+    () =>
+      mergeCanvasGenerationHistory(
+        collectCanvasGenerationHistory(nodes, previews, canvasAssets),
+        collectCanvasGenerationHistory(historyAssetNodes)
+      ),
+    [canvasAssets, nodes, previews, historyAssetNodes]
   );
   // 视口裁剪（移植自旧优化引擎的可见区剔除思路）：只为"可视范围 + 600px 屏幕缓冲"内的节点挂载 DOM。
   // 缓冲区同时保证节点入场动画在屏外播完，正常平移不会看到节点闪现；缩略图/连线仍用全量 visibleNodes。
@@ -897,39 +1209,74 @@ export default function CanvasWorkspaceViewContent() {
     const viewTop = -panY / scale - margin;
     const viewRight = (stageBounds.width - panX) / scale + margin;
     const viewBottom = (stageBounds.height - panY) / scale + margin;
-    return visibleNodes.filter((node) =>
-      node.x + node.width >= viewLeft && node.x <= viewRight &&
-      node.y + node.height >= viewTop && node.y <= viewBottom
+    return visibleNodes.filter(
+      node =>
+        node.x + node.width >= viewLeft &&
+        node.x <= viewRight &&
+        node.y + node.height >= viewTop &&
+        node.y <= viewBottom
     );
   }, [visibleNodes, panX, panY, zoom, stageBounds.width, stageBounds.height]);
-  const contextMenuNode = contextMenu?.nodeId ? nodeMap.get(contextMenu.nodeId) : undefined;
-  const imageToolNode = imageToolDialog ? nodeMap.get(imageToolDialog.nodeId) : undefined;
-  const originalToolImage = useCanvasOriginalImage(imageToolNode, projectSessionController.canonicalScope || "personal");
+  const contextMenuNode = contextMenu?.nodeId
+    ? nodeMap.get(contextMenu.nodeId)
+    : undefined;
+  const imageToolNode = imageToolDialog
+    ? nodeMap.get(imageToolDialog.nodeId)
+    : undefined;
+  const originalToolImage = useCanvasOriginalImage(
+    imageToolNode,
+    projectSessionController.canonicalScope || "personal"
+  );
   const imageToolPreview = originalToolImage.source;
   const imageToolCrop = imageCropRectFromDraft(imageToolDraft);
-  const imageAnnotationNode = imageAnnotationNodeId ? nodeMap.get(imageAnnotationNodeId) : undefined;
-  const originalAnnotationImage = useCanvasOriginalImage(imageAnnotationNode, projectSessionController.canonicalScope || "personal");
+  const imageAnnotationNode = imageAnnotationNodeId
+    ? nodeMap.get(imageAnnotationNodeId)
+    : undefined;
+  const originalAnnotationImage = useCanvasOriginalImage(
+    imageAnnotationNode,
+    projectSessionController.canonicalScope || "personal"
+  );
   const imageAnnotationPreview = originalAnnotationImage.source;
-  const imageMaskNode = imageMaskNodeId ? nodeMap.get(imageMaskNodeId) : undefined;
-  const originalMaskImage = useCanvasOriginalImage(imageMaskNode, projectSessionController.canonicalScope || "personal");
+  const imageMaskNode = imageMaskNodeId
+    ? nodeMap.get(imageMaskNodeId)
+    : undefined;
+  const originalMaskImage = useCanvasOriginalImage(
+    imageMaskNode,
+    projectSessionController.canonicalScope || "personal"
+  );
   const imageMaskPreview = originalMaskImage.source;
-  const imagePreviewNode = imagePreviewNodeId ? nodeMap.get(imagePreviewNodeId) : undefined;
+  const imagePreviewNode = imagePreviewNodeId
+    ? nodeMap.get(imagePreviewNodeId)
+    : undefined;
   // 预览只展示真正生成该图的模型；导入的图片没有生成模型，不回退到当前选中的模型。
-  const imagePreviewModel = imagePreviewNode && isGeneratedCanvasNode(imagePreviewNode) ? stringValue(imagePreviewNode.metadata?.model) : "";
-  const originalImagePreview = useCanvasOriginalImage(imagePreviewNode, projectSessionController.canonicalScope || "personal");
+  const imagePreviewModel =
+    imagePreviewNode && isGeneratedCanvasNode(imagePreviewNode)
+      ? stringValue(imagePreviewNode.metadata?.model)
+      : "";
+  const originalImagePreview = useCanvasOriginalImage(
+    imagePreviewNode,
+    projectSessionController.canonicalScope || "personal"
+  );
   /** 预览弹窗的兄弟图集合：批次根 → [根, ...子图]；子图 → 同组全部；独立节点 → 自身。 */
   const imagePreviewSiblings = useMemo(() => {
     const node = imagePreviewNode;
     if (!node) return [] as CanvasNodeData[];
     const rootId = stringValue(node.metadata?.batchRootId);
-    const root = rootId ? nodes.find((item) => item.id === rootId) : node.metadata?.isBatchRoot ? node : undefined;
+    const root = rootId
+      ? nodes.find(item => item.id === rootId)
+      : node.metadata?.isBatchRoot
+        ? node
+        : undefined;
     if (!root) return [node];
     const children = (root.metadata?.batchChildIds || [])
-      .map((id) => nodes.find((item) => item.id === id))
+      .map(id => nodes.find(item => item.id === id))
       .filter((item): item is CanvasNodeData => Boolean(item));
     return [root, ...children];
   }, [imagePreviewNode, nodes]);
-  const [previewAssetMeta, setPreviewAssetMeta] = useState<{ createdAt?: string; contentType?: string }>({});
+  const [previewAssetMeta, setPreviewAssetMeta] = useState<{
+    createdAt?: string;
+    contentType?: string;
+  }>({});
 
   useEffect(() => {
     const node = imagePreviewNode;
@@ -938,84 +1285,160 @@ export default function CanvasWorkspaceViewContent() {
       setPreviewAssetMeta({});
       return;
     }
-    const scope = workspaceScopeValue(node?.metadata?.assetScope) || projectSessionController.canonicalScope || "personal";
+    const scope =
+      workspaceScopeValue(node?.metadata?.assetScope) ||
+      projectSessionController.canonicalScope ||
+      "personal";
     let disposed = false;
-    getAsset(assetId, scope).then((asset) => {
-      if (disposed) return;
-      setPreviewAssetMeta({ createdAt: asset.created_at, contentType: asset.content_type });
-    }).catch(() => undefined);
-    return () => { disposed = true; };
+    getAsset(assetId, scope)
+      .then(asset => {
+        if (disposed) return;
+        setPreviewAssetMeta({
+          createdAt: asset.created_at,
+          contentType: asset.content_type,
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
   }, [imagePreviewNode]);
 
   useEffect(() => {
     if (!imagePreviewNodeId) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-      const ids = imagePreviewSiblings.map((item) => item.id);
+      const ids = imagePreviewSiblings.map(item => item.id);
       const index = ids.indexOf(imagePreviewNodeId);
       if (ids.length < 2 || index < 0) return;
       event.preventDefault();
-      const next = ids[(index + (event.key === "ArrowRight" ? 1 : -1) + ids.length) % ids.length];
+      const next =
+        ids[
+          (index + (event.key === "ArrowRight" ? 1 : -1) + ids.length) %
+            ids.length
+        ];
       setImagePreviewNodeId(next);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [imagePreviewNodeId, imagePreviewSiblings]);
-  const storyboardSelectedCount = nodes.filter((node) => selectedNodeIds.has(node.id) && node.kind === "image" && Boolean(imageSrcFromNode(node, previews))).length || (storyboardNodeId ? 1 : 0);
+  const storyboardSelectedCount =
+    nodes.filter(
+      node =>
+        selectedNodeIds.has(node.id) &&
+        node.kind === "image" &&
+        Boolean(imageSrcFromNode(node, previews))
+    ).length || (storyboardNodeId ? 1 : 0);
   // 缩略导航关闭时不重建模型（panX/panY 每帧变化，避免每帧全量计算）
-  const minimapModel = useMemo<CanvasMinimapModel>(() => minimapOpen ? buildCanvasMinimapModel(
-    visibleNodes,
-    { zoom, panX, panY },
-    { width: stageBounds.width, height: Math.max(1, stageBounds.height - CANVAS_STAGE_OFFSET) },
-    { width: CANVAS_MINIMAP_WIDTH, height: CANVAS_MINIMAP_HEIGHT },
-  ) : EMPTY_CANVAS_MINIMAP_MODEL, [minimapOpen, panX, panY, stageBounds.height, stageBounds.width, visibleNodes, zoom]);
-  const normalizedSelectionBox = useMemo(
-    () => selectionBox ? normalizeCanvasSelectionRect(selectionBox.start, selectionBox.current) : null,
-    [selectionBox],
+  const minimapModel = useMemo<CanvasMinimapModel>(
+    () =>
+      minimapOpen
+        ? buildCanvasMinimapModel(
+            visibleNodes,
+            { zoom, panX, panY },
+            {
+              width: stageBounds.width,
+              height: Math.max(1, stageBounds.height - CANVAS_STAGE_OFFSET),
+            },
+            { width: CANVAS_MINIMAP_WIDTH, height: CANVAS_MINIMAP_HEIGHT }
+          )
+        : EMPTY_CANVAS_MINIMAP_MODEL,
+    [
+      minimapOpen,
+      panX,
+      panY,
+      stageBounds.height,
+      stageBounds.width,
+      visibleNodes,
+      zoom,
+    ]
   );
-  const selectionBoxStyle = useMemo<CSSProperties | undefined>(() => normalizedSelectionBox ? ({
-    position: "absolute",
-    left: normalizedSelectionBox.x,
-    top: normalizedSelectionBox.y,
-    width: normalizedSelectionBox.width,
-    height: normalizedSelectionBox.height,
-    zIndex: 20,
-    pointerEvents: "none",
-    border: "1px solid #7dd3fc",
-    background: "rgba(125, 211, 252, 0.12)",
-  }) : undefined, [normalizedSelectionBox]);
+  const normalizedSelectionBox = useMemo(
+    () =>
+      selectionBox
+        ? normalizeCanvasSelectionRect(selectionBox.start, selectionBox.current)
+        : null,
+    [selectionBox]
+  );
+  const selectionBoxStyle = useMemo<CSSProperties | undefined>(
+    () =>
+      normalizedSelectionBox
+        ? {
+            position: "absolute",
+            left: normalizedSelectionBox.x,
+            top: normalizedSelectionBox.y,
+            width: normalizedSelectionBox.width,
+            height: normalizedSelectionBox.height,
+            zIndex: 20,
+            pointerEvents: "none",
+            border: "1px solid #7dd3fc",
+            background: "rgba(125, 211, 252, 0.12)",
+          }
+        : undefined,
+    [normalizedSelectionBox]
+  );
   const canUndo = historyState.canUndo;
   const canRedo = historyState.canRedo;
-  const visiblePromptPresets = useMemo(() => sortPromptPresets(promptPresets).slice(0, 8), [promptPresets]);
-  const selectedGenerationMode = selectedNode ? generationModeFromNode(selectedNode) : "image";
-  const selectedGeneratedText = selectedNode ? isGeneratedCanvasText(selectedNode) : false;
-  const selectedGenerationModel = !selectedNode ? ""
-    : selectedGenerationMode === "text" ? textModel
-    : modelFromNode(selectedNode, selectedGenerationMode === "image" ? imageModel : selectedGenerationMode === "video" ? videoModel : audioModel);
-  const selectedVideoConfig = selectedNode && selectedGenerationMode === "video"
-    ? videoConfigFromNode(selectedNode, videoModel)
-    : null;
-  const selectedVideoSeedance = Boolean(selectedVideoConfig && isSeedanceVideoModel(selectedVideoConfig.model));
+  const visiblePromptPresets = useMemo(
+    () => sortPromptPresets(promptPresets).slice(0, 8),
+    [promptPresets]
+  );
+  const selectedGenerationMode = selectedNode
+    ? generationModeFromNode(selectedNode)
+    : "image";
+  const selectedGeneratedText = selectedNode
+    ? isGeneratedCanvasText(selectedNode)
+    : false;
+  const selectedGenerationModel = !selectedNode
+    ? ""
+    : selectedGenerationMode === "text"
+      ? textModel
+      : modelFromNode(
+          selectedNode,
+          selectedGenerationMode === "image"
+            ? imageModel
+            : selectedGenerationMode === "video"
+              ? videoModel
+              : audioModel
+        );
+  const selectedVideoConfig =
+    selectedNode && selectedGenerationMode === "video"
+      ? videoConfigFromNode(selectedNode, videoModel)
+      : null;
+  const selectedVideoSeedance = Boolean(
+    selectedVideoConfig && isSeedanceVideoModel(selectedVideoConfig.model)
+  );
   const selectedVideoH3 = h3VideoSettings(selectedVideoConfig?.model || "");
-  const selectedAudioConfig = selectedNode && selectedGenerationMode === "audio"
-    ? audioConfigFromNode(selectedNode, audioModel)
-    : null;
-  const currentProjectDisplayScope = projectId ? canonicalProjectScope ?? scope : scope;
+  const selectedAudioConfig =
+    selectedNode && selectedGenerationMode === "audio"
+      ? audioConfigFromNode(selectedNode, audioModel)
+      : null;
+  const currentProjectDisplayScope = projectId
+    ? (canonicalProjectScope ?? scope)
+    : scope;
   /* 画布选择页的自定义封面缩略图（无封面时保持默认抽象占位） */
   const projectCoverUrls = useProjectCoverUrls(projects, projectListScope);
   const projectScopePending = Boolean(projectId && !canonicalProjectScope);
   const projectActionDisabled = loading || switching || projectScopePending;
-  useEffect(() => { setArchiveNode(null); setBatchArchiveNodeIds([]); }, [projectId, canonicalProjectScope]);
+  useEffect(() => {
+    setArchiveNode(null);
+    setBatchArchiveNodeIds([]);
+  }, [projectId, canonicalProjectScope]);
   const canvasInteractionBlocked = projectActionDisabled;
   const syncTimestampLabel = formatCanvasSyncTime(snapshotUpdatedAt);
   const syncStatusTitle = [
     canvasSyncLabel(syncStatus),
-    snapshotVersion > 0 ? `服务端版本 v${snapshotVersion}` : "服务端版本尚未建立",
+    snapshotVersion > 0
+      ? `服务端版本 v${snapshotVersion}`
+      : "服务端版本尚未建立",
     syncTimestampLabel ? `最后同步：${syncTimestampLabel}` : "",
     syncError,
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
   const { style: selectedPanelStyle, reframe: inspectorReframe } = useMemo<{
-    style?: CSSProperties; reframe?: { zoom: number; panX: number; panY: number };
+    style?: CSSProperties;
+    reframe?: { zoom: number; panX: number; panY: number };
   }>(() => {
     if (!selectedNode) return {};
     const scale = Math.max(0.05, zoom / 100);
@@ -1024,44 +1447,99 @@ export default function CanvasWorkspaceViewContent() {
     const nodeTop = CANVAS_STAGE_OFFSET + panY + selectedNode.y * scale;
     const nodeRight = nodeLeft + selectedNode.width * scale;
     const nodeBottom = nodeTop + selectedNode.height * scale;
-    if (nodeRight < 0 || nodeBottom < CANVAS_STAGE_OFFSET || nodeLeft > stageBounds.width || nodeTop > stageBounds.height) return {};
-    const viewport = { left: INSPECTOR_SIZE.viewportMargin, top: CANVAS_STAGE_OFFSET + INSPECTOR_SIZE.topMargin,
-      right: stageBounds.width - INSPECTOR_SIZE.viewportMargin, bottom: stageBounds.height - INSPECTOR_SIZE.viewportMargin };
-    if (viewport.right <= viewport.left || viewport.bottom <= viewport.top + INSPECTOR_SIZE.nodeGap + INSPECTOR_SIZE.fitSafety) return {};
+    if (
+      nodeRight < 0 ||
+      nodeBottom < CANVAS_STAGE_OFFSET ||
+      nodeLeft > stageBounds.width ||
+      nodeTop > stageBounds.height
+    )
+      return {};
+    const viewport = {
+      left: INSPECTOR_SIZE.viewportMargin,
+      top: CANVAS_STAGE_OFFSET + INSPECTOR_SIZE.topMargin,
+      right: stageBounds.width - INSPECTOR_SIZE.viewportMargin,
+      bottom: stageBounds.height - INSPECTOR_SIZE.viewportMargin,
+    };
+    if (
+      viewport.right <= viewport.left ||
+      viewport.bottom <=
+        viewport.top + INSPECTOR_SIZE.nodeGap + INSPECTOR_SIZE.fitSafety
+    )
+      return {};
     const placement = inspectorLayout(
-        { left: nodeLeft, top: nodeTop, right: nodeRight, bottom: nodeBottom },
-        viewport,
-        { width: savedInspectorHeight(selectedNode.metadata?.promptPanelWidth), height: savedInspectorHeight(selectedNode.metadata?.promptPanelHeight) },
-      );
-    if (!placement) return { reframe: inspectorViewportForNode(selectedNode, viewport, { zoom, panX, panY }, CANVAS_STAGE_OFFSET) };
-    const { resizeX, resizeY, resizeCenterDistance, resizeBoundaryDistance,
-      resizeLeftCenterDistance, resizeRightCenterDistance,
-      resizeLeftBoundaryDistance, resizeRightBoundaryDistance, ...layout } = placement;
-    return { style: {
-      ...layout,
-      "--inspector-resize-x": resizeX,
-      "--inspector-resize-y": resizeY,
-      "--inspector-resize-center-distance": resizeCenterDistance,
-      "--inspector-resize-boundary-distance": resizeBoundaryDistance,
-      "--inspector-resize-left-center-distance": resizeLeftCenterDistance,
-      "--inspector-resize-right-center-distance": resizeRightCenterDistance,
-      "--inspector-resize-left-boundary-distance": resizeLeftBoundaryDistance,
-      "--inspector-resize-right-boundary-distance": resizeRightBoundaryDistance,
-      "--inspector-resize-left": resizeX < 0 ? "0px" : "auto",
-      "--inspector-resize-right": resizeX < 0 ? "auto" : "0px",
-      "--inspector-resize-top": resizeY < 0 ? "0px" : "auto",
-      "--inspector-resize-bottom": resizeY < 0 ? "auto" : "0px",
-      "--inspector-resize-cursor": resizeX === resizeY ? "nwse-resize" : "nesw-resize",
-      "--inspector-resize-left-cursor": -1 === resizeY ? "nwse-resize" : "nesw-resize",
-      "--inspector-resize-right-cursor": 1 === resizeY ? "nwse-resize" : "nesw-resize",
-      right: "auto", bottom: "auto",
-    } };
+      { left: nodeLeft, top: nodeTop, right: nodeRight, bottom: nodeBottom },
+      viewport,
+      {
+        width: savedInspectorHeight(selectedNode.metadata?.promptPanelWidth),
+        height: savedInspectorHeight(selectedNode.metadata?.promptPanelHeight),
+      }
+    );
+    if (!placement)
+      return {
+        reframe: inspectorViewportForNode(
+          selectedNode,
+          viewport,
+          { zoom, panX, panY },
+          CANVAS_STAGE_OFFSET
+        ),
+      };
+    const {
+      resizeX,
+      resizeY,
+      resizeCenterDistance,
+      resizeBoundaryDistance,
+      resizeLeftCenterDistance,
+      resizeRightCenterDistance,
+      resizeLeftBoundaryDistance,
+      resizeRightBoundaryDistance,
+      ...layout
+    } = placement;
+    return {
+      style: {
+        ...layout,
+        "--inspector-resize-x": resizeX,
+        "--inspector-resize-y": resizeY,
+        "--inspector-resize-center-distance": resizeCenterDistance,
+        "--inspector-resize-boundary-distance": resizeBoundaryDistance,
+        "--inspector-resize-left-center-distance": resizeLeftCenterDistance,
+        "--inspector-resize-right-center-distance": resizeRightCenterDistance,
+        "--inspector-resize-left-boundary-distance": resizeLeftBoundaryDistance,
+        "--inspector-resize-right-boundary-distance":
+          resizeRightBoundaryDistance,
+        "--inspector-resize-left": resizeX < 0 ? "0px" : "auto",
+        "--inspector-resize-right": resizeX < 0 ? "auto" : "0px",
+        "--inspector-resize-top": resizeY < 0 ? "0px" : "auto",
+        "--inspector-resize-bottom": resizeY < 0 ? "auto" : "0px",
+        "--inspector-resize-cursor":
+          resizeX === resizeY ? "nwse-resize" : "nesw-resize",
+        "--inspector-resize-left-cursor":
+          -1 === resizeY ? "nwse-resize" : "nesw-resize",
+        "--inspector-resize-right-cursor":
+          1 === resizeY ? "nwse-resize" : "nesw-resize",
+        right: "auto",
+        bottom: "auto",
+      },
+    };
   }, [panX, panY, selectedNode, stageBounds.height, stageBounds.width, zoom]);
   useLayoutEffect(() => {
-    if (!inspectorOpen || selectedGroup || projectActionDisabled || !inspectorReframe || stageBounds.height <= CANVAS_STAGE_OFFSET) return;
+    if (
+      !inspectorOpen ||
+      selectedGroup ||
+      projectActionDisabled ||
+      !inspectorReframe ||
+      stageBounds.height <= CANVAS_STAGE_OFFSET
+    )
+      return;
     // A hidden panel is shown only after the viewport has a separate region for it.
     stageInteractionController.applyCanvasViewport(inspectorReframe);
-  }, [inspectorOpen, selectedGroup, projectActionDisabled, inspectorReframe, stageBounds.height, stageInteractionController]);
+  }, [
+    inspectorOpen,
+    selectedGroup,
+    projectActionDisabled,
+    inspectorReframe,
+    stageBounds.height,
+    stageInteractionController,
+  ]);
   const selectedGroupPanelStyle = useMemo<CSSProperties | undefined>(() => {
     if (!selectedGroup) return undefined;
     const scale = Math.max(0.05, zoom / 100);
@@ -1072,42 +1550,102 @@ export default function CanvasWorkspaceViewContent() {
     const width = Math.min(maxWidth, groupPanelSize.width || maxWidth);
     const height = Math.min(maxHeight, groupPanelSize.height);
     const groupLeft = panX + selectedGroup.position.x * scale;
-    const groupTop = CANVAS_STAGE_OFFSET + panY + selectedGroup.position.y * scale;
-    const left = Math.min(Math.max(edgeGap, groupLeft), Math.max(edgeGap, stageBounds.width - width - edgeGap));
-    const top = Math.max(minTop, Math.min(groupTop - height - groupGap, stageBounds.height - height - edgeGap));
-    return { left: Math.round(left), top: Math.round(top), width: "max-content", maxWidth, maxHeight, right: "auto", bottom: "auto" };
-  }, [groupPanelSize, panX, panY, selectedGroup, stageBounds.height, stageBounds.width, zoom]);
+    const groupTop =
+      CANVAS_STAGE_OFFSET + panY + selectedGroup.position.y * scale;
+    const left = Math.min(
+      Math.max(edgeGap, groupLeft),
+      Math.max(edgeGap, stageBounds.width - width - edgeGap)
+    );
+    const top = Math.max(
+      minTop,
+      Math.min(
+        groupTop - height - groupGap,
+        stageBounds.height - height - edgeGap
+      )
+    );
+    return {
+      left: Math.round(left),
+      top: Math.round(top),
+      width: "max-content",
+      maxWidth,
+      maxHeight,
+      right: "auto",
+      bottom: "auto",
+    };
+  }, [
+    groupPanelSize,
+    panX,
+    panY,
+    selectedGroup,
+    stageBounds.height,
+    stageBounds.width,
+    zoom,
+  ]);
   const contextMenuStyle = useMemo<CSSProperties | undefined>(() => {
     if (!contextMenu) return undefined;
     const width = 220;
     // 分组级联菜单后图片节点菜单大幅变矮，估算高度用于贴边定位
-    const height = (contextMenu.edgeId ? 176 : contextMenu.nodeId ? (contextMenuNode?.kind === "image" ? 372 : 292) : 284)
-      + (!contextMenu.edgeId && selectedNodeIds.size >= 2 ? CANVAS_BATCH_MENU_ROW_HEIGHT : 0);
-    const left = Math.min(Math.max(12, contextMenu.x), Math.max(12, stageBounds.width - width - 12));
-    const top = Math.min(Math.max(CANVAS_STAGE_OFFSET + 8, contextMenu.y), Math.max(CANVAS_STAGE_OFFSET + 8, stageBounds.height - height - 12));
+    const height =
+      (contextMenu.edgeId
+        ? 176
+        : contextMenu.nodeId
+          ? contextMenuNode?.kind === "image"
+            ? 372
+            : 292
+          : 284) +
+      (!contextMenu.edgeId && selectedNodeIds.size >= 2
+        ? CANVAS_BATCH_MENU_ROW_HEIGHT
+        : 0);
+    const left = Math.min(
+      Math.max(12, contextMenu.x),
+      Math.max(12, stageBounds.width - width - 12)
+    );
+    const top = Math.min(
+      Math.max(CANVAS_STAGE_OFFSET + 8, contextMenu.y),
+      Math.max(CANVAS_STAGE_OFFSET + 8, stageBounds.height - height - 12)
+    );
     return { left: Math.round(left), top: Math.round(top), width };
-  }, [contextMenu, contextMenuNode?.kind, selectedNodeIds.size, stageBounds.height, stageBounds.width]);
+  }, [
+    contextMenu,
+    contextMenuNode?.kind,
+    selectedNodeIds.size,
+    stageBounds.height,
+    stageBounds.width,
+  ]);
   // 菜单贴近右边缘时子菜单改为向左弹出（菜单宽 220 + 子面板约 220 + 留白）
   const contextMenuFlipX = useMemo(
     () => Boolean(contextMenu && contextMenu.x > stageBounds.width - 460),
-    [contextMenu, stageBounds.width],
+    [contextMenu, stageBounds.width]
   );
   // 菜单关闭/切换时收起所有子菜单
-  useEffect(() => { setCanvasSubmenuKey(""); }, [contextMenu]);
+  useEffect(() => {
+    setCanvasSubmenuKey("");
+  }, [contextMenu]);
   /** 级联子菜单分组：悬停/点击触发展开面板，子项点击后整个菜单关闭（各子项 onClick 自带 setContextMenu(null)） */
-  const renderCanvasSubmenu = (key: string, icon: ReactNode, label: string, items: ReactNode) => (
+  const renderCanvasSubmenu = (
+    key: string,
+    icon: ReactNode,
+    label: string,
+    items: ReactNode
+  ) => (
     <div
       key={key}
       className={`canvas-submenu ${canvasSubmenuKey === key ? "open" : ""}`}
       onPointerEnter={() => setCanvasSubmenuKey(key)}
-      onPointerLeave={() => setCanvasSubmenuKey((current) => (current === key ? "" : current))}
+      onPointerLeave={() =>
+        setCanvasSubmenuKey(current => (current === key ? "" : current))
+      }
     >
       <button
         type="button"
         className="full-outline canvas-submenu-trigger"
-        onClick={(event) => { event.stopPropagation(); setCanvasSubmenuKey(canvasSubmenuKey === key ? "" : key); }}
+        onClick={event => {
+          event.stopPropagation();
+          setCanvasSubmenuKey(canvasSubmenuKey === key ? "" : key);
+        }}
       >
-        {icon} <span>{label}</span> <ChevronRight size={12} className="submenu-caret" />
+        {icon} <span>{label}</span>{" "}
+        <ChevronRight size={12} className="submenu-caret" />
       </button>
       <div className="canvas-submenu-panel">{items}</div>
     </div>
@@ -1116,8 +1654,14 @@ export default function CanvasWorkspaceViewContent() {
     if (!pendingConnectionCreate) return undefined;
     const width = 224;
     const height = 246;
-    const left = Math.min(Math.max(12, pendingConnectionCreate.x), Math.max(12, stageBounds.width - width - 12));
-    const top = Math.min(Math.max(CANVAS_STAGE_OFFSET + 8, pendingConnectionCreate.y), Math.max(CANVAS_STAGE_OFFSET + 8, stageBounds.height - height - 12));
+    const left = Math.min(
+      Math.max(12, pendingConnectionCreate.x),
+      Math.max(12, stageBounds.width - width - 12)
+    );
+    const top = Math.min(
+      Math.max(CANVAS_STAGE_OFFSET + 8, pendingConnectionCreate.y),
+      Math.max(CANVAS_STAGE_OFFSET + 8, stageBounds.height - height - 12)
+    );
     return { left: Math.round(left), top: Math.round(top), width };
   }, [pendingConnectionCreate, stageBounds.height, stageBounds.width]);
   const connectionPreviewPath = useMemo(() => {
@@ -1126,19 +1670,49 @@ export default function CanvasWorkspaceViewContent() {
     if (!source) return "";
     const target = connectionTargetId ? nodeMap.get(connectionTargetId) : null;
     if (!target && !connectionPreviewPoint) return "";
-    return canvasActiveConnectionPath(source, connectHandleType, connectionPreviewPoint || { x: source.x, y: source.y + source.height / 2 }, target, groups);
-  }, [connectFrom, connectHandleType, connectionPreviewPoint, connectionTargetId, nodeMap, groups]);
-  const connectionLayerBounds = useMemo(() => buildCanvasConnectionLayerBounds(
-    visibleNodes,
-    edges,
-    connectFrom ? {
-      nodeId: connectFrom,
-      handleType: connectHandleType,
-      previewPoint: connectionPreviewPoint,
-      targetNodeId: connectionTargetId || undefined,
-    } : undefined,
+    return canvasActiveConnectionPath(
+      source,
+      connectHandleType,
+      connectionPreviewPoint || {
+        x: source.x,
+        y: source.y + source.height / 2,
+      },
+      target,
+      groups
+    );
+  }, [
+    connectFrom,
+    connectHandleType,
+    connectionPreviewPoint,
+    connectionTargetId,
+    nodeMap,
     groups,
-  ), [connectFrom, connectHandleType, connectionPreviewPoint, connectionTargetId, edges, visibleNodes, groups]);
+  ]);
+  const connectionLayerBounds = useMemo(
+    () =>
+      buildCanvasConnectionLayerBounds(
+        visibleNodes,
+        edges,
+        connectFrom
+          ? {
+              nodeId: connectFrom,
+              handleType: connectHandleType,
+              previewPoint: connectionPreviewPoint,
+              targetNodeId: connectionTargetId || undefined,
+            }
+          : undefined,
+        groups
+      ),
+    [
+      connectFrom,
+      connectHandleType,
+      connectionPreviewPoint,
+      connectionTargetId,
+      edges,
+      visibleNodes,
+      groups,
+    ]
+  );
   const {
     activateConnectionMode,
     beginInlineNodeEdit,
@@ -1183,13 +1757,16 @@ export default function CanvasWorkspaceViewContent() {
     zoomCanvasAroundCenter,
   } = stageInteractionController;
 
-  const captureCanvasState = useCallback((): CanvasSnapshotState => ({
-    nodes: structuredClone(nodesRef.current),
-    edges: structuredClone(edgesRef.current),
-    groups: structuredClone(persistedGroups),
-    backgroundMode,
-    showImageInfo,
-  }), [backgroundMode, persistedGroups, showImageInfo]);
+  const captureCanvasState = useCallback(
+    (): CanvasSnapshotState => ({
+      nodes: structuredClone(nodesRef.current),
+      edges: structuredClone(edgesRef.current),
+      groups: structuredClone(persistedGroups),
+      backgroundMode,
+      showImageInfo,
+    }),
+    [backgroundMode, persistedGroups, showImageInfo]
+  );
 
   historyController.updateBindings({
     capture: captureCanvasState,
@@ -1215,7 +1792,11 @@ export default function CanvasWorkspaceViewContent() {
           backgroundMode: entry.backgroundMode,
           showImageInfo: entry.showImageInfo,
         },
-        ui: { editingInlineNodeId: "", inspectorOpen: false, hoveredEdgeId: "" },
+        ui: {
+          editingInlineNodeId: "",
+          inspectorOpen: false,
+          hoveredEdgeId: "",
+        },
       });
       stageInteractionController.resetConnectionAndPending();
       setContextMenu(null);
@@ -1224,47 +1805,49 @@ export default function CanvasWorkspaceViewContent() {
     onResumeChanged: () => setNodes(current => [...current]),
   });
 
-  const undoCanvas = useCallback(
-    () => { historyController.undo(); },
-    [historyController],
-  );
-  const redoCanvas = useCallback(
-    () => { historyController.redo(); },
-    [historyController],
-  );
+  const undoCanvas = useCallback(() => {
+    historyController.undo();
+  }, [historyController]);
+  const redoCanvas = useCallback(() => {
+    historyController.redo();
+  }, [historyController]);
   const pauseCanvasHistory = useCallback(
     () => historyController.pause(),
-    [historyController],
+    [historyController]
   );
   const resumeCanvasHistory = useCallback(
     (changed: boolean) => historyController.resume(changed),
-    [historyController],
+    [historyController]
   );
 
-  const captureCurrentSnapshot = useCallback((): CanvasSnapshotCapture => ({
-    nodes: nodesRef.current,
-    edges: edgesRef.current,
-    groups: persistedGroups,
-    zoom: viewportRef.current.zoom,
-    panX: viewportRef.current.panX,
-    panY: viewportRef.current.panY,
-    backgroundMode,
-    showImageInfo,
-  }), [backgroundMode, persistedGroups, showImageInfo]);
+  const captureCurrentSnapshot = useCallback(
+    (): CanvasSnapshotCapture => ({
+      nodes: nodesRef.current,
+      edges: edgesRef.current,
+      groups: persistedGroups,
+      zoom: viewportRef.current.zoom,
+      panX: viewportRef.current.panX,
+      panY: viewportRef.current.panY,
+      backgroundMode,
+      showImageInfo,
+    }),
+    [backgroundMode, persistedGroups, showImageInfo]
+  );
 
   const copySelectedNodes = useCallback(() => {
     const clipboard = createCanvasClipboard(
       nodesRef.current,
       edgesRef.current,
       selectedNodeIdsRef.current,
-      projectSessionController.canonicalKey,
+      projectSessionController.canonicalKey
     );
     if (!clipboard) return false;
     clipboardRef.current = clipboard;
     const token = `${CANVAS_CLIPBOARD_TOKEN_PREFIX}${crypto.randomUUID()}`;
     clipboardTokenRef.current = token;
     void copyTextToClipboard(token).then(result => {
-      if (result === "copied") toast.success(`已复制 ${clipboard.nodes.length} 个画布节点`);
+      if (result === "copied")
+        toast.success(`已复制 ${clipboard.nodes.length} 个画布节点`);
       else toast.warning("无法写入剪贴板，请允许剪贴板访问后重试");
     });
     return true;
@@ -1277,7 +1860,12 @@ export default function CanvasWorkspaceViewContent() {
       toast.warning("剪贴板来自另一张画布，请在当前画布重新复制");
       return false;
     }
-    const pasted = pasteCanvasClipboard(clipboard, projectKey, getCanvasCenter(), () => crypto.randomUUID());
+    const pasted = pasteCanvasClipboard(
+      clipboard,
+      projectKey,
+      getCanvasCenter(),
+      () => crypto.randomUUID()
+    );
     if (!pasted) return false;
     const nextNodes = [...nodesRef.current, ...pasted.nodes];
     const nextEdges = [...edgesRef.current, ...pasted.edges];
@@ -1285,7 +1873,7 @@ export default function CanvasWorkspaceViewContent() {
     edgesRef.current = nextEdges;
     setNodes(nextNodes);
     setEdges(nextEdges);
-    const pastedIds = pasted.nodes.map((node) => node.id);
+    const pastedIds = pasted.nodes.map(node => node.id);
     applyNodeSelection(pastedIds, pastedIds[0] || "", pastedIds.length === 1);
     setContextMenu(null);
     stageInteractionController.resetConnectionAndPending();
@@ -1294,25 +1882,36 @@ export default function CanvasWorkspaceViewContent() {
   }, [applyNodeSelection, getCanvasCenter]);
 
   const removeEdge = useCallback((edgeId: string) => {
-    const removedIds = new Set(canvasDisplayEdgeIds(edgesRef.current, groupsRef.current, edgeId));
+    const removedIds = new Set(
+      canvasDisplayEdgeIds(edgesRef.current, groupsRef.current, edgeId)
+    );
     removedIds.add(edgeId);
-    const nextEdges = edgesRef.current.filter((edge) => !removedIds.has(edge.id));
-    edgesRef.current = nextEdges;
-    setEdges(nextEdges);
-    setSelectedEdgeId((current) => removedIds.has(current) ? "" : current);
-    setHoveredEdgeId((current) => removedIds.has(current) ? "" : current);
-    setContextMenu(null);
-  }, []);
-
-  const disconnectIncomingSource = useCallback((sourceId: string, targetId: string) => {
-    const removedIds = new Set(edgesRef.current.filter(edge => edge.from === sourceId && edge.to === targetId).map(edge => edge.id));
-    if (!removedIds.size) return;
     const nextEdges = edgesRef.current.filter(edge => !removedIds.has(edge.id));
     edgesRef.current = nextEdges;
     setEdges(nextEdges);
-    setSelectedEdgeId(current => removedIds.has(current) ? "" : current);
-    setHoveredEdgeId(current => removedIds.has(current) ? "" : current);
+    setSelectedEdgeId(current => (removedIds.has(current) ? "" : current));
+    setHoveredEdgeId(current => (removedIds.has(current) ? "" : current));
+    setContextMenu(null);
   }, []);
+
+  const disconnectIncomingSource = useCallback(
+    (sourceId: string, targetId: string) => {
+      const removedIds = new Set(
+        edgesRef.current
+          .filter(edge => edge.from === sourceId && edge.to === targetId)
+          .map(edge => edge.id)
+      );
+      if (!removedIds.size) return;
+      const nextEdges = edgesRef.current.filter(
+        edge => !removedIds.has(edge.id)
+      );
+      edgesRef.current = nextEdges;
+      setEdges(nextEdges);
+      setSelectedEdgeId(current => (removedIds.has(current) ? "" : current));
+      setHoveredEdgeId(current => (removedIds.has(current) ? "" : current));
+    },
+    []
+  );
 
   useEffect(() => {
     setScope(scopeFromCanvasSearch(searchString));
@@ -1331,7 +1930,11 @@ export default function CanvasWorkspaceViewContent() {
     toast.error("当前账号没有访问管理后台的权限");
     params.delete("auth");
     const query = params.toString();
-    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`
+    );
   }, []);
 
   useEffect(() => {
@@ -1348,13 +1951,18 @@ export default function CanvasWorkspaceViewContent() {
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
-    if (!selectedGroup || !panel || !inspectorOpen || projectActionDisabled) return;
+    if (!selectedGroup || !panel || !inspectorOpen || projectActionDisabled)
+      return;
     const measure = () => {
       // Border-box dimensions include padding; contentRect alone would still
       // let the last button extend beyond the viewport at the right edge.
       const width = panel.offsetWidth;
       const height = panel.offsetHeight;
-      setGroupPanelSize(current => current.width === width && current.height === height ? current : { width, height });
+      setGroupPanelSize(current =>
+        current.width === width && current.height === height
+          ? current
+          : { width, height }
+      );
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
@@ -1365,53 +1973,103 @@ export default function CanvasWorkspaceViewContent() {
 
   useEffect(() => {
     let disposed = false;
-    Promise.allSettled([fetchImageModels(), fetchAiModels(), getPreferences()])
-      .then(([modelsResult, aiModelsResult, preferencesResult]) => {
-        if (disposed) return;
-        const preferredModel = preferencesResult.status === "fulfilled" ? preferencesResult.value.generation?.imageModel || "" : "";
-        const preferredVideoModel = preferencesResult.status === "fulfilled" ? preferencesResult.value.generation?.videoModel || "" : "";
-        const preferredAudioModel = preferencesResult.status === "fulfilled" ? preferencesResult.value.generation?.audioModel || "" : "";
-        if (preferencesResult.status === "fulfilled") {
-          setPromptPresets(preferencesResult.value.canvas?.promptPresets || []);
-          setWheelZoomRequiresCtrl(preferencesResult.value.canvas?.wheelZoomRequiresCtrl !== false);
-          shortcutsRef.current = resolveCanvasShortcuts(preferencesResult.value.shortcuts);
-        }
-        const imageCatalog = modelsResult.status === "fulfilled" ? modelsResult.value
-          : aiModelsResult.status === "fulfilled" ? {
-            models: aiModelsResult.value.imageModels,
-            defaultModel: aiModelsResult.value.defaultImageModel,
-            labels: aiModelsResult.value.modelLabels,
-            providerNames: aiModelsResult.value.modelProviderNames,
-            nicknames: aiModelsResult.value.modelNicknames, // [画布别名]
-          } : null;
-        if (imageCatalog) {
-          const catalog = imageCatalog;
-          setModelCatalog(catalog);
-          setModelNicknames(catalog.nicknames || {}); // [画布别名]
-          setImageModel((current) => resolveModel(catalog.models, current)
-            || pickDefaultImageModel(catalog.models, resolveModel(catalog.models, preferredModel) || catalog.defaultModel));
-        } else {
-          toast.error(publicApiError(modelsResult.status === "rejected" ? modelsResult.reason : undefined, "读取图像模型失败"));
-        }
-        if (aiModelsResult.status === "fulfilled") {
-          const catalog = aiModelsResult.value;
-          setVideoModels(catalog.videoModels);
-          setAudioModels(catalog.audioModels);
-          setTextModelLabels(catalog.modelLabels);
-          setModelProviderNames(catalog.modelProviderNames);
-          setModelNicknames(catalog.modelNicknames || {}); // [画布别名]
-          setTextModel(catalog.defaultTextModel);
-          setVideoModel((current) => resolveModel(catalog.videoModels, current)
-            || pickDefaultCanvasVideoModel(catalog.videoModels, catalog.modelLabels, catalog.modelProviderNames,
-              resolveModel(catalog.videoModels, preferredVideoModel) || catalog.defaultVideoModel));
-          setAudioModel((current) => resolveModel(catalog.audioModels, current || preferredAudioModel) || catalog.defaultAudioModel);
-        } else {
-          toast.error(publicApiError(aiModelsResult.reason, "读取 AI 模型失败"));
-          if (preferredVideoModel) setVideoModel((current) => current || preferredVideoModel);
-          if (preferredAudioModel) setAudioModel((current) => current || preferredAudioModel);
-        }
-      });
-    return () => { disposed = true; };
+    Promise.allSettled([
+      fetchImageModels(),
+      fetchAiModels(),
+      getPreferences(),
+    ]).then(([modelsResult, aiModelsResult, preferencesResult]) => {
+      if (disposed) return;
+      const preferredModel =
+        preferencesResult.status === "fulfilled"
+          ? preferencesResult.value.generation?.imageModel || ""
+          : "";
+      const preferredVideoModel =
+        preferencesResult.status === "fulfilled"
+          ? preferencesResult.value.generation?.videoModel || ""
+          : "";
+      const preferredAudioModel =
+        preferencesResult.status === "fulfilled"
+          ? preferencesResult.value.generation?.audioModel || ""
+          : "";
+      if (preferencesResult.status === "fulfilled") {
+        setPromptPresets(preferencesResult.value.canvas?.promptPresets || []);
+        setWheelZoomRequiresCtrl(
+          preferencesResult.value.canvas?.wheelZoomRequiresCtrl !== false
+        );
+        shortcutsRef.current = resolveCanvasShortcuts(
+          preferencesResult.value.shortcuts
+        );
+      }
+      const imageCatalog =
+        modelsResult.status === "fulfilled"
+          ? modelsResult.value
+          : aiModelsResult.status === "fulfilled"
+            ? {
+                models: aiModelsResult.value.imageModels,
+                defaultModel: aiModelsResult.value.defaultImageModel,
+                labels: aiModelsResult.value.modelLabels,
+                providerNames: aiModelsResult.value.modelProviderNames,
+                nicknames: aiModelsResult.value.modelNicknames, // [画布别名]
+              }
+            : null;
+      if (imageCatalog) {
+        const catalog = imageCatalog;
+        setModelCatalog(catalog);
+        setModelNicknames(catalog.nicknames || {}); // [画布别名]
+        setImageModel(
+          current =>
+            resolveModel(catalog.models, current) ||
+            pickDefaultImageModel(
+              catalog.models,
+              resolveModel(catalog.models, preferredModel) ||
+                catalog.defaultModel
+            )
+        );
+      } else {
+        toast.error(
+          publicApiError(
+            modelsResult.status === "rejected"
+              ? modelsResult.reason
+              : undefined,
+            "读取图像模型失败"
+          )
+        );
+      }
+      if (aiModelsResult.status === "fulfilled") {
+        const catalog = aiModelsResult.value;
+        setVideoModels(catalog.videoModels);
+        setAudioModels(catalog.audioModels);
+        setTextModelLabels(catalog.modelLabels);
+        setModelProviderNames(catalog.modelProviderNames);
+        setModelNicknames(catalog.modelNicknames || {}); // [画布别名]
+        setTextModel(catalog.defaultTextModel);
+        setVideoModel(
+          current =>
+            resolveModel(catalog.videoModels, current) ||
+            pickDefaultCanvasVideoModel(
+              catalog.videoModels,
+              catalog.modelLabels,
+              catalog.modelProviderNames,
+              resolveModel(catalog.videoModels, preferredVideoModel) ||
+                catalog.defaultVideoModel
+            )
+        );
+        setAudioModel(
+          current =>
+            resolveModel(catalog.audioModels, current || preferredAudioModel) ||
+            catalog.defaultAudioModel
+        );
+      } else {
+        toast.error(publicApiError(aiModelsResult.reason, "读取 AI 模型失败"));
+        if (preferredVideoModel)
+          setVideoModel(current => current || preferredVideoModel);
+        if (preferredAudioModel)
+          setAudioModel(current => current || preferredAudioModel);
+      }
+    });
+    return () => {
+      disposed = true;
+    };
   }, []);
 
   // 聊天台引导流程：项目切换时消费一次引导信息（步骤5的用户原文），无引导则收起覆盖层
@@ -1438,17 +2096,28 @@ export default function CanvasWorkspaceViewContent() {
   }, [uploading]);
 
   useEffect(() => {
-    if (editingInlineNodeId && !nodes.some((node) => node.id === editingInlineNodeId)) {
+    if (
+      editingInlineNodeId &&
+      !nodes.some(node => node.id === editingInlineNodeId)
+    ) {
       setEditingInlineNodeId("");
     }
   }, [editingInlineNodeId, nodes]);
 
   useEffect(() => {
     return historyController.schedule(!loading);
-  }, [backgroundMode, edges, groups, historyController, loading, nodes, showImageInfo]);
+  }, [
+    backgroundMode,
+    edges,
+    groups,
+    historyController,
+    loading,
+    nodes,
+    showImageInfo,
+  ]);
 
   useEffect(() => {
-    setSelectedNodeIds((current) => {
+    setSelectedNodeIds(current => {
       if (!selectedId) {
         if (!current.size) return current;
         const next = new Set<string>();
@@ -1461,24 +2130,41 @@ export default function CanvasWorkspaceViewContent() {
   }, [selectedId]);
 
   const persistProjectKey = projectSessionController.canonicalKey;
-  const persistSnapshot = useCallback(async (
-    nextNodes = nodesRef.current,
-    nextEdges = edgesRef.current,
-    nextZoom = viewportRef.current.zoom,
-    options: { quiet?: boolean; panX?: number; panY?: number } = {},
-  ): Promise<boolean> => autosaveController.persist({
-    nodes: ensureUniqueCanvasNodeTitles(nextNodes, nodesRef.current, canvasStore.getState().session.projectTitle),
-    edges: nextEdges,
-    groups: persistedGroups,
-    zoom: nextZoom,
-    panX: options.panX ?? viewportRef.current.panX,
-    panY: options.panY ?? viewportRef.current.panY,
-    backgroundMode,
-    showImageInfo,
-  }, {
-    quiet: options.quiet,
-    expectedKey: persistProjectKey,
-  }), [autosaveController, backgroundMode, persistProjectKey, persistedGroups, showImageInfo]);
+  const persistSnapshot = useCallback(
+    async (
+      nextNodes = nodesRef.current,
+      nextEdges = edgesRef.current,
+      nextZoom = viewportRef.current.zoom,
+      options: { quiet?: boolean; panX?: number; panY?: number } = {}
+    ): Promise<boolean> =>
+      autosaveController.persist(
+        {
+          nodes: ensureUniqueCanvasNodeTitles(
+            nextNodes,
+            nodesRef.current,
+            canvasStore.getState().session.projectTitle
+          ),
+          edges: nextEdges,
+          groups: persistedGroups,
+          zoom: nextZoom,
+          panX: options.panX ?? viewportRef.current.panX,
+          panY: options.panY ?? viewportRef.current.panY,
+          backgroundMode,
+          showImageInfo,
+        },
+        {
+          quiet: options.quiet,
+          expectedKey: persistProjectKey,
+        }
+      ),
+    [
+      autosaveController,
+      backgroundMode,
+      persistProjectKey,
+      persistedGroups,
+      showImageInfo,
+    ]
+  );
 
   generationController.updateBindings({
     getUserId: () => user?.id || "",
@@ -1489,9 +2175,15 @@ export default function CanvasWorkspaceViewContent() {
     isSwitching: () => projectSessionController.switching,
     isLoading: () => loading,
     getNodes: () => nodesRef.current,
-    setNodes: nextNodes => { nodesRef.current = nextNodes; setNodes(nextNodes); },
+    setNodes: nextNodes => {
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
+    },
     getEdges: () => edgesRef.current,
-    setEdges: nextEdges => { edgesRef.current = nextEdges; setEdges(nextEdges); },
+    setEdges: nextEdges => {
+      edgesRef.current = nextEdges;
+      setEdges(nextEdges);
+    },
     getSelectedNodeId: () => canvasStore.getState().graph.selectedNodeId,
     getSelectedNodeIds: () => selectedNodeIdsRef.current,
     getCanvasAssets: () => canvasAssets,
@@ -1521,20 +2213,52 @@ export default function CanvasWorkspaceViewContent() {
 
   useEffect(() => {
     recoverPendingJobs();
-  }, [canonicalProjectScope, imageModel, loading, nodes, recoverPendingJobs, switching, videoModel]);
+  }, [
+    canonicalProjectScope,
+    imageModel,
+    loading,
+    nodes,
+    recoverPendingJobs,
+    switching,
+    videoModel,
+  ]);
 
   useEffect(() => {
     return autosaveController.observe(
       Boolean(projectId && !loading && !switching && snapshotWriteReady),
-      { nodes, edges, groups: persistedGroups, zoom, panX, panY, backgroundMode, showImageInfo },
+      {
+        nodes,
+        edges,
+        groups: persistedGroups,
+        zoom,
+        panX,
+        panY,
+        backgroundMode,
+        showImageInfo,
+      }
     );
-  }, [autosaveController, backgroundMode, edges, loading, nodes, panX, panY, persistedGroups, projectId, showImageInfo, snapshotWriteReady, switching, zoom]);
+  }, [
+    autosaveController,
+    backgroundMode,
+    edges,
+    loading,
+    nodes,
+    panX,
+    panY,
+    persistedGroups,
+    projectId,
+    showImageInfo,
+    snapshotWriteReady,
+    switching,
+    zoom,
+  ]);
 
   autosaveController.updateBindings({
     capture: captureCurrentSnapshot,
-    saveSnapshot: (targetProjectId, snapshot, targetScope) => canvasCommands.services.project(
-      () => saveProjectSnapshot(targetProjectId, snapshot, targetScope),
-    ),
+    saveSnapshot: (targetProjectId, snapshot, targetScope) =>
+      canvasCommands.services.project(() =>
+        saveProjectSnapshot(targetProjectId, snapshot, targetScope)
+      ),
     formatError: publicApiError,
     isSwitching: () => projectSessionController.switching,
     onSessionPatch: patch => canvasCommands.commit({ session: patch }),
@@ -1544,12 +2268,14 @@ export default function CanvasWorkspaceViewContent() {
   });
 
   projectSessionController.updateBindings({
-    getProject: (targetProjectId, targetScope) => canvasCommands.services.project(
-      () => getProject(targetProjectId, targetScope),
-    ),
-    getSnapshot: (targetProjectId, targetScope) => canvasCommands.services.project(
-      () => getProjectSnapshot(targetProjectId, targetScope),
-    ),
+    getProject: (targetProjectId, targetScope) =>
+      canvasCommands.services.project(() =>
+        getProject(targetProjectId, targetScope)
+      ),
+    getSnapshot: (targetProjectId, targetScope) =>
+      canvasCommands.services.project(() =>
+        getProjectSnapshot(targetProjectId, targetScope)
+      ),
     isNotFound: error => error instanceof ApiError && error.status === 404,
     formatError: publicApiError,
     createStarterNodes: starterNodes,
@@ -1572,8 +2298,13 @@ export default function CanvasWorkspaceViewContent() {
       }
       canvasCommands.commit({
         graph: {
-          nodes: [], edges: [], groups: [], selectedNodeIds: [], selectedNodeId: "",
-          selectedGroupId: "", selectedEdgeId: "",
+          nodes: [],
+          edges: [],
+          groups: [],
+          selectedNodeIds: [],
+          selectedNodeId: "",
+          selectedGroupId: "",
+          selectedEdgeId: "",
         },
         viewport: { backgroundMode: "lines", showImageInfo: false },
         session: { loading: false, projectTitle: "", switching: false },
@@ -1583,9 +2314,13 @@ export default function CanvasWorkspaceViewContent() {
     onProjectResolved: project => setProjectTitle(project.title),
     onSnapshotWarning: message => toast.warning(message),
     onLoaded: (result: CanvasProjectSessionLoaded) => {
-      setVerifiedProject({ project: projectSummary(result.project), scope: result.scope, userId: user?.id || "" });
+      setVerifiedProject({
+        project: projectSummary(result.project),
+        scope: result.scope,
+        userId: user?.id || "",
+      });
       const firstVisibleNode = result.nodes.find(
-        node => !isHiddenCanvasBatchChild(node, result.nodes),
+        node => !isHiddenCanvasBatchChild(node, result.nodes)
       );
       viewportRef.current = result.viewport;
       canvasCommands.commit({
@@ -1614,7 +2349,9 @@ export default function CanvasWorkspaceViewContent() {
       setSnapshotVersion(result.snapshotVersion);
       setSnapshotUpdatedAt(result.snapshotUpdatedAt);
       setSyncError(result.snapshotError);
-      setSyncStatus(result.snapshotError || !result.writeReady ? "error" : "synced");
+      setSyncStatus(
+        result.snapshotError || !result.writeReady ? "error" : "synced"
+      );
       // SOP 步骤 3-5：渲染节点后唤出 Agent，并交接聊天台原始输入。
       const pendingBootstrapPrompt = bootstrapPromptRef.current;
       if (pendingBootstrapPrompt) {
@@ -1669,26 +2406,38 @@ export default function CanvasWorkspaceViewContent() {
       stageInteractionController.dispose();
       void projectSessionController.dispose();
     };
-  }, [generationController, projectSessionController, stageInteractionController]);
+  }, [
+    generationController,
+    projectSessionController,
+    stageInteractionController,
+  ]);
 
-  const switchCanvasProject = useCallback(async (targetProjectId: string) => {
-    const activeScope = projectSessionController.canonicalScope || scope;
-    const targetProject = projects.find(project => project.id === targetProjectId);
-    await projectSessionController.switchProject(
-      targetProjectId,
-      canvasProjectHref(
+  const switchCanvasProject = useCallback(
+    async (targetProjectId: string) => {
+      const activeScope = projectSessionController.canonicalScope || scope;
+      const targetProject = projects.find(
+        project => project.id === targetProjectId
+      );
+      await projectSessionController.switchProject(
         targetProjectId,
-        projectScopeFromServer(targetProject, activeScope),
-      ),
-    );
-  }, [projectSessionController, projects, scope]);
+        canvasProjectHref(
+          targetProjectId,
+          projectScopeFromServer(targetProject, activeScope)
+        )
+      );
+    },
+    [projectSessionController, projects, scope]
+  );
 
-  const switchCanvasScope = useCallback(async (targetScope: WorkspaceScope) => {
-    await projectSessionController.switchScope(
-      targetScope,
-      canvasListHref(targetScope),
-    );
-  }, [projectSessionController]);
+  const switchCanvasScope = useCallback(
+    async (targetScope: WorkspaceScope) => {
+      await projectSessionController.switchScope(
+        targetScope,
+        canvasListHref(targetScope)
+      );
+    },
+    [projectSessionController]
+  );
 
   const openCreateProjectDialog = () => {
     setCreateDialogTitle("未命名画布");
@@ -1708,16 +2457,25 @@ export default function CanvasWorkspaceViewContent() {
     setCreateDialogError("");
     try {
       const initialNodes = starterNodes();
-      const created = await createProject({ scope: createDialogScope, title, data: buildCanvasSnapshot({}, initialNodes, [], 90, 0, 0) });
+      const created = await createProject({
+        scope: createDialogScope,
+        title,
+        data: buildCanvasSnapshot({}, initialNodes, [], 90, 0, 0),
+      });
       const createdScope = projectScopeFromServer(created, createDialogScope);
-      if (createdScope === projectListScope) await setProjects(items => [created, ...items.filter(item => item.id !== created.id)]);
+      if (createdScope === projectListScope)
+        await setProjects(items => [
+          created,
+          ...items.filter(item => item.id !== created.id),
+        ]);
       else void invalidateProjectList(queryClient, createdScope);
       setCreateDialogOpen(false);
       toast.success("画布已创建");
       const targetHref = canvasProjectHref(created.id, createdScope);
       // Creation from the switcher must flush the current canvas just like switching.
       // On save failure the new canvas stays in the list and the user stays here.
-      if (projectId) await projectSessionController.switchProject(created.id, targetHref);
+      if (projectId)
+        await projectSessionController.switchProject(created.id, targetHref);
       else navigate(targetHref);
     } catch (error) {
       const message = publicApiError(error, "创建画布失败");
@@ -1736,7 +2494,7 @@ export default function CanvasWorkspaceViewContent() {
     try {
       abortAllGenerationRequests();
       await deleteProject(projectId, activeScope);
-      setProjects((items) => items.filter((project) => project.id !== projectId));
+      setProjects(items => items.filter(project => project.id !== projectId));
       setDeleteProjectOpen(false);
       toast.success("画布已删除");
       navigate(canvasListHref(activeScope));
@@ -1749,8 +2507,11 @@ export default function CanvasWorkspaceViewContent() {
     }
   };
 
-  const toggleProjectSelection = (targetProjectId: string, checked: boolean) => {
-    setSelectedProjectIds((current) => {
+  const toggleProjectSelection = (
+    targetProjectId: string,
+    checked: boolean
+  ) => {
+    setSelectedProjectIds(current => {
       const next = new Set(current);
       if (checked) next.add(targetProjectId);
       else next.delete(targetProjectId);
@@ -1759,7 +2520,9 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const openProjectBatchDelete = (ids: Iterable<string>) => {
-    const scopedIds = Array.from(new Set(ids)).filter((id) => projects.some((project) => project.id === id));
+    const scopedIds = Array.from(new Set(ids)).filter(id =>
+      projects.some(project => project.id === id)
+    );
     if (!scopedIds.length) return;
     setProjectDeleteIds(scopedIds);
     setProjectDeleteError("");
@@ -1770,11 +2533,16 @@ export default function CanvasWorkspaceViewContent() {
     const requestedIds = [...projectDeleteIds];
     setProjectBatchBusy(true);
     setProjectDeleteError("");
-    const results = await Promise.allSettled(requestedIds.map((id) => deleteProject(id, scope)));
+    const results = await Promise.allSettled(
+      requestedIds.map(id => deleteProject(id, scope))
+    );
     const deletedIds: string[] = [];
     const failedIds: string[] = [];
     results.forEach((result, index) => {
-      if (result.status === "fulfilled" || (result.reason instanceof ApiError && result.reason.status === 404)) {
+      if (
+        result.status === "fulfilled" ||
+        (result.reason instanceof ApiError && result.reason.status === 404)
+      ) {
         deletedIds.push(requestedIds[index]);
       } else {
         failedIds.push(requestedIds[index]);
@@ -1782,8 +2550,13 @@ export default function CanvasWorkspaceViewContent() {
     });
     if (deletedIds.length) {
       const deletedSet = new Set(deletedIds);
-      setProjects((items) => items.filter((project) => !deletedSet.has(project.id)));
-      setSelectedProjectIds((current) => new Set(Array.from(current).filter((id) => !deletedSet.has(id))));
+      setProjects(items =>
+        items.filter(project => !deletedSet.has(project.id))
+      );
+      setSelectedProjectIds(
+        current =>
+          new Set(Array.from(current).filter(id => !deletedSet.has(id)))
+      );
     }
     if (failedIds.length) {
       setProjectDeleteIds(failedIds);
@@ -1798,9 +2571,16 @@ export default function CanvasWorkspaceViewContent() {
     setProjectBatchBusy(false);
   };
 
-  const buildCanvasNodeCandidate = (kind: CanvasNodeKind, position?: { x: number; y: number }, nodeCount = nodesRef.current.length): CanvasNodeData => {
+  const buildCanvasNodeCandidate = (
+    kind: CanvasNodeKind,
+    position?: { x: number; y: number },
+    nodeCount = nodesRef.current.length
+  ): CanvasNodeData => {
     const normalizedKind = normalizeCanvasNodeKind(kind);
-    const basePosition = position || { x: 160 + nodeCount * 34, y: 160 + nodeCount * 22 };
+    const basePosition = position || {
+      x: 160 + nodeCount * 34,
+      y: 160 + nodeCount * 22,
+    };
     return {
       id: crypto.randomUUID(),
       kind: normalizedKind,
@@ -1808,15 +2588,38 @@ export default function CanvasWorkspaceViewContent() {
       content: "",
       x: basePosition.x,
       y: basePosition.y,
-      width: normalizedKind === "image" ? CANVAS_IMAGE_NODE_WIDTH : normalizedKind === "video" ? CANVAS_VIDEO_NODE_WIDTH : 300,
-      height: normalizedKind === "audio" ? 120 : normalizedKind === "image" ? CANVAS_IMAGE_NODE_HEIGHT : normalizedKind === "video" ? CANVAS_VIDEO_NODE_HEIGHT : 170,
+      width:
+        normalizedKind === "image"
+          ? CANVAS_IMAGE_NODE_WIDTH
+          : normalizedKind === "video"
+            ? CANVAS_VIDEO_NODE_WIDTH
+            : 300,
+      height:
+        normalizedKind === "audio"
+          ? 120
+          : normalizedKind === "image"
+            ? CANVAS_IMAGE_NODE_HEIGHT
+            : normalizedKind === "video"
+              ? CANVAS_VIDEO_NODE_HEIGHT
+              : 170,
       metadata: {
         content: "",
         generationMode: defaultGenerationModeForKind(normalizedKind),
-        model: normalizedKind === "video" ? videoModel : normalizedKind === "audio" ? audioModel : normalizedKind === "image" || normalizedKind === "config" ? imageModel : normalizedKind === "text" ? textModel : undefined,
+        model:
+          normalizedKind === "video"
+            ? videoModel
+            : normalizedKind === "audio"
+              ? audioModel
+              : normalizedKind === "image" || normalizedKind === "config"
+                ? imageModel
+                : normalizedKind === "text"
+                  ? textModel
+                  : undefined,
         status: "idle",
         ...canvasImageParamDefaults(),
-        ...(normalizedKind === "video" ? { size: CANVAS_VIDEO_DEFAULT_RATIO } : {}),
+        ...(normalizedKind === "video"
+          ? { size: CANVAS_VIDEO_DEFAULT_RATIO }
+          : {}),
         resolution: "720p",
         seconds: "5",
         watermark: false,
@@ -1825,15 +2628,17 @@ export default function CanvasWorkspaceViewContent() {
         audioSpeed: "1",
         audioInstructions: "",
         count: 1,
-        ...(normalizedKind === "director" ? {
-          directorInstanceId: `director-${crypto.randomUUID()}`,
-          directorCanvasId: projectId,
-          directorRevision: 0,
-          directorOutputKeys: [],
-          directorOutputNodeIds: [],
-        } : {}),
+        ...(normalizedKind === "director"
+          ? {
+              directorInstanceId: `director-${crypto.randomUUID()}`,
+              directorCanvasId: projectId,
+              directorRevision: 0,
+              directorOutputKeys: [],
+              directorOutputNodeIds: [],
+            }
+          : {}),
       },
-      };
+    };
   };
 
   const visibleCanvasRect = (): CanvasVisibleRect => {
@@ -1848,10 +2653,17 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   /** Without an explicit position (toolbar), a new node appears centered in view like pasted media. */
-  const addNode = (kind: CanvasNodeKind, position?: { x: number; y: number }) => {
+  const addNode = (
+    kind: CanvasNodeKind,
+    position?: { x: number; y: number }
+  ) => {
     const created = position
       ? buildCanvasNodeCandidate(kind, position)
-      : placeCanvasNodesAround([buildCanvasNodeCandidate(kind)], getCanvasCenter(), visibleCanvasRect())[0];
+      : placeCanvasNodesAround(
+          [buildCanvasNodeCandidate(kind)],
+          getCanvasCenter(),
+          visibleCanvasRect()
+        )[0];
     const nextNodes = [...nodesRef.current, created];
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
@@ -1864,37 +2676,70 @@ export default function CanvasWorkspaceViewContent() {
   const openDirectorNode = async (source: CanvasNodeData) => {
     if (source.kind !== "director") return;
     const activeScope = projectSessionController.canonicalScope;
-    if (!activeScope) return toast.warning("正在确认项目工作区，暂不能打开导演台");
-    const instanceId = stringValue(source.metadata?.directorInstanceId) || `director-${crypto.randomUUID()}`;
-    const nextNodes = nodesRef.current.map((node) => node.id === source.id ? {
-      ...node,
-      metadata: {
-        ...node.metadata,
-        directorInstanceId: instanceId,
-        directorCanvasId: projectId,
-        directorRevision: numberValue(node.metadata?.directorRevision) || 0,
-        directorOutputKeys: Array.isArray(node.metadata?.directorOutputKeys) ? node.metadata.directorOutputKeys : [],
-        directorOutputNodeIds: Array.isArray(node.metadata?.directorOutputNodeIds) ? node.metadata.directorOutputNodeIds : [],
-      },
-    } : node);
+    if (!activeScope)
+      return toast.warning("正在确认项目工作区，暂不能打开导演台");
+    const instanceId =
+      stringValue(source.metadata?.directorInstanceId) ||
+      `director-${crypto.randomUUID()}`;
+    const nextNodes = nodesRef.current.map(node =>
+      node.id === source.id
+        ? {
+            ...node,
+            metadata: {
+              ...node.metadata,
+              directorInstanceId: instanceId,
+              directorCanvasId: projectId,
+              directorRevision:
+                numberValue(node.metadata?.directorRevision) || 0,
+              directorOutputKeys: Array.isArray(
+                node.metadata?.directorOutputKeys
+              )
+                ? node.metadata.directorOutputKeys
+                : [],
+              directorOutputNodeIds: Array.isArray(
+                node.metadata?.directorOutputNodeIds
+              )
+                ? node.metadata.directorOutputNodeIds
+                : [],
+            },
+          }
+        : node
+    );
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
-    const saved = await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+    const saved = await persistSnapshot(
+      nextNodes,
+      edgesRef.current,
+      viewportRef.current.zoom,
+      { quiet: true }
+    );
     if (!saved) return;
     const returnTo = canvasProjectHref(projectId, activeScope);
-    const query = new URLSearchParams({ instanceId, canvasId: projectId, nodeId: source.id, returnTo, scope: activeScope });
+    const query = new URLSearchParams({
+      instanceId,
+      canvasId: projectId,
+      nodeId: source.id,
+      returnTo,
+      scope: activeScope,
+    });
     navigate(`/director?${query.toString()}`);
   };
 
-  const createNodeFromConnectionDraft = (kind: CanvasNodeKind, draft: PendingConnectionCreateState) => {
-    const created = buildCanvasNodeCandidate(kind, { x: draft.canvasX, y: draft.canvasY });
+  const createNodeFromConnectionDraft = (
+    kind: CanvasNodeKind,
+    draft: PendingConnectionCreateState
+  ) => {
+    const created = buildCanvasNodeCandidate(kind, {
+      x: draft.canvasX,
+      y: draft.canvasY,
+    });
     const graph = createConnectedCanvasGraph(
       nodesRef.current,
       edgesRef.current,
       created,
       draft.connection,
       () => crypto.randomUUID(),
-      groupsRef.current,
+      groupsRef.current
     );
     if (!graph) {
       toast.warning("该连接不符合节点规则");
@@ -1903,14 +2748,25 @@ export default function CanvasWorkspaceViewContent() {
       return;
     }
     // Keep Ctrl/Shift multi-selection fan-out when no shared frame owns the port.
-    const selectedSources = selectedNodeIdsRef.current.has(draft.connection.nodeId)
-      && !groupsRef.current.some(group => group.nodeIds.includes(draft.connection.nodeId))
-      ? [...selectedNodeIdsRef.current]
-      : [];
+    const selectedSources =
+      selectedNodeIdsRef.current.has(draft.connection.nodeId) &&
+      !groupsRef.current.some(group =>
+        group.nodeIds.includes(draft.connection.nodeId)
+      )
+        ? [...selectedNodeIdsRef.current]
+        : [];
     let nextEdges = graph.edges;
-    selectedSources.forEach((nodeId) => {
-      const connection = normalizeCanvasConnection(nodeId, created.id, graph.nodes, draft.connection.handleType);
-      if (connection) nextEdges = addCanvasConnection(nextEdges, connection, () => crypto.randomUUID());
+    selectedSources.forEach(nodeId => {
+      const connection = normalizeCanvasConnection(
+        nodeId,
+        created.id,
+        graph.nodes,
+        draft.connection.handleType
+      );
+      if (connection)
+        nextEdges = addCanvasConnection(nextEdges, connection, () =>
+          crypto.randomUUID()
+        );
     });
     nodesRef.current = graph.nodes;
     edgesRef.current = nextEdges;
@@ -1922,33 +2778,56 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   /** Empty image and video nodes take a newly requested ratio at once, so the layout is planned with the real shape. */
-  const shapeEmptyMediaNodeForRequest = (nodes: CanvasNodeData[], previous: CanvasNodeData | undefined, nodeId: string) => {
-    const index = nodes.findIndex((node) => node.id === nodeId);
+  const shapeEmptyMediaNodeForRequest = (
+    nodes: CanvasNodeData[],
+    previous: CanvasNodeData | undefined,
+    nodeId: string
+  ) => {
+    const index = nodes.findIndex(node => node.id === nodeId);
     const next = nodes[index];
     if (!previous || !next) return nodes;
-    const requested = (node: CanvasNodeData, graph: CanvasNodeData[]) => node.kind === "video"
-      ? canvasEmptyVideoRequestDimensions(node, videoModel)
-      : canvasEmptyImageRequestDimensions(node, mentionReferencesForNode(nodeId), graph);
+    const requested = (node: CanvasNodeData, graph: CanvasNodeData[]) =>
+      node.kind === "video"
+        ? canvasEmptyVideoRequestDimensions(node, videoModel)
+        : canvasEmptyImageRequestDimensions(
+            node,
+            mentionReferencesForNode(nodeId),
+            graph
+          );
     const target = requested(next, nodes);
     const before = requested(previous, nodesRef.current);
-    if (!target || (before && before.width === target.width && before.height === target.height)) return nodes;
-    const shaped = shapeEmptyCanvasImageFrame(next, target.width, target.height);
-    return shaped === next ? nodes : nodes.map((node, position) => position === index ? shaped : node);
+    if (
+      !target ||
+      (before &&
+        before.width === target.width &&
+        before.height === target.height)
+    )
+      return nodes;
+    const shaped = shapeEmptyCanvasImageFrame(
+      next,
+      target.width,
+      target.height
+    );
+    return shaped === next
+      ? nodes
+      : nodes.map((node, position) => (position === index ? shaped : node));
   };
 
   const updateNode = (id: string, patch: Partial<CanvasNodeData>) => {
-    const previous = nodesRef.current.find((node) => node.id === id);
+    const previous = nodesRef.current.find(node => node.id === id);
     const nextNodes = shapeEmptyMediaNodeForRequest(
-      nodesRef.current.map((node) => node.id === id ? { ...node, ...patch } : node),
+      nodesRef.current.map(node =>
+        node.id === id ? { ...node, ...patch } : node
+      ),
       previous,
-      id,
+      id
     );
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
   };
 
   const setNodePinColor = (nodeId: string, color: string) => {
-    const node = nodesRef.current.find((item) => item.id === nodeId);
+    const node = nodesRef.current.find(item => item.id === nodeId);
     if (!node) return;
     const pinColor = normalizeCanvasPinColor(color);
     const metadata = { ...node.metadata };
@@ -1958,53 +2837,71 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const updateNodePrompt = (id: string, content: string) => {
-    const previous = nodesRef.current.find((node) => node.id === id);
-    const nextNodes = shapeEmptyMediaNodeForRequest(nodesRef.current.map((node) => {
-      if (node.id !== id) return node;
-      const updated = updateCanvasNodeComposer(node, content);
-      const autoVideoSubMode = autoVideoSubModeForPromptChange(node, content);
-      return autoVideoSubMode
-        ? { ...updated, metadata: { ...(updated.metadata || {}), videoSubMode: autoVideoSubMode, videoSubModeManual: false } }
-        : updated;
-    }), previous, id);
+    const previous = nodesRef.current.find(node => node.id === id);
+    const nextNodes = shapeEmptyMediaNodeForRequest(
+      nodesRef.current.map(node => {
+        if (node.id !== id) return node;
+        const updated = updateCanvasNodeComposer(node, content);
+        const autoVideoSubMode = autoVideoSubModeForPromptChange(node, content);
+        return autoVideoSubMode
+          ? {
+              ...updated,
+              metadata: {
+                ...(updated.metadata || {}),
+                videoSubMode: autoVideoSubMode,
+                videoSubModeManual: false,
+              },
+            }
+          : updated;
+      }),
+      previous,
+      id
+    );
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
   };
 
   const updateNodeTextContent = (id: string, content: string) => {
-    const nextNodes = nodesRef.current.map((node) => node.id === id ? updateCanvasTextDisplay(node, content) : node);
+    const nextNodes = nodesRef.current.map(node =>
+      node.id === id ? updateCanvasTextDisplay(node, content) : node
+    );
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
   };
 
   const selectSeedanceMaterial = (asset: SeedanceMaterialAsset) => {
     if (!materialNodeId) return;
-    const node = nodesRef.current.find((item) => item.id === materialNodeId);
+    const node = nodesRef.current.find(item => item.id === materialNodeId);
     if (!node) return;
     const current = node.metadata?.seedanceMaterialAssets || [];
     updateNode(materialNodeId, {
       metadata: {
         ...node.metadata,
-        seedanceMaterialAssets: [asset, ...current.filter((item) => item.id !== asset.id)],
+        seedanceMaterialAssets: [
+          asset,
+          ...current.filter(item => item.id !== asset.id),
+        ],
       },
     });
   };
 
   const removeSeedanceMaterial = (assetId: string) => {
     if (!materialNodeId) return;
-    const node = nodesRef.current.find((item) => item.id === materialNodeId);
+    const node = nodesRef.current.find(item => item.id === materialNodeId);
     if (!node) return;
     updateNode(materialNodeId, {
       metadata: {
         ...node.metadata,
-        seedanceMaterialAssets: (node.metadata?.seedanceMaterialAssets || []).filter((item) => item.id !== assetId),
+        seedanceMaterialAssets: (
+          node.metadata?.seedanceMaterialAssets || []
+        ).filter(item => item.id !== assetId),
       },
     });
   };
 
   const selectSeedanceVolcanoAsset = (asset: SeedanceAsset) => {
     if (!seedanceAssetNodeId) return;
-    const node = nodesRef.current.find((item) => item.id === seedanceAssetNodeId);
+    const node = nodesRef.current.find(item => item.id === seedanceAssetNodeId);
     if (!node) return;
     const current = node.metadata?.seedanceVolcanoAssets || [];
     const selected = {
@@ -2017,24 +2914,34 @@ export default function CanvasWorkspaceViewContent() {
     updateNode(seedanceAssetNodeId, {
       metadata: {
         ...node.metadata,
-        seedanceVolcanoAssets: [selected, ...current.filter((item) => item.volcanoAssetId !== asset.volcano_asset_id)],
+        seedanceVolcanoAssets: [
+          selected,
+          ...current.filter(
+            item => item.volcanoAssetId !== asset.volcano_asset_id
+          ),
+        ],
       },
     });
   };
 
   const removeSeedanceVolcanoAsset = (volcanoAssetId: string) => {
     if (!seedanceAssetNodeId) return;
-    const node = nodesRef.current.find((item) => item.id === seedanceAssetNodeId);
+    const node = nodesRef.current.find(item => item.id === seedanceAssetNodeId);
     if (!node) return;
     updateNode(seedanceAssetNodeId, {
       metadata: {
         ...node.metadata,
-        seedanceVolcanoAssets: (node.metadata?.seedanceVolcanoAssets || []).filter((item) => item.volcanoAssetId !== volcanoAssetId),
+        seedanceVolcanoAssets: (
+          node.metadata?.seedanceVolcanoAssets || []
+        ).filter(item => item.volcanoAssetId !== volcanoAssetId),
       },
     });
   };
 
-  const openImageToolDialog = (nodeId: string, mode: CanvasImageToolMode = "crop") => {
+  const openImageToolDialog = (
+    nodeId: string,
+    mode: CanvasImageToolMode = "crop"
+  ) => {
     setImageToolDialog({ nodeId, mode });
     setImageToolDraft({ ...defaultCanvasImageToolDraft });
     setImageToolError("");
@@ -2044,7 +2951,7 @@ export default function CanvasWorkspaceViewContent() {
   const startImageCropPointer = (
     event: PointerEvent<HTMLDivElement | HTMLButtonElement>,
     mode: "move" | "resize",
-    handle: ImageCropResizeHandle = "se",
+    handle: ImageCropResizeHandle = "se"
   ) => {
     const box = imageCropStageRef.current?.getBoundingClientRect();
     if (!box || box.width <= 0 || box.height <= 0 || imageToolBusy) return;
@@ -2058,10 +2965,22 @@ export default function CanvasWorkspaceViewContent() {
     const move = (pointer: globalThis.PointerEvent) => {
       const dx = (pointer.clientX - start.clientX) / box.width;
       const dy = (pointer.clientY - start.clientY) / box.height;
-      const crop = mode === "move"
-        ? moveImageCropRect(start.crop, dx, dy)
-        : resizeImageCropRect(start.crop, dx, dy, handle, imageToolDraft.cropRatio !== null, box, imageToolDraft.cropRatio ?? 1);
-      setImageToolDraft((draft) => ({ ...draft, ...imageToolDraftFromCropRect(crop) }));
+      const crop =
+        mode === "move"
+          ? moveImageCropRect(start.crop, dx, dy)
+          : resizeImageCropRect(
+              start.crop,
+              dx,
+              dy,
+              handle,
+              imageToolDraft.cropRatio !== null,
+              box,
+              imageToolDraft.cropRatio ?? 1
+            );
+      setImageToolDraft(draft => ({
+        ...draft,
+        ...imageToolDraftFromCropRect(crop),
+      }));
     };
     const finish = () => {
       document.removeEventListener("pointermove", move);
@@ -2073,14 +2992,23 @@ export default function CanvasWorkspaceViewContent() {
     document.addEventListener("pointercancel", finish);
   };
 
-  const imageSourceForNode = async (node: CanvasNodeData, activeScope = projectSessionController.canonicalScope) => {
+  const imageSourceForNode = async (
+    node: CanvasNodeData,
+    activeScope = projectSessionController.canonicalScope
+  ) => {
     if (!activeScope) throw new Error("正在确认项目工作区，暂不能处理图片");
     const assetId = assetIdFromNode(node);
-    const sourceScope = workspaceScopeValue(node.metadata?.assetScope) || activeScope;
+    const sourceScope =
+      workspaceScopeValue(node.metadata?.assetScope) || activeScope;
     let url = assetId
       ? await getAssetContentObjectUrl(assetId, sourceScope)
       : node.imageSrc || stringValue(node.metadata?.content);
-    if (!url || (!url.startsWith("data:image/") && !url.startsWith("blob:") && !/^https?:\/\//i.test(url))) {
+    if (
+      !url ||
+      (!url.startsWith("data:image/") &&
+        !url.startsWith("blob:") &&
+        !/^https?:\/\//i.test(url))
+    ) {
       throw new Error("当前图片没有可读取的原图内容");
     }
     if (/^https?:\/\//i.test(url)) {
@@ -2097,8 +3025,11 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const {
-    target: registrationTarget, setTarget: setRegistrationTarget,
-    states: seedanceRegistrationStates, submit: submitImageRegistration, isRegistering,
+    target: registrationTarget,
+    setTarget: setRegistrationTarget,
+    states: seedanceRegistrationStates,
+    submit: submitImageRegistration,
+    isRegistering,
   } = useCanvasSeedanceRegistration({
     getContext: () => ({
       projectKey: projectSessionController.canonicalKey,
@@ -2112,50 +3043,97 @@ export default function CanvasWorkspaceViewContent() {
         const response = await fetch(source.url);
         if (!response.ok) throw new Error(`读取图片失败（${response.status}）`);
         const blob = await response.blob();
-        const contentType = blob.type.startsWith("image/") ? blob.type : "image/png";
-        return new File([blob], imageFileName(node.title || "拟真人素材", contentType), { type: contentType });
+        const contentType = blob.type.startsWith("image/")
+          ? blob.type
+          : "image/png";
+        return new File(
+          [blob],
+          imageFileName(node.title || "拟真人素材", contentType),
+          { type: contentType }
+        );
       } finally {
         source.cleanup();
       }
     },
     onUpdate: async (node, asset, providerId) => {
-      const selected = { id: asset.id, providerId, volcanoAssetId: asset.volcano_asset_id || "", name: asset.name || node.title, status: asset.status, assetType: asset.asset_type || "Image" };
-      const nextNodes = nodesRef.current.map(item => item.id === node.id
-        ? { ...item, metadata: { ...item.metadata, seedanceVolcanoAssets: [selected], seedanceRegistrationSource: seedanceRegistrationSource(node) } }
-        : item);
+      const selected = {
+        id: asset.id,
+        providerId,
+        volcanoAssetId: asset.volcano_asset_id || "",
+        name: asset.name || node.title,
+        status: asset.status,
+        assetType: asset.asset_type || "Image",
+      };
+      const nextNodes = nodesRef.current.map(item =>
+        item.id === node.id
+          ? {
+              ...item,
+              metadata: {
+                ...item.metadata,
+                seedanceVolcanoAssets: [selected],
+                seedanceRegistrationSource: seedanceRegistrationSource(node),
+              },
+            }
+          : item
+      );
       nodesRef.current = nextNodes;
       setNodes(nextNodes);
-      await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+      await persistSnapshot(
+        nextNodes,
+        edgesRef.current,
+        viewportRef.current.zoom,
+        { quiet: true }
+      );
     },
   });
 
   const registerImageAsSeedanceAsset = async (node: CanvasNodeData) => {
     if (node.kind !== "image") return;
     const projectKey = projectSessionController.canonicalKey;
-    if (!projectKey || projectSessionController.switching || isRegistering(projectKey, node)) return;
+    if (
+      !projectKey ||
+      projectSessionController.switching ||
+      isRegistering(projectKey, node)
+    )
+      return;
     const saved = savedSeedanceRegistration(node);
     if (saved && seedanceRegistrationPhase(saved) === "success") {
       toast.info("该图片已经注册过拟真人素材");
       return;
     }
-    const linked = edgesRef.current.filter((edge) => edge.from === node.id)
-      .map((edge) => nodesRef.current.find((item) => item.id === edge.to))
-      .find((item) => item?.kind === "video");
+    const linked = edgesRef.current
+      .filter(edge => edge.from === node.id)
+      .map(edge => nodesRef.current.find(item => item.id === edge.to))
+      .find(item => item?.kind === "video");
     const preferred = linked ? modelFromNode(linked, videoModel) : videoModel;
     const candidates = videoModels.filter(isSeedanceVideoModel);
-    setRegistrationTarget({ nodeId: node.id, model: candidates.includes(preferred) ? preferred : candidates[0] || "", projectKey });
+    setRegistrationTarget({
+      nodeId: node.id,
+      model: candidates.includes(preferred) ? preferred : candidates[0] || "",
+      projectKey,
+    });
   };
 
   const registerSelectedImagesAsSeedanceAssets = () => {
     const projectKey = projectSessionController.canonicalKey;
     if (!projectKey || projectSessionController.switching) return;
-    const selected = nodesRef.current.filter(node => selectedNodeIdsRef.current.has(node.id));
-    const images = selected.filter(node => node.kind === "image" && (assetIdFromNode(node) || imageSrcFromNode(node, previews)));
-    if (!images.length) return toast.info("所选节点中没有可注册的图片，请选择已有图片内容的节点");
+    const selected = nodesRef.current.filter(node =>
+      selectedNodeIdsRef.current.has(node.id)
+    );
+    const images = selected.filter(
+      node =>
+        node.kind === "image" &&
+        (assetIdFromNode(node) || imageSrcFromNode(node, previews))
+    );
+    if (!images.length)
+      return toast.info("所选节点中没有可注册的图片，请选择已有图片内容的节点");
     const candidates = videoModels.filter(isSeedanceVideoModel);
     setRegistrationTarget({
-      nodeId: images[0].id, nodeIds: images.map(node => node.id), skippedCount: selected.length - images.length,
-      projectKey, model: candidates.includes(videoModel) ? videoModel : candidates[0] || "",
+      nodeId: images[0].id,
+      nodeIds: images.map(node => node.id),
+      skippedCount: selected.length - images.length,
+      projectKey,
+      model: candidates.includes(videoModel) ? videoModel : candidates[0] || "",
     });
   };
 
@@ -2165,31 +3143,56 @@ export default function CanvasWorkspaceViewContent() {
     title: string,
     relation: string,
     expectedProjectKey = projectSessionController.canonicalKey,
-    expectedScope = projectSessionController.canonicalScope,
+    expectedScope = projectSessionController.canonicalScope
   ) => {
     const activeScope = expectedScope;
-    if (!activeScope || !expectedProjectKey || projectSessionController.switching || projectSessionController.canonicalKey !== expectedProjectKey) {
+    if (
+      !activeScope ||
+      !expectedProjectKey ||
+      projectSessionController.switching ||
+      projectSessionController.canonicalKey !== expectedProjectKey
+    ) {
       throw new DOMException("Aborted", "AbortError");
     }
     const response = await fetch(dataUrl);
     if (!response.ok) throw new Error(`读取处理结果失败（${response.status}）`);
     const blob = await response.blob();
-    const contentType = blob.type.startsWith("image/") ? blob.type : "image/png";
-    const file = new File([blob], imageFileName(title, contentType), { type: contentType });
+    const contentType = blob.type.startsWith("image/")
+      ? blob.type
+      : "image/png";
+    const file = new File([blob], imageFileName(title, contentType), {
+      type: contentType,
+    });
     const dimensions = await readCanvasImageSize(dataUrl);
-    const asset = await uploadAsset(file, {
-      type: "image",
-      name: file.name,
-      category: "other",
-      source_type: "canvas",
-      source_project_id: projectId,
-      source_project_name: projectTitle,
-      source_metadata: JSON.stringify({ canvas_node_id: source.id, relation }),
-    }, activeScope);
-    if (projectSessionController.switching || projectSessionController.canonicalKey !== expectedProjectKey) {
+    const asset = await uploadAsset(
+      file,
+      {
+        type: "image",
+        name: file.name,
+        category: "other",
+        source_type: "canvas",
+        source_project_id: projectId,
+        source_project_name: projectTitle,
+        source_metadata: JSON.stringify({
+          canvas_node_id: source.id,
+          relation,
+        }),
+      },
+      activeScope
+    );
+    if (
+      projectSessionController.switching ||
+      projectSessionController.canonicalKey !== expectedProjectKey
+    ) {
       throw new DOMException("Aborted", "AbortError");
     }
-    return { asset, contentType, bytes: blob.size, scope: activeScope, dimensions };
+    return {
+      asset,
+      contentType,
+      bytes: blob.size,
+      scope: activeScope,
+      dimensions,
+    };
   };
 
   const persistCanvasImageToolResults = async (
@@ -2203,16 +3206,28 @@ export default function CanvasWorkspaceViewContent() {
       row?: number;
       column?: number;
       metadata?: Record<string, unknown>;
-    }>,
+    }>
   ) => {
     const projectKey = projectSessionController.canonicalKey;
     const activeScope = projectSessionController.canonicalScope;
-    if (!projectKey || !activeScope || projectSessionController.switching) return;
+    if (!projectKey || !activeScope || projectSessionController.switching)
+      return;
     const created: CanvasNodeData[] = [];
     for (let index = 0; index < results.length; index += 1) {
       const result = results[index];
-      if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
-      const archived = await uploadCanvasImageDataUrl(source, result.dataUrl, result.title, result.relation, projectKey, activeScope);
+      if (
+        projectSessionController.switching ||
+        projectSessionController.canonicalKey !== projectKey
+      )
+        throw new DOMException("Aborted", "AbortError");
+      const archived = await uploadCanvasImageDataUrl(
+        source,
+        result.dataUrl,
+        result.title,
+        result.relation,
+        projectKey,
+        activeScope
+      );
       if (projectSessionController.canonicalKey !== projectKey) return;
       const prompt = stringValue(source.metadata?.prompt) || source.content;
       created.push({
@@ -2220,8 +3235,14 @@ export default function CanvasWorkspaceViewContent() {
         kind: "image",
         title: archived.asset.name || result.title,
         content: prompt,
-        x: source.x + source.width + 96 + (result.column || 0) * ((result.width || source.width) + 16),
-        y: source.y + (result.row ?? index) * ((result.height || source.height) + 16),
+        x:
+          source.x +
+          source.width +
+          96 +
+          (result.column || 0) * ((result.width || source.width) + 16),
+        y:
+          source.y +
+          (result.row ?? index) * ((result.height || source.height) + 16),
         width: result.width || source.width,
         height: result.height || source.height,
         imageAssetId: archived.asset.id,
@@ -2247,57 +3268,106 @@ export default function CanvasWorkspaceViewContent() {
         },
       });
     }
-    if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
+    if (
+      projectSessionController.switching ||
+      projectSessionController.canonicalKey !== projectKey
+    )
+      throw new DOMException("Aborted", "AbortError");
     if (!created.length) return;
     const nextNodes = [...nodesRef.current, ...created];
     const nextEdges = created.reduce(
-      (current, node) => addCanvasConnection(current, { from: source.id, to: node.id }, () => crypto.randomUUID()),
-      edgesRef.current,
+      (current, node) =>
+        addCanvasConnection(current, { from: source.id, to: node.id }, () =>
+          crypto.randomUUID()
+        ),
+      edgesRef.current
     );
     nodesRef.current = nextNodes;
     edgesRef.current = nextEdges;
     setNodes(nextNodes);
     setEdges(nextEdges);
-    applyNodeSelection(created.map((node) => node.id), created[0].id, true);
-    const saved = await persistSnapshot(nextNodes, nextEdges, viewportRef.current.zoom, { quiet: true });
-    if (!saved || projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
+    applyNodeSelection(
+      created.map(node => node.id),
+      created[0].id,
+      true
+    );
+    const saved = await persistSnapshot(
+      nextNodes,
+      nextEdges,
+      viewportRef.current.zoom,
+      { quiet: true }
+    );
+    if (
+      !saved ||
+      projectSessionController.switching ||
+      projectSessionController.canonicalKey !== projectKey
+    )
+      throw new DOMException("Aborted", "AbortError");
   };
 
-  const flipCanvasImageNode = async (node: CanvasNodeData, direction: "horizontal" | "vertical") => {
+  const flipCanvasImageNode = async (
+    node: CanvasNodeData,
+    direction: "horizontal" | "vertical"
+  ) => {
     if (imageToolBusy) return;
     const projectKey = projectSessionController.canonicalKey;
     const activeScope = projectSessionController.canonicalScope;
-    if (!projectKey || !activeScope || projectSessionController.switching) return;
+    if (!projectKey || !activeScope || projectSessionController.switching)
+      return;
     setImageToolBusy(true);
     setImageToolError("");
     let source: Awaited<ReturnType<typeof imageSourceForNode>> | null = null;
     try {
       source = await imageSourceForNode(node);
       const dataUrl = await flipDataUrl(source.url, direction);
-      const relation = direction === "horizontal" ? "flip-horizontal" : "flip-vertical";
-      const archived = await uploadCanvasImageDataUrl(node, dataUrl, `${node.title}-${direction === "horizontal" ? "水平翻转" : "垂直翻转"}`, relation, projectKey, activeScope);
+      const relation =
+        direction === "horizontal" ? "flip-horizontal" : "flip-vertical";
+      const archived = await uploadCanvasImageDataUrl(
+        node,
+        dataUrl,
+        `${node.title}-${direction === "horizontal" ? "水平翻转" : "垂直翻转"}`,
+        relation,
+        projectKey,
+        activeScope
+      );
       if (projectSessionController.canonicalKey !== projectKey) return;
-      const nextNodes = nodesRef.current.map((item) => item.id === node.id ? {
-        ...item,
-        title: archived.asset.name || item.title,
-        imageAssetId: archived.asset.id,
-        imageSrc: undefined,
-        metadata: {
-          ...item.metadata,
-          assetId: archived.asset.id,
-          assetScope: archived.scope,
-          mimeType: archived.asset.content_type || archived.contentType,
-          bytes: archived.asset.size || archived.bytes,
-          editRelation: relation,
-          naturalWidth: archived.dimensions.width,
-          naturalHeight: archived.dimensions.height,
-        },
-      } : item);
+      const nextNodes = nodesRef.current.map(item =>
+        item.id === node.id
+          ? {
+              ...item,
+              title: archived.asset.name || item.title,
+              imageAssetId: archived.asset.id,
+              imageSrc: undefined,
+              metadata: {
+                ...item.metadata,
+                assetId: archived.asset.id,
+                assetScope: archived.scope,
+                mimeType: archived.asset.content_type || archived.contentType,
+                bytes: archived.asset.size || archived.bytes,
+                editRelation: relation,
+                naturalWidth: archived.dimensions.width,
+                naturalHeight: archived.dimensions.height,
+              },
+            }
+          : item
+      );
       nodesRef.current = nextNodes;
       setNodes(nextNodes);
-      const saved = await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
-      if (!saved || projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
-      toast.success(direction === "horizontal" ? "图片已水平翻转" : "图片已垂直翻转");
+      const saved = await persistSnapshot(
+        nextNodes,
+        edgesRef.current,
+        viewportRef.current.zoom,
+        { quiet: true }
+      );
+      if (
+        !saved ||
+        projectSessionController.switching ||
+        projectSessionController.canonicalKey !== projectKey
+      )
+        throw new DOMException("Aborted", "AbortError");
+      toast.success(
+        direction === "horizontal" ? "图片已水平翻转" : "图片已垂直翻转"
+      );
     } catch (error) {
       if (isAbortError(error)) return;
       toast.error(publicApiError(error, "翻转图片失败"));
@@ -2309,7 +3379,9 @@ export default function CanvasWorkspaceViewContent() {
 
   const runCanvasImageTool = async () => {
     if (!imageToolDialog || imageToolBusy) return;
-    const sourceNode = nodesRef.current.find((node) => node.id === imageToolDialog.nodeId);
+    const sourceNode = nodesRef.current.find(
+      node => node.id === imageToolDialog.nodeId
+    );
     if (!sourceNode || sourceNode.kind !== "image") {
       setImageToolError("图片节点已不存在");
       return;
@@ -2339,13 +3411,23 @@ export default function CanvasWorkspaceViewContent() {
           width: clamp(imageToolDraft.cropWidth / 100, 0.01, 1 - x),
           height: clamp(imageToolDraft.cropHeight / 100, 0.01, 1 - y),
         });
-        results = [{
-          dataUrl,
-          title: `${sourceNode.title}-${mode === "focus" ? "聚焦提取" : "裁剪"}`,
-          relation: mode === "focus" ? "focus" : "crop",
-          width: Math.max(120, sourceNode.width * clamp(imageToolDraft.cropWidth / 100, 0.01, 1 - x)),
-          height: Math.max(90, sourceNode.height * clamp(imageToolDraft.cropHeight / 100, 0.01, 1 - y)),
-        }];
+        results = [
+          {
+            dataUrl,
+            title: `${sourceNode.title}-${mode === "focus" ? "聚焦提取" : "裁剪"}`,
+            relation: mode === "focus" ? "focus" : "crop",
+            width: Math.max(
+              120,
+              sourceNode.width *
+                clamp(imageToolDraft.cropWidth / 100, 0.01, 1 - x)
+            ),
+            height: Math.max(
+              90,
+              sourceNode.height *
+                clamp(imageToolDraft.cropHeight / 100, 0.01, 1 - y)
+            ),
+          },
+        ];
       }
       if (mode === "split") {
         const rows = clamp(Math.round(imageToolDraft.splitRows), 1, 6);
@@ -2354,7 +3436,7 @@ export default function CanvasWorkspaceViewContent() {
           rows,
           columns,
         });
-        results = pieces.map((piece) => ({
+        results = pieces.map(piece => ({
           dataUrl: piece.dataUrl,
           title: `${sourceNode.title}-${piece.row + 1}-${piece.column + 1}`,
           relation: "split",
@@ -2366,34 +3448,49 @@ export default function CanvasWorkspaceViewContent() {
       }
       if (mode === "upscale") {
         const sourceSize = await readCanvasImageSize(source.url);
-        if (Math.max(sourceSize.width, sourceSize.height) >= imageToolDraft.upscaleLongEdge) {
-          throw new Error(`原图长边已达到 ${Math.max(sourceSize.width, sourceSize.height)} px，请选择更大的目标尺寸`);
+        if (
+          Math.max(sourceSize.width, sourceSize.height) >=
+          imageToolDraft.upscaleLongEdge
+        ) {
+          throw new Error(
+            `原图长边已达到 ${Math.max(sourceSize.width, sourceSize.height)} px，请选择更大的目标尺寸`
+          );
         }
         const dataUrl = await upscaleDataUrl(source.url, {
           targetLongEdge: imageToolDraft.upscaleLongEdge,
           algorithm: imageToolDraft.upscaleAlgorithm,
         });
-        results = [{ dataUrl, title: `${sourceNode.title}-放大`, relation: "upscale" }];
+        results = [
+          { dataUrl, title: `${sourceNode.title}-放大`, relation: "upscale" },
+        ];
       }
       if (mode === "compress") {
         const compressed = await compressDataUrl(source.url, {
           format: imageToolDraft.compressionFormat,
           quality: imageToolDraft.compressionQuality / 100,
           maxDimension: imageToolDraft.compressionMaxDimension,
-          targetBytes: imageToolDraft.compressionTargetKb > 0 ? imageToolDraft.compressionTargetKb * 1024 : undefined,
+          targetBytes:
+            imageToolDraft.compressionTargetKb > 0
+              ? imageToolDraft.compressionTargetKb * 1024
+              : undefined,
         });
-        results = [{
-          dataUrl: compressed.dataUrl,
-          title: `${sourceNode.title}-压缩`,
-          relation: "compress",
-          metadata: {
-            compressionSourceBytes: compressed.sourceBytes,
-            compressionTargetBytes: imageToolDraft.compressionTargetKb > 0 ? imageToolDraft.compressionTargetKb * 1024 : undefined,
-            compressionQuality: compressed.quality,
-            compressionMaxDimension: imageToolDraft.compressionMaxDimension,
-            compressionFormat: compressed.format,
+        results = [
+          {
+            dataUrl: compressed.dataUrl,
+            title: `${sourceNode.title}-压缩`,
+            relation: "compress",
+            metadata: {
+              compressionSourceBytes: compressed.sourceBytes,
+              compressionTargetBytes:
+                imageToolDraft.compressionTargetKb > 0
+                  ? imageToolDraft.compressionTargetKb * 1024
+                  : undefined,
+              compressionQuality: compressed.quality,
+              compressionMaxDimension: imageToolDraft.compressionMaxDimension,
+              compressionFormat: compressed.format,
+            },
           },
-        }];
+        ];
       }
       if (mode === "outpaint") {
         const margins = {
@@ -2402,17 +3499,26 @@ export default function CanvasWorkspaceViewContent() {
           bottom: clamp(imageToolDraft.outpaintBottom / 100, 0, 0.75),
           left: clamp(imageToolDraft.outpaintLeft / 100, 0, 0.75),
         };
-        const sourceDataUrl = await createOutpaintSourceDataUrl(source.url, margins);
-        const maskDataUrl = await createOutpaintMaskDataUrl(source.url, margins);
+        const sourceDataUrl = await createOutpaintSourceDataUrl(
+          source.url,
+          margins
+        );
+        const maskDataUrl = await createOutpaintMaskDataUrl(
+          source.url,
+          margins
+        );
+        const expanded = await readCanvasImageSize(sourceDataUrl);
         const width = sourceNode.width * (1 + margins.left + margins.right);
         const height = sourceNode.height * (1 + margins.top + margins.bottom);
         await createAiEditedImageNode(sourceNode, {
-          prompt: imageToolDraft.outpaintPrompt.trim() || "延展画面边缘，保持主体、光线、材质和画风一致",
+          prompt:
+            imageToolDraft.outpaintPrompt.trim() ||
+            "延展画面边缘，保持主体、光线、材质和画风一致",
           title: "扩图生成中…",
           relation: "outpaint",
           sourceDataUrl,
           maskDataUrl,
-          size: "auto",
+          size: nearestExplicitImageRatio(expanded.width, expanded.height),
           width,
           height,
         });
@@ -2426,7 +3532,8 @@ export default function CanvasWorkspaceViewContent() {
         await persistCanvasImageToolResults(sourceNode, results);
       }
       setImageToolDialog(null);
-      if (mode !== "outpaint" && mode !== "angle") toast.success(`图片${canvasImageToolLabel(mode)}完成`);
+      if (mode !== "outpaint" && mode !== "angle")
+        toast.success(`图片${canvasImageToolLabel(mode)}完成`);
     } catch (error) {
       if (isAbortError(error)) return;
       setImageToolError(publicApiError(error, "图片处理失败"));
@@ -2440,8 +3547,12 @@ export default function CanvasWorkspaceViewContent() {
     const response = await fetch(dataUrl);
     if (!response.ok) throw new Error(`读取图片失败（${response.status}）`);
     const blob = await response.blob();
-    const contentType = blob.type.startsWith("image/") ? blob.type : "image/png";
-    return new File([blob], imageFileName(title, contentType), { type: contentType });
+    const contentType = blob.type.startsWith("image/")
+      ? blob.type
+      : "image/png";
+    return new File([blob], imageFileName(title, contentType), {
+      type: contentType,
+    });
   };
 
   const createAiEditedImageNode = async (
@@ -2455,22 +3566,38 @@ export default function CanvasWorkspaceViewContent() {
       maskDataUrl?: string;
       width?: number;
       height?: number;
-    },
+    }
   ) => {
     const activeScope = projectSessionController.canonicalScope;
     const projectKey = projectSessionController.canonicalKey;
-    if (!activeScope || !projectKey || projectSessionController.switching) throw new Error("正在确认项目工作区，暂不能编辑图片");
+    if (!activeScope || !projectKey || projectSessionController.switching)
+      throw new Error("正在确认项目工作区，暂不能编辑图片");
     const model = modelFromNode(sourceNode, imageModel);
     if (!model) throw new Error("当前没有可用图片模型");
     const settingsIssue = canvasImageGenerationSettingsIssue(sourceNode);
     if (settingsIssue) throw new Error(settingsIssue);
-    const imageSettings = canvasImageGenerationSettings(sourceNode, options.size, model);
+    const imageSettings = canvasImageGenerationSettings(
+      sourceNode,
+      options.size,
+      model
+    );
     let source: Awaited<ReturnType<typeof imageSourceForNode>> | null = null;
     try {
-      const sourceDataUrl = options.sourceDataUrl || (source = await imageSourceForNode(sourceNode)).url;
-      const referenceFile = await canvasImageFile(sourceDataUrl, `${sourceNode.title}-reference`);
-      const maskFile = options.maskDataUrl ? await canvasImageFile(options.maskDataUrl, `${sourceNode.title}-mask`) : undefined;
-      if (projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
+      const sourceDataUrl =
+        options.sourceDataUrl ||
+        (source = await imageSourceForNode(sourceNode)).url;
+      const referenceFile = await canvasImageFile(
+        sourceDataUrl,
+        `${sourceNode.title}-reference`
+      );
+      const maskFile = options.maskDataUrl
+        ? await canvasImageFile(options.maskDataUrl, `${sourceNode.title}-mask`)
+        : undefined;
+      if (
+        projectSessionController.switching ||
+        projectSessionController.canonicalKey !== projectKey
+      )
+        throw new DOMException("Aborted", "AbortError");
       const targetNodeId = crypto.randomUUID();
       const prompt = options.prompt.trim();
       const targetNode: CanvasNodeData = {
@@ -2495,24 +3622,43 @@ export default function CanvasWorkspaceViewContent() {
           imageResolution: imageSettings.imageResolution,
           requestedImageSize: imageSettings.size,
           editRelation: options.relation,
-          referenceInputs: assetIdFromNode(sourceNode) ? [{
-            nodeId: sourceNode.id,
-            title: sourceNode.title,
-            assetId: assetIdFromNode(sourceNode),
-            name: sourceNode.title,
-            contentType: stringValue(sourceNode.metadata?.mimeType) || "image/png",
-          }] : undefined,
+          referenceInputs: assetIdFromNode(sourceNode)
+            ? [
+                {
+                  nodeId: sourceNode.id,
+                  title: sourceNode.title,
+                  assetId: assetIdFromNode(sourceNode),
+                  name: sourceNode.title,
+                  contentType:
+                    stringValue(sourceNode.metadata?.mimeType) || "image/png",
+                },
+              ]
+            : undefined,
         },
       };
       const nextNodes = [...nodesRef.current, targetNode];
-      const nextEdges = addCanvasConnection(edgesRef.current, { from: sourceNode.id, to: targetNodeId }, () => crypto.randomUUID());
+      const nextEdges = addCanvasConnection(
+        edgesRef.current,
+        { from: sourceNode.id, to: targetNodeId },
+        () => crypto.randomUUID()
+      );
       nodesRef.current = nextNodes;
       edgesRef.current = nextEdges;
       setNodes(nextNodes);
       setEdges(nextEdges);
       applyNodeSelection([targetNodeId], targetNodeId, true);
-      const saved = await persistSnapshot(nextNodes, nextEdges, viewportRef.current.zoom, { quiet: true });
-      if (!saved || projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) throw new DOMException("Aborted", "AbortError");
+      const saved = await persistSnapshot(
+        nextNodes,
+        nextEdges,
+        viewportRef.current.zoom,
+        { quiet: true }
+      );
+      if (
+        !saved ||
+        projectSessionController.switching ||
+        projectSessionController.canonicalKey !== projectKey
+      )
+        throw new DOMException("Aborted", "AbortError");
       return runImageTarget({
         targetNodeId,
         originNodeId: sourceNode.id,
@@ -2531,7 +3677,9 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const maskEditCanvasImage = async (payload: CanvasImageMaskPayload) => {
-    const sourceNode = nodesRef.current.find((node) => node.id === imageMaskNodeId);
+    const sourceNode = nodesRef.current.find(
+      node => node.id === imageMaskNodeId
+    );
     if (!sourceNode || imageToolBusy) return;
     setImageToolBusy(true);
     setImageToolError("");
@@ -2553,19 +3701,24 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const annotateCanvasImage = async (payload: CanvasImageAnnotationPayload) => {
-    const sourceNode = nodesRef.current.find((node) => node.id === imageAnnotationNodeId);
-    if (!sourceNode || sourceNode.kind !== "image") throw new Error("图片节点已不存在");
+    const sourceNode = nodesRef.current.find(
+      node => node.id === imageAnnotationNodeId
+    );
+    if (!sourceNode || sourceNode.kind !== "image")
+      throw new Error("图片节点已不存在");
     if (imageToolBusy) throw new Error("另一个图片处理任务仍在进行");
     setImageToolBusy(true);
     try {
-      await persistCanvasImageToolResults(sourceNode, [{
-        dataUrl: payload.dataUrl,
-        title: `${sourceNode.title}-标注`,
-        relation: "annotation",
-        width: sourceNode.width,
-        height: sourceNode.height,
-        metadata: { annotation: true },
-      }]);
+      await persistCanvasImageToolResults(sourceNode, [
+        {
+          dataUrl: payload.dataUrl,
+          title: `${sourceNode.title}-标注`,
+          relation: "annotation",
+          width: sourceNode.width,
+          height: sourceNode.height,
+          metadata: { annotation: true },
+        },
+      ]);
       setImageAnnotationNodeId("");
       toast.success("标注图片已保存为子节点");
     } catch (error) {
@@ -2612,10 +3765,14 @@ export default function CanvasWorkspaceViewContent() {
       model: textModel,
       status: "success",
     };
-    const config = buildCanvasNodeCandidate("config", {
-      x: instruction.x + instruction.width + 96,
-      y: sourceNode.y,
-    }, nodesRef.current.length + 1);
+    const config = buildCanvasNodeCandidate(
+      "config",
+      {
+        x: instruction.x + instruction.width + 96,
+        y: sourceNode.y,
+      },
+      nodesRef.current.length + 1
+    );
     config.title = "反推提示词配置";
     config.content = "";
     config.metadata = {
@@ -2628,22 +3785,46 @@ export default function CanvasWorkspaceViewContent() {
       status: "idle",
     };
     const nextNodes = [...nodesRef.current, instruction, config];
-    let nextEdges = addCanvasConnection(edgesRef.current, { from: sourceNode.id, to: config.id }, () => crypto.randomUUID());
-    nextEdges = addCanvasConnection(nextEdges, { from: instruction.id, to: config.id }, () => crypto.randomUUID());
+    let nextEdges = addCanvasConnection(
+      edgesRef.current,
+      { from: sourceNode.id, to: config.id },
+      () => crypto.randomUUID()
+    );
+    nextEdges = addCanvasConnection(
+      nextEdges,
+      { from: instruction.id, to: config.id },
+      () => crypto.randomUUID()
+    );
     nodesRef.current = nextNodes;
     edgesRef.current = nextEdges;
     setNodes(nextNodes);
     setEdges(nextEdges);
     applyNodeSelection([config.id], config.id, true);
-    await persistSnapshot(nextNodes, nextEdges, viewportRef.current.zoom, { quiet: true });
+    await persistSnapshot(nextNodes, nextEdges, viewportRef.current.zoom, {
+      quiet: true,
+    });
     toast.success("已创建反推提示词配置节点");
   };
 
   const exportCanvasStoryboard = async () => {
-    const source = nodesRef.current.find((node) => node.id === storyboardNodeId);
+    const source = nodesRef.current.find(node => node.id === storyboardNodeId);
     if (!source || storyboardBusy) return;
-    const selectedImageNodes = nodesRef.current.filter((node) => selectedNodeIdsRef.current.has(node.id) && node.kind === "image" && Boolean(imageSrcFromNode(node, previews)));
-    const frameNodes = (selectedImageNodes.length ? selectedImageNodes : [source]).slice(0, storyboardLayout === "grid-3x3" ? 9 : storyboardLayout === "grid-2x2" ? 4 : 6);
+    const selectedImageNodes = nodesRef.current.filter(
+      node =>
+        selectedNodeIdsRef.current.has(node.id) &&
+        node.kind === "image" &&
+        Boolean(imageSrcFromNode(node, previews))
+    );
+    const frameNodes = (
+      selectedImageNodes.length ? selectedImageNodes : [source]
+    ).slice(
+      0,
+      storyboardLayout === "grid-3x3"
+        ? 9
+        : storyboardLayout === "grid-2x2"
+          ? 4
+          : 6
+    );
     const loaded: Array<{ cleanup: () => void }> = [];
     setStoryboardBusy(true);
     try {
@@ -2666,20 +3847,27 @@ export default function CanvasWorkspaceViewContent() {
     } catch (error) {
       toast.error(publicApiError(error, "故事板导出失败"));
     } finally {
-      loaded.forEach((item) => item.cleanup());
+      loaded.forEach(item => item.cleanup());
       setStoryboardBusy(false);
     }
   };
 
   const archiveCanvasMediaNode = async (sourceNode: CanvasNodeData) => {
-    if (sourceNode.kind !== "image" && sourceNode.kind !== "video" && sourceNode.kind !== "audio") return;
-    if (!projectSessionController.canonicalScope) return toast.warning("正在确认项目工作区，暂不能归档素材");
+    if (
+      sourceNode.kind !== "image" &&
+      sourceNode.kind !== "video" &&
+      sourceNode.kind !== "audio"
+    )
+      return;
+    if (!projectSessionController.canonicalScope)
+      return toast.warning("正在确认项目工作区，暂不能归档素材");
     setArchiveNode(sourceNode);
   };
 
   const archiveCanvasTextNode = async (sourceNode: CanvasNodeData) => {
     if (sourceNode.kind !== "text") return;
-    if (!projectSessionController.canonicalScope) return toast.warning("正在确认项目工作区，暂不能归档文本");
+    if (!projectSessionController.canonicalScope)
+      return toast.warning("正在确认项目工作区，暂不能归档文本");
     if (!user?.id) return toast.error("当前登录用户不可用，无法保存文本资产");
     const content = canvasTextDisplayValue(sourceNode).trim();
     if (!content) return toast.error("没有可保存的文本");
@@ -2688,8 +3876,11 @@ export default function CanvasWorkspaceViewContent() {
 
   /** Saves one node into a resolved category folder; false once the canvas has switched away. */
   const archiveCanvasNodeIntoFolder = async (
-    sourceNode: CanvasNodeData, folderId: string, category: CanvasLibraryCategory,
-    activeScope: WorkspaceScope, isCurrentProject: () => boolean,
+    sourceNode: CanvasNodeData,
+    folderId: string,
+    category: CanvasLibraryCategory,
+    activeScope: WorkspaceScope,
+    isCurrentProject: () => boolean
   ) => {
     let patch: (node: CanvasNodeData) => CanvasNodeData;
     if (sourceNode.kind === "text") {
@@ -2699,37 +3890,77 @@ export default function CanvasWorkspaceViewContent() {
         scope: activeScope,
         title: sourceNode.title || "画布文本",
         content: canvasTextDisplayValue(sourceNode).trim(),
-        id: (sourceNode.metadata?.textAssetScope === activeScope ? stringValue(sourceNode.metadata?.textAssetId) : "") || canvasNodeTextAssetId(projectId, sourceNode.id),
-        folderId, category, projectId,
+        id:
+          (sourceNode.metadata?.textAssetScope === activeScope
+            ? stringValue(sourceNode.metadata?.textAssetId)
+            : "") || canvasNodeTextAssetId(projectId, sourceNode.id),
+        folderId,
+        category,
+        projectId,
       });
       patch = node => ({
         ...node,
-        metadata: { ...node.metadata, textAssetId: saved.id, textAssetScope: activeScope },
+        metadata: {
+          ...node.metadata,
+          textAssetId: saved.id,
+          textAssetScope: activeScope,
+        },
       });
     } else {
       const sourceAssetId = assetIdFromNode(sourceNode);
-      const sourceScope = workspaceScopeValue(sourceNode.metadata?.assetScope) || activeScope;
-      const copySharedAsset = Boolean(sourceAssetId && nodesRef.current.some(node => node.id !== sourceNode.id
-        && assetIdFromNode(node) === sourceAssetId && (workspaceScopeValue(node.metadata?.assetScope) || activeScope) === sourceScope));
-      const asset = await archiveCanvasMediaAsset({ node: sourceNode, projectId, projectTitle, scope: activeScope, folderId, category, copySharedAsset });
+      const sourceScope =
+        workspaceScopeValue(sourceNode.metadata?.assetScope) || activeScope;
+      const copySharedAsset = Boolean(
+        sourceAssetId &&
+        nodesRef.current.some(
+          node =>
+            node.id !== sourceNode.id &&
+            assetIdFromNode(node) === sourceAssetId &&
+            (workspaceScopeValue(node.metadata?.assetScope) || activeScope) ===
+              sourceScope
+        )
+      );
+      const asset = await archiveCanvasMediaAsset({
+        node: sourceNode,
+        projectId,
+        projectTitle,
+        scope: activeScope,
+        folderId,
+        category,
+        copySharedAsset,
+      });
       if (!isCurrentProject()) return false;
       mergeCanvasAssetCatalog([asset], activeScope);
-      publishAssetNameChange({ assetId: asset.id, name: asset.name, scope: activeScope });
+      publishAssetNameChange({
+        assetId: asset.id,
+        name: asset.name,
+        scope: activeScope,
+      });
       void invalidateAssetRecord(queryClient, activeScope, asset.id);
       patch = node => ({
         ...node,
         imageAssetId: sourceNode.kind === "image" ? asset.id : undefined,
         imageSrc: undefined,
-        metadata: { ...node.metadata, assetId: asset.id, assetScope: activeScope,
-          mimeType: asset.content_type || node.metadata?.mimeType, bytes: asset.size ?? node.metadata?.bytes },
+        metadata: {
+          ...node.metadata,
+          assetId: asset.id,
+          assetScope: activeScope,
+          mimeType: asset.content_type || node.metadata?.mimeType,
+          bytes: asset.size ?? node.metadata?.bytes,
+        },
       });
     }
     if (!isCurrentProject()) return false;
     const nextNodes = nodesRef.current.map(node => {
       if (node.id !== sourceNode.id) return node;
       // A slow upload must not restore an image the user has since replaced.
-      if (node.kind !== "text" && (assetIdFromNode(node) !== assetIdFromNode(sourceNode)
-        || node.imageSrc !== sourceNode.imageSrc || node.metadata?.content !== sourceNode.metadata?.content)) return node;
+      if (
+        node.kind !== "text" &&
+        (assetIdFromNode(node) !== assetIdFromNode(sourceNode) ||
+          node.imageSrc !== sourceNode.imageSrc ||
+          node.metadata?.content !== sourceNode.metadata?.content)
+      )
+        return node;
       return patch(node);
     });
     nodesRef.current = nextNodes;
@@ -2738,47 +3969,99 @@ export default function CanvasWorkspaceViewContent() {
     // A rename can happen while upload is pending, before the node has an asset
     // ID. Catch up from the current node instead of restoring the old title.
     if (archivedNode && archivedNode.title !== sourceNode.title) {
-      await syncCanvasNodeAssetName(archivedNode, { userId: user?.id || "", projectId, scope: activeScope });
+      await syncCanvasNodeAssetName(archivedNode, {
+        userId: user?.id || "",
+        projectId,
+        scope: activeScope,
+      });
     }
     return isCurrentProject();
   };
 
   const saveCanvasNodeToLibrary = async (category: CanvasLibraryCategory) => {
-    const sourceNode = nodesRef.current.find(node => node.id === archiveNode?.id);
+    const sourceNode = nodesRef.current.find(
+      node => node.id === archiveNode?.id
+    );
     const activeScope = projectSessionController.canonicalScope;
     const projectKey = projectSessionController.canonicalKey;
-    const isCurrentProject = () => !projectSessionController.switching && projectSessionController.canonicalKey === projectKey;
-    if (!sourceNode || !activeScope || projectSessionController.switching) throw new Error("节点或画布已切换，请重新选择");
-    const folder = await resolveCanvasArchiveFolder(projectId, activeScope, category);
+    const isCurrentProject = () =>
+      !projectSessionController.switching &&
+      projectSessionController.canonicalKey === projectKey;
+    if (!sourceNode || !activeScope || projectSessionController.switching)
+      throw new Error("节点或画布已切换，请重新选择");
+    const folder = await resolveCanvasArchiveFolder(
+      projectId,
+      activeScope,
+      category
+    );
     if (!isCurrentProject()) return;
-    if (!await archiveCanvasNodeIntoFolder(sourceNode, folder.id, category, activeScope, isCurrentProject)) return;
-    await persistSnapshot(nodesRef.current, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+    if (
+      !(await archiveCanvasNodeIntoFolder(
+        sourceNode,
+        folder.id,
+        category,
+        activeScope,
+        isCurrentProject
+      ))
+    )
+      return;
+    await persistSnapshot(
+      nodesRef.current,
+      edgesRef.current,
+      viewportRef.current.zoom,
+      { quiet: true }
+    );
     if (!isCurrentProject()) return;
     void assetsMentionsController.loadMentionCatalog("", activeScope);
     toast.success(`已加入 ${projectTitle} / ${folder.name}`);
   };
 
-  const batchArchiveCandidates = (ids: ReadonlySet<string>) => nodesRef.current.filter(node => ids.has(node.id) && (
-    node.kind === "text" ? Boolean(canvasTextDisplayValue(node).trim())
-      : (node.kind === "image" || node.kind === "video" || node.kind === "audio")
-        && Boolean(assetIdFromNode(node) || isReadableMediaSource(node.imageSrc || stringValue(node.metadata?.content)))
-  ));
+  const batchArchiveCandidates = (ids: ReadonlySet<string>) =>
+    nodesRef.current.filter(
+      node =>
+        ids.has(node.id) &&
+        (node.kind === "text"
+          ? Boolean(canvasTextDisplayValue(node).trim())
+          : (node.kind === "image" ||
+              node.kind === "video" ||
+              node.kind === "audio") &&
+            Boolean(
+              assetIdFromNode(node) ||
+              isReadableMediaSource(
+                node.imageSrc || stringValue(node.metadata?.content)
+              )
+            ))
+    );
 
   const archiveSelectedNodesToLibrary = () => {
-    if (!projectSessionController.canonicalScope) return toast.warning("正在确认项目工作区，暂不能归档素材");
+    if (!projectSessionController.canonicalScope)
+      return toast.warning("正在确认项目工作区，暂不能归档素材");
     const candidates = batchArchiveCandidates(selectedNodeIdsRef.current);
-    if (!candidates.length) return toast.warning("所选节点中没有可加入素材库的图片、视频、音频或文本");
-    if (candidates.some(node => node.kind === "text") && !user?.id) return toast.error("当前登录用户不可用，无法保存文本资产");
+    if (!candidates.length)
+      return toast.warning(
+        "所选节点中没有可加入素材库的图片、视频、音频或文本"
+      );
+    if (candidates.some(node => node.kind === "text") && !user?.id)
+      return toast.error("当前登录用户不可用，无法保存文本资产");
     setBatchArchiveNodeIds(candidates.map(node => node.id));
   };
 
   /** One category for the whole selection; nodes are saved one by one so a failure only skips that node. */
-  const saveSelectedNodesToLibrary = async (category: CanvasLibraryCategory) => {
+  const saveSelectedNodesToLibrary = async (
+    category: CanvasLibraryCategory
+  ) => {
     const activeScope = projectSessionController.canonicalScope;
     const projectKey = projectSessionController.canonicalKey;
-    const isCurrentProject = () => !projectSessionController.switching && projectSessionController.canonicalKey === projectKey;
-    if (!activeScope || projectSessionController.switching) throw new Error("画布已切换，请重新选择");
-    const folder = await resolveCanvasArchiveFolder(projectId, activeScope, category);
+    const isCurrentProject = () =>
+      !projectSessionController.switching &&
+      projectSessionController.canonicalKey === projectKey;
+    if (!activeScope || projectSessionController.switching)
+      throw new Error("画布已切换，请重新选择");
+    const folder = await resolveCanvasArchiveFolder(
+      projectId,
+      activeScope,
+      category
+    );
     if (!isCurrentProject()) return;
     const failed: string[] = [];
     let saved = 0;
@@ -2786,7 +4069,16 @@ export default function CanvasWorkspaceViewContent() {
       const sourceNode = nodesRef.current.find(node => node.id === id);
       if (!sourceNode) continue;
       try {
-        if (!await archiveCanvasNodeIntoFolder(sourceNode, folder.id, category, activeScope, isCurrentProject)) return;
+        if (
+          !(await archiveCanvasNodeIntoFolder(
+            sourceNode,
+            folder.id,
+            category,
+            activeScope,
+            isCurrentProject
+          ))
+        )
+          return;
         saved += 1;
       } catch {
         if (!isCurrentProject()) return;
@@ -2794,10 +4086,18 @@ export default function CanvasWorkspaceViewContent() {
       }
     }
     if (!saved) throw new Error(`加入素材库失败：${failed.join("、")}`);
-    await persistSnapshot(nodesRef.current, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+    await persistSnapshot(
+      nodesRef.current,
+      edgesRef.current,
+      viewportRef.current.zoom,
+      { quiet: true }
+    );
     if (!isCurrentProject()) return;
     void assetsMentionsController.loadMentionCatalog("", activeScope);
-    if (failed.length) toast.warning(`已加入 ${saved} 个到 ${projectTitle} / ${folder.name}，${failed.length} 个失败：${failed.join("、")}`);
+    if (failed.length)
+      toast.warning(
+        `已加入 ${saved} 个到 ${projectTitle} / ${folder.name}，${failed.length} 个失败：${failed.join("、")}`
+      );
     else toast.success(`已加入 ${saved} 个到 ${projectTitle} / ${folder.name}`);
   };
 
@@ -2805,13 +4105,20 @@ export default function CanvasWorkspaceViewContent() {
     if (sourceNode.kind !== "video" || captureFrameNodeId) return;
     const activeScope = projectSessionController.canonicalScope;
     const projectKey = projectSessionController.canonicalKey;
-    if (!activeScope || !projectKey) return toast.warning("正在确认项目工作区，暂不能截取视频帧");
-    const host = Array.from(stageRef.current?.querySelectorAll<HTMLElement>("[data-node-id]") || [])
-      .find((element) => element.dataset.nodeId === sourceNode.id);
+    if (!activeScope || !projectKey)
+      return toast.warning("正在确认项目工作区，暂不能截取视频帧");
+    const host = Array.from(
+      stageRef.current?.querySelectorAll<HTMLElement>("[data-node-id]") || []
+    ).find(element => element.dataset.nodeId === sourceNode.id);
     const video = host?.querySelector("video");
     const width = Math.max(1, Math.round(video?.videoWidth || 0));
     const height = Math.max(1, Math.round(video?.videoHeight || 0));
-    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || width <= 1 || height <= 1) {
+    if (
+      !video ||
+      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+      width <= 1 ||
+      height <= 1
+    ) {
       toast.warning("视频尚未加载到可截图状态");
       return;
     }
@@ -2825,21 +4132,42 @@ export default function CanvasWorkspaceViewContent() {
       if (!context) throw new Error("浏览器无法创建视频截图画布");
       context.drawImage(video, 0, 0, width, height);
       const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((value) => value ? resolve(value) : reject(new Error("视频帧编码失败")), "image/png");
+        canvas.toBlob(
+          value =>
+            value ? resolve(value) : reject(new Error("视频帧编码失败")),
+          "image/png"
+        );
       });
-      const captureTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
-      const fileName = imageFileName(`${sourceNode.title}-frame-${captureTime.toFixed(2)}s`, "image/png");
-      const asset = await uploadAsset(new File([blob], fileName, { type: "image/png" }), {
-        type: "image",
-        name: fileName,
-        category: "other",
-        source_type: "canvas",
-        source_project_id: projectId,
-        source_project_name: projectTitle,
-        source_metadata: JSON.stringify({ canvas_node_id: sourceNode.id, relation: "video_frame", capture_time_seconds: captureTime }),
-      }, activeScope);
+      const captureTime = Number.isFinite(video.currentTime)
+        ? video.currentTime
+        : 0;
+      const fileName = imageFileName(
+        `${sourceNode.title}-frame-${captureTime.toFixed(2)}s`,
+        "image/png"
+      );
+      const asset = await uploadAsset(
+        new File([blob], fileName, { type: "image/png" }),
+        {
+          type: "image",
+          name: fileName,
+          category: "other",
+          source_type: "canvas",
+          source_project_id: projectId,
+          source_project_name: projectTitle,
+          source_metadata: JSON.stringify({
+            canvas_node_id: sourceNode.id,
+            relation: "video_frame",
+            capture_time_seconds: captureTime,
+          }),
+        },
+        activeScope
+      );
       if (projectSessionController.canonicalKey !== projectKey) return;
-      const scale = Math.min(1, sourceNode.width / width, sourceNode.height / height);
+      const scale = Math.min(
+        1,
+        sourceNode.width / width,
+        sourceNode.height / height
+      );
       const childId = crypto.randomUUID();
       const child: CanvasNodeData = {
         id: childId,
@@ -2867,56 +4195,88 @@ export default function CanvasWorkspaceViewContent() {
         },
       };
       const nextNodes = [...nodesRef.current, child];
-      const nextEdges = addCanvasConnection(edgesRef.current, { from: sourceNode.id, to: childId }, () => crypto.randomUUID());
+      const nextEdges = addCanvasConnection(
+        edgesRef.current,
+        { from: sourceNode.id, to: childId },
+        () => crypto.randomUUID()
+      );
       nodesRef.current = nextNodes;
       edgesRef.current = nextEdges;
       setNodes(nextNodes);
       setEdges(nextEdges);
       applyNodeSelection([childId], childId, true);
-      await persistSnapshot(nextNodes, nextEdges, viewportRef.current.zoom, { quiet: true });
+      await persistSnapshot(nextNodes, nextEdges, viewportRef.current.zoom, {
+        quiet: true,
+      });
       toast.success("已从视频当前帧创建图片节点");
     } catch (error) {
-      toast.error(publicApiError(error, "视频截图失败：当前视频源不允许读取像素或尚未加载完成"));
+      toast.error(
+        publicApiError(
+          error,
+          "视频截图失败：当前视频源不允许读取像素或尚未加载完成"
+        )
+      );
     } finally {
       setCaptureFrameNodeId("");
     }
   };
 
-  const uploadMediaToNode = async (nodeId: string, file: File | undefined, kind: "video" | "audio") => {
-    const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
+  const uploadMediaToNode = async (
+    nodeId: string,
+    file: File | undefined,
+    kind: "video" | "audio"
+  ) => {
+    const sourceNode = nodesRef.current.find(node => node.id === nodeId);
     const expected = kind === "video" ? "video/" : "audio/";
     if (!sourceNode || !file || !file.type.startsWith(expected)) return;
     const activeScope = projectSessionController.canonicalScope;
-    if (!activeScope) return toast.warning("正在确认项目工作区，暂不能上传媒体");
+    if (!activeScope)
+      return toast.warning("正在确认项目工作区，暂不能上传媒体");
     try {
-      const asset = await uploadAsset(file, {
-        type: kind,
-        name: file.name,
-        category: "reference",
-        source_type: "canvas",
-        source_project_id: projectId,
-        source_project_name: projectTitle,
-        source_metadata: JSON.stringify({ canvas_node_id: sourceNode.id, relation: "upload" }),
-      }, activeScope);
-      const nextNodes = nodesRef.current.map((node) => node.id === sourceNode.id ? {
-        ...node,
-        title: asset.name || file.name,
-        imageAssetId: asset.id,
-        imageSrc: undefined,
-        metadata: {
-          ...node.metadata,
-          assetId: asset.id,
-          assetScope: activeScope,
-          mimeType: asset.content_type || file.type,
-          bytes: asset.size || file.size,
-          naturalWidth: undefined,
-          naturalHeight: undefined,
-          status: "success" as const,
+      const asset = await uploadAsset(
+        file,
+        {
+          type: kind,
+          name: file.name,
+          category: "reference",
+          source_type: "canvas",
+          source_project_id: projectId,
+          source_project_name: projectTitle,
+          source_metadata: JSON.stringify({
+            canvas_node_id: sourceNode.id,
+            relation: "upload",
+          }),
         },
-      } : node);
+        activeScope
+      );
+      const nextNodes = nodesRef.current.map(node =>
+        node.id === sourceNode.id
+          ? {
+              ...node,
+              title: asset.name || file.name,
+              imageAssetId: asset.id,
+              imageSrc: undefined,
+              metadata: {
+                ...node.metadata,
+                assetId: asset.id,
+                assetScope: activeScope,
+                mimeType: asset.content_type || file.type,
+                bytes: asset.size || file.size,
+                naturalWidth: undefined,
+                naturalHeight: undefined,
+                status: "success" as const,
+              },
+            }
+          : node
+      );
       nodesRef.current = nextNodes;
       setNodes(nextNodes);
-      await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+      await persistSnapshot(
+        nextNodes,
+        edgesRef.current,
+        viewportRef.current.zoom,
+        { quiet: true }
+      );
       toast.success(kind === "video" ? "视频已上传到节点" : "音频已上传到节点");
     } catch (error) {
       toast.error(publicApiError(error, "上传媒体失败"));
@@ -2925,83 +4285,150 @@ export default function CanvasWorkspaceViewContent() {
     }
   };
 
-  const fitCanvasMediaNodeFrame = (nodeId: string, naturalWidth: number, naturalHeight: number, source?: string) => {
-    const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
-    if (!sourceNode || (sourceNode.kind !== "image" && sourceNode.kind !== "video")) return;
+  const fitCanvasMediaNodeFrame = (
+    nodeId: string,
+    naturalWidth: number,
+    naturalHeight: number,
+    source?: string
+  ) => {
+    const sourceNode = nodesRef.current.find(node => node.id === nodeId);
+    if (
+      !sourceNode ||
+      (sourceNode.kind !== "image" && sourceNode.kind !== "video")
+    )
+      return;
     // Ignore a late metadata event from a video replaced on this node.
     if (source && imageSrcFromNode(sourceNode, previews) !== source) return;
     // Asset previews are thumbnails; keep a known original size only while it matches the loaded image.
-    const assetId = sourceNode.kind === "image" ? assetIdFromNode(sourceNode) : "";
+    const assetId =
+      sourceNode.kind === "image" ? assetIdFromNode(sourceNode) : "";
     const original = assetId
-      ? canvasImageOriginalSize(sourceNode.metadata, naturalWidth, naturalHeight)
+      ? canvasImageOriginalSize(
+          sourceNode.metadata,
+          naturalWidth,
+          naturalHeight
+        )
       : { width: naturalWidth, height: naturalHeight, stale: false };
-    const probeOriginal = Boolean(assetId)
-      && (original.stale || stringValue(sourceNode.metadata?.naturalSizeProbeAssetId) === assetId);
-    if (!probeOriginal) return commitCanvasMediaNodeSize(nodeId, original.width, original.height);
-    const originalSource = originalImageSourceForThumbnail(imageSrcFromNode(sourceNode, previews));
+    const probeOriginal =
+      Boolean(assetId) &&
+      (original.stale ||
+        stringValue(sourceNode.metadata?.naturalSizeProbeAssetId) === assetId);
+    if (!probeOriginal)
+      return commitCanvasMediaNodeSize(nodeId, original.width, original.height);
+    const originalSource = originalImageSourceForThumbnail(
+      imageSrcFromNode(sourceNode, previews)
+    );
     // Without a thumbnail the loaded bitmap already is the original.
-    if (!originalSource) return commitCanvasMediaNodeSize(nodeId, naturalWidth, naturalHeight, "");
+    if (!originalSource)
+      return commitCanvasMediaNodeSize(nodeId, naturalWidth, naturalHeight, "");
     // Fix the frame from the thumbnail now; the marker survives a failed read so the next load retries.
     commitCanvasMediaNodeSize(nodeId, original.width, original.height, assetId);
-    void readCanvasOriginalImageSize(originalSource).then((size) => {
-      const currentNode = nodesRef.current.find((node) => node.id === nodeId);
-      if (currentNode && assetIdFromNode(currentNode) === assetId) commitCanvasMediaNodeSize(nodeId, size.width, size.height, "");
-    }, () => undefined);
+    void readCanvasOriginalImageSize(originalSource).then(
+      size => {
+        const currentNode = nodesRef.current.find(node => node.id === nodeId);
+        if (currentNode && assetIdFromNode(currentNode) === assetId)
+          commitCanvasMediaNodeSize(nodeId, size.width, size.height, "");
+      },
+      () => undefined
+    );
   };
 
   /** `probeAssetId`: undefined keeps the original-size marker, "" clears it, an id sets it. */
-  const commitCanvasMediaNodeSize = (nodeId: string, naturalWidth: number, naturalHeight: number, probeAssetId?: string) => {
-    const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
+  const commitCanvasMediaNodeSize = (
+    nodeId: string,
+    naturalWidth: number,
+    naturalHeight: number,
+    probeAssetId?: string
+  ) => {
+    const sourceNode = nodesRef.current.find(node => node.id === nodeId);
     if (!sourceNode) return;
-    const sized = applyCanvasImageNaturalSize(sourceNode, naturalWidth, naturalHeight, "layoutBox");
-    const markerChanged = probeAssetId !== undefined
-      && stringValue(sized.metadata?.naturalSizeProbeAssetId) !== probeAssetId;
+    const sized = applyCanvasImageNaturalSize(
+      sourceNode,
+      naturalWidth,
+      naturalHeight,
+      "layoutBox"
+    );
+    const markerChanged =
+      probeAssetId !== undefined &&
+      stringValue(sized.metadata?.naturalSizeProbeAssetId) !== probeAssetId;
     const nextNode = markerChanged
-      ? { ...sized, metadata: { ...sized.metadata, naturalSizeProbeAssetId: probeAssetId || undefined } }
+      ? {
+          ...sized,
+          metadata: {
+            ...sized.metadata,
+            naturalSizeProbeAssetId: probeAssetId || undefined,
+          },
+        }
       : sized;
     if (nextNode === sourceNode) return;
-    const nextNodes = nodesRef.current.map((node) => node.id === nodeId ? nextNode : node);
+    const nextNodes = nodesRef.current.map(node =>
+      node.id === nodeId ? nextNode : node
+    );
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
-    void persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+    void persistSnapshot(
+      nextNodes,
+      edgesRef.current,
+      viewportRef.current.zoom,
+      { quiet: true }
+    );
   };
 
   const replaceCanvasImage = async (file: File | undefined) => {
-    const sourceNode = nodesRef.current.find((node) => node.id === replaceImageNodeId);
+    const sourceNode = nodesRef.current.find(
+      node => node.id === replaceImageNodeId
+    );
     setReplaceImageNodeId("");
     if (!sourceNode || !file || !file.type.startsWith("image/")) return;
     const activeScope = projectSessionController.canonicalScope;
-    if (!activeScope) return toast.warning("正在确认项目工作区，暂不能替换图片");
+    if (!activeScope)
+      return toast.warning("正在确认项目工作区，暂不能替换图片");
     try {
-      const asset = await uploadAsset(file, {
-        type: "image",
-        name: file.name,
-        category: "reference",
-        source_type: "canvas",
-        source_project_id: projectId,
-        source_project_name: projectTitle,
-        source_metadata: JSON.stringify({ canvas_node_id: sourceNode.id, relation: "replace" }),
-      }, activeScope);
-      const nextNodes = nodesRef.current.map((node) => node.id === sourceNode.id ? {
-        ...node,
-        title: asset.name || file.name,
-        imageAssetId: asset.id,
-        imageSrc: undefined,
-        metadata: {
-          ...node.metadata,
-          assetId: asset.id,
-          assetScope: activeScope,
-          mimeType: asset.content_type || file.type,
-          bytes: asset.size || file.size,
-          editRelation: "replace",
-          status: "success" as const,
-          naturalWidth: undefined,
-          naturalHeight: undefined,
+      const asset = await uploadAsset(
+        file,
+        {
+          type: "image",
+          name: file.name,
+          category: "reference",
+          source_type: "canvas",
+          source_project_id: projectId,
+          source_project_name: projectTitle,
+          source_metadata: JSON.stringify({
+            canvas_node_id: sourceNode.id,
+            relation: "replace",
+          }),
         },
-      } : node);
+        activeScope
+      );
+      const nextNodes = nodesRef.current.map(node =>
+        node.id === sourceNode.id
+          ? {
+              ...node,
+              title: asset.name || file.name,
+              imageAssetId: asset.id,
+              imageSrc: undefined,
+              metadata: {
+                ...node.metadata,
+                assetId: asset.id,
+                assetScope: activeScope,
+                mimeType: asset.content_type || file.type,
+                bytes: asset.size || file.size,
+                editRelation: "replace",
+                status: "success" as const,
+                naturalWidth: undefined,
+                naturalHeight: undefined,
+              },
+            }
+          : node
+      );
       nodesRef.current = nextNodes;
       setNodes(nextNodes);
-      await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+      await persistSnapshot(
+        nextNodes,
+        edgesRef.current,
+        viewportRef.current.zoom,
+        { quiet: true }
+      );
       toast.success("图片已替换");
     } catch (error) {
       toast.error(publicApiError(error, "替换图片失败"));
@@ -3017,8 +4444,13 @@ export default function CanvasWorkspaceViewContent() {
     else toast.error("复制失败，请选中提示词后按 Ctrl+C 复制");
   };
 
-  const updateCanvasGroup = (groupId: string, patch: Partial<Pick<CanvasGroupData, "title" | "color">>) => {
-    const nextGroups = groupsRef.current.map((group) => group.id === groupId ? { ...group, ...patch } : group);
+  const updateCanvasGroup = (
+    groupId: string,
+    patch: Partial<Pick<CanvasGroupData, "title" | "color">>
+  ) => {
+    const nextGroups = groupsRef.current.map(group =>
+      group.id === groupId ? { ...group, ...patch } : group
+    );
     groupsRef.current = nextGroups;
     setGroups(nextGroups);
   };
@@ -3028,7 +4460,7 @@ export default function CanvasWorkspaceViewContent() {
       nodesRef.current,
       selectedNodeIdsRef.current,
       `group-${crypto.randomUUID()}`,
-      `分组 ${groupsRef.current.length + 1}`,
+      `分组 ${groupsRef.current.length + 1}`
     );
     if (!group) return toast.info("请至少选择 2 个节点后再创建分组");
     const nextGroups = [...groupsRef.current, group];
@@ -3043,7 +4475,7 @@ export default function CanvasWorkspaceViewContent() {
       nodesRef.current,
       ids,
       `group-${crypto.randomUUID()}`,
-      `分组 ${groupsRef.current.length + 1}`,
+      `分组 ${groupsRef.current.length + 1}`
     );
     if (!group) return;
     const pending = { ...group, pending: true };
@@ -3055,16 +4487,18 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const confirmPendingGroup = (groupId: string) => {
-    const nextGroups = groupsRef.current.map((group) => group.id === groupId ? { ...group, pending: undefined } : group);
+    const nextGroups = groupsRef.current.map(group =>
+      group.id === groupId ? { ...group, pending: undefined } : group
+    );
     groupsRef.current = nextGroups;
     setGroups(nextGroups);
     setPendingGroupId("");
-    const group = nextGroups.find((item) => item.id === groupId);
+    const group = nextGroups.find(item => item.id === groupId);
     if (group) selectCanvasGroup(group);
   };
 
   const cancelPendingGroup = (groupId: string) => {
-    const nextGroups = groupsRef.current.filter((group) => group.id !== groupId);
+    const nextGroups = groupsRef.current.filter(group => group.id !== groupId);
     groupsRef.current = nextGroups;
     setGroups(nextGroups);
     setPendingGroupId("");
@@ -3072,7 +4506,7 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const dismissPendingGroup = () => {
-    const nextGroups = groupsRef.current.filter((group) => !group.pending);
+    const nextGroups = groupsRef.current.filter(group => !group.pending);
     if (nextGroups.length === groupsRef.current.length) return;
     groupsRef.current = nextGroups;
     setGroups(nextGroups);
@@ -3080,28 +4514,43 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const connectSelectedNodesToConfig = (targetConfigId?: string) => {
-    if (selectedNodeIdsRef.current.size < 2) return toast.info("请至少选择 2 个节点后再连接配置");
+    if (selectedNodeIdsRef.current.size < 2)
+      return toast.info("请至少选择 2 个节点后再连接配置");
     const currentNodes = nodesRef.current;
     let nextNodes = currentNodes;
     let targetId = targetConfigId || "";
     if (!targetId) {
-      const targetCandidate = buildCanvasNodeCandidate("config", undefined, currentNodes.length);
+      const targetCandidate = buildCanvasNodeCandidate(
+        "config",
+        undefined,
+        currentNodes.length
+      );
       const candidateNodes = [...currentNodes, targetCandidate];
-      const selectedNodes = connectableCanvasNodesToConfig(candidateNodes, selectedNodeIdsRef.current, targetCandidate.id);
-      if (selectedNodes.length < 2) return toast.info("请至少选择 2 个可连接节点后再新建配置");
-      const bounds = selectedNodes.reduce((result, node) => ({
-        left: Math.min(result.left, node.x),
-        top: Math.min(result.top, node.y),
-        right: Math.max(result.right, node.x + node.width),
-        bottom: Math.max(result.bottom, node.y + node.height),
-      }), { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity });
+      const selectedNodes = connectableCanvasNodesToConfig(
+        candidateNodes,
+        selectedNodeIdsRef.current,
+        targetCandidate.id
+      );
+      if (selectedNodes.length < 2)
+        return toast.info("请至少选择 2 个可连接节点后再新建配置");
+      const bounds = selectedNodes.reduce(
+        (result, node) => ({
+          left: Math.min(result.left, node.x),
+          top: Math.min(result.top, node.y),
+          right: Math.max(result.right, node.x + node.width),
+          bottom: Math.max(result.bottom, node.y + node.height),
+        }),
+        { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity }
+      );
       const configNode = {
         ...targetCandidate,
         x: bounds.right + 96,
         y: bounds.top,
       };
       configNode.title = "批量生成配置";
-      configNode.y = bounds.top + Math.max(0, (bounds.bottom - bounds.top - configNode.height) / 2);
+      configNode.y =
+        bounds.top +
+        Math.max(0, (bounds.bottom - bounds.top - configNode.height) / 2);
       targetId = configNode.id;
       nextNodes = [...currentNodes, configNode];
     }
@@ -3110,9 +4559,14 @@ export default function CanvasWorkspaceViewContent() {
       edgesRef.current,
       selectedNodeIdsRef.current,
       targetId,
-      () => crypto.randomUUID(),
+      () => crypto.randomUUID()
     );
-    if (!result.addedCount) return toast.warning(targetConfigId ? "没有可新增的有效连线" : "选中的节点无法连接到新的配置节点");
+    if (!result.addedCount)
+      return toast.warning(
+        targetConfigId
+          ? "没有可新增的有效连线"
+          : "选中的节点无法连接到新的配置节点"
+      );
     if (nextNodes !== currentNodes) {
       nodesRef.current = nextNodes;
       setNodes(nextNodes);
@@ -3149,7 +4603,9 @@ export default function CanvasWorkspaceViewContent() {
     setContextMenu(null);
     setInspectorOpen(false);
     try {
-      const saved = await persistSnapshot([], [], viewportRef.current.zoom, { quiet: true });
+      const saved = await persistSnapshot([], [], viewportRef.current.zoom, {
+        quiet: true,
+      });
       if (!saved) throw new Error("服务端快照未保存，画布已恢复原状");
       setClearCanvasOpen(false);
       resumeCanvasHistory(true);
@@ -3171,8 +4627,8 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const ungroupCanvasGroup = (groupId: string) => {
-    const group = groupsRef.current.find((item) => item.id === groupId);
-    const nextGroups = groupsRef.current.filter((item) => item.id !== groupId);
+    const group = groupsRef.current.find(item => item.id === groupId);
+    const nextGroups = groupsRef.current.filter(item => item.id !== groupId);
     groupsRef.current = nextGroups;
     setGroups(nextGroups);
     setSelectedGroupId("");
@@ -3183,50 +4639,101 @@ export default function CanvasWorkspaceViewContent() {
   const removeNodes = (ids: Iterable<string>) => {
     const deleteIds = new Set(ids);
     if (!deleteIds.size) return;
-    nodesRef.current.forEach((node) => {
-      if (!deleteIds.has(node.id) || !node.metadata?.isBatchRoot || !Array.isArray(node.metadata.batchChildIds)) return;
-      node.metadata.batchChildIds.forEach((childId) => {
+    nodesRef.current.forEach(node => {
+      if (
+        !deleteIds.has(node.id) ||
+        !node.metadata?.isBatchRoot ||
+        !Array.isArray(node.metadata.batchChildIds)
+      )
+        return;
+      node.metadata.batchChildIds.forEach(childId => {
         if (typeof childId === "string") deleteIds.add(childId);
       });
     });
     const canceledTargetIds = cancelForRemovedNodes(deleteIds);
     const affectedRootIds = new Set<string>();
-    let sourceNodes = nodesRef.current.map((node) => {
+    let sourceNodes = nodesRef.current.map(node => {
       const rootId = stringValue(node.metadata?.batchRootId);
-      if (rootId && (deleteIds.has(node.id) || canceledTargetIds.has(node.id)) && !deleteIds.has(rootId)) affectedRootIds.add(rootId);
-      if (deleteIds.has(node.id) || !canceledTargetIds.has(node.id) || node.metadata?.status !== "loading") return node;
+      if (
+        rootId &&
+        (deleteIds.has(node.id) || canceledTargetIds.has(node.id)) &&
+        !deleteIds.has(rootId)
+      )
+        affectedRootIds.add(rootId);
+      if (
+        deleteIds.has(node.id) ||
+        !canceledTargetIds.has(node.id) ||
+        node.metadata?.status !== "loading"
+      )
+        return node;
       return {
         ...node,
         title: "生成已停止",
-        metadata: { ...node.metadata, status: "error" as const, errorDetails: "关联节点已删除，生成已停止，可重试。", jobId: undefined },
+        metadata: {
+          ...node.metadata,
+          status: "error" as const,
+          errorDetails: "关联节点已删除，生成已停止，可重试。",
+          jobId: undefined,
+        },
       };
     });
-    sourceNodes = sourceNodes.map((node) => {
-      if (!affectedRootIds.has(node.id) || !Array.isArray(node.metadata?.batchChildIds)) return node;
-      const batchChildIds = node.metadata.batchChildIds.filter((childId) => typeof childId === "string" && !deleteIds.has(childId));
+    sourceNodes = sourceNodes.map(node => {
+      if (
+        !affectedRootIds.has(node.id) ||
+        !Array.isArray(node.metadata?.batchChildIds)
+      )
+        return node;
+      const batchChildIds = node.metadata.batchChildIds.filter(
+        childId => typeof childId === "string" && !deleteIds.has(childId)
+      );
       return {
         ...node,
         metadata: {
           ...node.metadata,
           batchChildIds,
-          primaryImageId: deleteIds.has(stringValue(node.metadata.primaryImageId)) ? undefined : node.metadata.primaryImageId,
+          primaryImageId: deleteIds.has(
+            stringValue(node.metadata.primaryImageId)
+          )
+            ? undefined
+            : node.metadata.primaryImageId,
         },
       };
     });
-    const nextGraph = deleteCanvasNodesAndEdges(sourceNodes, edgesRef.current, deleteIds);
+    const nextGraph = deleteCanvasNodesAndEdges(
+      sourceNodes,
+      edgesRef.current,
+      deleteIds
+    );
     let nextNodes = nextGraph.nodes;
-    affectedRootIds.forEach((rootId) => { nextNodes = refreshImageBatchRoot(nextNodes, rootId); });
+    affectedRootIds.forEach(rootId => {
+      nextNodes = refreshImageBatchRoot(nextNodes, rootId);
+    });
     nodesRef.current = nextNodes;
     edgesRef.current = nextGraph.edges;
-    const nextGroups = removeNodesFromCanvasGroups(groupsRef.current, deleteIds);
+    const nextGroups = removeNodesFromCanvasGroups(
+      groupsRef.current,
+      deleteIds
+    );
     groupsRef.current = nextGroups;
     setNodes(nextNodes);
     setEdges(nextGraph.edges);
     setGroups(nextGroups);
-    setSelectedEdgeId((current) => nextGraph.edges.some((edge) => edge.id === current) ? current : "");
-    const nextSelected = new Set(Array.from(selectedNodeIdsRef.current).filter((nodeId) => !deleteIds.has(nodeId)));
-    const nextPrimary = nextSelected.has(selectedId) ? selectedId : nextSelected.values().next().value || "";
-    applyNodeSelection(nextSelected, nextPrimary, inspectorOpen && nextSelected.size === 1);
+    setSelectedEdgeId(current =>
+      nextGraph.edges.some(edge => edge.id === current) ? current : ""
+    );
+    const nextSelected = new Set(
+      Array.from(selectedNodeIdsRef.current).filter(
+        nodeId => !deleteIds.has(nodeId)
+      )
+    );
+    const nextPrimary = nextSelected.has(selectedId)
+      ? selectedId
+      : nextSelected.values().next().value || "";
+    applyNodeSelection(
+      nextSelected,
+      nextPrimary,
+      inspectorOpen && nextSelected.size === 1
+    );
     stageInteractionController.resetAfterNodesRemoved(deleteIds);
   };
 
@@ -3239,21 +4746,32 @@ export default function CanvasWorkspaceViewContent() {
     isSwitching: () => projectSessionController.switching,
     isInteractionBlocked: () => {
       const ui = canvasStore.getState().ui;
-      return projectSessionController.switching
-        || projectSessionController.loading
-        || Boolean(projectId && !projectSessionController.canonicalScope)
-        || Boolean(ui.imageAnnotationNodeId)
-        || Boolean(ui.imageMaskNodeId);
+      return (
+        projectSessionController.switching ||
+        projectSessionController.loading ||
+        Boolean(projectId && !projectSessionController.canonicalScope) ||
+        Boolean(ui.imageAnnotationNodeId) ||
+        Boolean(ui.imageMaskNodeId)
+      );
     },
     isProjectActionDisabled: () => projectActionDisabled,
     getWheelZoomRequiresCtrl: () => wheelZoomRequiresCtrl,
     getShortcuts: () => shortcutsRef.current,
     getNodes: () => nodesRef.current,
-    setNodes: nextNodes => { nodesRef.current = nextNodes; setNodes(nextNodes); },
+    setNodes: nextNodes => {
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
+    },
     getEdges: () => edgesRef.current,
-    setEdges: nextEdges => { edgesRef.current = nextEdges; setEdges(nextEdges); },
+    setEdges: nextEdges => {
+      edgesRef.current = nextEdges;
+      setEdges(nextEdges);
+    },
     getGroups: () => groupsRef.current,
-    setGroups: nextGroups => { groupsRef.current = nextGroups; setGroups(nextGroups); },
+    setGroups: nextGroups => {
+      groupsRef.current = nextGroups;
+      setGroups(nextGroups);
+    },
     createGroupFromSelection,
     dismissPendingGroup,
     getSelectedNodeIds: () => selectedNodeIdsRef.current,
@@ -3261,12 +4779,17 @@ export default function CanvasWorkspaceViewContent() {
     setSelectedGroupId,
     getSelectedEdgeId: () => canvasStore.getState().graph.selectedEdgeId,
     setSelectedEdgeId,
-    setHoveredEdgeId: edgeId => setHoveredEdgeId(current => current === edgeId ? current : edgeId),
+    setHoveredEdgeId: edgeId =>
+      setHoveredEdgeId(current => (current === edgeId ? current : edgeId)),
     getHoveredNodeId: () => canvasStore.getState().ui.hoveredNodeId,
     setHoveredNodeId: setHoveredId,
     getSelectedNode: () => {
       const state = canvasStore.getState();
-      return state.graph.nodes.find(node => node.id === state.graph.selectedNodeId) || null;
+      return (
+        state.graph.nodes.find(
+          node => node.id === state.graph.selectedNodeId
+        ) || null
+      );
     },
     commitViewport: nextViewport => {
       viewportRef.current = nextViewport;
@@ -3277,17 +4800,23 @@ export default function CanvasWorkspaceViewContent() {
     applyNodeSelection: (ids, primaryId, openInspector) => {
       const nodeIds = [...ids];
       applyNodeSelection(nodeIds, primaryId, openInspector);
-      if (agentOpen && nodeIds.length) setAgentReferenceSelection({ projectId, nodeIds });
+      if (agentOpen && nodeIds.length)
+        setAgentReferenceSelection({ projectId, nodeIds });
     },
     pauseHistory: pauseCanvasHistory,
     resumeHistory: resumeCanvasHistory,
     setContextMenu,
     copySelectedNodes,
-    pasteCopiedNodes: () => { void pasteSystemClipboard(); },
-    pasteClipboardData: data => pasteClipboardContent(readCanvasClipboardData(data)),
+    pasteCopiedNodes: () => {
+      void pasteSystemClipboard();
+    },
+    pasteClipboardData: data =>
+      pasteClipboardContent(readCanvasClipboardData(data)),
     undoCanvas,
     redoCanvas,
-    runSelectedGeneration: () => { void runSelectedGenerationRef.current(); },
+    runSelectedGeneration: () => {
+      void runSelectedGenerationRef.current();
+    },
     removeNodes,
     removeEdge,
     onInfo: message => toast.info(message),
@@ -3316,42 +4845,72 @@ export default function CanvasWorkspaceViewContent() {
 
   const startPanelResize = useInspectorResize({
     panelRef,
-    nodeId: inspectorOpen && !selectedGroup && !projectActionDisabled ? selectedNode?.id : undefined,
-    limits: selectedPanelStyle ? {
-      minWidth: Math.min(INSPECTOR_SIZE.minWidth, Number(selectedPanelStyle.maxWidth)),
-      maxWidth: Number(selectedPanelStyle.maxWidth),
-      minHeight: Math.min(INSPECTOR_SIZE.minHeight, Number(selectedPanelStyle.maxHeight)),
-      maxHeight: Number(selectedPanelStyle.maxHeight),
-    } : inspectorSizeLimits(stageBounds.width, stageBounds.height - CANVAS_STAGE_OFFSET),
+    nodeId:
+      inspectorOpen && !selectedGroup && !projectActionDisabled
+        ? selectedNode?.id
+        : undefined,
+    limits: selectedPanelStyle
+      ? {
+          minWidth: Math.min(
+            INSPECTOR_SIZE.minWidth,
+            Number(selectedPanelStyle.maxWidth)
+          ),
+          maxWidth: Number(selectedPanelStyle.maxWidth),
+          minHeight: Math.min(
+            INSPECTOR_SIZE.minHeight,
+            Number(selectedPanelStyle.maxHeight)
+          ),
+          maxHeight: Number(selectedPanelStyle.maxHeight),
+        }
+      : inspectorSizeLimits(
+          stageBounds.width,
+          stageBounds.height - CANVAS_STAGE_OFFSET
+        ),
     onResize: (nodeId, size, mode) => {
       // Generation and prompt edits can finish during a drag; merge into the latest metadata.
       const node = nodesRef.current.find(item => item.id === nodeId);
       if (!node) return;
-      updateNode(nodeId, { metadata: {
-        ...node.metadata,
-        ...(mode !== "height" ? { promptPanelWidth: size.width } : {}),
-        ...(mode !== "width" ? { promptPanelHeight: size.height } : {}),
-      } });
+      updateNode(nodeId, {
+        metadata: {
+          ...node.metadata,
+          ...(mode !== "height" ? { promptPanelWidth: size.width } : {}),
+          ...(mode !== "width" ? { promptPanelHeight: size.height } : {}),
+        },
+      });
     },
   });
 
   const adjustNodeFontSize = (node: CanvasNodeData, delta: number) => {
     const current = numberValue(node.metadata?.fontSize) || 14;
     const next = Math.max(10, Math.min(32, current + delta));
-    updateNode(node.id, { metadata: { ...(node.metadata || {}), fontSize: next } });
+    updateNode(node.id, {
+      metadata: { ...(node.metadata || {}), fontSize: next },
+    });
   };
 
   const downloadNodeMedia = async (node: CanvasNodeData) => {
     try {
-      const blob = await downloadCanvasOriginalMedia(node, projectSessionController.canonicalScope);
+      const blob = await downloadCanvasOriginalMedia(
+        node,
+        projectSessionController.canonicalScope
+      );
       const name = node.title || assetIdFromNode(node) || node.id;
-      downloadBlob(blob, assetDownloadFileName({ name, type: mediaKindFromNode(node), content_type: blob.type || stringValue(node.metadata?.mimeType) }));
+      downloadBlob(
+        blob,
+        assetDownloadFileName({
+          name,
+          type: mediaKindFromNode(node),
+          content_type: blob.type || stringValue(node.metadata?.mimeType),
+        })
+      );
     } catch (error) {
       toast.error(publicApiError(error, "下载媒体失败"));
     }
   };
 
-  const downloadSelectedNodes = async (nodeIds: Iterable<string> = selectedNodeIdsRef.current) => {
+  const downloadSelectedNodes = async (
+    nodeIds: Iterable<string> = selectedNodeIdsRef.current
+  ) => {
     if (batchDownloadBusyRef.current) return;
     batchDownloadBusyRef.current = true;
     setBatchDownloadBusy(true);
@@ -3359,13 +4918,31 @@ export default function CanvasWorkspaceViewContent() {
     // Freeze the selection so subsequent clicks, navigation or edits cannot
     // silently change the contents of an in-progress download.
     const selectedIds = new Set(nodeIds);
-    const sourceNodes = nodesRef.current.map(node => ({ ...node, metadata: { ...node.metadata } }));
+    const sourceNodes = nodesRef.current.map(node => ({
+      ...node,
+      metadata: { ...node.metadata },
+    }));
     try {
-      const result = await createCanvasSelectionDownload(sourceNodes, selectedIds, projectSessionController.canonicalScope,
-        progress => toast.loading(`正在打包 ${progress.completed}/${progress.total}：${progress.name}`, { id: toastId }));
-      downloadBlob(result.blob, `${safeArchiveSegment(projectTitle || "画布")}-所选媒体.zip`);
+      const result = await createCanvasSelectionDownload(
+        sourceNodes,
+        selectedIds,
+        projectSessionController.canonicalScope,
+        progress =>
+          toast.loading(
+            `正在打包 ${progress.completed}/${progress.total}：${progress.name}`,
+            { id: toastId }
+          )
+      );
+      downloadBlob(
+        result.blob,
+        `${safeArchiveSegment(projectTitle || "画布")}-所选媒体.zip`
+      );
       const summary = `已打包 ${result.completed} 个原文件${result.skipped ? `，跳过 ${result.skipped} 个非媒体或空节点` : ""}`;
-      if (result.failures.length) toast.warning(`${summary}；${result.failures.length} 项失败，详情见包内说明`, { id: toastId });
+      if (result.failures.length)
+        toast.warning(
+          `${summary}；${result.failures.length} 项失败，详情见包内说明`,
+          { id: toastId }
+        );
       else toast.success(summary, { id: toastId });
     } catch (error) {
       toast.error(publicApiError(error, "批量下载失败"), { id: toastId });
@@ -3376,25 +4953,36 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   const toggleCanvasBatch = (nodeId: string) => {
-    const node = nodesRef.current.find((item) => item.id === nodeId);
+    const node = nodesRef.current.find(item => item.id === nodeId);
     if (!node?.metadata?.isBatchRoot) return;
     const expanding = !node.metadata.imageBatchExpanded;
-    let nextNodes = nodesRef.current.map((item) => item.id === nodeId
-      ? { ...item, metadata: { ...item.metadata, imageBatchExpanded: expanding } }
-      : item);
+    let nextNodes = nodesRef.current.map(item =>
+      item.id === nodeId
+        ? {
+            ...item,
+            metadata: { ...item.metadata, imageBatchExpanded: expanding },
+          }
+        : item
+    );
     // 展开时把子图吸附回以基底节点为基点的网格位，消除手动拖动造成的错位
     if (expanding) nextNodes = snapImageBatchChildrenToGrid(nextNodes, nodeId);
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
-    void persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+    void persistSnapshot(
+      nextNodes,
+      edgesRef.current,
+      viewportRef.current.zoom,
+      { quiet: true }
+    );
   };
   toggleCanvasBatchRef.current = toggleCanvasBatch;
 
   const applyGenerationHistoryItem = async (nodeId: string) => {
     const parsed = parseCanvasGenerationHistoryItemId(nodeId);
     if (projectSessionController.switching) return;
-    const host = nodesRef.current.find((item) => item.id === parsed.nodeId)
-      || historyAssetNodes.find((item) => item.id === parsed.nodeId);
+    const host =
+      nodesRef.current.find(item => item.id === parsed.nodeId) ||
+      historyAssetNodes.find(item => item.id === parsed.nodeId);
     if (!host || (host.kind !== "image" && host.kind !== "video")) return;
     const center = getCanvasCenter();
     const placement = {
@@ -3403,7 +4991,9 @@ export default function CanvasWorkspaceViewContent() {
       y: Math.round(center.y - host.height / 2),
     };
     const revision = parsed.revisionId
-      ? (host.metadata?.generationRevisions || []).find((item) => item.id === parsed.revisionId)
+      ? (host.metadata?.generationRevisions || []).find(
+          item => item.id === parsed.revisionId
+        )
       : undefined;
     if (parsed.revisionId && !revision) return;
     const created = revision
@@ -3415,28 +5005,53 @@ export default function CanvasWorkspaceViewContent() {
     applyNodeSelection([created.id], created.id, true);
     setGenerationHistoryOpen(false);
     panNodesIntoViewport([created.id]);
-    toast.success(created.kind === "video" ? "已将视频添加到画布" : "已将图片添加到画布");
-    await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+    toast.success(
+      created.kind === "video" ? "已将视频添加到画布" : "已将图片添加到画布"
+    );
+    await persistSnapshot(
+      nextNodes,
+      edgesRef.current,
+      viewportRef.current.zoom,
+      { quiet: true }
+    );
   };
 
   const setBatchPrimaryNode = (child: CanvasNodeData) => {
     const rootId = child.metadata?.batchRootId;
-    const root = nodesRef.current.find((item) => item.id === rootId);
+    const root = nodesRef.current.find(item => item.id === rootId);
     if (!rootId || !root || (!child.imageAssetId && !child.imageSrc)) return;
     const nextNodes = swapImageBatchPrimary(nodesRef.current, rootId, child.id);
-    if (nextNodes === nodesRef.current) return toast.info("请等待主图与所选图片生成完成后再切换");
+    if (nextNodes === nodesRef.current)
+      return toast.info("请等待主图与所选图片生成完成后再切换");
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
-    void persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+    void persistSnapshot(
+      nextNodes,
+      edgesRef.current,
+      viewportRef.current.zoom,
+      { quiet: true }
+    );
     toast.success("已设为图片组主图");
   };
 
   const generateImageFromTextNode = async (node: CanvasNodeData) => {
     const text = nodeEditorTextFromNode(node).trim();
     if (!text) return toast.warning("先在文本节点里写入内容");
-    const created = addNode("image", { x: node.x + node.width + 96, y: node.y });
+    const created = addNode("image", {
+      x: node.x + node.width + 96,
+      y: node.y,
+    });
     connectNodes(node.id, created.id);
-    updateNode(created.id, updateCanvasNodeComposer({ ...created, metadata: { ...created.metadata, generationMode: "image" as const } }, text));
+    updateNode(
+      created.id,
+      updateCanvasNodeComposer(
+        {
+          ...created,
+          metadata: { ...created.metadata, generationMode: "image" as const },
+        },
+        text
+      )
+    );
     await generateImageFromNode(created.id);
   };
 
@@ -3446,28 +5061,46 @@ export default function CanvasWorkspaceViewContent() {
     const activeScope = projectSessionController.canonicalScope || "personal";
     const nextReaction = node.metadata?.assetFavorited ? "none" : "favorite";
     try {
-      await updateAssetUserState(assetId, { reaction: nextReaction }, workspaceScopeValue(node.metadata?.assetScope) || activeScope);
+      await updateAssetUserState(
+        assetId,
+        { reaction: nextReaction },
+        workspaceScopeValue(node.metadata?.assetScope) || activeScope
+      );
       // 收藏态落到节点 metadata（随快照持久化），星标据此填充
-      updateNode(node.id, { metadata: { ...(node.metadata || {}), assetFavorited: nextReaction === "favorite" } });
-      toast.success(nextReaction === "favorite" ? "已收藏到素材库" : "已取消收藏");
+      updateNode(node.id, {
+        metadata: {
+          ...(node.metadata || {}),
+          assetFavorited: nextReaction === "favorite",
+        },
+      });
+      toast.success(
+        nextReaction === "favorite" ? "已收藏到素材库" : "已取消收藏"
+      );
     } catch (error) {
-      toast.error(publicApiError(error, nextReaction === "favorite" ? "收藏失败" : "取消收藏失败"));
+      toast.error(
+        publicApiError(
+          error,
+          nextReaction === "favorite" ? "收藏失败" : "取消收藏失败"
+        )
+      );
     }
   };
 
   /** 把批次子图从图片组中拆出为独立节点（应用到画布）。 */
   const detachBatchChildToCanvas = (child: CanvasNodeData) => {
     const rootId = child.metadata?.batchRootId;
-    const root = nodesRef.current.find((item) => item.id === rootId);
+    const root = nodesRef.current.find(item => item.id === rootId);
     if (!rootId || !root) return;
-    const nextNodes = nodesRef.current.map((node) => {
+    const nextNodes = nodesRef.current.map(node => {
       if (node.id === child.id) {
         const metadata = { ...(node.metadata || {}) };
         delete metadata.batchRootId;
         return { ...node, metadata };
       }
       if (node.id === rootId) {
-        const childIds = (node.metadata?.batchChildIds || []).filter((id) => id !== child.id);
+        const childIds = (node.metadata?.batchChildIds || []).filter(
+          id => id !== child.id
+        );
         return {
           ...node,
           metadata: {
@@ -3481,31 +5114,44 @@ export default function CanvasWorkspaceViewContent() {
     });
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
-    void persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+    void persistSnapshot(
+      nextNodes,
+      edgesRef.current,
+      viewportRef.current.zoom,
+      { quiet: true }
+    );
     toast.success("已应用为独立节点");
   };
 
   const runCanvasGroupGeneration = async (groupId: string) => {
-    if (!groupId || runningGroupId || projectSessionController.switching) return;
-    const group = groupsRef.current.find((item) => item.id === groupId);
+    if (!groupId || runningGroupId || projectSessionController.switching)
+      return;
+    const group = groupsRef.current.find(item => item.id === groupId);
     if (!group) return;
     const currentNodes = nodesRef.current;
     const runnable = group.nodeIds
-      .map((nodeId) => currentNodes.find((node) => node.id === nodeId))
-      .filter((node): node is CanvasNodeData => Boolean(
-        node
-        && node.kind !== "director"
-        && !isHiddenCanvasBatchChild(node, currentNodes)
-        && node.metadata?.status !== "loading"
-        && !runningNodeIds.has(node.id),
-      ));
+      .map(nodeId => currentNodes.find(node => node.id === nodeId))
+      .filter((node): node is CanvasNodeData =>
+        Boolean(
+          node &&
+          node.kind !== "director" &&
+          !isHiddenCanvasBatchChild(node, currentNodes) &&
+          node.metadata?.status !== "loading" &&
+          !runningNodeIds.has(node.id)
+        )
+      );
     if (!runnable.length) return toast.warning("分组内没有可批量执行的节点");
 
     setRunningGroupId(groupId);
     let executed = 0;
     try {
       for (const node of runnable) {
-        if (projectSessionController.switching || projectSessionController.canonicalKey !== `${projectSessionController.canonicalScope}:${projectId}`) break;
+        if (
+          projectSessionController.switching ||
+          projectSessionController.canonicalKey !==
+            `${projectSessionController.canonicalScope}:${projectId}`
+        )
+          break;
         try {
           await generateFromNode(node.id);
           executed += 1;
@@ -3519,23 +5165,40 @@ export default function CanvasWorkspaceViewContent() {
     }
   };
 
-  const applyAgentOperations = async (ops: CanvasAgentOp[] = []): Promise<CanvasAgentExecutionResult> => {
+  const applyAgentOperations = async (
+    ops: CanvasAgentOp[] = []
+  ): Promise<CanvasAgentExecutionResult> => {
     const activeScope = projectSessionController.canonicalScope;
     const projectKey = projectSessionController.canonicalKey;
-    if (!activeScope || !projectKey || projectSessionController.switching) throw new Error("当前画布尚未准备好");
+    if (!activeScope || !projectKey || projectSessionController.switching)
+      throw new Error("当前画布尚未准备好");
     const before = canvasAgentSnapshotFromCanvas(
       projectId,
       projectTitle || "未命名画布",
       nodesRef.current,
       edgesRef.current,
       selectedNodeIdsRef.current,
-      viewportRef.current,
+      viewportRef.current
     );
-    const generationOps = ops.filter((op): op is Extract<CanvasAgentOp, { type: "run_generation" }> => op.type === "run_generation");
-    const nextAgentSnapshot = applyCanvasAgentOps(before, ops.filter((op) => op.type !== "run_generation"));
-    const nextNodes = nextAgentSnapshot.nodes.map(normalizeCanvasNode).filter((node): node is CanvasNodeData => Boolean(node));
-    const nextEdges = nextAgentSnapshot.connections.map(normalizeCanvasEdge).filter((edge): edge is CanvasEdgeData => Boolean(edge));
-    const nextSelected = new Set(nextAgentSnapshot.selectedNodeIds.filter((id) => nextNodes.some((node) => node.id === id)));
+    const generationOps = ops.filter(
+      (op): op is Extract<CanvasAgentOp, { type: "run_generation" }> =>
+        op.type === "run_generation"
+    );
+    const nextAgentSnapshot = applyCanvasAgentOps(
+      before,
+      ops.filter(op => op.type !== "run_generation")
+    );
+    const nextNodes = nextAgentSnapshot.nodes
+      .map(normalizeCanvasNode)
+      .filter((node): node is CanvasNodeData => Boolean(node));
+    const nextEdges = nextAgentSnapshot.connections
+      .map(normalizeCanvasEdge)
+      .filter((edge): edge is CanvasEdgeData => Boolean(edge));
+    const nextSelected = new Set(
+      nextAgentSnapshot.selectedNodeIds.filter(id =>
+        nextNodes.some(node => node.id === id)
+      )
+    );
 
     setAgentUndoSnapshot(before);
     await commitCanvasAgentState({
@@ -3549,43 +5212,93 @@ export default function CanvasWorkspaceViewContent() {
       persistSnapshot,
     });
 
-    if (projectSessionController.canonicalKey !== projectKey || projectSessionController.switching) {
+    if (
+      projectSessionController.canonicalKey !== projectKey ||
+      projectSessionController.switching
+    ) {
       throw new Error("画布已切换，原画布的生成指令未继续");
     }
     const previousNodeIds = new Set(before.nodes.map(node => node.id));
-    const newFlowNodeIds = nextNodes.filter(node => !previousNodeIds.has(node.id)
-      && typeof node.metadata?.agentGenerationFlowId === "string").map(node => node.id);
+    const newFlowNodeIds = nextNodes
+      .filter(
+        node =>
+          !previousNodeIds.has(node.id) &&
+          typeof node.metadata?.agentGenerationFlowId === "string"
+      )
+      .map(node => node.id);
     const stageRect = stageRef.current?.getBoundingClientRect();
     if (newFlowNodeIds.length && stageRect) {
-      const agentRect = stageRef.current?.closest(".canvas-workspace")
-        ?.querySelector(".agent-panel:not(.closing)")?.getBoundingClientRect();
-      const available = { width: agentRect ? Math.max(1, Math.min(stageRect.width, agentRect.left - stageRect.left)) : stageRect.width,
-        height: stageRect.height };
-      const footprint = canvasAgentGenerationFootprint(nextAgentSnapshot.nodes.filter(node => newFlowNodeIds.includes(node.id)));
-      const fitted = fitCanvasViewport(footprint, available, CANVAS_STAGE_OFFSET);
+      const agentRect = stageRef.current
+        ?.closest(".canvas-workspace")
+        ?.querySelector(".agent-panel:not(.closing)")
+        ?.getBoundingClientRect();
+      const available = {
+        width: agentRect
+          ? Math.max(
+              1,
+              Math.min(stageRect.width, agentRect.left - stageRect.left)
+            )
+          : stageRect.width,
+        height: stageRect.height,
+      };
+      const footprint = canvasAgentGenerationFootprint(
+        nextAgentSnapshot.nodes.filter(node => newFlowNodeIds.includes(node.id))
+      );
+      const fitted = fitCanvasViewport(
+        footprint,
+        available,
+        CANVAS_STAGE_OFFSET
+      );
       // Keep the current zoom when it fits, and account for the floating Agent panel.
-      stageInteractionController.applyCanvasViewport(zoomCanvasViewportAtPoint(fitted,
-        { x: available.width / 2, y: (available.height - CANVAS_STAGE_OFFSET) / 2 },
-        Math.min(viewportRef.current.zoom, fitted.zoom)));
+      stageInteractionController.applyCanvasViewport(
+        zoomCanvasViewportAtPoint(
+          fitted,
+          {
+            x: available.width / 2,
+            y: (available.height - CANVAS_STAGE_OFFSET) / 2,
+          },
+          Math.min(viewportRef.current.zoom, fitted.zoom)
+        )
+      );
     }
 
     const generationResults: CanvasAgentGenerationResult[] = [];
     for (const op of generationOps) {
-      const target = nodesRef.current.find((node) => node.id === op.nodeId);
-      const mode = op.mode || (target ? generationModeFromNode(target) : "image");
+      const target = nodesRef.current.find(node => node.id === op.nodeId);
+      const mode =
+        op.mode || (target ? generationModeFromNode(target) : "image");
       if (!target) {
-        generationResults.push({ nodeId: op.nodeId, mode, status: "blocked", outputNodeIds: [], jobIds: [], error: "目标节点不存在" });
+        generationResults.push({
+          nodeId: op.nodeId,
+          mode,
+          status: "blocked",
+          outputNodeIds: [],
+          jobIds: [],
+          error: "目标节点不存在",
+        });
         continue;
       }
       if (op.prompt?.trim()) {
-        const prompted = nodesRef.current.map((node) => node.id === op.nodeId ? updateCanvasNodeComposer(node, op.prompt!.trim()) : node);
+        const prompted = nodesRef.current.map(node =>
+          node.id === op.nodeId
+            ? updateCanvasNodeComposer(node, op.prompt!.trim())
+            : node
+        );
         nodesRef.current = prompted;
         setNodes(prompted);
       }
-      const beforeIds = new Set(nodesRef.current.map((node) => node.id));
-      const settingsIssue = mode === "image" ? canvasImageGenerationSettingsIssue(target) : "";
+      const beforeIds = new Set(nodesRef.current.map(node => node.id));
+      const settingsIssue =
+        mode === "image" ? canvasImageGenerationSettingsIssue(target) : "";
       if (settingsIssue) {
-        generationResults.push({ nodeId: op.nodeId, mode, status: "blocked", outputNodeIds: [], jobIds: [], error: settingsIssue });
+        generationResults.push({
+          nodeId: op.nodeId,
+          mode,
+          status: "blocked",
+          outputNodeIds: [],
+          jobIds: [],
+          error: settingsIssue,
+        });
         continue;
       }
       try {
@@ -3593,18 +5306,40 @@ export default function CanvasWorkspaceViewContent() {
         else if (mode === "image") await generateImageFromNode(op.nodeId);
         else if (mode === "video") await generateVideoFromNode(op.nodeId);
         else await generateAudioFromNode(op.nodeId);
-        const outputNodes = nodesRef.current.filter((node) => !beforeIds.has(node.id) || node.id === op.nodeId && node.metadata?.status === "success");
-        const failed = nodesRef.current.find((node) => node.id === op.nodeId)?.metadata?.status === "error" && !outputNodes.length;
+        const outputNodes = nodesRef.current.filter(
+          node =>
+            !beforeIds.has(node.id) ||
+            (node.id === op.nodeId && node.metadata?.status === "success")
+        );
+        const failed =
+          nodesRef.current.find(node => node.id === op.nodeId)?.metadata
+            ?.status === "error" && !outputNodes.length;
         generationResults.push({
           nodeId: op.nodeId,
           mode,
           status: failed ? "failed" : "succeeded",
-          outputNodeIds: outputNodes.map((node) => node.id),
-          jobIds: outputNodes.map((node) => stringValue(node.metadata?.jobId)).filter(Boolean),
-          error: failed ? canvasImageGenerationError(stringValue(nodesRef.current.find((node) => node.id === op.nodeId)?.metadata?.errorDetails) || "生成失败") : undefined,
+          outputNodeIds: outputNodes.map(node => node.id),
+          jobIds: outputNodes
+            .map(node => stringValue(node.metadata?.jobId))
+            .filter(Boolean),
+          error: failed
+            ? canvasImageGenerationError(
+                stringValue(
+                  nodesRef.current.find(node => node.id === op.nodeId)?.metadata
+                    ?.errorDetails
+                ) || "生成失败"
+              )
+            : undefined,
         });
       } catch (error) {
-        generationResults.push({ nodeId: op.nodeId, mode, status: "failed", outputNodeIds: [], jobIds: [], error: publicApiError(error, "生成失败") });
+        generationResults.push({
+          nodeId: op.nodeId,
+          mode,
+          status: "failed",
+          outputNodeIds: [],
+          jobIds: [],
+          error: publicApiError(error, "生成失败"),
+        });
       }
     }
 
@@ -3615,7 +5350,7 @@ export default function CanvasWorkspaceViewContent() {
         nodesRef.current,
         edgesRef.current,
         selectedNodeIdsRef.current,
-        viewportRef.current,
+        viewportRef.current
       ),
       generationResults,
     };
@@ -3623,9 +5358,17 @@ export default function CanvasWorkspaceViewContent() {
 
   const undoAgentOperations = async () => {
     if (!agentUndoSnapshot) return null;
-    const restoredNodes = agentUndoSnapshot.nodes.map(normalizeCanvasNode).filter((node): node is CanvasNodeData => Boolean(node));
-    const restoredEdges = agentUndoSnapshot.connections.map(normalizeCanvasEdge).filter((edge): edge is CanvasEdgeData => Boolean(edge));
-    const restoredSelection = new Set(agentUndoSnapshot.selectedNodeIds.filter((id) => restoredNodes.some((node) => node.id === id)));
+    const restoredNodes = agentUndoSnapshot.nodes
+      .map(normalizeCanvasNode)
+      .filter((node): node is CanvasNodeData => Boolean(node));
+    const restoredEdges = agentUndoSnapshot.connections
+      .map(normalizeCanvasEdge)
+      .filter((edge): edge is CanvasEdgeData => Boolean(edge));
+    const restoredSelection = new Set(
+      agentUndoSnapshot.selectedNodeIds.filter(id =>
+        restoredNodes.some(node => node.id === id)
+      )
+    );
     const restoredViewport = await commitCanvasAgentState({
       commands: canvasCommands,
       nodes: restoredNodes,
@@ -3642,29 +5385,48 @@ export default function CanvasWorkspaceViewContent() {
       restoredNodes,
       restoredEdges,
       restoredSelection,
-      restoredViewport,
+      restoredViewport
     );
     setAgentUndoSnapshot(null);
     return restored;
   };
 
-  const executeAgentWorkspaceTool = async (name: string, input: Record<string, unknown>) => {
+  const executeAgentWorkspaceTool = async (
+    name: string,
+    input: Record<string, unknown>
+  ) => {
     const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) throw new Error("当前 workspace 尚未确认");
-    const text = (key: string) => typeof input[key] === "string" ? input[key].trim() : "";
-    const texts = (key: string) => Array.isArray(input[key])
-      ? input[key].filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim())
-      : [];
-    const limit = (key: string, fallback: number, maximum: number) => Math.min(maximum, Math.max(1, Math.floor(Number(input[key]) || fallback)));
+    const text = (key: string) =>
+      typeof input[key] === "string" ? input[key].trim() : "";
+    const texts = (key: string) =>
+      Array.isArray(input[key])
+        ? input[key]
+            .filter(
+              (item): item is string =>
+                typeof item === "string" && Boolean(item.trim())
+            )
+            .map(item => item.trim())
+        : [];
+    const limit = (key: string, fallback: number, maximum: number) =>
+      Math.min(
+        maximum,
+        Math.max(1, Math.floor(Number(input[key]) || fallback))
+      );
     if (name === "canvas_search_assets") {
       const assetType = text("assetType");
       const category = text("category");
       const sourceType = text("sourceType");
       const result = await getAssetLibrary(activeScope, {
         keyword: text("keyword") || undefined,
-        type: assetType === "image" || assetType === "video" || assetType === "audio" ? assetType : undefined,
-        category: category ? category as AssetCategory : undefined,
-        sourceType: sourceType ? sourceType as AssetSourceType : undefined,
+        type:
+          assetType === "image" ||
+          assetType === "video" ||
+          assetType === "audio"
+            ? assetType
+            : undefined,
+        category: category ? (category as AssetCategory) : undefined,
+        sourceType: sourceType ? (sourceType as AssetSourceType) : undefined,
         page: 1,
         pageSize: limit("limit", 20, 50),
       });
@@ -3673,20 +5435,44 @@ export default function CanvasWorkspaceViewContent() {
         message: `找到 ${result.total} 个资产，本次返回 ${result.items.length} 个。`,
         data: {
           total: result.total,
-          items: result.items.map((asset) => ({ id: asset.id, type: asset.type, name: asset.name, category: asset.category, tags: asset.tags, sourceType: asset.source_type, createdAt: asset.created_at })),
+          items: result.items.map(asset => ({
+            id: asset.id,
+            type: asset.type,
+            name: asset.name,
+            category: asset.category,
+            tags: asset.tags,
+            sourceType: asset.source_type,
+            createdAt: asset.created_at,
+          })),
         },
       };
     }
     if (name === "canvas_list_jobs") {
       const requestedStatuses = new Set(texts("statuses"));
       const requestedTypes = new Set(texts("types"));
-      const response = await getJobs({ scope: activeScope, limit: limit("limit", 50, 100) });
+      const response = await getJobs({
+        scope: activeScope,
+        limit: limit("limit", 50, 100),
+      });
       const jobs = Array.isArray(response) ? response : response.items;
-      const filtered = jobs.filter((job) => (!requestedStatuses.size || requestedStatuses.has(job.status)) && (!requestedTypes.size || requestedTypes.has(job.type)));
+      const filtered = jobs.filter(
+        job =>
+          (!requestedStatuses.size || requestedStatuses.has(job.status)) &&
+          (!requestedTypes.size || requestedTypes.has(job.type))
+      );
       return {
         ok: true,
         message: `当前 workspace 有 ${filtered.length} 个匹配任务。`,
-        data: filtered.map((job) => ({ id: job.id, type: job.type, status: job.status, progress: job.progress, queuePhase: job.queue_phase, error: job.error, createdAt: job.created_at, updatedAt: job.updated_at })),
+        data: filtered.map(job => ({
+          id: job.id,
+          type: job.type,
+          status: job.status,
+          progress: job.progress,
+          queuePhase: job.queue_phase,
+          error: job.error,
+          createdAt: job.created_at,
+          updatedAt: job.updated_at,
+        })),
       };
     }
     if (name === "canvas_cancel_job") {
@@ -3695,23 +5481,41 @@ export default function CanvasWorkspaceViewContent() {
       const job = await cancelJob(jobId, activeScope);
       return { ok: true, message: `任务 ${jobId} 已取消。`, data: job };
     }
-    if (name !== "canvas_add_assets") throw new Error(`未知 workspace 工具：${name}`);
+    if (name !== "canvas_add_assets")
+      throw new Error(`未知 workspace 工具：${name}`);
 
     const assetIds = Array.from(new Set(texts("assetIds"))).slice(0, 20);
     if (!assetIds.length) throw new Error("assetIds 不能为空");
-    const assets = await Promise.all(assetIds.map((assetId) => getAsset(assetId, activeScope)));
+    const assets = await Promise.all(
+      assetIds.map(assetId => getAsset(assetId, activeScope))
+    );
     const viewport = viewportRef.current;
-    const baseX = Number.isFinite(Number(input.x)) ? Number(input.x) : Math.round((stageBounds.width / 2 - viewport.panX) / Math.max(0.1, viewport.zoom / 100));
-    const baseY = Number.isFinite(Number(input.y)) ? Number(input.y) : Math.round((stageBounds.height / 2 - viewport.panY) / Math.max(0.1, viewport.zoom / 100));
+    const baseX = Number.isFinite(Number(input.x))
+      ? Number(input.x)
+      : Math.round(
+          (stageBounds.width / 2 - viewport.panX) /
+            Math.max(0.1, viewport.zoom / 100)
+        );
+    const baseY = Number.isFinite(Number(input.y))
+      ? Number(input.y)
+      : Math.round(
+          (stageBounds.height / 2 - viewport.panY) /
+            Math.max(0.1, viewport.zoom / 100)
+        );
     const direction = input.direction === "column" ? "column" : "row";
     const gap = Math.max(16, Math.min(240, Number(input.gap) || 48));
     let cursor = 0;
     const addedNodes = assets.map((asset, index) => {
-      const candidate = buildCanvasNodeCandidate(asset.type, {
-        x: baseX + (direction === "row" ? cursor : 0),
-        y: baseY + (direction === "column" ? cursor : 0),
-      }, nodesRef.current.length + index);
-      cursor += (direction === "row" ? candidate.width : candidate.height) + gap;
+      const candidate = buildCanvasNodeCandidate(
+        asset.type,
+        {
+          x: baseX + (direction === "row" ? cursor : 0),
+          y: baseY + (direction === "column" ? cursor : 0),
+        },
+        nodesRef.current.length + index
+      );
+      cursor +=
+        (direction === "row" ? candidate.width : candidate.height) + gap;
       return {
         ...candidate,
         title: asset.name || candidate.title,
@@ -3733,27 +5537,64 @@ export default function CanvasWorkspaceViewContent() {
         },
       };
     });
-    const before = canvasAgentSnapshotFromCanvas(projectId, projectTitle || "未命名画布", nodesRef.current, edgesRef.current, selectedNodeIdsRef.current, viewportRef.current);
+    const before = canvasAgentSnapshotFromCanvas(
+      projectId,
+      projectTitle || "未命名画布",
+      nodesRef.current,
+      edgesRef.current,
+      selectedNodeIdsRef.current,
+      viewportRef.current
+    );
     const nextNodes = [...nodesRef.current, ...addedNodes];
-    const selected = new Set(addedNodes.map((node) => node.id));
+    const selected = new Set(addedNodes.map(node => node.id));
     setAgentUndoSnapshot(before);
     nodesRef.current = nextNodes;
     selectedNodeIdsRef.current = selected;
     setNodes(nextNodes);
     setSelectedNodeIds(selected);
     setSelectedId(addedNodes.at(-1)?.id || "");
-    await persistSnapshot(nextNodes, edgesRef.current, viewport.zoom, { quiet: true, panX: viewport.panX, panY: viewport.panY });
-    return { ok: true, message: `已将 ${addedNodes.length} 个资产添加到画布。`, data: { nodeIds: addedNodes.map((node) => node.id), assetIds } };
+    await persistSnapshot(nextNodes, edgesRef.current, viewport.zoom, {
+      quiet: true,
+      panX: viewport.panX,
+      panY: viewport.panY,
+    });
+    return {
+      ok: true,
+      message: `已将 ${addedNodes.length} 个资产添加到画布。`,
+      data: { nodeIds: addedNodes.map(node => node.id), assetIds },
+    };
   };
 
-  const buildExternalTextNode = (title: string, text: string): CanvasNodeData => {
+  const buildExternalTextNode = (
+    title: string,
+    text: string
+  ): CanvasNodeData => {
     const created = buildCanvasNodeCandidate("text");
-    return { ...created, title, content: text, metadata: { ...created.metadata, content: text, prompt: text, composerContent: text } };
+    return {
+      ...created,
+      title,
+      content: text,
+      metadata: {
+        ...created.metadata,
+        content: text,
+        prompt: text,
+        composerContent: text,
+      },
+    };
   };
 
   /** Text from outside the canvas (pasted or dropped) becomes one text node centered on `anchor`. */
-  const addExternalTextNode = (title: string, text: string, anchor: { x: number; y: number }, message: string) => {
-    const [nextNode] = placeCanvasNodesAround([buildExternalTextNode(title, text)], anchor, visibleCanvasRect());
+  const addExternalTextNode = (
+    title: string,
+    text: string,
+    anchor: { x: number; y: number },
+    message: string
+  ) => {
+    const [nextNode] = placeCanvasNodesAround(
+      [buildExternalTextNode(title, text)],
+      anchor,
+      visibleCanvasRect()
+    );
     const nextNodes = [...nodesRef.current, nextNode];
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
@@ -3765,16 +5606,30 @@ export default function CanvasWorkspaceViewContent() {
   };
 
   /** Media is uploaded to the asset library; text files are read into text nodes and stay on the canvas. */
-  const uploadFilesAsNodes = async (files: FileList | File[], dropPosition?: { x: number; y: number }, ingestion = "drag_or_upload") => {
-    const list = Array.from(files).filter(file => isCanvasTextFile(file) || isCanvasImportCandidate(file));
-    if (!list.length || projectSessionController.switching || projectSessionController.loading) return;
+  const uploadFilesAsNodes = async (
+    files: FileList | File[],
+    dropPosition?: { x: number; y: number },
+    ingestion = "drag_or_upload"
+  ) => {
+    const list = Array.from(files).filter(
+      file => isCanvasTextFile(file) || isCanvasImportCandidate(file)
+    );
+    if (
+      !list.length ||
+      projectSessionController.switching ||
+      projectSessionController.loading
+    )
+      return;
     if (uploadingRef.current) {
       toast.info("素材正在导入，请完成后再粘贴或上传");
       return;
     }
     const activeScope = projectSessionController.canonicalScope;
     const projectKey = projectSessionController.canonicalKey;
-    const isCurrentProject = () => workspaceMountedRef.current && !projectSessionController.switching && projectSessionController.canonicalKey === projectKey;
+    const isCurrentProject = () =>
+      workspaceMountedRef.current &&
+      !projectSessionController.switching &&
+      projectSessionController.canonicalKey === projectKey;
     if (!activeScope) {
       toast.warning("正在确认项目工作区，暂不能上传画布素材");
       return;
@@ -3793,25 +5648,38 @@ export default function CanvasWorkspaceViewContent() {
             createdNodes.push(buildExternalTextNode(original.name, text));
           } catch (error) {
             failed += 1;
-            if (isCurrentProject()) toast.error(`${original.name}：${publicApiError(error, "读取文本文件失败")}`);
+            if (isCurrentProject())
+              toast.error(
+                `${original.name}：${publicApiError(error, "读取文本文件失败")}`
+              );
           }
           continue;
         }
         const labelledKind = assetKindFromFile(original);
-        const kind = labelledKind === "video" || labelledKind === "audio" ? labelledKind : "image";
+        const kind =
+          labelledKind === "video" || labelledKind === "audio"
+            ? labelledKind
+            : "image";
         try {
-          const image = kind === "image" ? await prepareCanvasImportImage(original) : null;
+          const image =
+            kind === "image" ? await prepareCanvasImportImage(original) : null;
           if (!isCurrentProject()) return;
           const file = image?.file || original;
-          const asset = await uploadAsset(file, {
-            type: kind,
-            name: file.name,
-            category: "reference",
-            source_type: "canvas",
-            source_project_id: projectId,
-            source_project_name: projectTitle,
-            source_metadata: JSON.stringify({ canvas_node_ingestion: ingestion }),
-          }, activeScope);
+          const asset = await uploadAsset(
+            file,
+            {
+              type: kind,
+              name: file.name,
+              category: "reference",
+              source_type: "canvas",
+              source_project_id: projectId,
+              source_project_name: projectTitle,
+              source_metadata: JSON.stringify({
+                canvas_node_ingestion: ingestion,
+              }),
+            },
+            activeScope
+          );
           if (!isCurrentProject()) {
             toast.info("画布已切换，已上传素材保留在原工作区资产库");
             return;
@@ -3836,39 +5704,71 @@ export default function CanvasWorkspaceViewContent() {
               mimeType: asset.content_type || file.type,
               bytes: asset.size || file.size,
               canvasOrigin: "imported",
-              ...(image ? { naturalWidth: image.width, naturalHeight: image.height } : {}),
+              ...(image
+                ? { naturalWidth: image.width, naturalHeight: image.height }
+                : {}),
             },
           });
         } catch (error) {
           failed += 1;
-          if (isCurrentProject()) toast.error(`${original.name || "粘贴的图片"}：${publicApiError(error, "导入素材失败")}`);
+          if (isCurrentProject())
+            toast.error(
+              `${original.name || "粘贴的图片"}：${publicApiError(error, "导入素材失败")}`
+            );
         }
       }
       if (!createdNodes.length || !isCurrentProject()) return;
       const baseNodes = nodesRef.current;
-      const nextNodes = [...baseNodes, ...placeCanvasNodesAround(createdNodes, dropPosition || getCanvasCenter(), visibleCanvasRect())];
+      const nextNodes = [
+        ...baseNodes,
+        ...placeCanvasNodesAround(
+          createdNodes,
+          dropPosition || getCanvasCenter(),
+          visibleCanvasRect()
+        ),
+      ];
       nodesRef.current = nextNodes;
       setNodes(nextNodes);
       const nextSelectedId = createdNodes.at(-1)?.id || selectedId;
-      applyNodeSelection(nextSelectedId ? [nextSelectedId] : [], nextSelectedId, Boolean(nextSelectedId));
-      const saved = await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom);
+      applyNodeSelection(
+        nextSelectedId ? [nextSelectedId] : [],
+        nextSelectedId,
+        Boolean(nextSelectedId)
+      );
+      const saved = await persistSnapshot(
+        nextNodes,
+        edgesRef.current,
+        viewportRef.current.zoom
+      );
       if (saved && isCurrentProject()) {
-        if (failed) toast.warning(`已添加 ${createdNodes.length} 个素材节点，${failed} 个导入失败`);
+        if (failed)
+          toast.warning(
+            `已添加 ${createdNodes.length} 个素材节点，${failed} 个导入失败`
+          );
         else toast.success(`已添加 ${createdNodes.length} 个素材节点`);
       }
     } catch (error) {
-      if (isCurrentProject()) toast.error(publicApiError(error, "上传媒体到画布失败"));
+      if (isCurrentProject())
+        toast.error(publicApiError(error, "上传媒体到画布失败"));
     } finally {
       uploadingRef.current = false;
       if (workspaceMountedRef.current) setUploading(false);
     }
   };
 
-  const pasteClipboardContent = ({ files, text }: CanvasClipboardContent): boolean => {
+  const pasteClipboardContent = ({
+    files,
+    text,
+  }: CanvasClipboardContent): boolean => {
     if (projectActionDisabled) return false;
     if (files.length) {
-      const media = files.filter(file => file.size > 0 && (isCanvasTextFile(file) || isCanvasImportCandidate(file)));
-      if (!media.length) toast.warning("剪贴板中没有可导入的图片、视频、音频或文本文件");
+      const media = files.filter(
+        file =>
+          file.size > 0 &&
+          (isCanvasTextFile(file) || isCanvasImportCandidate(file))
+      );
+      if (!media.length)
+        toast.warning("剪贴板中没有可导入的图片、视频、音频或文本文件");
       else {
         if (media.length !== files.length) toast.warning("不支持的文件已跳过");
         void uploadFilesAsNodes(media, getCanvasCenter(), "paste");
@@ -3885,14 +5785,18 @@ export default function CanvasWorkspaceViewContent() {
     return true;
   };
 
-  const dropOnCanvas = (data: DataTransfer, position: { x: number; y: number }) => {
+  const dropOnCanvas = (
+    data: DataTransfer,
+    position: { x: number; y: number }
+  ) => {
     if (projectActionDisabled) return;
     if (data.files.length) {
       void uploadFilesAsNodes(data.files, position);
       return;
     }
     const text = droppedCanvasText(data);
-    if (text.trim()) addExternalTextNode("拖入文本", text, position, "已添加文本节点");
+    if (text.trim())
+      addExternalTextNode("拖入文本", text, position, "已添加文本节点");
   };
 
   const pasteSystemClipboard = async () => {
@@ -3900,17 +5804,32 @@ export default function CanvasWorkspaceViewContent() {
     const projectKey = projectSessionController.canonicalKey;
     try {
       const content = await readSystemCanvasClipboard();
-      if (!workspaceMountedRef.current || projectSessionController.switching || projectSessionController.canonicalKey !== projectKey) return;
-      if (!pasteClipboardContent(content)) toast.info("剪贴板中没有可粘贴的内容");
+      if (
+        !workspaceMountedRef.current ||
+        projectSessionController.switching ||
+        projectSessionController.canonicalKey !== projectKey
+      )
+        return;
+      if (!pasteClipboardContent(content))
+        toast.info("剪贴板中没有可粘贴的内容");
     } catch {
-      if (workspaceMountedRef.current && projectSessionController.canonicalKey === projectKey) {
-        toast.warning("无法读取剪贴板，请在画布空白处按 Ctrl+V / Cmd+V 粘贴，或允许剪贴板访问");
+      if (
+        workspaceMountedRef.current &&
+        projectSessionController.canonicalKey === projectKey
+      ) {
+        toast.warning(
+          "无法读取剪贴板，请在画布空白处按 Ctrl+V / Cmd+V 粘贴，或允许剪贴板访问"
+        );
       }
     }
   };
 
   const duplicateSelectedNode = async (targetId?: string) => {
-    const source = targetId ? nodesRef.current.find((node) => node.id === targetId) : selectedNode ? nodesRef.current.find((node) => node.id === selectedNode.id) : null;
+    const source = targetId
+      ? nodesRef.current.find(node => node.id === targetId)
+      : selectedNode
+        ? nodesRef.current.find(node => node.id === selectedNode.id)
+        : null;
     if (!source) return;
     const createdId = crypto.randomUUID();
     const duplicate = duplicateCanvasNode(source, createdId);
@@ -3918,56 +5837,109 @@ export default function CanvasWorkspaceViewContent() {
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
     applyNodeSelection([createdId], createdId, true);
-    await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom);
+    await persistSnapshot(
+      nextNodes,
+      edgesRef.current,
+      viewportRef.current.zoom
+    );
     toast.success("节点已复制为独立节点，不继承连线");
   };
 
-
-  const prepareCanvasFragmentNodes = async (selectedIds: ReadonlySet<string>, activeScope: WorkspaceScope) => {
+  const prepareCanvasFragmentNodes = async (
+    selectedIds: ReadonlySet<string>,
+    activeScope: WorkspaceScope
+  ) => {
     let nextNodes = nodesRef.current;
     let changed = false;
-    for (const sourceNode of nextNodes.filter((node) => selectedIds.has(node.id))) {
-      if (sourceNode.kind !== "image" && sourceNode.kind !== "video" && sourceNode.kind !== "audio") continue;
+    for (const sourceNode of nextNodes.filter(node =>
+      selectedIds.has(node.id)
+    )) {
+      if (
+        sourceNode.kind !== "image" &&
+        sourceNode.kind !== "video" &&
+        sourceNode.kind !== "audio"
+      )
+        continue;
       const kind = mediaKindFromNode(sourceNode);
       if (assetIdFromNode(sourceNode)) continue;
-      const source = sourceNode.imageSrc || stringValue(sourceNode.metadata?.content) || sourceNode.content;
-      if (!isReadableMediaSource(source)) throw new Error(`节点“${sourceNode.title}”的媒体无法读取，不能导出选区包`);
+      const source =
+        sourceNode.imageSrc ||
+        stringValue(sourceNode.metadata?.content) ||
+        sourceNode.content;
+      if (!isReadableMediaSource(source))
+        throw new Error(
+          `节点“${sourceNode.title}”的媒体无法读取，不能导出选区包`
+        );
       const response = await fetch(source);
-      if (!response.ok) throw new Error(`节点“${sourceNode.title}”的媒体读取失败（${response.status}）`);
+      if (!response.ok)
+        throw new Error(
+          `节点“${sourceNode.title}”的媒体读取失败（${response.status}）`
+        );
       const blob = await response.blob();
-      const contentType = blob.type || sourceNode.metadata?.mimeType || fragmentMediaMimeType(kind);
-      const file = new File([blob], fragmentMediaFileName(sourceNode.title || sourceNode.id, kind, contentType), { type: contentType });
-      const asset = await uploadAsset(file, {
-        type: kind,
-        name: file.name,
-        category: "reference",
-        source_type: "canvas",
-        source_project_id: projectId,
-        source_project_name: projectTitle,
-        source_metadata: JSON.stringify({ canvas_node_id: sourceNode.id, canvas_fragment_export: true }),
-      }, activeScope);
-      nextNodes = nextNodes.map((node) => node.id === sourceNode.id ? {
-        ...node,
-        content: looksLikeImageSource(node.content) || isReadableMediaSource(node.content) ? "" : node.content,
-        imageAssetId: asset.id,
-        imageSrc: undefined,
-        metadata: {
-          ...node.metadata,
-          assetId: asset.id,
-          assetScope: activeScope,
-          content: "",
-          mimeType: asset.content_type || contentType,
-          bytes: asset.size || blob.size,
+      const contentType =
+        blob.type ||
+        sourceNode.metadata?.mimeType ||
+        fragmentMediaMimeType(kind);
+      const file = new File(
+        [blob],
+        fragmentMediaFileName(
+          sourceNode.title || sourceNode.id,
+          kind,
+          contentType
+        ),
+        { type: contentType }
+      );
+      const asset = await uploadAsset(
+        file,
+        {
+          type: kind,
+          name: file.name,
+          category: "reference",
+          source_type: "canvas",
+          source_project_id: projectId,
+          source_project_name: projectTitle,
+          source_metadata: JSON.stringify({
+            canvas_node_id: sourceNode.id,
+            canvas_fragment_export: true,
+          }),
         },
-      } : node);
+        activeScope
+      );
+      nextNodes = nextNodes.map(node =>
+        node.id === sourceNode.id
+          ? {
+              ...node,
+              content:
+                looksLikeImageSource(node.content) ||
+                isReadableMediaSource(node.content)
+                  ? ""
+                  : node.content,
+              imageAssetId: asset.id,
+              imageSrc: undefined,
+              metadata: {
+                ...node.metadata,
+                assetId: asset.id,
+                assetScope: activeScope,
+                content: "",
+                mimeType: asset.content_type || contentType,
+                bytes: asset.size || blob.size,
+              },
+            }
+          : node
+      );
       changed = true;
     }
     if (changed) {
       nodesRef.current = nextNodes;
       setNodes(nextNodes);
-      await persistSnapshot(nextNodes, edgesRef.current, viewportRef.current.zoom, { quiet: true });
+      await persistSnapshot(
+        nextNodes,
+        edgesRef.current,
+        viewportRef.current.zoom,
+        { quiet: true }
+      );
     }
-    return nextNodes.filter((node) => selectedIds.has(node.id));
+    return nextNodes.filter(node => selectedIds.has(node.id));
   };
 
   const exportSelectedCanvasFragment = async () => {
@@ -3975,10 +5947,14 @@ export default function CanvasWorkspaceViewContent() {
     const selectedIds = new Set(selectedNodeIdsRef.current);
     if (!selectedIds.size) return toast.info("请先选择要导出的节点");
     const activeScope = projectSessionController.canonicalScope;
-    if (!activeScope) return toast.warning("正在确认项目工作区，暂不能导出选区包");
+    if (!activeScope)
+      return toast.warning("正在确认项目工作区，暂不能导出选区包");
     setFragmentBusy(true);
     try {
-      const selectedNodes = await prepareCanvasFragmentNodes(selectedIds, activeScope);
+      const selectedNodes = await prepareCanvasFragmentNodes(
+        selectedIds,
+        activeScope
+      );
       const fragment = buildCanvasFragmentPackage({
         nodes: selectedNodes,
         edges: edgesRef.current,
@@ -3988,15 +5964,24 @@ export default function CanvasWorkspaceViewContent() {
         projectTitle,
         scope: activeScope,
       });
-      const batch = await createAssetExport({
-        selection_mode: "selected",
-        asset_ids: canvasFragmentAssetIds(fragment.nodes),
-        canvas_fragment: serializeCanvasFragmentPackage(fragment) as unknown as Record<string, unknown>,
-      }, activeScope);
+      const batch = await createAssetExport(
+        {
+          selection_mode: "selected",
+          asset_ids: canvasFragmentAssetIds(fragment.nodes),
+          canvas_fragment: serializeCanvasFragmentPackage(
+            fragment
+          ) as unknown as Record<string, unknown>,
+        },
+        activeScope
+      );
       toast.message(`选区包任务已创建：${batch.id.slice(-8)}，正在归集媒体...`);
       const ready = await waitForAssetExportReady(batch.id, activeScope);
       await startAssetExportDownload(ready.id, activeScope);
-      toast.success(ready.status === "partial_failed" ? "选区包已下载，部分媒体失败请查看 manifest" : "画布选区包已下载");
+      toast.success(
+        ready.status === "partial_failed"
+          ? "选区包已下载，部分媒体失败请查看 manifest"
+          : "画布选区包已下载"
+      );
     } catch (error) {
       toast.error(publicApiError(error, "导出画布选区包失败"));
     } finally {
@@ -4007,7 +5992,8 @@ export default function CanvasWorkspaceViewContent() {
   const importCanvasFragment = async (file?: File) => {
     if (!file || fragmentBusy) return;
     const activeScope = projectSessionController.canonicalScope;
-    if (!activeScope) return toast.warning("正在确认项目工作区，暂不能导入选区包");
+    if (!activeScope)
+      return toast.warning("正在确认项目工作区，暂不能导入选区包");
     setFragmentBusy(true);
     try {
       const zip = await readZip(file);
@@ -4015,11 +6001,17 @@ export default function CanvasWorkspaceViewContent() {
       if (!fragmentFile) throw new Error("压缩包缺少 canvas-fragment.json");
       const fragment = parseCanvasFragmentPackage(
         JSON.parse(await fragmentFile.text()),
-        () => crypto.randomUUID(),
+        () => crypto.randomUUID()
       );
       const manifestFile = zip.get("manifest.json");
-      const manifestPayload = manifestFile ? JSON.parse(await manifestFile.text()) as { assets?: CanvasFragmentManifestRow[] } : { assets: [] };
-      const manifestById = new Map((manifestPayload.assets || []).map((row) => [row.asset_id, row]));
+      const manifestPayload = manifestFile
+        ? (JSON.parse(await manifestFile.text()) as {
+            assets?: CanvasFragmentManifestRow[];
+          })
+        : { assets: [] };
+      const manifestById = new Map(
+        (manifestPayload.assets || []).map(row => [row.asset_id, row])
+      );
       const assets = new Map<string, Asset>();
       for (const oldAssetId of canvasFragmentAssetIds(fragment.nodes)) {
         try {
@@ -4027,9 +6019,13 @@ export default function CanvasWorkspaceViewContent() {
           continue;
         } catch {
           const row = manifestById.get(oldAssetId);
-          const archived = row?.archive_path ? zip.get(row.archive_path) : undefined;
-          if (!row || !archived) throw new Error(`资产 ${oldAssetId} 无法复用，且 ZIP 中缺少媒体`);
-          const contentType = row.content_type || archived.type || "application/octet-stream";
+          const archived = row?.archive_path
+            ? zip.get(row.archive_path)
+            : undefined;
+          if (!row || !archived)
+            throw new Error(`资产 ${oldAssetId} 无法复用，且 ZIP 中缺少媒体`);
+          const contentType =
+            row.content_type || archived.type || "application/octet-stream";
           const file = new File([archived], row.name, { type: contentType });
           const metadata: Record<string, string> = {
             type: row.type,
@@ -4037,40 +6033,69 @@ export default function CanvasWorkspaceViewContent() {
             source_type: "canvas",
             source_project_id: projectId,
             source_project_name: projectTitle,
-            source_metadata: JSON.stringify({ imported_asset_id: oldAssetId, canvas_fragment_import: true }),
+            source_metadata: JSON.stringify({
+              imported_asset_id: oldAssetId,
+              canvas_fragment_import: true,
+            }),
           };
           if (row.category) metadata.category = row.category;
           if (row.tags?.length) metadata.tag_ids = row.tags.join(",");
-          assets.set(oldAssetId, await uploadAsset(file, metadata, activeScope));
+          assets.set(
+            oldAssetId,
+            await uploadAsset(file, metadata, activeScope)
+          );
         }
       }
       const stage = stageRef.current?.getBoundingClientRect();
       const center = stage
-        ? screenToCanvasPoint(stage.left + stage.width / 2, stage.top + stage.height / 2)
+        ? screenToCanvasPoint(
+            stage.left + stage.width / 2,
+            stage.top + stage.height / 2
+          )
         : { x: 0, y: 0 };
       const imported = importCanvasFragmentPackage({
         fragment,
         assets,
         scope: activeScope,
         center,
-        createId: (kind, index) => `${kind}-${Date.now()}-${index}-${crypto.randomUUID().slice(0, 6)}`,
-        createEdgeId: (index) => `edge-${Date.now()}-${index}-${crypto.randomUUID().slice(0, 6)}`,
-        createGroupId: (index) => `group-${Date.now()}-${index}-${crypto.randomUUID().slice(0, 6)}`,
+        createId: (kind, index) =>
+          `${kind}-${Date.now()}-${index}-${crypto.randomUUID().slice(0, 6)}`,
+        createEdgeId: index =>
+          `edge-${Date.now()}-${index}-${crypto.randomUUID().slice(0, 6)}`,
+        createGroupId: index =>
+          `group-${Date.now()}-${index}-${crypto.randomUUID().slice(0, 6)}`,
         createDirectorInstanceId: () => `director-${crypto.randomUUID()}`,
       });
-      const nextNodes = [...nodesRef.current, ...imported.nodes as CanvasNodeData[]];
-      const nextEdges = [...edgesRef.current, ...imported.connections as CanvasEdgeData[]];
-      const nextGroups = normalizeCanvasGroups([...groupsRef.current, ...imported.groups], nextNodes);
+      const nextNodes = [
+        ...nodesRef.current,
+        ...(imported.nodes as CanvasNodeData[]),
+      ];
+      const nextEdges = [
+        ...edgesRef.current,
+        ...(imported.connections as CanvasEdgeData[]),
+      ];
+      const nextGroups = normalizeCanvasGroups(
+        [...groupsRef.current, ...imported.groups],
+        nextNodes
+      );
       nodesRef.current = nextNodes;
       edgesRef.current = nextEdges;
       groupsRef.current = nextGroups;
       setNodes(nextNodes);
       setEdges(nextEdges);
       setGroups(nextGroups);
-      applyNodeSelection(imported.nodes.map((node) => node.id), imported.nodes[0]?.id || "", true);
-      await persistSnapshot(nextNodes, nextEdges, viewportRef.current.zoom, { quiet: true });
+      applyNodeSelection(
+        imported.nodes.map(node => node.id),
+        imported.nodes[0]?.id || "",
+        true
+      );
+      await persistSnapshot(nextNodes, nextEdges, viewportRef.current.zoom, {
+        quiet: true,
+      });
       const omitted = fragment.omitted_external_connections.length;
-      toast.success(`已导入 ${imported.nodes.length} 个节点和 ${imported.connections.length} 条内部连线${omitted ? `；${omitted} 条外部断边未恢复` : ""}`);
+      toast.success(
+        `已导入 ${imported.nodes.length} 个节点和 ${imported.connections.length} 条内部连线${omitted ? `；${omitted} 条外部断边未恢复` : ""}`
+      );
     } catch (error) {
       toast.error(publicApiError(error, "导入画布选区包失败"));
     } finally {
@@ -4082,16 +6107,28 @@ export default function CanvasWorkspaceViewContent() {
   const buildCanvasProjectArchiveItem = async (
     project: CanvasProject,
     projectScope: WorkspaceScope,
-    snapshot: Record<string, unknown>,
-  ): Promise<{ item: CanvasProjectArchiveItem; zipFiles: Array<{ name: string; data: BlobPart }> }> => {
+    snapshot: Record<string, unknown>
+  ): Promise<{
+    item: CanvasProjectArchiveItem;
+    zipFiles: Array<{ name: string; data: BlobPart }>;
+  }> => {
     const archiveFiles: CanvasProjectArchiveAsset[] = [];
     const zipFiles: Array<{ name: string; data: BlobPart }> = [];
     const storageKeysByAssetId = new Map<string, string>();
-    const assetReferences = collectCanvasArchiveAssetReferences(snapshot, projectScope);
-    for (const [assetId, sourceScope] of Array.from(assetReferences.entries())) {
+    const assetReferences = collectCanvasArchiveAssetReferences(
+      snapshot,
+      projectScope
+    );
+    for (const [assetId, sourceScope] of Array.from(
+      assetReferences.entries()
+    )) {
       const asset = await getAsset(assetId, sourceScope);
       const blob = await getAssetContentBlob(asset.id, sourceScope);
-      const storageKey = canvasArchiveStorageKey(sourceScope, asset.type, asset.id);
+      const storageKey = canvasArchiveStorageKey(
+        sourceScope,
+        asset.type,
+        asset.id
+      );
       const fileName = canvasArchiveMediaFileName(asset);
       const path = `projects/${safeArchiveSegment(project.id)}/files/${safeArchiveSegment(asset.id.slice(-12))}-${fileName}`;
       storageKeysByAssetId.set(asset.id, storageKey);
@@ -4124,7 +6161,8 @@ export default function CanvasWorkspaceViewContent() {
     if (!projectId || projectArchiveBusy) return;
     const activeScope = projectSessionController.canonicalScope;
     const snapshotBase = autosaveController.snapshotBase;
-    if (!activeScope || !snapshotBase) return toast.warning("正在确认完整画布快照，暂不能导出项目包");
+    if (!activeScope || !snapshotBase)
+      return toast.warning("正在确认完整画布快照，暂不能导出项目包");
     setProjectArchiveBusy(true);
     try {
       const viewport = viewportRef.current;
@@ -4137,15 +6175,21 @@ export default function CanvasWorkspaceViewContent() {
         viewport.panY,
         groupsRef.current,
         backgroundMode,
-        showImageInfo,
+        showImageInfo
       );
-      const currentProject = projects.find((project) => project.id === projectId) || {
+      const currentProject = projects.find(
+        project => project.id === projectId
+      ) || {
         id: projectId,
         title: projectTitle || "未命名画布",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      const result = await buildCanvasProjectArchiveItem(currentProject, activeScope, snapshot);
+      const result = await buildCanvasProjectArchiveItem(
+        currentProject,
+        activeScope,
+        snapshot
+      );
       const archive = {
         app: "infinite-canvas" as const,
         version: 3 as const,
@@ -4156,8 +6200,13 @@ export default function CanvasWorkspaceViewContent() {
         { name: "projects.json", data: JSON.stringify(archive, null, 2) },
         ...result.zipFiles,
       ]);
-      downloadBlob(zip, `${safeArchiveSegment(projectTitle || "分镜画布")}.zip`);
-      toast.success(`完整项目包已导出，包含 ${result.item.files.length} 个媒体文件`);
+      downloadBlob(
+        zip,
+        `${safeArchiveSegment(projectTitle || "分镜画布")}.zip`
+      );
+      toast.success(
+        `完整项目包已导出，包含 ${result.item.files.length} 个媒体文件`
+      );
     } catch (error) {
       toast.error(publicApiError(error, "导出完整画布项目失败"));
     } finally {
@@ -4167,7 +6216,11 @@ export default function CanvasWorkspaceViewContent() {
 
   const exportSelectedCanvasProjects = async () => {
     if (projectBatchBusy || projectArchiveBusy) return;
-    const selected = projects.filter((project) => selectedProjectIds.has(project.id) && projectScopeFromServer(project, scope) === scope);
+    const selected = projects.filter(
+      project =>
+        selectedProjectIds.has(project.id) &&
+        projectScopeFromServer(project, scope) === scope
+    );
     if (!selected.length) return toast.info("请先选择要导出的画布");
     setProjectBatchBusy(true);
     try {
@@ -4176,7 +6229,9 @@ export default function CanvasWorkspaceViewContent() {
       for (const project of selected) {
         let snapshot: CanvasSnapshotBase | null = null;
         try {
-          snapshot = extractServerCanvasSnapshotData(await getProjectSnapshot(project.id, scope));
+          snapshot = extractServerCanvasSnapshotData(
+            await getProjectSnapshot(project.id, scope)
+          );
         } catch {
           snapshot = null;
         }
@@ -4184,8 +6239,15 @@ export default function CanvasWorkspaceViewContent() {
           const fullProject = await getProject(project.id, scope);
           snapshot = extractProjectCanvasData(fullProject.data);
         }
-        if (!snapshot) throw new Error(`画布“${project.title || project.id}”没有可安全导出的完整快照`);
-        const result = await buildCanvasProjectArchiveItem(project, scope, snapshot);
+        if (!snapshot)
+          throw new Error(
+            `画布“${project.title || project.id}”没有可安全导出的完整快照`
+          );
+        const result = await buildCanvasProjectArchiveItem(
+          project,
+          scope,
+          snapshot
+        );
         archiveItems.push(result.item);
         zipFiles.push(...result.zipFiles);
       }
@@ -4200,7 +6262,9 @@ export default function CanvasWorkspaceViewContent() {
         ...zipFiles,
       ]);
       downloadBlob(zip, `分镜画布-${archiveItems.length}个项目.zip`);
-      toast.success(`已导出 ${archiveItems.length} 个画布和 ${zipFiles.length} 个媒体文件`);
+      toast.success(
+        `已导出 ${archiveItems.length} 个画布和 ${zipFiles.length} 个媒体文件`
+      );
     } catch (error) {
       toast.error(publicApiError(error, "批量导出画布失败"));
     } finally {
@@ -4210,34 +6274,55 @@ export default function CanvasWorkspaceViewContent() {
 
   const importCanvasProjectArchive = async (file?: File) => {
     if (!file || projectArchiveBusy) return;
-    const targetScope = projectId ? projectSessionController.canonicalScope : scope;
-    if (!targetScope) return toast.warning("正在确认工作区，暂不能导入画布项目包");
+    const targetScope = projectId
+      ? projectSessionController.canonicalScope
+      : scope;
+    if (!targetScope)
+      return toast.warning("正在确认工作区，暂不能导入画布项目包");
     let importedCount = 0;
     setProjectArchiveBusy(true);
     try {
       const zip = await readZip(file);
       const projectsFile = zip.get("projects.json");
       if (!projectsFile) throw new Error("压缩包缺少 projects.json");
-      const archive = parseCanvasProjectArchive(JSON.parse(await projectsFile.text()));
+      const archive = parseCanvasProjectArchive(
+        JSON.parse(await projectsFile.text())
+      );
       if (!archive.projects.length) throw new Error("画布项目包中没有项目");
       const createdProjects: CanvasProject[] = [];
       for (const item of archive.projects) {
-        const uploadedByReference = new Map<string, CanvasArchiveUploadedAsset>();
+        const uploadedByReference = new Map<
+          string,
+          CanvasArchiveUploadedAsset
+        >();
         for (const archiveFile of item.files) {
           const sourceBlob = zip.get(archiveFile.path);
-          if (!sourceBlob) throw new Error(`压缩包缺少媒体文件：${archiveFile.path}`);
+          if (!sourceBlob)
+            throw new Error(`压缩包缺少媒体文件：${archiveFile.path}`);
           if (archiveFile.bytes > 0 && sourceBlob.size !== archiveFile.bytes) {
             throw new Error(`媒体文件大小校验失败：${archiveFile.path}`);
           }
-          const mimeType = archiveFile.mimeType || sourceBlob.type || "application/octet-stream";
-          const fileName = archiveFile.path.split("/").pop() || "canvas-asset.bin";
-          const uploaded = await uploadAsset(new File([sourceBlob], fileName, { type: mimeType }), {
-            type: canvasArchiveMediaKind(mimeType),
-            name: fileName,
-            source_type: "canvas",
-            source_project_name: item.project.title,
-          }, targetScope);
-          const mapped = { id: uploaded.id, mimeType: uploaded.content_type || mimeType, kind: uploaded.type };
+          const mimeType =
+            archiveFile.mimeType ||
+            sourceBlob.type ||
+            "application/octet-stream";
+          const fileName =
+            archiveFile.path.split("/").pop() || "canvas-asset.bin";
+          const uploaded = await uploadAsset(
+            new File([sourceBlob], fileName, { type: mimeType }),
+            {
+              type: canvasArchiveMediaKind(mimeType),
+              name: fileName,
+              source_type: "canvas",
+              source_project_name: item.project.title,
+            },
+            targetScope
+          );
+          const mapped = {
+            id: uploaded.id,
+            mimeType: uploaded.content_type || mimeType,
+            kind: uploaded.type,
+          };
           uploadedByReference.set(archiveFile.storageKey, mapped);
           const originalAssetId = canvasArchiveAssetId(archiveFile.storageKey);
           if (originalAssetId) uploadedByReference.set(originalAssetId, mapped);
@@ -4245,7 +6330,7 @@ export default function CanvasWorkspaceViewContent() {
         const snapshot = remapCanvasArchiveSnapshotAssets(
           canvasArchiveProjectSnapshot(item.project),
           uploadedByReference,
-          targetScope,
+          targetScope
         );
         const created = await createProject({
           scope: targetScope,
@@ -4256,20 +6341,29 @@ export default function CanvasWorkspaceViewContent() {
         createdProjects.push(created);
         importedCount += 1;
       }
-      setProjects((items) => [...createdProjects, ...items]);
+      setProjects(items => [...createdProjects, ...items]);
       toast.success(`已导入 ${importedCount} 个完整画布项目`);
     } catch (error) {
       const detail = publicApiError(error, "导入完整画布项目失败");
-      toast.error(importedCount ? `已导入 ${importedCount} 个项目，后续导入失败：${detail}` : detail);
+      toast.error(
+        importedCount
+          ? `已导入 ${importedCount} 个项目，后续导入失败：${detail}`
+          : detail
+      );
     } finally {
       setProjectArchiveBusy(false);
-      if (projectArchiveInputRef.current) projectArchiveInputRef.current.value = "";
+      if (projectArchiveInputRef.current)
+        projectArchiveInputRef.current.value = "";
     }
   };
 
   const exportImageNodes = async () => {
     if (exporting) return;
-    const images = nodesRef.current.filter(node => node.kind === "image" && (assetIdFromNode(node) || imageSrcFromNode(node, {})));
+    const images = nodesRef.current.filter(
+      node =>
+        node.kind === "image" &&
+        (assetIdFromNode(node) || imageSrcFromNode(node, {}))
+    );
     if (!images.length) return toast.info("当前画布没有可导出的图片节点");
     const activeScope = projectSessionController.canonicalScope;
     if (!activeScope) {
@@ -4280,9 +6374,20 @@ export default function CanvasWorkspaceViewContent() {
     try {
       // Export node instances, not deduplicated asset IDs: copied nodes may
       // share a source file but have distinct, fully numbered names.
-      const result = await createCanvasSelectionDownload(images, new Set(images.map(node => node.id)), activeScope, () => {});
-      downloadBlob(result.blob, `${safeArchiveSegment(projectTitle || "画布")}-图片.zip`);
-      if (result.failures.length) toast.warning(`已导出 ${result.completed} 张图片；部分文件失败，详情见包内说明`);
+      const result = await createCanvasSelectionDownload(
+        images,
+        new Set(images.map(node => node.id)),
+        activeScope,
+        () => {}
+      );
+      downloadBlob(
+        result.blob,
+        `${safeArchiveSegment(projectTitle || "画布")}-图片.zip`
+      );
+      if (result.failures.length)
+        toast.warning(
+          `已导出 ${result.completed} 张图片；部分文件失败，详情见包内说明`
+        );
       else toast.success("画布图片导出包已下载");
     } catch (error) {
       toast.error(publicApiError(error, "创建画布图片导出失败"));
@@ -4306,8 +6411,17 @@ export default function CanvasWorkspaceViewContent() {
   /* 画布选择页：设置/清除项目自定义封面，只更新列表内的字段，不整表重拉 */
   const saveProjectCover = async (targetProjectId: string, assetId: string) => {
     try {
-      const updated = await updateProject(targetProjectId, { cover_asset_id: assetId, scope: projectListScope });
-      setProjects((current) => current.map((item) => (item.id === targetProjectId ? { ...item, cover_asset_id: updated.cover_asset_id } : item)));
+      const updated = await updateProject(targetProjectId, {
+        cover_asset_id: assetId,
+        scope: projectListScope,
+      });
+      setProjects(current =>
+        current.map(item =>
+          item.id === targetProjectId
+            ? { ...item, cover_asset_id: updated.cover_asset_id }
+            : item
+        )
+      );
       toast.success(assetId ? "封面已更新" : "已恢复默认封面");
       setCoverProjectId("");
     } catch (error) {
@@ -4319,7 +6433,7 @@ export default function CanvasWorkspaceViewContent() {
   const createProjectDialog = (
     <Dialog
       open={createDialogOpen}
-      onOpenChange={(open) => {
+      onOpenChange={open => {
         if (!open && createDialogBusy) return;
         setCreateDialogOpen(open);
         if (!open) setCreateDialogError("");
@@ -4328,20 +6442,34 @@ export default function CanvasWorkspaceViewContent() {
       <DialogContent
         className="sm:max-w-[520px]"
         showCloseButton={!createDialogBusy}
-        onEscapeKeyDown={(event) => { if (createDialogBusy) event.preventDefault(); }}
-        onPointerDownOutside={(event) => { if (createDialogBusy) event.preventDefault(); }}
-        onInteractOutside={(event) => { if (createDialogBusy) event.preventDefault(); }}
+        onEscapeKeyDown={event => {
+          if (createDialogBusy) event.preventDefault();
+        }}
+        onPointerDownOutside={event => {
+          if (createDialogBusy) event.preventDefault();
+        }}
+        onInteractOutside={event => {
+          if (createDialogBusy) event.preventDefault();
+        }}
       >
         <DialogHeader>
           <DialogTitle>新建分镜画布</DialogTitle>
-          <DialogDescription>选择工作空间并命名。创建请求失败时会保留当前表单，不会生成假的本地项目。</DialogDescription>
+          <DialogDescription>
+            选择工作空间并命名。创建请求失败时会保留当前表单，不会生成假的本地项目。
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2">
           <label className="grid gap-2 text-sm">
             <span>工作空间</span>
             <div className="scope-switch">
-              {scopeOptions.map((item) => (
-                <button key={item.value} type="button" className={createDialogScope === item.value ? "active" : ""} onClick={() => setCreateDialogScope(item.value)} disabled={createDialogBusy}>
+              {scopeOptions.map(item => (
+                <button
+                  key={item.value}
+                  type="button"
+                  className={createDialogScope === item.value ? "active" : ""}
+                  onClick={() => setCreateDialogScope(item.value)}
+                  disabled={createDialogBusy}
+                >
                   {item.label}
                 </button>
               ))}
@@ -4356,24 +6484,42 @@ export default function CanvasWorkspaceViewContent() {
               maxLength={120}
               placeholder="例如：第一集分镜"
               disabled={createDialogBusy}
-              onChange={(event) => {
+              onChange={event => {
                 setCreateDialogTitle(event.target.value);
                 if (createDialogError) setCreateDialogError("");
               }}
-              onKeyDown={(event) => {
+              onKeyDown={event => {
                 if (event.key === "Enter") {
                   event.preventDefault();
                   void submitCreateProject();
                 }
               }}
             />
-            <span className="text-xs text-muted-foreground">保留默认名称将自动编号，同时创建含角色、场景、道具、其他的同名资产文件夹。</span>
+            <span className="text-xs text-muted-foreground">
+              保留默认名称将自动编号，同时创建含角色、场景、道具、其他的同名资产文件夹。
+            </span>
           </label>
-          {createDialogError ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{createDialogError}</p> : null}
+          {createDialogError ? (
+            <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {createDialogError}
+            </p>
+          ) : null}
         </div>
         <DialogFooter>
-          <button className="outline-button small" type="button" onClick={() => setCreateDialogOpen(false)} disabled={createDialogBusy}>取消</button>
-          <button className="vermilion-button" type="button" onClick={() => void submitCreateProject()} disabled={createDialogBusy || !createDialogTitle.trim()}>
+          <button
+            className="outline-button small"
+            type="button"
+            onClick={() => setCreateDialogOpen(false)}
+            disabled={createDialogBusy}
+          >
+            取消
+          </button>
+          <button
+            className="vermilion-button"
+            type="button"
+            onClick={() => void submitCreateProject()}
+            disabled={createDialogBusy || !createDialogTitle.trim()}
+          >
             {createDialogBusy ? "创建中…" : "创建并进入"}
           </button>
         </DialogFooter>
@@ -4388,71 +6534,269 @@ export default function CanvasWorkspaceViewContent() {
         <ProjectCoverPickerDialog
           open={Boolean(coverProjectId)}
           scope={projectListScope}
-          currentCoverAssetId={projects.find((item) => item.id === coverProjectId)?.cover_asset_id}
+          currentCoverAssetId={
+            projects.find(item => item.id === coverProjectId)?.cover_asset_id
+          }
           onClose={() => setCoverProjectId("")}
-          onSelect={(assetId) => void saveProjectCover(coverProjectId, assetId)}
+          onSelect={assetId => void saveProjectCover(coverProjectId, assetId)}
         />
-        <input ref={projectArchiveInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectArchiveBusy || projectBatchBusy} onChange={(event) => void importCanvasProjectArchive(event.target.files?.[0])} />
+        <input
+          ref={projectArchiveInputRef}
+          type="file"
+          accept="application/zip,.zip"
+          hidden
+          disabled={projectArchiveBusy || projectBatchBusy}
+          onChange={event =>
+            void importCanvasProjectArchive(event.target.files?.[0])
+          }
+        />
         <div className="page-content canvas-workspace-full">
           <div className="canvas-workspace-header">
-            <button className="outline-button small" onClick={() => navigate("/dashboard")} disabled={switching}>
+            <button
+              className="outline-button small"
+              onClick={() => navigate("/dashboard")}
+              disabled={switching}
+            >
               <ChevronLeft size={16} /> 返回
             </button>
-            <div className="scope-switch canvas-scope-switch">{scopeOptions.map((item) => <button key={item.value} className={scope === item.value ? "active" : ""} onClick={() => void switchCanvasScope(item.value)} disabled={switching}>{item.label}</button>)}</div>
+            <div className="scope-switch canvas-scope-switch">
+              {scopeOptions.map(item => (
+                <button
+                  key={item.value}
+                  className={scope === item.value ? "active" : ""}
+                  onClick={() => void switchCanvasScope(item.value)}
+                  disabled={switching}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
             <div className="canvas-head-actions canvas-project-list-actions">
               <CreditBalance />
-              {projects.length ? <button className="outline-button small" onClick={() => setSelectedProjectIds(projects.every((project) => selectedProjectIds.has(project.id)) ? new Set() : new Set(projects.map((project) => project.id)))} disabled={switching || projectArchiveBusy || projectBatchBusy}><Check size={15} /> {projects.every((project) => selectedProjectIds.has(project.id)) ? "取消全选" : "全选"}</button> : null}
-              {selectedProjectIds.size ? <button className="outline-button small" onClick={() => void exportSelectedCanvasProjects()} disabled={switching || projectArchiveBusy || projectBatchBusy}><Download size={15} /> {projectBatchBusy ? "处理中" : `导出选中（${selectedProjectIds.size}）`}</button> : null}
-              {selectedProjectIds.size ? <button className="outline-button small danger" onClick={() => openProjectBatchDelete(selectedProjectIds)} disabled={switching || projectArchiveBusy || projectBatchBusy}><Trash2 size={15} /> 删除选中</button> : null}
-              {projects.length ? <button className="outline-button small danger" onClick={() => openProjectBatchDelete(projects.map((project) => project.id))} disabled={switching || projectArchiveBusy || projectBatchBusy}><Trash2 size={15} /> 删除全部</button> : null}
-              <button className="outline-button small" onClick={() => projectArchiveInputRef.current?.click()} disabled={switching || projectArchiveBusy || projectBatchBusy}><Upload size={15} /> {projectArchiveBusy ? "导入中" : "导入画布 ZIP"}</button>
-              <button className="create-button" onClick={openCreateProjectDialog} disabled={switching || projectArchiveBusy || projectBatchBusy}><Plus size={17} /> 新建画布</button>
+              {projects.length ? (
+                <button
+                  className="outline-button small"
+                  onClick={() =>
+                    setSelectedProjectIds(
+                      projects.every(project =>
+                        selectedProjectIds.has(project.id)
+                      )
+                        ? new Set()
+                        : new Set(projects.map(project => project.id))
+                    )
+                  }
+                  disabled={switching || projectArchiveBusy || projectBatchBusy}
+                >
+                  <Check size={15} />{" "}
+                  {projects.every(project => selectedProjectIds.has(project.id))
+                    ? "取消全选"
+                    : "全选"}
+                </button>
+              ) : null}
+              {selectedProjectIds.size ? (
+                <button
+                  className="outline-button small"
+                  onClick={() => void exportSelectedCanvasProjects()}
+                  disabled={switching || projectArchiveBusy || projectBatchBusy}
+                >
+                  <Download size={15} />{" "}
+                  {projectBatchBusy
+                    ? "处理中"
+                    : `导出选中（${selectedProjectIds.size}）`}
+                </button>
+              ) : null}
+              {selectedProjectIds.size ? (
+                <button
+                  className="outline-button small danger"
+                  onClick={() => openProjectBatchDelete(selectedProjectIds)}
+                  disabled={switching || projectArchiveBusy || projectBatchBusy}
+                >
+                  <Trash2 size={15} /> 删除选中
+                </button>
+              ) : null}
+              {projects.length ? (
+                <button
+                  className="outline-button small danger"
+                  onClick={() =>
+                    openProjectBatchDelete(projects.map(project => project.id))
+                  }
+                  disabled={switching || projectArchiveBusy || projectBatchBusy}
+                >
+                  <Trash2 size={15} /> 删除全部
+                </button>
+              ) : null}
+              <button
+                className="outline-button small"
+                onClick={() => projectArchiveInputRef.current?.click()}
+                disabled={switching || projectArchiveBusy || projectBatchBusy}
+              >
+                <Upload size={15} />{" "}
+                {projectArchiveBusy ? "导入中" : "导入画布 ZIP"}
+              </button>
+              <button
+                className="create-button"
+                onClick={openCreateProjectDialog}
+                disabled={switching || projectArchiveBusy || projectBatchBusy}
+              >
+                <Plus size={17} /> 新建画布
+              </button>
             </div>
           </div>
           <div className="page-intro">
-            <div><p className="eyebrow">CANVAS / PROJECTS</p><h1>选择一张真实画布</h1><p>这里会打开 {scope === "team" ? "团队" : "个人"} 工作区的服务端项目快照，不再使用静态样例节点。</p></div>
+            <div>
+              <p className="eyebrow">CANVAS / PROJECTS</p>
+              <h1>选择一张真实画布</h1>
+              <p>
+                这里会打开 {scope === "team" ? "团队" : "个人"}{" "}
+                工作区的服务端项目快照，不再使用静态样例节点。
+              </p>
+            </div>
           </div>
           <div className="project-grid">
-            {projects.map((project) => {
+            {projects.map(project => {
               const selected = selectedProjectIds.has(project.id);
               return (
-                <article className={`project-card canvas-project-selectable ${selected ? "selected" : ""}`} key={project.id} onClick={() => { if (!switching && !projectBatchBusy) navigate(canvasProjectHref(project.id, projectScopeFromServer(project, scope))); }}>
+                <article
+                  className={`project-card canvas-project-selectable ${selected ? "selected" : ""}`}
+                  key={project.id}
+                  onClick={() => {
+                    if (!switching && !projectBatchBusy)
+                      navigate(
+                        canvasProjectHref(
+                          project.id,
+                          projectScopeFromServer(project, scope)
+                        )
+                      );
+                  }}
+                >
                   <div className="project-visual">
                     {projectCoverUrls[project.id] ? (
-                      <img className="canvas-project-cover" src={projectCoverUrls[project.id]} alt="" />
+                      <img
+                        className="canvas-project-cover"
+                        src={projectCoverUrls[project.id]}
+                        alt=""
+                      />
                     ) : (
-                      <div className="abstract-canvas" aria-hidden="true"><span className="abstract-card one" /><span className="abstract-card two" /></div>
+                      <div className="abstract-canvas" aria-hidden="true">
+                        <span className="abstract-card one" />
+                        <span className="abstract-card two" />
+                      </div>
                     )}
-                    <button type="button" className="canvas-project-cover-btn" title="设置封面" onClick={(event) => { event.stopPropagation(); setCoverProjectId(project.id); }}><ImageIcon size={13} /></button>
-                    <label className="canvas-project-check" onClick={(event) => event.stopPropagation()}>
-                      <input type="checkbox" checked={selected} disabled={switching || projectBatchBusy} onChange={(event) => toggleProjectSelection(project.id, event.target.checked)} aria-label={`选择 ${project.title}`} />
+                    <button
+                      type="button"
+                      className="canvas-project-cover-btn"
+                      title="设置封面"
+                      onClick={event => {
+                        event.stopPropagation();
+                        setCoverProjectId(project.id);
+                      }}
+                    >
+                      <ImageIcon size={13} />
+                    </button>
+                    <label
+                      className="canvas-project-check"
+                      onClick={event => event.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        disabled={switching || projectBatchBusy}
+                        onChange={event =>
+                          toggleProjectSelection(
+                            project.id,
+                            event.target.checked
+                          )
+                        }
+                        aria-label={`选择 ${project.title}`}
+                      />
                       <span>{selected ? <Check size={13} /> : null}</span>
                     </label>
                     <span className="project-code">{project.id.slice(-8)}</span>
                   </div>
                   <div className="project-info">
-                    <button type="button" className="canvas-project-open" onClick={(event) => { event.stopPropagation(); navigate(canvasProjectHref(project.id, projectScopeFromServer(project, scope))); }} disabled={switching || projectBatchBusy}>
-                      <span><h3>{project.title}</h3><p>{new Date(project.updated_at).toLocaleString("zh-CN")}</p></span>
+                    <button
+                      type="button"
+                      className="canvas-project-open"
+                      onClick={event => {
+                        event.stopPropagation();
+                        navigate(
+                          canvasProjectHref(
+                            project.id,
+                            projectScopeFromServer(project, scope)
+                          )
+                        );
+                      }}
+                      disabled={switching || projectBatchBusy}
+                    >
+                      <span>
+                        <h3>{project.title}</h3>
+                        <p>
+                          {new Date(project.updated_at).toLocaleString("zh-CN")}
+                        </p>
+                      </span>
                       <ChevronRight size={16} />
                     </button>
                   </div>
                 </article>
               );
             })}
-            {projectListNotice && <div className="canvas-project-list-error" role="status"><span>{projectListNotice}</span><button type="button" onClick={() => void refreshProjectList()} disabled={projectListRefreshing}>{projectListRefreshing ? "正在重试…" : "重试"}</button></div>}
-            {!projects.length && !projectListNotice && <div className="empty-output"><p>{projectListLoading ? "正在加载画布列表…" : "还没有画布项目。"}</p></div>}
+            {projectListNotice && (
+              <div className="canvas-project-list-error" role="status">
+                <span>{projectListNotice}</span>
+                <button
+                  type="button"
+                  onClick={() => void refreshProjectList()}
+                  disabled={projectListRefreshing}
+                >
+                  {projectListRefreshing ? "正在重试…" : "重试"}
+                </button>
+              </div>
+            )}
+            {!projects.length && !projectListNotice && (
+              <div className="empty-output">
+                <p>
+                  {projectListLoading
+                    ? "正在加载画布列表…"
+                    : "还没有画布项目。"}
+                </p>
+              </div>
+            )}
           </div>
         </div>
-        <AlertDialog open={projectDeleteIds.length > 0} onOpenChange={(open) => { if (!open && !projectBatchBusy) { setProjectDeleteIds([]); setProjectDeleteError(""); } }}>
+        <AlertDialog
+          open={projectDeleteIds.length > 0}
+          onOpenChange={open => {
+            if (!open && !projectBatchBusy) {
+              setProjectDeleteIds([]);
+              setProjectDeleteError("");
+            }
+          }}
+        >
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>删除画布？</AlertDialogTitle>
-              <AlertDialogDescription>将删除当前{scope === "team" ? "团队" : "个人"}空间中的 {projectDeleteIds.length} 个画布及其节点、连线和快照。独立资产不会被删除。</AlertDialogDescription>
+              <AlertDialogDescription>
+                将删除当前{scope === "team" ? "团队" : "个人"}空间中的{" "}
+                {projectDeleteIds.length}{" "}
+                个画布及其节点、连线和快照。独立资产不会被删除。
+              </AlertDialogDescription>
             </AlertDialogHeader>
-            {projectDeleteError ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{projectDeleteError}</p> : null}
+            {projectDeleteError ? (
+              <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {projectDeleteError}
+              </p>
+            ) : null}
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={projectBatchBusy}>取消</AlertDialogCancel>
-              <AlertDialogAction disabled={projectBatchBusy} onClick={(event) => { event.preventDefault(); void removeProjectBatch(); }}>
+              <AlertDialogCancel disabled={projectBatchBusy}>
+                取消
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={projectBatchBusy}
+                onClick={event => {
+                  event.preventDefault();
+                  void removeProjectBatch();
+                }}
+              >
                 {projectBatchBusy ? "正在删除" : "确认删除"}
               </AlertDialogAction>
             </AlertDialogFooter>
@@ -4461,7 +6805,6 @@ export default function CanvasWorkspaceViewContent() {
       </>
     );
   }
-
 
   // 节点卡片的动作集合：每次渲染新建对象字面量，CanvasNodeCard 的 memo 比较器刻意忽略它
   //（本文件 handler 均基于 ref / 函数式 setState，数据 props 相等时旧闭包行为等价）。
@@ -4530,620 +6873,1082 @@ export default function CanvasWorkspaceViewContent() {
   });
 
   return (
-    <CanvasPricingContext.Provider value={{ imageModel, videoModel, nodes, edges, references: mentionReferencesForNode }}>
-    <div className="canvas-page real-canvas-page">
-      <Dialog open={Boolean(registrationTarget)} onOpenChange={(open) => { if (!open) setRegistrationTarget(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{registrationTarget?.nodeIds ? "批量注册拟真人素材" : "注册拟真人素材"}</DialogTitle>
-            <DialogDescription>{registrationTarget?.nodeIds
-              ? `将批量注册 ${registrationTarget.nodeIds.length} 张图片${registrationTarget.skippedCount ? `，跳过 ${registrationTarget.skippedCount} 个非图片或空节点` : ""}。已注册或正在注册的图片会自动跳过，失败图片可重试。`
-              : "选择这张图片将要使用的视频模型。"}提交后会自动关闭此窗口并在后台注册，完成后通知你；注册成功后请使用同一服务商生成视频。</DialogDescription>
-          </DialogHeader>
-          <label className="grid gap-2 text-sm">
-            <span>目标视频模型</span>
-            <select aria-label="目标视频模型" className="h-10 rounded-md border border-input bg-background px-3"
-              value={registrationTarget?.model || ""} onChange={(event) => { setRegistrationTarget((current) => current ? { ...current, model: event.target.value } : null); }}>
-              {!videoModels.some(isSeedanceVideoModel) && <option value="">暂无支持素材注册的视频模型</option>}
-              {/* [画布别名] */}
-              {videoModels.filter(isSeedanceVideoModel).map((model) => <option key={model} value={model}>{canvasModelName(model, textModelLabels, modelNicknames)}{model.startsWith("sdvideo/") ? " · SD-video" : " · 独立 Provider"}</option>)}
-            </select>
-          </label>
-          <DialogFooter>
-            <button className="outline-button small" onClick={() => setRegistrationTarget(null)}>取消</button>
-            <button className="vermilion-button" disabled={!registrationTarget?.model} onClick={() => void submitImageRegistration()}>{registrationTarget?.nodeIds ? "开始批量注册" : "后台注册 / 更新状态"}</button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      {/* 步骤2：聊天台跳转过来的加载覆盖层 —— 从首屏接管覆盖，直到项目快照加载完成（步骤3-5就绪后撤下） */}
-      {bootstrapActive && (
-        <div
-          className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-4"
-          style={{
-            background: "rgba(10, 12, 13, 0.9)",
-            backdropFilter: "blur(18px)",
-            WebkitBackdropFilter: "blur(18px)",
+    <CanvasPricingContext.Provider
+      value={{
+        imageModel,
+        videoModel,
+        nodes,
+        edges,
+        references: mentionReferencesForNode,
+      }}
+    >
+      <div className="canvas-page real-canvas-page">
+        <Dialog
+          open={Boolean(registrationTarget)}
+          onOpenChange={open => {
+            if (!open) setRegistrationTarget(null);
           }}
         >
-          <Loader2 className="spin" size={40} style={{ color: "var(--primary)" }} />
-          <p className="text-sm font-medium" style={{ color: "var(--foreground)" }}>正在打开画布…</p>
-          <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>正在同步画布内容与创作指令</p>
-        </div>
-      )}
-      <input ref={fileInputRef} type="file" accept={`image/*,video/*,audio/*,${CANVAS_TEXT_FILE_ACCEPT}`} multiple hidden disabled={projectActionDisabled} onChange={(event) => event.target.files && void uploadFilesAsNodes(event.target.files)} />
-      <input ref={replaceImageInputRef} type="file" accept="image/*" hidden disabled={projectActionDisabled} onChange={(event) => void replaceCanvasImage(event.target.files?.[0])} />
-      <input ref={replaceMediaInputRef} type="file" accept="video/*,audio/*" hidden disabled={projectActionDisabled} onChange={(event) => { const file = event.target.files?.[0]; const kind = file?.type.startsWith("video/") ? "video" as const : "audio" as const; void uploadMediaToNode(replaceMediaNodeIdRef.current, file, kind); }} />
-      <input ref={fragmentInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectActionDisabled || fragmentBusy} onChange={(event) => void importCanvasFragment(event.target.files?.[0])} />
-      <input ref={projectArchiveInputRef} type="file" accept="application/zip,.zip" hidden disabled={projectActionDisabled || projectArchiveBusy} onChange={(event) => void importCanvasProjectArchive(event.target.files?.[0])} />
-      {createProjectDialog}
-      <div className="canvas-heading">
-        <div className="page-intro">
-          <div className="canvas-switcher-container">
-            {projectTitleEditing ? (
-              <input
-                className="canvas-switcher-title-input"
-                autoFocus
-                value={projectTitleDraft}
-                disabled={projectTitleSaving}
-                aria-label="画布名称"
-                onChange={(event) => setProjectTitleDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void commitTitleEdit();
-                  }
-                  if (event.key === "Escape") setProjectTitleEditing(false);
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {registrationTarget?.nodeIds
+                  ? "批量注册拟真人素材"
+                  : "注册拟真人素材"}
+              </DialogTitle>
+              <DialogDescription>
+                {registrationTarget?.nodeIds
+                  ? `将批量注册 ${registrationTarget.nodeIds.length} 张图片${registrationTarget.skippedCount ? `，跳过 ${registrationTarget.skippedCount} 个非图片或空节点` : ""}。已注册或正在注册的图片会自动跳过，失败图片可重试。`
+                  : "选择这张图片将要使用的视频模型。"}
+                提交后会自动关闭此窗口并在后台注册，完成后通知你；注册成功后请使用同一服务商生成视频。
+              </DialogDescription>
+            </DialogHeader>
+            <label className="grid gap-2 text-sm">
+              <span>目标视频模型</span>
+              <select
+                aria-label="目标视频模型"
+                className="h-10 rounded-md border border-input bg-background px-3"
+                value={registrationTarget?.model || ""}
+                onChange={event => {
+                  setRegistrationTarget(current =>
+                    current ? { ...current, model: event.target.value } : null
+                  );
                 }}
-                onBlur={() => void commitTitleEdit()}
-              />
-            ) : (
-            <Popover active={!projectActionDisabled} open={canvasSwitcherOpen} onOpenChange={(open) => {
-              setCanvasSwitcherOpen(open);
-              if (open) {
-                setCanvasSwitcherQuery("");
-                void refreshProjectList({ cancelRefetch: false });
-              }
-            }}>
-              <PopoverTrigger asChild>
-                <button className="canvas-switcher-trigger" disabled={projectActionDisabled} title="单击切换画布 · 双击重命名" onDoubleClick={(event) => { event.preventDefault(); beginTitleEdit(); }}>
-                  <span className="canvas-switcher-title">{projectTitle || "无限画布"}</span>
-                  <ChevronDown size={16} className={canvasSwitcherOpen ? "rotated" : ""} />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="canvas-switcher-popover" align="start" sideOffset={8}>
-                <div className="canvas-switcher-search">
-                  <Search size={14} />
-                  <input
-                    value={canvasSwitcherQuery}
-                    onChange={(event) => setCanvasSwitcherQuery(event.target.value)}
-                    placeholder="搜索画布…"
-                  />
-                </div>
-                {projectListNotice && <div className="canvas-project-list-error" role="status"><span>{projectListNotice}{projectListError && hasCachedProjectList ? "已保留上次加载的画布。" : ""}</span><button type="button" onClick={() => void refreshProjectList()} disabled={projectListRefreshing}>{projectListRefreshing ? "正在重试…" : "重试"}</button></div>}
-                <div className="canvas-switcher-list">
-                  {filteredProjects.map((project) => (
-                    <button
-                      key={project.id}
-                      className={`canvas-switcher-item ${project.id === projectId ? "active" : ""}`}
-                      onClick={() => {
-                        setCanvasSwitcherOpen(false);
-                        setCanvasSwitcherQuery("");
-                        void switchCanvasProject(project.id);
-                      }}
-                      disabled={projectActionDisabled}
-                    >
-                      <div className="canvas-switcher-item-avatar">
-                        <Palette size={14} />
-                      </div>
-                      <span className="canvas-switcher-item-title">{project.title}</span>
-                      {project.id === projectId ? <Check size={14} /> : null}
-                    </button>
-                  ))}
-                  {!filteredProjects.length && !projectListNotice ? (
-                    <div className="canvas-switcher-empty">
-                      <p>{projectListLoading ? "正在加载画布…" : canvasSwitcherQuery.trim() ? "无匹配画布" : "当前空间还没有画布"}</p>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="canvas-switcher-footer">
-                  <button className="canvas-switcher-new" onClick={() => void refreshProjectList()} disabled={projectListRefreshing}>
-                    <RefreshCw size={14} className={projectListRefreshing ? "animate-spin" : undefined} />
-                    {projectListRefreshing ? "正在刷新" : "刷新列表"}
-                  </button>
-                  <button className="canvas-switcher-new" onClick={() => { setCanvasSwitcherOpen(false); openCreateProjectDialog(); }} disabled={projectActionDisabled}>
-                    <Plus size={14} />
-                    新建画布
-                  </button>
-                </div>
-              </PopoverContent>
-            </Popover>
-            )}
-            <p className="canvas-switcher-desc">节点、连线和生成结果都会保存到 {currentProjectDisplayScope === "team" ? "团队" : "个人"} 工作区服务端快照。</p>
-          </div>
-        </div>
-        <div className="canvas-head-actions">
-          <CreditBalance />
-          <button className="outline-button small canvas-home-button" onClick={() => navigate("/dashboard")} title="返回首页" aria-label="返回首页"><Home size={15} /> 首页</button>
-          {/* 空间切换是"离开当前画布"的导航出口：项目加载中/未确认时直接回列表页，不参与保存门禁，避免按钮卡死 */}
-          {/* "团队空间"已全局暂时隐藏：team 入口在 scopeOptions 数组定义处注释掉了，恢复见该处 */}
-          <div className="scope-switch mini-scope">{scopeOptions.map((item) => <button key={item.value} className={currentProjectDisplayScope === item.value ? "active" : ""} onClick={() => { if (loading || projectScopePending) { navigate(canvasListHref(item.value)); return; } void switchCanvasScope(item.value); }} disabled={switching} title={loading || projectScopePending ? "返回该工作区的画布列表" : undefined}>{item.label}</button>)}</div>
-          <button className="outline-button small canvas-icon-button canvas-history-button" title={canUndo ? "撤销上一步画布操作" : "暂无可撤销的画布操作"} aria-label="撤销" onClick={() => void undoCanvas()} disabled={!canUndo || projectActionDisabled}><Undo2 size={15} /></button>
-          <button className="outline-button small canvas-icon-button canvas-history-button" title={canRedo ? "重做下一步画布操作" : "暂无可重做的画布操作"} aria-label="重做" onClick={() => void redoCanvas()} disabled={!canRedo || projectActionDisabled}><Redo2 size={15} /></button>
-          <button
-            className="outline-button small"
-            onClick={() => void persistSnapshot()}
-            disabled={saving || syncStatus === "saving" || projectActionDisabled || !snapshotWriteReady}
-            title={projectScopePending ? "正在确认项目工作区，保存已暂停以避免写入错误空间" : !snapshotWriteReady ? "未取得完整原始快照，保存已暂停以保护现有画布数据" : undefined}
+              >
+                {!videoModels.some(isSeedanceVideoModel) && (
+                  <option value="">暂无支持素材注册的视频模型</option>
+                )}
+                {/* [画布别名] */}
+                {videoModels.filter(isSeedanceVideoModel).map(model => (
+                  <option key={model} value={model}>
+                    {canvasModelName(model, textModelLabels, modelNicknames)}
+                    {model.startsWith("sdvideo/")
+                      ? " · SD-video"
+                      : " · 独立 Provider"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <DialogFooter>
+              <button
+                className="outline-button small"
+                onClick={() => setRegistrationTarget(null)}
+              >
+                取消
+              </button>
+              <button
+                className="vermilion-button"
+                disabled={!registrationTarget?.model}
+                onClick={() => void submitImageRegistration()}
+              >
+                {registrationTarget?.nodeIds
+                  ? "开始批量注册"
+                  : "后台注册 / 更新状态"}
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {/* 步骤2：聊天台跳转过来的加载覆盖层 —— 从首屏接管覆盖，直到项目快照加载完成（步骤3-5就绪后撤下） */}
+        {bootstrapActive && (
+          <div
+            className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-4"
+            style={{
+              background: "rgba(10, 12, 13, 0.9)",
+              backdropFilter: "blur(18px)",
+              WebkitBackdropFilter: "blur(18px)",
+            }}
           >
-            <Save size={15} /> {projectScopePending ? "确认工作区" : switching ? "切换中" : saving || syncStatus === "saving" ? "保存中" : snapshotWriteReady ? "保存" : "保存已暂停"}
-          </button>
-          {/* 暂时隐藏：顶部工具栏的"检查器"切换按钮（选中节点时检查器仍会自动打开）。
+            <Loader2
+              className="spin"
+              size={40}
+              style={{ color: "var(--primary)" }}
+            />
+            <p
+              className="text-sm font-medium"
+              style={{ color: "var(--foreground)" }}
+            >
+              正在打开画布…
+            </p>
+            <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+              正在同步画布内容与创作指令
+            </p>
+          </div>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={`image/*,video/*,audio/*,${CANVAS_TEXT_FILE_ACCEPT}`}
+          multiple
+          hidden
+          disabled={projectActionDisabled}
+          onChange={event =>
+            event.target.files && void uploadFilesAsNodes(event.target.files)
+          }
+        />
+        <input
+          ref={replaceImageInputRef}
+          type="file"
+          accept="image/*"
+          hidden
+          disabled={projectActionDisabled}
+          onChange={event => void replaceCanvasImage(event.target.files?.[0])}
+        />
+        <input
+          ref={replaceMediaInputRef}
+          type="file"
+          accept="video/*,audio/*"
+          hidden
+          disabled={projectActionDisabled}
+          onChange={event => {
+            const file = event.target.files?.[0];
+            const kind = file?.type.startsWith("video/")
+              ? ("video" as const)
+              : ("audio" as const);
+            void uploadMediaToNode(replaceMediaNodeIdRef.current, file, kind);
+          }}
+        />
+        <input
+          ref={fragmentInputRef}
+          type="file"
+          accept="application/zip,.zip"
+          hidden
+          disabled={projectActionDisabled || fragmentBusy}
+          onChange={event => void importCanvasFragment(event.target.files?.[0])}
+        />
+        <input
+          ref={projectArchiveInputRef}
+          type="file"
+          accept="application/zip,.zip"
+          hidden
+          disabled={projectActionDisabled || projectArchiveBusy}
+          onChange={event =>
+            void importCanvasProjectArchive(event.target.files?.[0])
+          }
+        />
+        {createProjectDialog}
+        <div className="canvas-heading">
+          <div className="page-intro">
+            <div className="canvas-switcher-container">
+              {projectTitleEditing ? (
+                <input
+                  className="canvas-switcher-title-input"
+                  autoFocus
+                  value={projectTitleDraft}
+                  disabled={projectTitleSaving}
+                  aria-label="画布名称"
+                  onChange={event => setProjectTitleDraft(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void commitTitleEdit();
+                    }
+                    if (event.key === "Escape") setProjectTitleEditing(false);
+                  }}
+                  onBlur={() => void commitTitleEdit()}
+                />
+              ) : (
+                <Popover
+                  active={!projectActionDisabled}
+                  open={canvasSwitcherOpen}
+                  onOpenChange={open => {
+                    setCanvasSwitcherOpen(open);
+                    if (open) {
+                      setCanvasSwitcherQuery("");
+                      void refreshProjectList({ cancelRefetch: false });
+                    }
+                  }}
+                >
+                  <PopoverTrigger asChild>
+                    <button
+                      className="canvas-switcher-trigger"
+                      disabled={projectActionDisabled}
+                      title="单击切换画布 · 双击重命名"
+                      onDoubleClick={event => {
+                        event.preventDefault();
+                        beginTitleEdit();
+                      }}
+                    >
+                      <span className="canvas-switcher-title">
+                        {projectTitle || "无限画布"}
+                      </span>
+                      <ChevronDown
+                        size={16}
+                        className={canvasSwitcherOpen ? "rotated" : ""}
+                      />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="canvas-switcher-popover"
+                    align="start"
+                    sideOffset={8}
+                  >
+                    <div className="canvas-switcher-search">
+                      <Search size={14} />
+                      <input
+                        value={canvasSwitcherQuery}
+                        onChange={event =>
+                          setCanvasSwitcherQuery(event.target.value)
+                        }
+                        placeholder="搜索画布…"
+                      />
+                    </div>
+                    {projectListNotice && (
+                      <div className="canvas-project-list-error" role="status">
+                        <span>
+                          {projectListNotice}
+                          {projectListError && hasCachedProjectList
+                            ? "已保留上次加载的画布。"
+                            : ""}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void refreshProjectList()}
+                          disabled={projectListRefreshing}
+                        >
+                          {projectListRefreshing ? "正在重试…" : "重试"}
+                        </button>
+                      </div>
+                    )}
+                    <div className="canvas-switcher-list">
+                      {filteredProjects.map(project => (
+                        <button
+                          key={project.id}
+                          className={`canvas-switcher-item ${project.id === projectId ? "active" : ""}`}
+                          onClick={() => {
+                            setCanvasSwitcherOpen(false);
+                            setCanvasSwitcherQuery("");
+                            void switchCanvasProject(project.id);
+                          }}
+                          disabled={projectActionDisabled}
+                        >
+                          <div className="canvas-switcher-item-avatar">
+                            <Palette size={14} />
+                          </div>
+                          <span className="canvas-switcher-item-title">
+                            {project.title}
+                          </span>
+                          {project.id === projectId ? (
+                            <Check size={14} />
+                          ) : null}
+                        </button>
+                      ))}
+                      {!filteredProjects.length && !projectListNotice ? (
+                        <div className="canvas-switcher-empty">
+                          <p>
+                            {projectListLoading
+                              ? "正在加载画布…"
+                              : canvasSwitcherQuery.trim()
+                                ? "无匹配画布"
+                                : "当前空间还没有画布"}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="canvas-switcher-footer">
+                      <button
+                        className="canvas-switcher-new"
+                        onClick={() => void refreshProjectList()}
+                        disabled={projectListRefreshing}
+                      >
+                        <RefreshCw
+                          size={14}
+                          className={
+                            projectListRefreshing ? "animate-spin" : undefined
+                          }
+                        />
+                        {projectListRefreshing ? "正在刷新" : "刷新列表"}
+                      </button>
+                      <button
+                        className="canvas-switcher-new"
+                        onClick={() => {
+                          setCanvasSwitcherOpen(false);
+                          openCreateProjectDialog();
+                        }}
+                        disabled={projectActionDisabled}
+                      >
+                        <Plus size={14} />
+                        新建画布
+                      </button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+              <p className="canvas-switcher-desc">
+                节点、连线和生成结果都会保存到{" "}
+                {currentProjectDisplayScope === "team" ? "团队" : "个人"}{" "}
+                工作区服务端快照。
+              </p>
+            </div>
+          </div>
+          <div className="canvas-head-actions">
+            <CreditBalance />
+            <button
+              className="outline-button small canvas-home-button"
+              onClick={() => navigate("/dashboard")}
+              title="返回首页"
+              aria-label="返回首页"
+            >
+              <Home size={15} /> 首页
+            </button>
+            {/* 空间切换是"离开当前画布"的导航出口：项目加载中/未确认时直接回列表页，不参与保存门禁，避免按钮卡死 */}
+            {/* "团队空间"已全局暂时隐藏：team 入口在 scopeOptions 数组定义处注释掉了，恢复见该处 */}
+            <div className="scope-switch mini-scope">
+              {scopeOptions.map(item => (
+                <button
+                  key={item.value}
+                  className={
+                    currentProjectDisplayScope === item.value ? "active" : ""
+                  }
+                  onClick={() => {
+                    if (loading || projectScopePending) {
+                      navigate(canvasListHref(item.value));
+                      return;
+                    }
+                    void switchCanvasScope(item.value);
+                  }}
+                  disabled={switching}
+                  title={
+                    loading || projectScopePending
+                      ? "返回该工作区的画布列表"
+                      : undefined
+                  }
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <button
+              className="outline-button small canvas-icon-button canvas-history-button"
+              title={canUndo ? "撤销上一步画布操作" : "暂无可撤销的画布操作"}
+              aria-label="撤销"
+              onClick={() => void undoCanvas()}
+              disabled={!canUndo || projectActionDisabled}
+            >
+              <Undo2 size={15} />
+            </button>
+            <button
+              className="outline-button small canvas-icon-button canvas-history-button"
+              title={canRedo ? "重做下一步画布操作" : "暂无可重做的画布操作"}
+              aria-label="重做"
+              onClick={() => void redoCanvas()}
+              disabled={!canRedo || projectActionDisabled}
+            >
+              <Redo2 size={15} />
+            </button>
+            <button
+              className="outline-button small"
+              onClick={() => void persistSnapshot()}
+              disabled={
+                saving ||
+                syncStatus === "saving" ||
+                projectActionDisabled ||
+                !snapshotWriteReady
+              }
+              title={
+                projectScopePending
+                  ? "正在确认项目工作区，保存已暂停以避免写入错误空间"
+                  : !snapshotWriteReady
+                    ? "未取得完整原始快照，保存已暂停以保护现有画布数据"
+                    : undefined
+              }
+            >
+              <Save size={15} />{" "}
+              {projectScopePending
+                ? "确认工作区"
+                : switching
+                  ? "切换中"
+                  : saving || syncStatus === "saving"
+                    ? "保存中"
+                    : snapshotWriteReady
+                      ? "保存"
+                      : "保存已暂停"}
+            </button>
+            {/* 暂时隐藏：顶部工具栏的"检查器"切换按钮（选中节点时检查器仍会自动打开）。
               恢复时取消下方注释，并在顶部 lucide-react 导入中恢复 PanelRight
           <button className={`outline-button small inspector-trigger ${inspectorOpen ? "is-active" : ""}`} onClick={() => setInspectorOpen((value) => !value)} disabled={projectActionDisabled}><PanelRight size={15} /> 检查器</button>
           */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="outline-button small canvas-icon-button canvas-more-trigger" title="更多操作" aria-label="更多操作" disabled={projectActionDisabled}><MoreHorizontal size={16} /></button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="canvas-more-menu" align="end" sideOffset={8}>
-              <DropdownMenuItem disabled={!selectedNode || projectActionDisabled} onSelect={() => void duplicateSelectedNode()}><Copy size={14} /> 复制节点</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem disabled={exporting || projectActionDisabled} onSelect={() => void exportImageNodes()}><Archive size={14} /> 导出图片节点</DropdownMenuItem>
-              <DropdownMenuItem disabled={projectArchiveBusy || projectActionDisabled} onSelect={() => void exportCurrentCanvasProject()}><Download size={14} /> 导出完整项目</DropdownMenuItem>
-              <DropdownMenuItem disabled={projectArchiveBusy || projectActionDisabled} onSelect={() => projectArchiveInputRef.current?.click()}><Upload size={14} /> 导入完整项目</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem disabled={!selectedNodeIds.size || fragmentBusy || projectActionDisabled} onSelect={() => void exportSelectedCanvasFragment()}><Download size={14} /> 导出选区包</DropdownMenuItem>
-              <DropdownMenuItem disabled={fragmentBusy || projectActionDisabled} onSelect={() => fragmentInputRef.current?.click()}><Upload size={14} /> 导入选区包</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="canvas-more-danger" disabled={projectActionDisabled} onSelect={() => { setDeleteProjectError(""); setDeleteProjectOpen(true); }}><Trash2 size={14} /> 删除画布</DropdownMenuItem>
-              <DropdownMenuItem className="canvas-more-danger" disabled={projectActionDisabled || clearCanvasBusy || (!nodes.length && !edges.length && !groups.length)} onSelect={() => { setClearCanvasError(""); setClearCanvasOpen(true); }}><Eraser size={14} /> 清空画布</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="outline-button small canvas-icon-button canvas-more-trigger"
+                  title="更多操作"
+                  aria-label="更多操作"
+                  disabled={projectActionDisabled}
+                >
+                  <MoreHorizontal size={16} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                className="canvas-more-menu"
+                align="end"
+                sideOffset={8}
+              >
+                <DropdownMenuItem
+                  disabled={!selectedNode || projectActionDisabled}
+                  onSelect={() => void duplicateSelectedNode()}
+                >
+                  <Copy size={14} /> 复制节点
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={exporting || projectActionDisabled}
+                  onSelect={() => void exportImageNodes()}
+                >
+                  <Archive size={14} /> 导出图片节点
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={projectArchiveBusy || projectActionDisabled}
+                  onSelect={() => void exportCurrentCanvasProject()}
+                >
+                  <Download size={14} /> 导出完整项目
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={projectArchiveBusy || projectActionDisabled}
+                  onSelect={() => projectArchiveInputRef.current?.click()}
+                >
+                  <Upload size={14} /> 导入完整项目
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={
+                    !selectedNodeIds.size ||
+                    fragmentBusy ||
+                    projectActionDisabled
+                  }
+                  onSelect={() => void exportSelectedCanvasFragment()}
+                >
+                  <Download size={14} /> 导出选区包
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={fragmentBusy || projectActionDisabled}
+                  onSelect={() => fragmentInputRef.current?.click()}
+                >
+                  <Upload size={14} /> 导入选区包
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="canvas-more-danger"
+                  disabled={projectActionDisabled}
+                  onSelect={() => {
+                    setDeleteProjectError("");
+                    setDeleteProjectOpen(true);
+                  }}
+                >
+                  <Trash2 size={14} /> 删除画布
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="canvas-more-danger"
+                  disabled={
+                    projectActionDisabled ||
+                    clearCanvasBusy ||
+                    (!nodes.length && !edges.length && !groups.length)
+                  }
+                  onSelect={() => {
+                    setClearCanvasError("");
+                    setClearCanvasOpen(true);
+                  }}
+                >
+                  <Eraser size={14} /> 清空画布
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
-      </div>
 
-      <div className={`canvas-workspace real-canvas-workspace ${inspectorOpen && !projectActionDisabled ? "inspector-open" : ""} ${agentOpen && !projectActionDisabled ? "agent-open" : ""} ${connectFrom ? "connecting" : ""}`}>
-        <CanvasStage
-          stageRef={stageRef}
-          gridRef={gridRef}
-          backgroundMode={backgroundMode}
-          zoom={zoom}
-          panX={panX}
-          panY={panY}
-          projectActionDisabled={projectActionDisabled}
-          pinnedMarkers={pinnedMarkers}
-          onFocusPinnedNode={(nodeIds) => {
-            if (!nodeIds.length) return;
-            applyNodeSelection(nodeIds, nodeIds[0], false);
-            panNodesIntoViewport(nodeIds);
-          }}
-          topToolbar={{
-            disabled: projectActionDisabled,
-            connecting: Boolean(connectFrom),
-            selectedNodeId: selectedNode?.id,
-            canUndo,
-            canRedo,
-            uploading,
-            selectedNodeCount: selectedNodeIds.size,
-            selectedGroupId,
-            selectedGroupRunning: runningGroupId === selectedGroupId,
-            groupRunning: Boolean(runningGroupId),
-            fragmentBusy,
-            agentOpen,
-            onActivateConnection: activateConnectionMode,
-            onUndo: () => void undoCanvas(),
-            onRedo: () => void redoCanvas(),
-            onAddNode: addNode,
-            onUpload: () => fileInputRef.current?.click(),
-            onOpenAssets: openAssetPicker,
-            onCreateGroup: createGroupFromSelected,
-            onConnectSelection: () => setConnectSelectionOpen(true),
-            onRunGroup: (groupId) => void runCanvasGroupGeneration(groupId),
-            onUngroup: ungroupCanvasGroup,
-            onExportSelection: () => void exportSelectedCanvasFragment(),
-            onRemoveSelection: () => removeNodes(selectedNodeIdsRef.current),
-            onOpenSeedanceAssets: setSeedanceAssetNodeId,
-            onToggleAgent: () => setAgentOpen((value) => !value),
-          }}
-          bottomToolbar={{
-            disabled: projectActionDisabled,
-            saving,
-            syncSaving: syncStatus === "saving",
-            snapshotWriteReady,
-            zoom,
-            minimapOpen,
-            backgroundMode,
-            onPersist: () => void persistSnapshot(),
-            onZoomOut: () => zoomCanvasAroundCenter(viewportRef.current.zoom - 10),
-            onZoomIn: () => zoomCanvasAroundCenter(viewportRef.current.zoom + 10),
-            onToggleMinimap: () => setMinimapOpen((open) => !open),
-            onFit: fitCanvasToContent,
-            onSetBackground: setBackgroundMode,
-            onOpenGenerationHistory: () => setGenerationHistoryOpen(true),
-            generationHistoryOpen,
-          }}
-          canvasInteractionBlocked={canvasInteractionBlocked}
-          switching={switching}
-          projectScopePending={projectScopePending}
-          groups={groups}
-          selectedGroupId={selectedGroupId}
-          selectionBoxStyle={selectionBoxStyle}
-          alignmentGuides={alignmentGuides}
-          connectionLayerBounds={connectionLayerBounds}
-          connectFrom={connectFrom}
-          connectHandleType={connectHandleType}
-          edges={edges}
-          nodes={nodes}
-          nodeMap={nodeMap}
-          selectedEdgeId={selectedEdgeId}
-          hoveredEdgeId={hoveredEdgeId}
-          connectionPreviewPath={connectionPreviewPath}
-          renderedNodes={renderedNodes}
-          nodeCardProps={(node) => ({
-            seedanceRegistrationState: seedanceRegistrationStates[seedanceRegistrationKey(projectSessionController.canonicalKey, node)],
-            node,
-            mentionLibrary: editingInlineNodeId === node.id ? mentionLibrary : undefined,
-            previews,
-            isSelected: selectedNodeIds.has(node.id),
-            // Groups also retain a primary node; only a single-node selection owns its toolbar.
-            isSelectedSingle: !selectedGroupId && selectedNodeIds.size === 1 && selectedId === node.id,
-            isHovered: hoveredId === node.id,
-            isConnectionTarget: connectionTargetId === node.id,
-            isGrouped: groups.some(group => group.nodeIds.includes(node.id)),
-            isConnecting: Boolean(connectFrom),
-            connectActiveTarget: connectFrom === node.id && connectHandleType === "target",
-            connectActiveSource: connectFrom === node.id && connectHandleType === "source",
-            isTitleEditing: titleEditingNodeId === node.id,
-            titleDraft: titleEditingNodeId === node.id ? titleDraft : "",
-            isInlineEditing: editingInlineNodeId === node.id,
-            isRunning: runningNodeIds.has(node.id),
-            progress: jobProgressByNode[node.id] || 0,
-            captureBusy: Boolean(captureFrameNodeId),
-            isCapturingFrame: captureFrameNodeId === node.id,
-            imageToolBusy,
-            storyboardBusy,
-            actions: nodeCardActions,
-          })}
-          agentOpen={agentOpen}
-          minimapOpen={minimapOpen}
-          minimapModel={minimapModel}
-          selectedNodeIds={selectedNodeIds}
-          batchDownloadBusy={batchDownloadBusy}
-          contextMenu={contextMenu}
-          contextMenuFlipX={contextMenuFlipX}
-          contextMenuStyle={contextMenuStyle}
-          contextMenuNode={contextMenuNode}
-          previews={previews}
-          captureFrameNodeId={captureFrameNodeId}
-          pendingConnectionCreate={pendingConnectionCreate}
-          pendingConnectionMenuStyle={pendingConnectionMenuStyle}
-          actions={{
-            handleStagePointerDown,
-            openCanvasContextMenu,
-            handleCanvasDoubleClick,
-            dropOnCanvas,
-            selectCanvasGroup,
-            startGroupDrag,
-            moveGroupDrag,
-            endGroupDrag,
-            startGroupResize,
-            moveGroupResize,
-            endGroupResize,
-            handleCanvasLinesPointerDown,
-            handleCanvasLinesPointerMove,
-            handleCanvasLinesPointerLeave,
-            handleCanvasLinesClick,
-            handleCanvasLinesDoubleClick,
-            handleCanvasLinesContextMenu,
-            handleEdgeClick,
-            removeEdge,
-            setHoveredEdgeId,
-            clientToStagePoint,
-            screenToCanvasPoint,
-            setContextMenu,
-            toggleAgent: () => setAgentOpen((value) => !value),
-            navigateFromMinimap,
-            node: nodeCardActions,
-            activateConnectionMode,
-            copySelectedNodes,
-            openConnectSelection: () => setConnectSelectionOpen(true),
-            registerSelectedImagesAsSeedanceAssets,
-            archiveSelectedNodesToLibrary,
-            downloadSelectedNodes,
-            generateFromNode,
-            renderCanvasSubmenu,
-            copyCanvasImagePrompt,
-            addNode,
-            pasteCopiedNodes: () => { void pasteSystemClipboard(); },
-            createNodeFromConnectionDraft,
-            cancelPendingConnectionCreate,
-            dismissPendingGroup,
-            confirmPendingGroup,
-            cancelPendingGroup,
-          }}
-        />
+        <div
+          className={`canvas-workspace real-canvas-workspace ${inspectorOpen && !projectActionDisabled ? "inspector-open" : ""} ${agentOpen && !projectActionDisabled ? "agent-open" : ""} ${connectFrom ? "connecting" : ""}`}
+        >
+          <CanvasStage
+            stageRef={stageRef}
+            gridRef={gridRef}
+            backgroundMode={backgroundMode}
+            zoom={zoom}
+            panX={panX}
+            panY={panY}
+            projectActionDisabled={projectActionDisabled}
+            pinnedMarkers={pinnedMarkers}
+            onFocusPinnedNode={nodeIds => {
+              if (!nodeIds.length) return;
+              applyNodeSelection(nodeIds, nodeIds[0], false);
+              panNodesIntoViewport(nodeIds);
+            }}
+            topToolbar={{
+              disabled: projectActionDisabled,
+              connecting: Boolean(connectFrom),
+              selectedNodeId: selectedNode?.id,
+              canUndo,
+              canRedo,
+              uploading,
+              selectedNodeCount: selectedNodeIds.size,
+              selectedGroupId,
+              selectedGroupRunning: runningGroupId === selectedGroupId,
+              groupRunning: Boolean(runningGroupId),
+              fragmentBusy,
+              agentOpen,
+              onActivateConnection: activateConnectionMode,
+              onUndo: () => void undoCanvas(),
+              onRedo: () => void redoCanvas(),
+              onAddNode: addNode,
+              onUpload: () => fileInputRef.current?.click(),
+              onOpenAssets: openAssetPicker,
+              onCreateGroup: createGroupFromSelected,
+              onConnectSelection: () => setConnectSelectionOpen(true),
+              onRunGroup: groupId => void runCanvasGroupGeneration(groupId),
+              onUngroup: ungroupCanvasGroup,
+              onExportSelection: () => void exportSelectedCanvasFragment(),
+              onRemoveSelection: () => removeNodes(selectedNodeIdsRef.current),
+              onOpenSeedanceAssets: setSeedanceAssetNodeId,
+              onToggleAgent: () => setAgentOpen(value => !value),
+            }}
+            bottomToolbar={{
+              disabled: projectActionDisabled,
+              saving,
+              syncSaving: syncStatus === "saving",
+              snapshotWriteReady,
+              zoom,
+              minimapOpen,
+              backgroundMode,
+              onPersist: () => void persistSnapshot(),
+              onZoomOut: () =>
+                zoomCanvasAroundCenter(viewportRef.current.zoom - 10),
+              onZoomIn: () =>
+                zoomCanvasAroundCenter(viewportRef.current.zoom + 10),
+              onToggleMinimap: () => setMinimapOpen(open => !open),
+              onFit: fitCanvasToContent,
+              onSetBackground: setBackgroundMode,
+              onOpenGenerationHistory: () => setGenerationHistoryOpen(true),
+              generationHistoryOpen,
+            }}
+            canvasInteractionBlocked={canvasInteractionBlocked}
+            switching={switching}
+            projectScopePending={projectScopePending}
+            groups={groups}
+            selectedGroupId={selectedGroupId}
+            selectionBoxStyle={selectionBoxStyle}
+            alignmentGuides={alignmentGuides}
+            connectionLayerBounds={connectionLayerBounds}
+            connectFrom={connectFrom}
+            connectHandleType={connectHandleType}
+            edges={edges}
+            nodes={nodes}
+            nodeMap={nodeMap}
+            selectedEdgeId={selectedEdgeId}
+            hoveredEdgeId={hoveredEdgeId}
+            connectionPreviewPath={connectionPreviewPath}
+            renderedNodes={renderedNodes}
+            nodeCardProps={node => ({
+              seedanceRegistrationState:
+                seedanceRegistrationStates[
+                  seedanceRegistrationKey(
+                    projectSessionController.canonicalKey,
+                    node
+                  )
+                ],
+              node,
+              mentionLibrary:
+                editingInlineNodeId === node.id ? mentionLibrary : undefined,
+              previews,
+              isSelected: selectedNodeIds.has(node.id),
+              // Groups also retain a primary node; only a single-node selection owns its toolbar.
+              isSelectedSingle:
+                !selectedGroupId &&
+                selectedNodeIds.size === 1 &&
+                selectedId === node.id,
+              isHovered: hoveredId === node.id,
+              isConnectionTarget: connectionTargetId === node.id,
+              isGrouped: groups.some(group => group.nodeIds.includes(node.id)),
+              isConnecting: Boolean(connectFrom),
+              connectActiveTarget:
+                connectFrom === node.id && connectHandleType === "target",
+              connectActiveSource:
+                connectFrom === node.id && connectHandleType === "source",
+              isTitleEditing: titleEditingNodeId === node.id,
+              titleDraft: titleEditingNodeId === node.id ? titleDraft : "",
+              isInlineEditing: editingInlineNodeId === node.id,
+              isRunning: runningNodeIds.has(node.id),
+              progress: jobProgressByNode[node.id] || 0,
+              captureBusy: Boolean(captureFrameNodeId),
+              isCapturingFrame: captureFrameNodeId === node.id,
+              imageToolBusy,
+              storyboardBusy,
+              actions: nodeCardActions,
+            })}
+            agentOpen={agentOpen}
+            minimapOpen={minimapOpen}
+            minimapModel={minimapModel}
+            selectedNodeIds={selectedNodeIds}
+            batchDownloadBusy={batchDownloadBusy}
+            contextMenu={contextMenu}
+            contextMenuFlipX={contextMenuFlipX}
+            contextMenuStyle={contextMenuStyle}
+            contextMenuNode={contextMenuNode}
+            previews={previews}
+            captureFrameNodeId={captureFrameNodeId}
+            pendingConnectionCreate={pendingConnectionCreate}
+            pendingConnectionMenuStyle={pendingConnectionMenuStyle}
+            actions={{
+              handleStagePointerDown,
+              openCanvasContextMenu,
+              handleCanvasDoubleClick,
+              dropOnCanvas,
+              selectCanvasGroup,
+              startGroupDrag,
+              moveGroupDrag,
+              endGroupDrag,
+              startGroupResize,
+              moveGroupResize,
+              endGroupResize,
+              handleCanvasLinesPointerDown,
+              handleCanvasLinesPointerMove,
+              handleCanvasLinesPointerLeave,
+              handleCanvasLinesClick,
+              handleCanvasLinesDoubleClick,
+              handleCanvasLinesContextMenu,
+              handleEdgeClick,
+              removeEdge,
+              setHoveredEdgeId,
+              clientToStagePoint,
+              screenToCanvasPoint,
+              setContextMenu,
+              toggleAgent: () => setAgentOpen(value => !value),
+              navigateFromMinimap,
+              node: nodeCardActions,
+              activateConnectionMode,
+              copySelectedNodes,
+              openConnectSelection: () => setConnectSelectionOpen(true),
+              registerSelectedImagesAsSeedanceAssets,
+              archiveSelectedNodesToLibrary,
+              downloadSelectedNodes,
+              generateFromNode,
+              renderCanvasSubmenu,
+              copyCanvasImagePrompt,
+              addNode,
+              pasteCopiedNodes: () => {
+                void pasteSystemClipboard();
+              },
+              createNodeFromConnectionDraft,
+              cancelPendingConnectionCreate,
+              dismissPendingGroup,
+              confirmPendingGroup,
+              cancelPendingGroup,
+            }}
+          />
 
-        <CanvasInspector
-          seedanceRegistrationState={selectedNode ? seedanceRegistrationStates[seedanceRegistrationKey(projectSessionController.canonicalKey, selectedNode)] : undefined}
-          panelRef={panelRef}
-          selectedNode={selectedNode}
-          selectedGroup={selectedGroup}
-          inspectorOpen={inspectorOpen}
-          projectActionDisabled={projectActionDisabled}
-          selectedPanelStyle={selectedPanelStyle}
-          selectedGroupPanelStyle={selectedGroupPanelStyle}
-          edges={edges}
-          nodes={nodes}
-          previews={previews}
-          visiblePromptPresets={visiblePromptPresets}
-          imageToolBusy={imageToolBusy}
-          storyboardBusy={storyboardBusy}
-          selectedGenerationMode={selectedGenerationMode}
-          selectedGenerationModel={selectedGenerationModel}
-          // [画布别名] 模型选择显示别名
-          selectedGenerationModelLabel={canvasModelName(selectedGenerationModel, textModelLabels, modelNicknames) || "选择模型"}
-          generationModelOptions={selectedGenerationMode === "text"
-            ? []
-            : selectedGenerationMode === "image"
-              ? canvasGenerationModelOptions(modelCatalog?.models || [], selectedGenerationModel, modelCatalog?.labels, modelNicknames)
-              : selectedGenerationMode === "video"
-                ? canvasVideoModelOptions(videoModels, selectedGenerationModel, textModelLabels, modelProviderNames, modelNicknames)
-                : canvasGenerationModelOptions(audioModels, selectedGenerationModel, textModelLabels, modelNicknames)}
-          selectedVideoConfig={selectedVideoConfig || null}
-          selectedVideoSeedance={selectedVideoSeedance}
-          selectedVideoDurations={selectedVideoConfig
-            ? videoModelDurations(selectedVideoConfig.model)
-            : []}
-          selectedVideoResolutions={selectedVideoH3?.resolutions ?? (selectedVideoSeedance ? videoModelSettings.seedanceResolutions : videoModelSettings.openAiResolutions)}
-          selectedVideoRatios={selectedVideoH3?.ratios ?? (selectedVideoSeedance
-            ? videoModelSettings.seedanceRatios.filter(ratio => ratio !== "adaptive")
-            : videoModelSettings.openAiSizes.filter(size => size !== "auto").map(sizeToRatioLabel))}
-          selectedAudioConfig={selectedAudioConfig || null}
-          audioVoiceOptions={audioVoiceOptions}
-          audioFormatOptions={audioFormatOptions}
-          runningGroupId={runningGroupId}
-          runningNodeIds={runningNodeIds}
-          captureFrameNodeId={captureFrameNodeId}
-          styleCategory={styleCategory}
-          promptOptimizing={promptOptimizing}
-          enabledSkills={enabledSkills}
-          actions={{
-            node: nodeCardActions,
-            setInspectorOpen,
-            activateConnectionMode,
-            updateCanvasGroup,
-            runCanvasGroupGeneration,
-            ungroupCanvasGroup,
-            updateNode,
-            commitInspectorNodeTitle,
-            disconnectIncomingSource,
-            generateFromNode,
-            openAssetPicker,
-            selectGenerationModel: (value) => {
-              if (!selectedNode || selectedGenerationMode === "text") return;
-              // Image choices belong to this node; new nodes keep the catalog default.
-              if (selectedGenerationMode === "video") setVideoModel(value);
-              if (selectedGenerationMode === "audio") setAudioModel(value);
-              updateNode(selectedNode.id, { metadata: { ...(selectedNode.metadata || {}), model: value } });
-            },
-            setPromptLibraryNodeId,
-            setStyleCategory,
-            setStoryboardEditorNodeId,
-            setPresetManagerOpen,
-            onSkillsOpen: () => setEnabledSkills(loadSkills().filter((skill) => skill.enabled)),
-            optimizeNodePrompt,
-            setSkillLibraryOpen,
-            setSeedanceAssetNodeId,
-            downloadSelectedMedia,
-            startPanelResize,
-          }}
-        />
-        <CanvasWorkspaceDialogHost
-          agent={{
-            userId: user?.id || "",
-            projectId,
-            referenceSelection: agentReferenceSelection,
-            assetScope: projectSessionController.canonicalScope || scope,
-            open: agentOpen && !projectActionDisabled,
-            onClose: () => setAgentOpen(false),
-            snapshot: agentSnapshot,
-            canUndoOps: Boolean(agentUndoSnapshot),
-            onApplyOps: applyAgentOperations,
-            onExecuteWorkspaceTool: executeAgentWorkspaceTool,
-            onUndoOps: undoAgentOperations,
-            initialPrompt,
-          }}
-          skillLibrary={{ open: skillLibraryOpen, onOpenChange: setSkillLibraryOpen }}
-          presetManager={{ open: presetManagerOpen, onOpenChange: setPresetManagerOpen, onPresetsChange: setPromptPresets }}
-          storyboardEditor={{
-            open: Boolean(storyboardEditorNodeId),
-            onOpenChange: (open) => { if (!open) setStoryboardEditorNodeId(""); },
-            title: nodes.find((item) => item.id === storyboardEditorNodeId)?.title || "",
-            scenes: storyboardScenesFromNode(nodes.find((item) => item.id === storyboardEditorNodeId)),
-            onSave: (scenes) => {
-              const node = nodes.find((item) => item.id === storyboardEditorNodeId);
-              if (node) updateNode(node.id, { metadata: { ...(node.metadata || {}), storyboardScenes: scenes as unknown as Record<string, unknown>[] } });
-            },
-          }}
-          promptLibrary={{
-            open: Boolean(promptLibraryNodeId),
-            onOpenChange: (open) => { if (!open) setPromptLibraryNodeId(""); },
-            onSelect: (prompt) => { if (promptLibraryNodeId) updateNodePrompt(promptLibraryNodeId, prompt); },
-          }}
-          seedanceMaterial={{
-            open: Boolean(materialNodeId),
-            selectedAssets: materialNode?.metadata?.seedanceMaterialAssets || [],
-            onClose: () => setMaterialNodeId(""),
-            onSelect: selectSeedanceMaterial,
-            onRemove: removeSeedanceMaterial,
-          }}
-          seedanceAsset={{
-            open: Boolean(seedanceAssetNodeId),
-            selectedAssets: seedanceAssetNode?.metadata?.seedanceVolcanoAssets || [],
-            onClose: () => setSeedanceAssetNodeId(""),
-            onSelect: selectSeedanceVolcanoAsset,
-            onRemove: removeSeedanceVolcanoAsset,
-          }}
-        />
-      </div>
-      <CanvasDialogHost
-        assetArchive={{
-          open: Boolean(archiveNode) && !projectActionDisabled,
-          nodeKey: `${canonicalProjectScope}:${projectId}:${archiveNode?.id || ""}`,
-          assetName: archiveNode?.title || "素材", projectTitle,
-          onOpenChange: open => { if (!open) setArchiveNode(current => current === archiveNode ? null : current); },
-          onSave: saveCanvasNodeToLibrary,
-        }}
-        batchAssetArchive={{
-          open: batchArchiveNodeIds.length > 0 && !projectActionDisabled,
-          nodeKey: `${canonicalProjectScope}:${projectId}:batch:${batchArchiveNodeIds.join(",")}`,
-          assetName: `已选 ${batchArchiveNodeIds.length} 个节点`, projectTitle,
-          onOpenChange: open => { if (!open) setBatchArchiveNodeIds([]); },
-          onSave: saveSelectedNodesToLibrary,
-        }}
-        imageTool={{
-          dialog: imageToolDialog, busy: imageToolBusy, error: imageToolError || originalToolImage.error, preview: imageToolPreview,
-          loading: originalToolImage.loading, onRetry: originalToolImage.retry,
-          node: imageToolNode, crop: imageToolCrop, cropStageRef: imageCropStageRef, draft: imageToolDraft,
-          onOpenChange: (open) => {
-            if (!open && imageToolBusy) return;
-            if (!open) { setImageToolDialog(null); setImageToolError(""); }
-          },
-          onStartCropPointer: startImageCropPointer,
-          onSelectMode: (mode) => setImageToolDialog((current) => current ? { ...current, mode } : current),
-          onDraftChange: setImageToolDraft,
-          onCancel: () => { setImageToolDialog(null); setImageToolError(""); },
-          onRun: () => void runCanvasImageTool(),
-        }}
-        annotationMask={{
-          annotation: {
-            dataUrl: imageAnnotationPreview,
-            open: Boolean(imageAnnotationNode),
-            loading: originalAnnotationImage.loading, sourceError: originalAnnotationImage.error, onRetry: originalAnnotationImage.retry,
-            onClose: () => setImageAnnotationNodeId(""),
-            onConfirm: annotateCanvasImage,
-          },
-          mask: {
-            price: imageMaskNode ? <CanvasGenerationPrice node={imageMaskNode} edit /> : undefined,
-            dataUrl: imageMaskPreview, open: Boolean(imageMaskNode),
-            loading: originalMaskImage.loading, sourceError: originalMaskImage.error, onRetry: originalMaskImage.retry,
-            busy: imageToolBusy, error: imageToolError,
-            onClose: () => { setImageMaskNodeId(""); setImageToolError(""); },
-            onConfirm: maskEditCanvasImage,
-          },
-        }}
-        storyboard={{
-          nodeId: storyboardNodeId, busy: storyboardBusy, layout: storyboardLayout,
-          selectedCount: storyboardSelectedCount,
-          onClose: () => setStoryboardNodeId(""),
-          onLayoutChange: setStoryboardLayout,
-          onExport: () => void exportCanvasStoryboard(),
-        }}
-        imagePreview={{
-          node: imagePreviewNode, source: originalImagePreview.source, siblings: imagePreviewSiblings,
-          loading: originalImagePreview.loading, error: originalImagePreview.error,
-          originalBytes: originalImagePreview.bytes, onRetry: originalImagePreview.retry,
-          selectedNodeId: imagePreviewNodeId, previews,
-          modelLabel: imagePreviewModel ? imageModelLabel(imagePreviewModel, modelCatalog || undefined) : "—",
-          // [画布别名]
-          modelNickname: imagePreviewModel ? modelNickname(imagePreviewModel, modelNicknames) : "",
-          createdAt: previewAssetMeta.createdAt,
-          creatorLabel: user?.display_name || user?.username || "—",
-          onSelectNode: setImagePreviewNodeId,
-          onSetBatchPrimary: setBatchPrimaryNode,
-          onDetachBatchChild: detachBatchChildToCanvas,
-          onDownload: (node) => void downloadNodeMedia(node),
-          onClose: () => setImagePreviewNodeId(""),
-        }}
-        mentionPreview={{ preview: mentionMediaPreview, onClose: closeMentionMediaPreview }}
-        assetPicker={{
-          open: assetPickerOpen, insertBusy: assetPickerInsertBusy, scopeOptions, scope: assetPickerScope,
-          loading: assetPickerLoading, query: assetPickerQuery, kind: assetPickerKind,
-          folderId: assetPickerFolderId, folders: assetPickerFolders,
-          error: assetPickerError, items: assetPickerItems, selectedIds: assetPickerSelectedIds,
-          thumbnails: assetPickerThumbnails,
-          onOpenChange: setAssetPickerOpen,
-          onScopeChange: setAssetPickerScope,
-          onKindChange: setAssetPickerKind,
-          onFolderChange: setAssetPickerFolder,
-          onQueryChange: setAssetPickerQuery,
-          onSearch: searchAssetPicker,
-          onToggleItem: toggleAssetPickerItem,
-          onCancel: cancelAssetPicker,
-          onInsert: () => void insertAssetPickerSelection(),
-        }}
-        generationHistory={{
-          open: generationHistoryOpen,
-          items: generationHistoryItems,
-          loading: serverVideoHistory.loading,
-          error: serverVideoHistory.error,
-          onRetry: serverVideoHistory.retry,
-          preferredNodeId: selectedId,
-          formatModel: (model, kind) => {
-            if (!model) return "—";
-            if (kind === "image") return imageModelLabel(model, modelCatalog || undefined);
-            return canvasHistoryModelName(model, textModelLabels);
-          },
-          formatModelNickname: (model) => modelNickname(model, modelNicknames), // [画布别名]
-          onOpenChange: setGenerationHistoryOpen,
-          onApply: applyGenerationHistoryItem,
-        }}
-        connectSelection={{
-          open: connectSelectionOpen, selectedNodeCount: selectedNodeIds.size,
-          disabled: projectActionDisabled, nodes,
-          onOpenChange: setConnectSelectionOpen,
-          onConnect: connectSelectedNodesToConfig,
-        }}
-        destructive={{
-          clearOpen: clearCanvasOpen, clearBusy: clearCanvasBusy, clearError: clearCanvasError,
-          deleteOpen: deleteProjectOpen, deleteBusy: deleteProjectBusy, deleteError: deleteProjectError,
-          projectTitle,
-          onClearOpenChange: (open) => {
-            if (!clearCanvasBusy) {
-              setClearCanvasOpen(open);
-              if (!open) setClearCanvasError("");
+          <CanvasInspector
+            seedanceRegistrationState={
+              selectedNode
+                ? seedanceRegistrationStates[
+                    seedanceRegistrationKey(
+                      projectSessionController.canonicalKey,
+                      selectedNode
+                    )
+                  ]
+                : undefined
             }
-          },
-          onClear: () => void clearCurrentCanvas(),
-          onDeleteOpenChange: (open) => { if (!deleteProjectBusy) setDeleteProjectOpen(open); },
-          onDelete: () => void removeCurrentProject(),
-        }}
-      />
-    </div>
+            panelRef={panelRef}
+            selectedNode={selectedNode}
+            selectedGroup={selectedGroup}
+            inspectorOpen={inspectorOpen}
+            projectActionDisabled={projectActionDisabled}
+            selectedPanelStyle={selectedPanelStyle}
+            selectedGroupPanelStyle={selectedGroupPanelStyle}
+            edges={edges}
+            nodes={nodes}
+            previews={previews}
+            visiblePromptPresets={visiblePromptPresets}
+            imageToolBusy={imageToolBusy}
+            storyboardBusy={storyboardBusy}
+            selectedGenerationMode={selectedGenerationMode}
+            selectedGenerationModel={selectedGenerationModel}
+            // [画布别名] 模型选择显示别名
+            selectedGenerationModelLabel={
+              canvasModelName(
+                selectedGenerationModel,
+                textModelLabels,
+                modelNicknames
+              ) || "选择模型"
+            }
+            generationModelOptions={
+              selectedGenerationMode === "text"
+                ? []
+                : selectedGenerationMode === "image"
+                  ? canvasGenerationModelOptions(
+                      modelCatalog?.models || [],
+                      selectedGenerationModel,
+                      modelCatalog?.labels,
+                      modelNicknames
+                    )
+                  : selectedGenerationMode === "video"
+                    ? canvasVideoModelOptions(
+                        videoModels,
+                        selectedGenerationModel,
+                        textModelLabels,
+                        modelProviderNames,
+                        modelNicknames
+                      )
+                    : canvasGenerationModelOptions(
+                        audioModels,
+                        selectedGenerationModel,
+                        textModelLabels,
+                        modelNicknames
+                      )
+            }
+            selectedVideoConfig={selectedVideoConfig || null}
+            selectedVideoSeedance={selectedVideoSeedance}
+            selectedVideoDurations={
+              selectedVideoConfig
+                ? videoModelDurations(selectedVideoConfig.model)
+                : []
+            }
+            selectedVideoResolutions={
+              selectedVideoH3?.resolutions ??
+              (selectedVideoSeedance
+                ? videoModelSettings.seedanceResolutions
+                : videoModelSettings.openAiResolutions)
+            }
+            selectedVideoRatios={
+              selectedVideoH3?.ratios ??
+              (selectedVideoSeedance
+                ? videoModelSettings.seedanceRatios
+                : videoModelSettings.openAiSizes.map(sizeToRatioLabel))
+            }
+            selectedAudioConfig={selectedAudioConfig || null}
+            audioVoiceOptions={audioVoiceOptions}
+            audioFormatOptions={audioFormatOptions}
+            runningGroupId={runningGroupId}
+            runningNodeIds={runningNodeIds}
+            captureFrameNodeId={captureFrameNodeId}
+            styleCategory={styleCategory}
+            promptOptimizing={promptOptimizing}
+            enabledSkills={enabledSkills}
+            actions={{
+              node: nodeCardActions,
+              setInspectorOpen,
+              activateConnectionMode,
+              updateCanvasGroup,
+              runCanvasGroupGeneration,
+              ungroupCanvasGroup,
+              updateNode,
+              commitInspectorNodeTitle,
+              disconnectIncomingSource,
+              generateFromNode,
+              openAssetPicker,
+              selectGenerationModel: value => {
+                if (!selectedNode || selectedGenerationMode === "text") return;
+                // Image choices belong to this node; new nodes keep the catalog default.
+                if (selectedGenerationMode === "video") setVideoModel(value);
+                if (selectedGenerationMode === "audio") setAudioModel(value);
+                updateNode(selectedNode.id, {
+                  metadata: { ...(selectedNode.metadata || {}), model: value },
+                });
+              },
+              setPromptLibraryNodeId,
+              setStyleCategory,
+              setStoryboardEditorNodeId,
+              setPresetManagerOpen,
+              onSkillsOpen: () =>
+                setEnabledSkills(loadSkills().filter(skill => skill.enabled)),
+              optimizeNodePrompt,
+              setSkillLibraryOpen,
+              setSeedanceAssetNodeId,
+              downloadSelectedMedia,
+              startPanelResize,
+            }}
+          />
+          <CanvasWorkspaceDialogHost
+            agent={{
+              userId: user?.id || "",
+              projectId,
+              referenceSelection: agentReferenceSelection,
+              assetScope: projectSessionController.canonicalScope || scope,
+              open: agentOpen && !projectActionDisabled,
+              onClose: () => setAgentOpen(false),
+              snapshot: agentSnapshot,
+              canUndoOps: Boolean(agentUndoSnapshot),
+              onApplyOps: applyAgentOperations,
+              onExecuteWorkspaceTool: executeAgentWorkspaceTool,
+              onUndoOps: undoAgentOperations,
+              initialPrompt,
+            }}
+            skillLibrary={{
+              open: skillLibraryOpen,
+              onOpenChange: setSkillLibraryOpen,
+            }}
+            presetManager={{
+              open: presetManagerOpen,
+              onOpenChange: setPresetManagerOpen,
+              onPresetsChange: setPromptPresets,
+            }}
+            storyboardEditor={{
+              open: Boolean(storyboardEditorNodeId),
+              onOpenChange: open => {
+                if (!open) setStoryboardEditorNodeId("");
+              },
+              title:
+                nodes.find(item => item.id === storyboardEditorNodeId)?.title ||
+                "",
+              scenes: storyboardScenesFromNode(
+                nodes.find(item => item.id === storyboardEditorNodeId)
+              ),
+              onSave: scenes => {
+                const node = nodes.find(
+                  item => item.id === storyboardEditorNodeId
+                );
+                if (node)
+                  updateNode(node.id, {
+                    metadata: {
+                      ...(node.metadata || {}),
+                      storyboardScenes: scenes as unknown as Record<
+                        string,
+                        unknown
+                      >[],
+                    },
+                  });
+              },
+            }}
+            promptLibrary={{
+              open: Boolean(promptLibraryNodeId),
+              onOpenChange: open => {
+                if (!open) setPromptLibraryNodeId("");
+              },
+              onSelect: prompt => {
+                if (promptLibraryNodeId)
+                  updateNodePrompt(promptLibraryNodeId, prompt);
+              },
+            }}
+            seedanceMaterial={{
+              open: Boolean(materialNodeId),
+              selectedAssets:
+                materialNode?.metadata?.seedanceMaterialAssets || [],
+              onClose: () => setMaterialNodeId(""),
+              onSelect: selectSeedanceMaterial,
+              onRemove: removeSeedanceMaterial,
+            }}
+            seedanceAsset={{
+              open: Boolean(seedanceAssetNodeId),
+              selectedAssets:
+                seedanceAssetNode?.metadata?.seedanceVolcanoAssets || [],
+              onClose: () => setSeedanceAssetNodeId(""),
+              onSelect: selectSeedanceVolcanoAsset,
+              onRemove: removeSeedanceVolcanoAsset,
+            }}
+          />
+        </div>
+        <CanvasDialogHost
+          assetArchive={{
+            open: Boolean(archiveNode) && !projectActionDisabled,
+            nodeKey: `${canonicalProjectScope}:${projectId}:${archiveNode?.id || ""}`,
+            assetName: archiveNode?.title || "素材",
+            projectTitle,
+            onOpenChange: open => {
+              if (!open)
+                setArchiveNode(current =>
+                  current === archiveNode ? null : current
+                );
+            },
+            onSave: saveCanvasNodeToLibrary,
+          }}
+          batchAssetArchive={{
+            open: batchArchiveNodeIds.length > 0 && !projectActionDisabled,
+            nodeKey: `${canonicalProjectScope}:${projectId}:batch:${batchArchiveNodeIds.join(",")}`,
+            assetName: `已选 ${batchArchiveNodeIds.length} 个节点`,
+            projectTitle,
+            onOpenChange: open => {
+              if (!open) setBatchArchiveNodeIds([]);
+            },
+            onSave: saveSelectedNodesToLibrary,
+          }}
+          imageTool={{
+            dialog: imageToolDialog,
+            busy: imageToolBusy,
+            error: imageToolError || originalToolImage.error,
+            preview: imageToolPreview,
+            loading: originalToolImage.loading,
+            onRetry: originalToolImage.retry,
+            node: imageToolNode,
+            crop: imageToolCrop,
+            cropStageRef: imageCropStageRef,
+            draft: imageToolDraft,
+            onOpenChange: open => {
+              if (!open && imageToolBusy) return;
+              if (!open) {
+                setImageToolDialog(null);
+                setImageToolError("");
+              }
+            },
+            onStartCropPointer: startImageCropPointer,
+            onSelectMode: mode =>
+              setImageToolDialog(current =>
+                current ? { ...current, mode } : current
+              ),
+            onDraftChange: setImageToolDraft,
+            onCancel: () => {
+              setImageToolDialog(null);
+              setImageToolError("");
+            },
+            onRun: () => void runCanvasImageTool(),
+          }}
+          annotationMask={{
+            annotation: {
+              dataUrl: imageAnnotationPreview,
+              open: Boolean(imageAnnotationNode),
+              loading: originalAnnotationImage.loading,
+              sourceError: originalAnnotationImage.error,
+              onRetry: originalAnnotationImage.retry,
+              onClose: () => setImageAnnotationNodeId(""),
+              onConfirm: annotateCanvasImage,
+            },
+            mask: {
+              price: imageMaskNode ? (
+                <CanvasGenerationPrice node={imageMaskNode} edit />
+              ) : undefined,
+              dataUrl: imageMaskPreview,
+              open: Boolean(imageMaskNode),
+              loading: originalMaskImage.loading,
+              sourceError: originalMaskImage.error,
+              onRetry: originalMaskImage.retry,
+              busy: imageToolBusy,
+              error: imageToolError,
+              onClose: () => {
+                setImageMaskNodeId("");
+                setImageToolError("");
+              },
+              onConfirm: maskEditCanvasImage,
+            },
+          }}
+          storyboard={{
+            nodeId: storyboardNodeId,
+            busy: storyboardBusy,
+            layout: storyboardLayout,
+            selectedCount: storyboardSelectedCount,
+            onClose: () => setStoryboardNodeId(""),
+            onLayoutChange: setStoryboardLayout,
+            onExport: () => void exportCanvasStoryboard(),
+          }}
+          imagePreview={{
+            node: imagePreviewNode,
+            source: originalImagePreview.source,
+            siblings: imagePreviewSiblings,
+            loading: originalImagePreview.loading,
+            error: originalImagePreview.error,
+            originalBytes: originalImagePreview.bytes,
+            onRetry: originalImagePreview.retry,
+            selectedNodeId: imagePreviewNodeId,
+            previews,
+            modelLabel: imagePreviewModel
+              ? imageModelLabel(imagePreviewModel, modelCatalog || undefined)
+              : "—",
+            // [画布别名]
+            modelNickname: imagePreviewModel
+              ? modelNickname(imagePreviewModel, modelNicknames)
+              : "",
+            createdAt: previewAssetMeta.createdAt,
+            creatorLabel: user?.display_name || user?.username || "—",
+            onSelectNode: setImagePreviewNodeId,
+            onSetBatchPrimary: setBatchPrimaryNode,
+            onDetachBatchChild: detachBatchChildToCanvas,
+            onDownload: node => void downloadNodeMedia(node),
+            onClose: () => setImagePreviewNodeId(""),
+          }}
+          mentionPreview={{
+            preview: mentionMediaPreview,
+            onClose: closeMentionMediaPreview,
+          }}
+          assetPicker={{
+            open: assetPickerOpen,
+            insertBusy: assetPickerInsertBusy,
+            scopeOptions,
+            scope: assetPickerScope,
+            loading: assetPickerLoading,
+            query: assetPickerQuery,
+            kind: assetPickerKind,
+            folderId: assetPickerFolderId,
+            folders: assetPickerFolders,
+            error: assetPickerError,
+            items: assetPickerItems,
+            selectedIds: assetPickerSelectedIds,
+            thumbnails: assetPickerThumbnails,
+            onOpenChange: setAssetPickerOpen,
+            onScopeChange: setAssetPickerScope,
+            onKindChange: setAssetPickerKind,
+            onFolderChange: setAssetPickerFolder,
+            onQueryChange: setAssetPickerQuery,
+            onSearch: searchAssetPicker,
+            onToggleItem: toggleAssetPickerItem,
+            onCancel: cancelAssetPicker,
+            onInsert: () => void insertAssetPickerSelection(),
+          }}
+          generationHistory={{
+            open: generationHistoryOpen,
+            items: generationHistoryItems,
+            loading: serverVideoHistory.loading,
+            error: serverVideoHistory.error,
+            onRetry: serverVideoHistory.retry,
+            preferredNodeId: selectedId,
+            formatModel: (model, kind) => {
+              if (!model) return "—";
+              if (kind === "image")
+                return imageModelLabel(model, modelCatalog || undefined);
+              return canvasHistoryModelName(model, textModelLabels);
+            },
+            formatModelNickname: model => modelNickname(model, modelNicknames), // [画布别名]
+            onOpenChange: setGenerationHistoryOpen,
+            onApply: applyGenerationHistoryItem,
+          }}
+          connectSelection={{
+            open: connectSelectionOpen,
+            selectedNodeCount: selectedNodeIds.size,
+            disabled: projectActionDisabled,
+            nodes,
+            onOpenChange: setConnectSelectionOpen,
+            onConnect: connectSelectedNodesToConfig,
+          }}
+          destructive={{
+            clearOpen: clearCanvasOpen,
+            clearBusy: clearCanvasBusy,
+            clearError: clearCanvasError,
+            deleteOpen: deleteProjectOpen,
+            deleteBusy: deleteProjectBusy,
+            deleteError: deleteProjectError,
+            projectTitle,
+            onClearOpenChange: open => {
+              if (!clearCanvasBusy) {
+                setClearCanvasOpen(open);
+                if (!open) setClearCanvasError("");
+              }
+            },
+            onClear: () => void clearCurrentCanvas(),
+            onDeleteOpenChange: open => {
+              if (!deleteProjectBusy) setDeleteProjectOpen(open);
+            },
+            onDelete: () => void removeCurrentProject(),
+          }}
+        />
+      </div>
     </CanvasPricingContext.Provider>
   );
 }
 
 // The route-level provider lives in pages/CanvasWorkspaceView.tsx.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /** 视频节点的生成方式标签（对应参考的标签组，首位帧替代动作模仿）。 */
 
-
-
 /** 读取节点上保存的分镜场景列表。 */
-function storyboardScenesFromNode(node: CanvasNodeData | undefined): StoryboardScene[] {
+function storyboardScenesFromNode(
+  node: CanvasNodeData | undefined
+): StoryboardScene[] {
   const raw = node?.metadata?.storyboardScenes;
   if (!Array.isArray(raw)) return [];
-  return raw.filter(isRecord).map((item) => ({
+  return raw.filter(isRecord).map(item => ({
     id: typeof item.id === "string" ? item.id : crypto.randomUUID(),
     startTime: Math.max(0, Number(item.startTime) || 0),
     endTime: Math.max(0, Number(item.endTime) || 5),
-    quality: (item.quality === "标准" || item.quality === "流畅" || item.quality === "高清") ? item.quality : "标准",
+    quality:
+      item.quality === "标准" ||
+      item.quality === "流畅" ||
+      item.quality === "高清"
+        ? item.quality
+        : "标准",
     lightEffect: "选择",
     visual: typeof item.visual === "string" ? item.visual : "",
     camera: typeof item.camera === "string" ? item.camera : "",
@@ -5154,16 +7959,27 @@ function storyboardScenesFromNode(node: CanvasNodeData | undefined): StoryboardS
 }
 
 function canvasImageToolLabel(mode: CanvasImageToolMode) {
-  return ({ crop: "裁剪", focus: "聚焦提取", split: "切图", upscale: "放大", compress: "压缩", outpaint: "扩图", angle: "AI 多角度" } as const)[mode];
+  return (
+    {
+      crop: "裁剪",
+      focus: "聚焦提取",
+      split: "切图",
+      upscale: "放大",
+      compress: "压缩",
+      outpaint: "扩图",
+      angle: "AI 多角度",
+    } as const
+  )[mode];
 }
 
 function readCanvasImageSize(dataUrl: string) {
   return new Promise<{ width: number; height: number }>((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve({
-      width: Math.max(1, image.naturalWidth || image.width),
-      height: Math.max(1, image.naturalHeight || image.height),
-    });
+    image.onload = () =>
+      resolve({
+        width: Math.max(1, image.naturalWidth || image.width),
+        height: Math.max(1, image.naturalHeight || image.height),
+      });
     image.onerror = () => reject(new Error("无法读取原图尺寸"));
     image.src = dataUrl;
   });
@@ -5171,7 +7987,10 @@ function readCanvasImageSize(dataUrl: string) {
 
 /** Waits before each attempt to read an original image's size; later loads retry if all fail. */
 const CANVAS_ORIGINAL_SIZE_RETRY_DELAYS_MS = [0, 2_000, 8_000] as const;
-const canvasOriginalSizeReads = new Map<string, Promise<{ width: number; height: number }>>();
+const canvasOriginalSizeReads = new Map<
+  string,
+  Promise<{ width: number; height: number }>
+>();
 
 /** Several nodes and repeated load events share one in-flight read per original. */
 function readCanvasOriginalImageSize(source: string) {
@@ -5219,26 +8038,7 @@ function readCanvasFileDataUrl(file: File, signal?: AbortSignal) {
   });
 }
 
-
 /** 生成时把扩展比例（5:4/全景图等）回落到后端支持的值。 */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /** 批次展开网格间距（卡片间留白，画布单位） */
 
@@ -5246,35 +8046,42 @@ function readCanvasFileDataUrl(file: File, signal?: AbortSignal) {
 
 /** 把批次子图吸附回以基底节点为基点的网格位（展开时调用，防止手动拖动后错位） */
 
-
-
-
-
-
-
-
 function sortPromptPresets(presets: PromptPreset[]) {
-  const rank: Record<PromptPreset["priority"], number> = { pinned: 0, high: 1, normal: 2, low: 3 };
-  return [...presets].sort((a, b) => rank[a.priority] - rank[b.priority] || a.sort_order - b.sort_order || a.title.localeCompare(b.title, "zh-CN"));
+  const rank: Record<PromptPreset["priority"], number> = {
+    pinned: 0,
+    high: 1,
+    normal: 2,
+    low: 3,
+  };
+  return [...presets].sort(
+    (a, b) =>
+      rank[a.priority] - rank[b.priority] ||
+      a.sort_order - b.sort_order ||
+      a.title.localeCompare(b.title, "zh-CN")
+  );
 }
 
-async function waitForAssetExportReady(exportId: string, scope: WorkspaceScope) {
+async function waitForAssetExportReady(
+  exportId: string,
+  scope: WorkspaceScope
+) {
   for (let attempt = 0; attempt < 120; attempt += 1) {
     const state = await getAssetExport(exportId, scope);
-    if (state.status === "succeeded" || state.status === "partial_failed") return state;
-    if (state.status === "failed" || state.status === "canceled" || state.status === "expired") {
-      const message = typeof state.error === "string" ? state.error : state.error?.message;
+    if (state.status === "succeeded" || state.status === "partial_failed")
+      return state;
+    if (
+      state.status === "failed" ||
+      state.status === "canceled" ||
+      state.status === "expired"
+    ) {
+      const message =
+        typeof state.error === "string" ? state.error : state.error?.message;
       throw new Error(message || `导出任务已结束：${state.status}`);
     }
     await wait(1_200);
   }
   throw new Error("导出任务等待超时，请稍后到资产库导出面板下载");
 }
-
-
-
-
-
 
 /** OpenAI 尺寸值转宽高比标签（1280x720 → 16:9）。 */
 function sizeToRatioLabel(size: string) {
@@ -5286,12 +8093,10 @@ function sizeToRatioLabel(size: string) {
   return `${w / d}:${h / d}`;
 }
 
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-
 function wait(ms: number) {
-  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+  return new Promise<void>(resolve => window.setTimeout(resolve, ms));
 }

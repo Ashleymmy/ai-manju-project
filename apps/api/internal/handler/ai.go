@@ -703,7 +703,7 @@ func yikeVideoRequest(body map[string]any, modelID string) (map[string]any, erro
 	}
 	parameters := map[string]any{
 		"resolution": strings.ToUpper(firstNonEmpty(stringFromAny(body["resolution"]), "480p")),
-		"ratio":      firstNonEmpty(stringFromAny(body["ratio"]), "adaptive"),
+		"ratio":      explicitVideoRatio(stringFromAny(body["ratio"])),
 		"duration":   duration,
 	}
 	input := map[string]any{"prompt": prompt}

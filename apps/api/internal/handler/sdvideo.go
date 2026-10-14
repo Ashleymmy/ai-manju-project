@@ -383,7 +383,7 @@ func (h *AIHandler) createSDVideoMultipart(c *gin.Context, fields map[string]str
 	}
 	body["resolution"] = fields["resolution_name"]
 	if fields["ratio"] != "" {
-		body["ratio"] = fields["ratio"]
+		body["ratio"] = explicitVideoRatio(fields["ratio"])
 	} else {
 		body["ratio"] = sdVideoRatioForSize(fields["size"])
 	}

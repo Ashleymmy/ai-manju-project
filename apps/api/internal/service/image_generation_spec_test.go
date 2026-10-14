@@ -13,7 +13,7 @@ func TestNormalizeImageGenerationParametersMatchesWorkbenchSemantics(t *testing.
 		wantSize    string
 		wantQuality string
 	}{
-		{name: "auto", size: "auto", quality: "auto", wantSize: "", wantQuality: ""},
+		{name: "auto", size: "auto", quality: "auto", wantSize: "1024x1024", wantQuality: ""},
 		{name: "explicit", size: "1824x1024", quality: "high", wantSize: "1824x1024", wantQuality: "high"},
 		{name: "default ratio", size: "16:9", quality: "auto", wantSize: "1824x1024", wantQuality: ""},
 		{name: "portrait ratio", size: "9:16", quality: "auto", wantSize: "1024x1824", wantQuality: ""},

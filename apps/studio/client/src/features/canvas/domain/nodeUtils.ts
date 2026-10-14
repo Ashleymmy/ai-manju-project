@@ -23,17 +23,24 @@ import type {
   ImageQualityValue,
   ImageSizeValue,
 } from "./types";
-import { assetIdFromNode, imageSrcFromNode, looksLikeImageSource } from "./nodes";
+import {
+  assetIdFromNode,
+  imageSrcFromNode,
+  looksLikeImageSource,
+} from "./nodes";
 import { isRecord, numberValue, stringValue } from "./value";
 import { workspaceScopeValue } from "./workspace";
 import { CANVAS_NODE_RESIZE_BOUNDS } from "./nodeResize";
 import { extractCanvasMentionTokens } from "./mentions";
 
-/** 空图片节点默认尺寸（4:3，与“自适应”无参考图时的生成比例一致）。有图后按原图像素比适配。 */
+/** 空图片节点占位框（4:3）。有图后按原图像素比适配；生成比例另有默认值。 */
 export const CANVAS_IMAGE_NODE_WIDTH = 320;
 export const CANVAS_IMAGE_NODE_HEIGHT = 240;
 /** Earlier default frames (320×238 and 300×220) still count as untouched defaults. */
-const CANVAS_IMAGE_NODE_LEGACY_DEFAULT_SIZES = [{ width: 320, height: 238 }, { width: 300, height: 220 }] as const;
+const CANVAS_IMAGE_NODE_LEGACY_DEFAULT_SIZES = [
+  { width: 320, height: 238 },
+  { width: 300, height: 220 },
+] as const;
 /** 竖图允许的最大节点高度，避免 9:16 把画布撑得过高。 */
 export const CANVAS_IMAGE_NODE_MAX_HEIGHT = 560;
 export const CANVAS_IMAGE_NODE_MIN_WIDTH = 120;
@@ -41,22 +48,28 @@ export const CANVAS_IMAGE_NODE_MIN_HEIGHT = 90;
 /** Allow one rounded pixel when reading older saved frames. */
 const CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE = 1;
 
-/** 画布图片「详细参数」默认：1K、自适应、低。 */
+/** 画布图片「详细参数」默认：1K、4:3、低。旧的自适应比例在读取时改成 4:3。 */
 export const CANVAS_IMAGE_DEFAULT_RESOLUTION = "1K" as const;
-export const CANVAS_IMAGE_DEFAULT_SIZE = "auto" as const;
+export const CANVAS_IMAGE_DEFAULT_SIZE = "4:3" as const;
 export const CANVAS_IMAGE_DEFAULT_QUALITY: ImageQualityValue = "low";
 export const CANVAS_IMAGE_RESOLUTIONS = ["1K", "2K", "4K"] as const;
 export type CanvasImageResolution = (typeof CANVAS_IMAGE_RESOLUTIONS)[number];
 /** The active image price sheet currently exposes only the 1K capability. */
-export const CANVAS_IMAGE_AVAILABLE_RESOLUTIONS = ["1K"] as const satisfies readonly CanvasImageResolution[];
+export const CANVAS_IMAGE_AVAILABLE_RESOLUTIONS = [
+  "1K",
+] as const satisfies readonly CanvasImageResolution[];
 
-export function isCanvasImageResolutionAvailable(value: CanvasImageResolution): boolean {
-  return (CANVAS_IMAGE_AVAILABLE_RESOLUTIONS as readonly string[]).includes(value);
+export function isCanvasImageResolutionAvailable(
+  value: CanvasImageResolution
+): boolean {
+  return (CANVAS_IMAGE_AVAILABLE_RESOLUTIONS as readonly string[]).includes(
+    value
+  );
 }
 
 /** 空视频节点默认 16:9 横屏框；有视频后按实际像素比适配。 */
 export const CANVAS_VIDEO_NODE_WIDTH = 420;
-export const CANVAS_VIDEO_NODE_HEIGHT = CANVAS_VIDEO_NODE_WIDTH * 9 / 16;
+export const CANVAS_VIDEO_NODE_HEIGHT = (CANVAS_VIDEO_NODE_WIDTH * 9) / 16;
 /** 竖屏视频框的最大高度，与图片一致，避免 9:16 把画布撑得过高。 */
 const CANVAS_VIDEO_NODE_MAX_HEIGHT = CANVAS_IMAGE_NODE_MAX_HEIGHT;
 
@@ -73,13 +86,21 @@ export function canvasImageParamDefaults() {
   } as const;
 }
 
-export function fitCanvasImageNodeSize(naturalWidth: number, naturalHeight: number) {
-  if (!Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight) || !(naturalWidth > 0) || !(naturalHeight > 0)) {
+export function fitCanvasImageNodeSize(
+  naturalWidth: number,
+  naturalHeight: number
+) {
+  if (
+    !Number.isFinite(naturalWidth) ||
+    !Number.isFinite(naturalHeight) ||
+    !(naturalWidth > 0) ||
+    !(naturalHeight > 0)
+  ) {
     return { width: CANVAS_IMAGE_NODE_WIDTH, height: CANVAS_IMAGE_NODE_HEIGHT };
   }
   const scale = Math.min(
     CANVAS_IMAGE_NODE_WIDTH / naturalWidth,
-    CANVAS_IMAGE_NODE_MAX_HEIGHT / naturalHeight,
+    CANVAS_IMAGE_NODE_MAX_HEIGHT / naturalHeight
   );
   return {
     width: naturalWidth * scale,
@@ -88,50 +109,97 @@ export function fitCanvasImageNodeSize(naturalWidth: number, naturalHeight: numb
 }
 
 export function isDefaultCanvasImageNodeSize(width: number, height: number) {
-  return [{ width: CANVAS_IMAGE_NODE_WIDTH, height: CANVAS_IMAGE_NODE_HEIGHT }, ...CANVAS_IMAGE_NODE_LEGACY_DEFAULT_SIZES]
-    .some(size => Math.abs(width - size.width) <= 1 && Math.abs(height - size.height) <= 1);
+  return [
+    { width: CANVAS_IMAGE_NODE_WIDTH, height: CANVAS_IMAGE_NODE_HEIGHT },
+    ...CANVAS_IMAGE_NODE_LEGACY_DEFAULT_SIZES,
+  ].some(
+    size =>
+      Math.abs(width - size.width) <= 1 && Math.abs(height - size.height) <= 1
+  );
 }
 
-export function fitCanvasVideoNodeSize(naturalWidth: number, naturalHeight: number) {
-  if (!Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight) || !(naturalWidth > 0) || !(naturalHeight > 0)) {
+export function fitCanvasVideoNodeSize(
+  naturalWidth: number,
+  naturalHeight: number
+) {
+  if (
+    !Number.isFinite(naturalWidth) ||
+    !Number.isFinite(naturalHeight) ||
+    !(naturalWidth > 0) ||
+    !(naturalHeight > 0)
+  ) {
     return { width: CANVAS_VIDEO_NODE_WIDTH, height: CANVAS_VIDEO_NODE_HEIGHT };
   }
-  const scale = Math.min(CANVAS_VIDEO_NODE_WIDTH / naturalWidth, CANVAS_VIDEO_NODE_MAX_HEIGHT / naturalHeight);
+  const scale = Math.min(
+    CANVAS_VIDEO_NODE_WIDTH / naturalWidth,
+    CANVAS_VIDEO_NODE_MAX_HEIGHT / naturalHeight
+  );
   return { width: naturalWidth * scale, height: naturalHeight * scale };
 }
 
 export function isDefaultCanvasVideoNodeSize(width: number, height: number) {
-  return Math.abs(width - CANVAS_VIDEO_NODE_WIDTH) <= 1 && Math.abs(height - CANVAS_VIDEO_NODE_HEIGHT) <= 1;
+  return (
+    Math.abs(width - CANVAS_VIDEO_NODE_WIDTH) <= 1 &&
+    Math.abs(height - CANVAS_VIDEO_NODE_HEIGHT) <= 1
+  );
 }
 
 type CanvasMediaFrameDefaults = {
   width: number;
   height: number;
   isDefault: (width: number, height: number) => boolean;
-  fit: (naturalWidth: number, naturalHeight: number) => { width: number; height: number };
+  fit: (
+    naturalWidth: number,
+    naturalHeight: number
+  ) => { width: number; height: number };
 };
 const CANVAS_IMAGE_FRAME_DEFAULTS: CanvasMediaFrameDefaults = {
-  width: CANVAS_IMAGE_NODE_WIDTH, height: CANVAS_IMAGE_NODE_HEIGHT, isDefault: isDefaultCanvasImageNodeSize, fit: fitCanvasImageNodeSize,
+  width: CANVAS_IMAGE_NODE_WIDTH,
+  height: CANVAS_IMAGE_NODE_HEIGHT,
+  isDefault: isDefaultCanvasImageNodeSize,
+  fit: fitCanvasImageNodeSize,
 };
 const CANVAS_VIDEO_FRAME_DEFAULTS: CanvasMediaFrameDefaults = {
-  width: CANVAS_VIDEO_NODE_WIDTH, height: CANVAS_VIDEO_NODE_HEIGHT, isDefault: isDefaultCanvasVideoNodeSize, fit: fitCanvasVideoNodeSize,
+  width: CANVAS_VIDEO_NODE_WIDTH,
+  height: CANVAS_VIDEO_NODE_HEIGHT,
+  isDefault: isDefaultCanvasVideoNodeSize,
+  fit: fitCanvasVideoNodeSize,
 };
 function canvasMediaFrameDefaults(node: CanvasFrameNode) {
-  return node.kind === "video" ? CANVAS_VIDEO_FRAME_DEFAULTS : CANVAS_IMAGE_FRAME_DEFAULTS;
+  return node.kind === "video"
+    ? CANVAS_VIDEO_FRAME_DEFAULTS
+    : CANVAS_IMAGE_FRAME_DEFAULTS;
 }
 
 export function canvasImageNodeNeedsFit(
-  node: { width: number; height: number; metadata?: { naturalWidth?: unknown; naturalHeight?: unknown } },
+  node: {
+    width: number;
+    height: number;
+    metadata?: { naturalWidth?: unknown; naturalHeight?: unknown };
+  },
   naturalWidth: number,
-  naturalHeight: number,
+  naturalHeight: number
 ) {
-  if (!Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight) || !(naturalWidth > 0) || !(naturalHeight > 0)) return false;
+  if (
+    !Number.isFinite(naturalWidth) ||
+    !Number.isFinite(naturalHeight) ||
+    !(naturalWidth > 0) ||
+    !(naturalHeight > 0)
+  )
+    return false;
   const aspect = naturalWidth / naturalHeight;
-  return Math.abs(node.width - node.height * aspect)
-    > CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE * Math.max(1, aspect);
+  return (
+    Math.abs(node.width - node.height * aspect) >
+    CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE * Math.max(1, aspect)
+  );
 }
 
-type CanvasFrameNode = { kind?: string; width: number; height: number; metadata?: Record<string, unknown> };
+type CanvasFrameNode = {
+  kind?: string;
+  width: number;
+  height: number;
+  metadata?: Record<string, unknown>;
+};
 
 /**
  * `keepWidth` grows or shrinks the height around the current width (legacy repairs).
@@ -143,27 +211,48 @@ export function applyCanvasImageNaturalSize<T extends CanvasFrameNode>(
   node: T,
   naturalWidth: number,
   naturalHeight: number,
-  fit: CanvasImageFrameFit = "keepWidth",
+  fit: CanvasImageFrameFit = "keepWidth"
 ): T {
-  if (!Number.isFinite(naturalWidth) || !Number.isFinite(naturalHeight) || !(naturalWidth > 0) || !(naturalHeight > 0)) return node;
+  if (
+    !Number.isFinite(naturalWidth) ||
+    !Number.isFinite(naturalHeight) ||
+    !(naturalWidth > 0) ||
+    !(naturalHeight > 0)
+  )
+    return node;
   const needsFit = canvasImageNodeNeedsFit(node, naturalWidth, naturalHeight);
   const storedWidth = numberValue(node.metadata?.naturalWidth);
   const storedHeight = numberValue(node.metadata?.naturalHeight);
-  const sameMeta = storedWidth === naturalWidth && storedHeight === naturalHeight;
+  const sameMeta =
+    storedWidth === naturalWidth && storedHeight === naturalHeight;
   if (!needsFit && sameMeta) return node;
   const defaults = canvasMediaFrameDefaults(node);
   const defaultFrame = defaults.isDefault(node.width, node.height);
   // A generated video stays in the planned frame even when the model ignores the requested ratio.
-  const keepBox = !defaultFrame || (node.kind === "video" && node.metadata?.generatedInCanvas === true);
+  const keepBox =
+    !defaultFrame ||
+    (node.kind === "video" && node.metadata?.generatedInCanvas === true);
   if (needsFit && fit === "layoutBox" && keepBox) {
-    const fitted = fitCanvasImageFrameInLayoutBox(node, naturalWidth / naturalHeight);
-    return { ...fitted, metadata: { ...fitted.metadata, naturalWidth, naturalHeight } };
+    const fitted = fitCanvasImageFrameInLayoutBox(
+      node,
+      naturalWidth / naturalHeight
+    );
+    return {
+      ...fitted,
+      metadata: { ...fitted.metadata, naturalWidth, naturalHeight },
+    };
   }
   // Repair stretched legacy frames without resetting correctly resized media on reload.
-  const scale = Math.min(node.width / naturalWidth, CANVAS_NODE_RESIZE_BOUNDS.maxWidth / naturalWidth, CANVAS_NODE_RESIZE_BOUNDS.maxHeight / naturalHeight);
-  const fitted = !needsFit ? null : defaultFrame
-    ? defaults.fit(naturalWidth, naturalHeight)
-    : { width: naturalWidth * scale, height: naturalHeight * scale };
+  const scale = Math.min(
+    node.width / naturalWidth,
+    CANVAS_NODE_RESIZE_BOUNDS.maxWidth / naturalWidth,
+    CANVAS_NODE_RESIZE_BOUNDS.maxHeight / naturalHeight
+  );
+  const fitted = !needsFit
+    ? null
+    : defaultFrame
+      ? defaults.fit(naturalWidth, naturalHeight)
+      : { width: naturalWidth * scale, height: naturalHeight * scale };
   return {
     ...node,
     ...(fitted ? { width: fitted.width, height: fitted.height } : {}),
@@ -176,19 +265,33 @@ export function applyCanvasImageNaturalSize<T extends CanvasFrameNode>(
 }
 
 /** The user's arranged box, remembered while the frame still has the size an automatic fit gave it. */
-export type CanvasImageLayoutBox = { width: number; height: number; fitWidth: number; fitHeight: number };
+export type CanvasImageLayoutBox = {
+  width: number;
+  height: number;
+  fitWidth: number;
+  fitHeight: number;
+};
 
 function canvasImageLayoutBox(node: CanvasFrameNode, includeFrame: boolean) {
   const raw = node.metadata?.imageLayoutBox;
   const box = isRecord(raw) ? raw : undefined;
   const width = numberValue(box?.width) || 0;
   const height = numberValue(box?.height) || 0;
-  const untouched = width > 0 && height > 0
-    && Math.abs((numberValue(box?.fitWidth) ?? Number.NaN) - node.width) <= CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE
-    && Math.abs((numberValue(box?.fitHeight) ?? Number.NaN) - node.height) <= CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE;
-  const arranged = !untouched ? { width: node.width, height: node.height }
-    : includeFrame ? { width: Math.max(width, node.width), height: Math.max(height, node.height) }
-    : { width, height };
+  const untouched =
+    width > 0 &&
+    height > 0 &&
+    Math.abs((numberValue(box?.fitWidth) ?? Number.NaN) - node.width) <=
+      CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE &&
+    Math.abs((numberValue(box?.fitHeight) ?? Number.NaN) - node.height) <=
+      CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE;
+  const arranged = !untouched
+    ? { width: node.width, height: node.height }
+    : includeFrame
+      ? {
+          width: Math.max(width, node.width),
+          height: Math.max(height, node.height),
+        }
+      : { width, height };
   // Legacy default image frames were only roughly 4:3; read them as the current default box.
   const defaults = canvasMediaFrameDefaults(node);
   return defaults.isDefault(arranged.width, arranged.height)
@@ -196,9 +299,23 @@ function canvasImageLayoutBox(node: CanvasFrameNode, includeFrame: boolean) {
     : arranged;
 }
 
-function withCanvasImageFrame<T extends CanvasFrameNode>(node: T, box: { width: number; height: number }, frame: { width: number; height: number }): T {
-  const layoutBox: CanvasImageLayoutBox = { width: box.width, height: box.height, fitWidth: frame.width, fitHeight: frame.height };
-  return { ...node, width: frame.width, height: frame.height, metadata: { ...node.metadata, imageLayoutBox: layoutBox } };
+function withCanvasImageFrame<T extends CanvasFrameNode>(
+  node: T,
+  box: { width: number; height: number },
+  frame: { width: number; height: number }
+): T {
+  const layoutBox: CanvasImageLayoutBox = {
+    width: box.width,
+    height: box.height,
+    fitWidth: frame.width,
+    fitHeight: frame.height,
+  };
+  return {
+    ...node,
+    width: frame.width,
+    height: frame.height,
+    metadata: { ...node.metadata, imageLayoutBox: layoutBox },
+  };
 }
 
 function containInBox(box: { width: number; height: number }, aspect: number) {
@@ -208,7 +325,10 @@ function containInBox(box: { width: number; height: number }, aspect: number) {
 }
 
 /** A new result only shrinks into the arranged box (and the frame it was shown in), never grows past it. */
-export function fitCanvasImageFrameInLayoutBox<T extends CanvasFrameNode>(node: T, aspect: number): T {
+export function fitCanvasImageFrameInLayoutBox<T extends CanvasFrameNode>(
+  node: T,
+  aspect: number
+): T {
   if (!Number.isFinite(aspect) || !(aspect > 0)) return node;
   const box = canvasImageLayoutBox(node, true);
   return withCanvasImageFrame(node, box, containInBox(box, aspect));
@@ -218,15 +338,22 @@ export function fitCanvasImageFrameInLayoutBox<T extends CanvasFrameNode>(node: 
  * Preview the requested ratio on an empty image or video node before generation. The default box takes
  * the regular media fit; a box the user resized only shrinks. Repeated ratio changes start from the same box.
  */
-export function shapeEmptyCanvasImageFrame<T extends CanvasFrameNode>(node: T, width: number, height: number): T {
+export function shapeEmptyCanvasImageFrame<T extends CanvasFrameNode>(
+  node: T,
+  width: number,
+  height: number
+): T {
   if (!(width > 0) || !(height > 0)) return node;
   const box = canvasImageLayoutBox(node, false);
   const defaults = canvasMediaFrameDefaults(node);
   const frame = defaults.isDefault(box.width, box.height)
     ? defaults.fit(width, height)
     : containInBox(box, width / height);
-  const unchanged = Math.abs(frame.width - node.width) <= CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE
-    && Math.abs(frame.height - node.height) <= CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE;
+  const unchanged =
+    Math.abs(frame.width - node.width) <=
+      CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE &&
+    Math.abs(frame.height - node.height) <=
+      CANVAS_IMAGE_NODE_ASPECT_PIXEL_TOLERANCE;
   return unchanged ? node : withCanvasImageFrame(node, box, frame);
 }
 
@@ -248,14 +375,24 @@ export function canvasImageRequestedDimensions(value: unknown) {
 export function canvasImageOriginalSize(
   metadata: { naturalWidth?: unknown; naturalHeight?: unknown } | undefined,
   loadedWidth: number,
-  loadedHeight: number,
+  loadedHeight: number
 ) {
   const loaded = { width: loadedWidth, height: loadedHeight, stale: false };
   const storedWidth = numberValue(metadata?.naturalWidth) || 0;
   const storedHeight = numberValue(metadata?.naturalHeight) || 0;
-  if (!(loadedWidth > 0) || !(loadedHeight > 0) || !(storedWidth > 0) || !(storedHeight > 0)) return loaded;
-  const matches = Math.abs(storedWidth / storedHeight / (loadedWidth / loadedHeight) - 1) <= CANVAS_IMAGE_ORIGINAL_ASPECT_TOLERANCE;
-  return matches ? { width: storedWidth, height: storedHeight, stale: false } : { ...loaded, stale: true };
+  if (
+    !(loadedWidth > 0) ||
+    !(loadedHeight > 0) ||
+    !(storedWidth > 0) ||
+    !(storedHeight > 0)
+  )
+    return loaded;
+  const matches =
+    Math.abs(storedWidth / storedHeight / (loadedWidth / loadedHeight) - 1) <=
+    CANVAS_IMAGE_ORIGINAL_ASPECT_TOLERANCE;
+  return matches
+    ? { width: storedWidth, height: storedHeight, stale: false }
+    : { ...loaded, stale: true };
 }
 
 export const VIDEO_SUBMODES = [
@@ -288,7 +425,8 @@ export function editableNodeKind(kind: CanvasNodeKind) {
 
 export function promptTextFromNode(node: CanvasNodeData) {
   // The composer retains @ reference tokens; metadata.prompt is the resolved request.
-  if (typeof node.metadata?.composerContent === "string") return node.metadata.composerContent;
+  if (typeof node.metadata?.composerContent === "string")
+    return node.metadata.composerContent;
   if (node.kind === "text") return canvasTextComposerValue(node);
   const metadataPrompt = stringValue(node.metadata?.prompt);
   if (metadataPrompt) return metadataPrompt;
@@ -298,7 +436,9 @@ export function promptTextFromNode(node: CanvasNodeData) {
 }
 
 export function nodeEditorTextFromNode(node: CanvasNodeData) {
-  return isGeneratedCanvasText(node) ? canvasTextDisplayValue(node) : promptTextFromNode(node);
+  return isGeneratedCanvasText(node)
+    ? canvasTextDisplayValue(node)
+    : promptTextFromNode(node);
 }
 
 export function nodeInlineEditPlaceholder(kind: CanvasNodeKind) {
@@ -312,21 +452,33 @@ export function nodeInlineEditPlaceholder(kind: CanvasNodeKind) {
 
 export function videoSubModeFromNode(node: CanvasNodeData): VideoSubMode {
   const value = stringValue(node.metadata?.videoSubMode);
-  if (node.metadata?.videoSubModeManual && VIDEO_SUBMODES.some((sub) => sub.value === value)) {
+  if (
+    node.metadata?.videoSubModeManual &&
+    VIDEO_SUBMODES.some(sub => sub.value === value)
+  ) {
     return value as VideoSubMode;
   }
-  const hasReferences = extractCanvasMentionTokens(promptTextFromNode(node)).length > 0;
+  const hasReferences =
+    extractCanvasMentionTokens(promptTextFromNode(node)).length > 0;
   // Text/reference are the automatic pair; repair stale saved values from older nodes.
-  if (value === "text" || value === "reference" || !VIDEO_SUBMODES.some((sub) => sub.value === value)) {
+  if (
+    value === "text" ||
+    value === "reference" ||
+    !VIDEO_SUBMODES.some(sub => sub.value === value)
+  ) {
     return hasReferences ? "reference" : "text";
   }
   return value as VideoSubMode;
 }
 
 /** Switch when a prompt gains or loses actual @ references; ordinary text edits preserve the current mode. */
-export function autoVideoSubModeForPromptChange(node: CanvasNodeData, nextPrompt: string): VideoSubMode | undefined {
+export function autoVideoSubModeForPromptChange(
+  node: CanvasNodeData,
+  nextPrompt: string
+): VideoSubMode | undefined {
   if (node.kind !== "video") return undefined;
-  const hadReferences = extractCanvasMentionTokens(promptTextFromNode(node)).length > 0;
+  const hadReferences =
+    extractCanvasMentionTokens(promptTextFromNode(node)).length > 0;
   const hasReferences = extractCanvasMentionTokens(nextPrompt).length > 0;
   if (hadReferences === hasReferences) return undefined;
   return hasReferences ? "reference" : "text";
@@ -355,32 +507,59 @@ export function modelFromNode(node: CanvasNodeData, fallback: string) {
   return saved && !isHiddenImageModel(saved) ? saved : fallback;
 }
 
-export function defaultGenerationModeForKind(kind: CanvasNodeKind): CanvasGenerationMode {
+export function defaultGenerationModeForKind(
+  kind: CanvasNodeKind
+): CanvasGenerationMode {
   if (kind === "text") return "text";
   if (kind === "video") return "video";
   if (kind === "audio") return "audio";
   return "image";
 }
 
-export function generationModeFromNode(node: CanvasNodeData): CanvasGenerationMode {
+export function generationModeFromNode(
+  node: CanvasNodeData
+): CanvasGenerationMode {
   const mode = stringValue(node.metadata?.generationMode);
-  if (mode === "text" || mode === "image" || mode === "video" || mode === "audio") return mode;
+  if (
+    mode === "text" ||
+    mode === "image" ||
+    mode === "video" ||
+    mode === "audio"
+  )
+    return mode;
   return defaultGenerationModeForKind(node.kind);
 }
 
 export function generationModeLabel(mode: CanvasGenerationMode) {
-  return ({ text: "文本", image: "图片", video: "视频", audio: "音频" } as const)[mode];
+  return (
+    { text: "文本", image: "图片", video: "视频", audio: "音频" } as const
+  )[mode];
+}
+
+export function isAutomaticImageSize(size: string) {
+  const value = size.trim().toLowerCase();
+  return !value || value === "auto" || value === "adaptive";
+}
+
+/** Saved ratio, including legacy auto/adaptive. Do not rewrite this on load. */
+export function storedImageSize(node: CanvasNodeData) {
+  return stringValue(node.metadata?.size).toLowerCase();
 }
 
 export function sizeFromNode(node: CanvasNodeData): string {
-  return stringValue(node.metadata?.size).toLowerCase() || CANVAS_IMAGE_DEFAULT_SIZE;
+  const size = storedImageSize(node);
+  return isAutomaticImageSize(size) ? CANVAS_IMAGE_DEFAULT_SIZE : size;
 }
 
 export function toImageSizeValue(size: string): ImageSizeValue {
-  return size === "auto" || size === "panorama" || /^\d+[:x]\d+$/.test(size) ? size as ImageSizeValue : CANVAS_IMAGE_DEFAULT_SIZE;
+  return size === "panorama" || /^\d+[:x]\d+$/.test(size)
+    ? (size as ImageSizeValue)
+    : CANVAS_IMAGE_DEFAULT_SIZE;
 }
 
-export function imageResolutionFromNode(node: CanvasNodeData): CanvasImageResolution {
+export function imageResolutionFromNode(
+  node: CanvasNodeData
+): CanvasImageResolution {
   const value = stringValue(node.metadata?.imageResolution);
   return CANVAS_IMAGE_RESOLUTIONS.includes(value as CanvasImageResolution)
     ? (value as CanvasImageResolution)
@@ -394,15 +573,30 @@ export function qualityFromNode(node: CanvasNodeData): ImageQualityValue {
 }
 
 export function imageCountFromNode(node: CanvasNodeData) {
-  const value = typeof node.metadata?.count === "number" ? node.metadata.count : Number(node.metadata?.count || 1);
-  return Math.max(1, Math.min(MAX_IMAGE_GENERATION_COUNT, Number.isFinite(value) ? Math.floor(value) : 1));
+  const value =
+    typeof node.metadata?.count === "number"
+      ? node.metadata.count
+      : Number(node.metadata?.count || 1);
+  return Math.max(
+    1,
+    Math.min(
+      MAX_IMAGE_GENERATION_COUNT,
+      Number.isFinite(value) ? Math.floor(value) : 1
+    )
+  );
 }
 
-export function videoConfigFromNode(node: CanvasNodeData, fallbackModel: string): VideoGenerationConfig {
+export function videoConfigFromNode(
+  node: CanvasNodeData,
+  fallbackModel: string
+): VideoGenerationConfig {
   const size = stringValue(node.metadata?.size).trim().toLowerCase();
   const config = normalizeVideoGenerationConfig({
     model: modelFromNode(node, fallbackModel),
-    size: !size || size === "auto" || size === "adaptive" ? CANVAS_VIDEO_DEFAULT_RATIO : size,
+    size:
+      !size || size === "auto" || size === "adaptive"
+        ? CANVAS_VIDEO_DEFAULT_RATIO
+        : size,
     resolution: stringValue(node.metadata?.resolution) || "720p",
     seconds: stringValue(node.metadata?.seconds) || "5",
     // Enable sound by default while preserving an explicitly saved opt-out.
@@ -411,7 +605,13 @@ export function videoConfigFromNode(node: CanvasNodeData, fallbackModel: string)
   });
   // Legacy/unsupported ratios can normalize back to automatic after the input fallback.
   if (config.size === "auto" || config.size === "adaptive") {
-    return { ...config, size: !config.model || isSeedanceVideoModel(config.model) ? CANVAS_VIDEO_DEFAULT_RATIO : CANVAS_VIDEO_DEFAULT_SIZE };
+    return {
+      ...config,
+      size:
+        !config.model || isSeedanceVideoModel(config.model)
+          ? CANVAS_VIDEO_DEFAULT_RATIO
+          : CANVAS_VIDEO_DEFAULT_SIZE,
+    };
   }
   return config;
 }
@@ -425,13 +625,22 @@ export function canvasVideoRequestedDimensions(size: string) {
 }
 
 /** Shape an empty, idle video node will request; the submitted ratio already reflects model fallbacks. */
-export function canvasEmptyVideoRequestDimensions(node: CanvasNodeData, fallbackModel: string) {
-  if (node.kind !== "video" || node.metadata?.status === "loading") return undefined;
+export function canvasEmptyVideoRequestDimensions(
+  node: CanvasNodeData,
+  fallbackModel: string
+) {
+  if (node.kind !== "video" || node.metadata?.status === "loading")
+    return undefined;
   if (assetIdFromNode(node) || imageSrcFromNode(node, {})) return undefined;
-  return canvasVideoRequestedDimensions(videoConfigFromNode(node, fallbackModel).size);
+  return canvasVideoRequestedDimensions(
+    videoConfigFromNode(node, fallbackModel).size
+  );
 }
 
-export function audioConfigFromNode(node: CanvasNodeData, fallbackModel: string) {
+export function audioConfigFromNode(
+  node: CanvasNodeData,
+  fallbackModel: string
+) {
   return normalizeCanvasAudioGenerationConfig({
     model: modelFromNode(node, fallbackModel),
     voice: stringValue(node.metadata?.audioVoice) || "alloy",
@@ -441,22 +650,31 @@ export function audioConfigFromNode(node: CanvasNodeData, fallbackModel: string)
   });
 }
 
-export function videoProviderFromNode(node: CanvasNodeData, model: string): VideoProvider {
+export function videoProviderFromNode(
+  node: CanvasNodeData,
+  model: string
+): VideoProvider {
   const provider = stringValue(node.metadata?.videoProvider);
   if (provider === "openai" || provider === "seedance") return provider;
   return isSeedanceVideoModel(model) ? "seedance" : "openai";
 }
 
-export function canvasVideoReferenceSnapshot(value: unknown): CanvasVideoReferenceSnapshot {
+export function canvasVideoReferenceSnapshot(
+  value: unknown
+): CanvasVideoReferenceSnapshot {
   if (!isRecord(value) || !Array.isArray(value.items)) return { items: [] };
-  return { items: value.items.filter(isRecord) as CanvasVideoReferenceSnapshot["items"] };
+  return {
+    items: value.items.filter(
+      isRecord
+    ) as CanvasVideoReferenceSnapshot["items"],
+  };
 }
 
 export function canvasGenerationInputsFromVideoSnapshot(
   snapshot: CanvasVideoReferenceSnapshot,
-  nodes: readonly CanvasNodeData[],
+  nodes: readonly CanvasNodeData[]
 ): CanvasGenerationInput[] {
-  return snapshot.items.map((item) => {
+  return snapshot.items.map(item => {
     if (item.type === "text") {
       return {
         nodeId: item.nodeId,
@@ -465,32 +683,70 @@ export function canvasGenerationInputsFromVideoSnapshot(
         text: item.text,
       };
     }
-    const node = nodes.find((candidate) => candidate.id === item.nodeId);
+    const node = nodes.find(candidate => candidate.id === item.nodeId);
     const assetId = item.assetId || (node ? assetIdFromNode(node) : undefined);
-    const content = !assetId && node
-      ? node.imageSrc || stringValue(node.metadata?.content) || undefined
-      : undefined;
+    const content =
+      !assetId && node
+        ? node.imageSrc || stringValue(node.metadata?.content) || undefined
+        : undefined;
     const snapshotProviderAssetId = item.providerAssetId?.trim();
-    const nodeProviderAssets = node && Array.isArray(node.metadata?.seedanceVolcanoAssets)
-      ? node.metadata.seedanceVolcanoAssets.filter((asset): asset is { id: string; volcanoAssetId: string; name?: string; status?: string; assetType?: string } => Boolean(asset && typeof asset === "object" && typeof (asset as { volcanoAssetId?: unknown }).volcanoAssetId === "string"))
-      : [];
+    const nodeProviderAssets =
+      node && Array.isArray(node.metadata?.seedanceVolcanoAssets)
+        ? node.metadata.seedanceVolcanoAssets.filter(
+            (
+              asset
+            ): asset is {
+              id: string;
+              volcanoAssetId: string;
+              name?: string;
+              status?: string;
+              assetType?: string;
+            } =>
+              Boolean(
+                asset &&
+                typeof asset === "object" &&
+                typeof (asset as { volcanoAssetId?: unknown })
+                  .volcanoAssetId === "string"
+              )
+          )
+        : [];
     const providerAssets = snapshotProviderAssetId
-      ? [{ volcanoAssetId: snapshotProviderAssetId, name: item.name, assetType: item.providerAssetType || (item.type === "video" ? "Video" : "Image") }, ...nodeProviderAssets]
+      ? [
+          {
+            volcanoAssetId: snapshotProviderAssetId,
+            name: item.name,
+            assetType:
+              item.providerAssetType ||
+              (item.type === "video" ? "Video" : "Image"),
+          },
+          ...nodeProviderAssets,
+        ]
       : nodeProviderAssets;
-    const seedanceVolcanoAssets = providerAssets.filter((asset, index, all) => all.findIndex(candidate => candidate.volcanoAssetId === asset.volcanoAssetId) === index);
+    const seedanceVolcanoAssets = providerAssets.filter(
+      (asset, index, all) =>
+        all.findIndex(
+          candidate => candidate.volcanoAssetId === asset.volcanoAssetId
+        ) === index
+    );
     return {
       nodeId: item.nodeId,
       type: item.type,
       title: item.title,
       assetId,
-      assetScope: item.scope || (node ? workspaceScopeValue(node.metadata?.assetScope) : undefined),
+      assetScope:
+        item.scope ||
+        (node ? workspaceScopeValue(node.metadata?.assetScope) : undefined),
       content: content && isReadableMediaSource(content) ? content : undefined,
-      seedanceVolcanoAssets: seedanceVolcanoAssets.length ? seedanceVolcanoAssets : undefined,
+      seedanceVolcanoAssets: seedanceVolcanoAssets.length
+        ? seedanceVolcanoAssets
+        : undefined,
     };
   });
 }
 
-export function mediaKindFromNode(node: CanvasNodeData): "image" | "video" | "audio" {
+export function mediaKindFromNode(
+  node: CanvasNodeData
+): "image" | "video" | "audio" {
   if (node.kind === "video" || node.kind === "audio") return node.kind;
   const mimeType = stringValue(node.metadata?.mimeType).toLowerCase();
   if (mimeType.startsWith("video/")) return "video";
@@ -498,7 +754,9 @@ export function mediaKindFromNode(node: CanvasNodeData): "image" | "video" | "au
   return "image";
 }
 
-export function assetKindFromFile(file: File): "image" | "video" | "audio" | null {
+export function assetKindFromFile(
+  file: File
+): "image" | "video" | "audio" | null {
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
   if (file.type.startsWith("audio/")) return "audio";
@@ -524,7 +782,7 @@ export function fragmentMediaMimeType(kind: "image" | "video" | "audio") {
 export function fragmentMediaFileName(
   title: string,
   kind: "image" | "video" | "audio",
-  contentType: string,
+  contentType: string
 ) {
   if (kind === "video") return videoFileName(title, contentType);
   if (kind === "audio") {
@@ -533,17 +791,35 @@ export function fragmentMediaFileName(
   return imageFileName(title, contentType);
 }
 
-export function mediaFileName(name: string, kind: "image" | "video" | "audio", contentType: string) {
+export function mediaFileName(
+  name: string,
+  kind: "image" | "video" | "audio",
+  contentType: string
+) {
   if (kind === "image") return imageFileName(name, contentType);
   if (kind === "video") return videoFileName(name, contentType);
-  const clean = name.trim().replace(/[\\/:*?"<>|]+/g, "-").slice(0, 80) || "canvas-audio";
-  return /\.(mp3|wav|opus|aac|flac)$/i.test(clean) ? clean : `${clean}.${audioFileExtension(contentType)}`;
+  const clean =
+    name
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .slice(0, 80) || "canvas-audio";
+  return /\.(mp3|wav|opus|aac|flac)$/i.test(clean)
+    ? clean
+    : `${clean}.${audioFileExtension(contentType)}`;
 }
 
 export function videoFileName(name: string, contentType: string) {
-  const clean = name.trim().replace(/[\\/:*?"<>|]+/g, "-").slice(0, 80) || "generated-video";
+  const clean =
+    name
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .slice(0, 80) || "generated-video";
   if (/\.(mp4|mov|webm)$/i.test(clean)) return clean;
-  const extension = contentType.includes("quicktime") ? "mov" : contentType.includes("webm") ? "webm" : "mp4";
+  const extension = contentType.includes("quicktime")
+    ? "mov"
+    : contentType.includes("webm")
+      ? "webm"
+      : "mp4";
   return `${clean}.${extension}`;
 }
 
@@ -560,26 +836,40 @@ export function isReadableMediaSource(value: string) {
   return /^(blob:|data:|https?:\/\/)/i.test(value.trim());
 }
 
-export function imageReferenceSnapshots(value: unknown): CanvasImageReferenceSnapshot[] {
+export function imageReferenceSnapshots(
+  value: unknown
+): CanvasImageReferenceSnapshot[] {
   if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
+  return value.flatMap(item => {
     if (!isRecord(item)) return [];
     const assetId = stringValue(item.assetId);
     if (!assetId) return [];
-    return [{
-      nodeId: stringValue(item.nodeId),
-      title: stringValue(item.title) || "参考图",
-      assetId,
-      name: stringValue(item.name) || "reference.png",
-      contentType: stringValue(item.contentType) || "image/png",
-    }];
+    return [
+      {
+        nodeId: stringValue(item.nodeId),
+        title: stringValue(item.title) || "参考图",
+        assetId,
+        name: stringValue(item.name) || "reference.png",
+        contentType: stringValue(item.contentType) || "image/png",
+      },
+    ];
   });
 }
 
 export function imageFileName(title: string, contentType: string) {
-  const clean = title.trim().replace(/[\\/:*?"<>|]+/g, "-").slice(0, 80) || "image";
+  const clean =
+    title
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .slice(0, 80) || "image";
   if (/\.(png|jpe?g|webp|gif)$/i.test(clean)) return clean;
-  const extension = contentType.includes("jpeg") ? "jpg" : contentType.includes("webp") ? "webp" : contentType.includes("gif") ? "gif" : "png";
+  const extension = contentType.includes("jpeg")
+    ? "jpg"
+    : contentType.includes("webp")
+      ? "webp"
+      : contentType.includes("gif")
+        ? "gif"
+        : "png";
   return `${clean}.${extension}`;
 }
 
@@ -595,14 +885,19 @@ function safeFragmentFileStem(value: string) {
 
 export function isAbortError(error: unknown) {
   if (!isRecord(error)) return false;
-  return stringValue(error.name) === "AbortError"
-    || stringValue(error.message) === "请求超时或已取消";
+  return (
+    stringValue(error.name) === "AbortError" ||
+    stringValue(error.message) === "请求超时或已取消"
+  );
 }
 
 export function cloneCanvasNodes(nodes: CanvasNodeData[]) {
-  return nodes.map((node) => ({ ...node, metadata: node.metadata ? { ...node.metadata } : undefined }));
+  return nodes.map(node => ({
+    ...node,
+    metadata: node.metadata ? { ...node.metadata } : undefined,
+  }));
 }
 
 export function cloneCanvasEdges(edges: CanvasEdgeData[]) {
-  return edges.map((edge) => ({ ...edge }));
+  return edges.map(edge => ({ ...edge }));
 }

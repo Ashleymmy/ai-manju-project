@@ -6,12 +6,8 @@ import {
   IMAGE_WORKBENCH_SIZE_OPTIONS,
   resolveImageWorkbenchRequestOptions,
 } from "./image/model/options";
-import {
-  settingsQueryKeys,
-} from "./settings/model/queries";
-import {
-  WEBDAV_CONFIG_STORAGE_KEY,
-} from "./settings/model/webdavConfig";
+import { settingsQueryKeys } from "./settings/model/queries";
+import { WEBDAV_CONFIG_STORAGE_KEY } from "./settings/model/webdavConfig";
 import { buildWebdavUrl } from "./settings/services/webdavSync";
 import { SKILL_STORAGE_KEY } from "./skills/model/skillLibrary";
 
@@ -30,18 +26,18 @@ describe("resource feature compatibility contracts", () => {
       "settings",
       "preferences",
     ]);
-    expect(authFeatureQueryKeys.health()).toEqual([
-      "auth",
-      "public-health",
-    ]);
+    expect(authFeatureQueryKeys.health()).toEqual(["auth", "public-health"]);
   });
 
-  it("keeps the image workbench 13-option request mapping", () => {
-    expect(IMAGE_WORKBENCH_SIZE_OPTIONS).toHaveLength(13);
-    expect(resolveImageWorkbenchRequestOptions("16:9(4k)", "auto"))
-      .toEqual({ size: "16:9", quality: "high" });
-    expect(resolveImageWorkbenchRequestOptions("auto", "auto")).toEqual({
-      size: "auto",
+  it("keeps the image workbench request mapping without an automatic ratio", () => {
+    expect(IMAGE_WORKBENCH_SIZE_OPTIONS).toHaveLength(12);
+    expect(IMAGE_WORKBENCH_SIZE_OPTIONS).not.toContain("auto");
+    expect(resolveImageWorkbenchRequestOptions("16:9(4k)", "auto")).toEqual({
+      size: "16:9",
+      quality: "high",
+    });
+    expect(resolveImageWorkbenchRequestOptions("1:1", "auto")).toEqual({
+      size: "1:1",
       quality: "auto",
     });
   });

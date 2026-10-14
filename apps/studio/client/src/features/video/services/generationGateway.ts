@@ -1,11 +1,33 @@
 import { getAssetMediaUrl } from "@/entities/asset";
-import { getJob, isTerminalJob, jobErrorMessage, type Job } from "@/entities/job";
-import { fetchModelCatalog, videoModelProtocol, videoModelDurations, normalizeVideoDuration, hasVideoDurationCatalog } from "@/entities/model";
-import { videoModelCapabilities, videoOptionAvailable } from "@/entities/model/videoCapabilities";
-import { API_BASE_URL, ApiError, getAuthToken, request } from "@/shared/api/http";
+import {
+  getJob,
+  isTerminalJob,
+  jobErrorMessage,
+  type Job,
+} from "@/entities/job";
+import {
+  fetchModelCatalog,
+  videoModelProtocol,
+  videoModelDurations,
+  normalizeVideoDuration,
+  hasVideoDurationCatalog,
+} from "@/entities/model";
+import {
+  videoModelCapabilities,
+  videoOptionAvailable,
+} from "@/entities/model/videoCapabilities";
+import {
+  API_BASE_URL,
+  ApiError,
+  getAuthToken,
+  request,
+} from "@/shared/api/http";
 import type { WorkspaceScope } from "@/shared/config";
 import { createRandomUUID } from "@/shared/lib/cryptoRandomUuid";
-import { submitWithGenerationAdmission, type GenerationAdmissionOptions } from "@/shared/api/generationAdmission";
+import {
+  submitWithGenerationAdmission,
+  type GenerationAdmissionOptions,
+} from "@/shared/api/generationAdmission";
 
 export type VideoProvider = "openai" | "seedance";
 
@@ -101,23 +123,32 @@ type SeedanceTask = {
   id: string;
   status?: string;
   state?: string;
-  error?: string | { code?: string; message?: string; error?: string; detail?: string } | null;
+  error?:
+    | string
+    | { code?: string; message?: string; error?: string; detail?: string }
+    | null;
   error_message?: string;
   message?: string;
   content?: Record<string, unknown> | null;
   result?: Record<string, unknown> | null;
 };
 
-type ApiEnvelope<T> = T | {
-  code?: number;
-  data?: T | null;
-  msg?: string;
-  error?: string | { message?: string };
-};
+type ApiEnvelope<T> =
+  | T
+  | {
+      code?: number;
+      data?: T | null;
+      msg?: string;
+      error?: string | { message?: string };
+    };
 
 const seedanceResolutions = ["480p", "720p", "1080p"] as const;
-const seedanceRatios = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "adaptive"] as const;
-const emptyReferences: VideoGenerationReferences = { images: [], videos: [], audios: [] };
+const seedanceRatios = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"] as const;
+const emptyReferences: VideoGenerationReferences = {
+  images: [],
+  videos: [],
+  audios: [],
+};
 // 提交预算包含参考媒体上传；不能在服务端返回持久任务 ID 前按普通请求超时取消。
 const sdVideoSubmissionTimeoutMs = 120_000;
 const seedanceImageDataUrlMaxBytes = 1800 * 1024;
@@ -179,35 +210,49 @@ export function videoReferenceLimitsForModel(model: string) {
   const name = modelOptionName(model);
   // Friendly labels can be renamed. Endpoint capabilities must come from the
   // provider-scoped server contract, never a label that resembles another model.
-  const base = isSeedanceVideoModel(model) && /seedance[-_\s]*2[._-]5(?:$|[^\d])/i.test(name)
-    ? seedance25ReferenceLimits : videoReferenceLimits;
+  const base =
+    isSeedanceVideoModel(model) &&
+    /seedance[-_\s]*2[._-]5(?:$|[^\d])/i.test(name)
+      ? seedance25ReferenceLimits
+      : videoReferenceLimits;
   if (capabilities.references) {
     const refs = capabilities.references;
     // Counts do not identify a model family. Explicit service limits always win.
-    return { ...base, images: refs.images, videos: refs.videos, audios: refs.audios, audioOnly: refs.audio_only,
+    return {
+      ...base,
+      images: refs.images,
+      videos: refs.videos,
+      audios: refs.audios,
+      audioOnly: refs.audio_only,
       mediaMinDurationMs: refs.media_min_duration_ms ?? base.mediaMinDurationMs,
       mediaMaxDurationMs: refs.media_max_duration_ms ?? base.mediaMaxDurationMs,
-      mediaMaxTotalDurationMs: refs.media_max_total_duration_ms ?? base.mediaMaxTotalDurationMs,
+      mediaMaxTotalDurationMs:
+        refs.media_max_total_duration_ms ?? base.mediaMaxTotalDurationMs,
       imageMaxBytes: refs.image_max_bytes ?? base.imageMaxBytes,
       videoMaxBytes: refs.video_max_bytes ?? base.videoMaxBytes,
       audioMaxBytes: refs.audio_max_bytes ?? base.audioMaxBytes,
     };
   }
-  if (h3VideoSettings(model)) return { ...videoReferenceLimits, images: 9, videos: 0, audios: 0 };
+  if (h3VideoSettings(model))
+    return { ...videoReferenceLimits, images: 9, videos: 0, audios: 0 };
   return base;
 }
 
 export const videoModelSettings = {
   seedanceResolutions,
   seedanceRatios,
-  openAiSizes: ["1280x720", "720x1280", "1024x1024", "1792x1024", "1024x1792", "auto"],
+  openAiSizes: ["1280x720", "720x1280", "1024x1024", "1792x1024", "1024x1792"],
   openAiResolutions: ["480p", "720p", "1080p"],
 } as const;
 
 // Zizi's promotional H3 multi-image variants, per its model specification.
 export function h3VideoSettings(model: string) {
-  const match = modelOptionName(model).match(/^zzdh-minimax-h3-限时优惠-多参考图生-(480p|768p)$/i);
-  return match ? { resolutions: [match[1].toLowerCase()], ratios: ["16:9", "9:16"] } : null;
+  const match = modelOptionName(model).match(
+    /^zzdh-minimax-h3-限时优惠-多参考图生-(480p|768p)$/i
+  );
+  return match
+    ? { resolutions: [match[1].toLowerCase()], ratios: ["16:9", "9:16"] }
+    : null;
 }
 
 export function modelOptionName(value: string) {
@@ -220,7 +265,11 @@ export function isSeedanceVideoModel(model: string) {
   const protocol = videoModelProtocol(model);
   if (protocol) return protocol === "seedance";
   const value = modelOptionName(model).toLowerCase();
-  return value.includes("seedance") || value.includes("doubao-seedance") || value.includes("wan3");
+  return (
+    value.includes("seedance") ||
+    value.includes("doubao-seedance") ||
+    value.includes("wan3")
+  );
 }
 
 export function isSeedanceFastVideoModel(model: string) {
@@ -235,55 +284,84 @@ export function isWanVideoModel(model: string) {
 
 export function isLongSeedanceVideoModel(model: string) {
   const value = modelOptionName(model).toLowerCase();
-  return value.includes("wan3") || value.includes("seedance-2-5") || value.includes("seedance-2.5") || value.includes("seedance_2_5");
+  return (
+    value.includes("wan3") ||
+    value.includes("seedance-2-5") ||
+    value.includes("seedance-2.5") ||
+    value.includes("seedance_2_5")
+  );
 }
 
-export function normalizeVideoGenerationConfig(config: VideoGenerationConfig): VideoGenerationConfig {
+export function normalizeVideoGenerationConfig(
+  config: VideoGenerationConfig
+): VideoGenerationConfig {
   const h3 = h3VideoSettings(config.model);
   if (h3) {
     const ratio = normalizeSeedanceRatio(config.size);
     return {
-      ...config, model: config.model.trim(),
+      ...config,
+      model: config.model.trim(),
       size: ["9:16", "3:4", "2:3"].includes(ratio) ? "720x1280" : "1280x720",
       resolution: h3.resolutions[0],
       seconds: normalizeVideoDuration(config.model, config.seconds),
-      generateAudio: false, watermark: false,
+      generateAudio: false,
+      watermark: false,
     };
   }
   // 未选择模型时保留工作台默认比例；时长能力始终来自模型目录。
   const seedance = !config.model.trim() || isSeedanceVideoModel(config.model);
   const capabilities = videoModelCapabilities(config.model);
-  const ratio = seedance ? normalizeSeedanceRatio(config.size) : normalizeVideoSizeValue(config.size);
+  const ratio = seedance
+    ? normalizeSeedanceRatio(config.size)
+    : normalizeVideoSizeValue(config.size);
   return {
     model: config.model.trim(),
-    size: videoOptionAvailable(config.model, "ratios", ratio) ? ratio : capabilities.ratios?.[0] || ratio,
+    size: videoOptionAvailable(config.model, "ratios", ratio)
+      ? ratio
+      : capabilities.ratios?.[0] || ratio,
     resolution: seedance
       ? normalizeSeedanceResolution(config.resolution, config.model)
       : normalizeVideoResolutionName(config.resolution),
     seconds: normalizeVideoDuration(config.model, config.seconds),
-    generateAudio: capabilities.has_audio === false ? false : Boolean(config.generateAudio),
+    generateAudio:
+      capabilities.has_audio === false ? false : Boolean(config.generateAudio),
     watermark: Boolean(config.watermark),
   };
 }
 
 /** OpenAI-compatible pixel sizes keyed by the ratio label the canvas shows for them (1792x1024 → 7:4). */
 const openAiSizeByRatio: Record<string, string> = {
-  "16:9": "1280x720", "9:16": "720x1280", "1:1": "1024x1024", "7:4": "1792x1024", "4:7": "1024x1792",
-  "2:3": "720x1280", "3:4": "720x1280",
+  "16:9": "1280x720",
+  "9:16": "720x1280",
+  "1:1": "1024x1024",
+  "7:4": "1792x1024",
+  "4:7": "1024x1792",
+  "2:3": "720x1280",
+  "3:4": "720x1280",
 };
 
 export function normalizeVideoSizeValue(value: string) {
-  if (value === "auto") return "auto";
-  if (/^\d+x\d+$/.test(value || "")) return value;
+  if (!value || value === "auto" || value === "adaptive") return "1280x720";
+  if (/^\d+x\d+$/.test(value)) return value;
   return openAiSizeByRatio[value] || "1280x720";
 }
 
 export function normalizeVideoResolutionName(value: string) {
   if (value === "480" || value === "480p" || value === "low") return "480p";
   if (value === "1080" || value === "1080p") return "1080p";
-  if (value === "720" || value === "720p" || value === "auto" || value === "high" || value === "medium") return "720p";
-  const numeric = String(value || "").trim().replace(/p$/i, "");
-  if (/^\d+$/.test(numeric)) return `${Math.max(1, Math.floor(Number(numeric)))}p`;
+  if (
+    value === "720" ||
+    value === "720p" ||
+    value === "auto" ||
+    value === "high" ||
+    value === "medium"
+  )
+    return "720p";
+  const numeric = String(value || "")
+    .trim()
+    .replace(/p$/i, "");
+  if (/^\d+$/.test(numeric))
+    return `${Math.max(1, Math.floor(Number(numeric)))}p`;
   return "720p";
 }
 
@@ -291,19 +369,28 @@ export function normalizeSeedanceResolution(value: string, model = "") {
   const normalized = normalizeVideoResolutionName(value);
   if (!videoOptionAvailable(model, "resolutions", normalized)) {
     const choices = videoModelCapabilities(model).resolutions || [];
-    return choices.find(item => item.toLowerCase() === "720p")?.toLowerCase() || choices[0]?.toLowerCase() || "720p";
+    return (
+      choices.find(item => item.toLowerCase() === "720p")?.toLowerCase() ||
+      choices[0]?.toLowerCase() ||
+      "720p"
+    );
   }
-  return seedanceResolutions.includes(normalized as (typeof seedanceResolutions)[number]) ? normalized : "720p";
+  return seedanceResolutions.includes(
+    normalized as (typeof seedanceResolutions)[number]
+  )
+    ? normalized
+    : "720p";
 }
 
 export function normalizeSeedanceRatio(value: string) {
-  if (!value || value === "auto" || value === "adaptive") return "adaptive";
-  if (seedanceRatios.includes(value as (typeof seedanceRatios)[number])) return value;
+  if (!value || value === "auto" || value === "adaptive") return "16:9";
+  if (seedanceRatios.includes(value as (typeof seedanceRatios)[number]))
+    return value;
   const match = value.match(/^(\d+)x(\d+)$/);
-  if (!match) return "adaptive";
+  if (!match) return "16:9";
   const width = Number(match[1]);
   const height = Number(match[2]);
-  if (!width || !height) return "adaptive";
+  if (!width || !height) return "16:9";
   const ratio = width / height;
   const options = [
     ["16:9", 16 / 9],
@@ -314,8 +401,9 @@ export function normalizeSeedanceRatio(value: string) {
     ["21:9", 21 / 9],
   ] as const;
   return options.reduce(
-    (best, item) => Math.abs(item[1] - ratio) < Math.abs(best[1] - ratio) ? item : best,
-    options[0],
+    (best, item) =>
+      Math.abs(item[1] - ratio) < Math.abs(best[1] - ratio) ? item : best,
+    options[0]
   )[0];
 }
 
@@ -328,10 +416,14 @@ export async function createVideoGenerationTask(
   config: VideoGenerationConfig,
   prompt: string,
   references: VideoGenerationReferences = emptyReferences,
-  options: RequestOptions = {},
+  options: RequestOptions = {}
 ): Promise<VideoGenerationTask> {
   // A saved canvas may submit before its initial catalog load has completed.
-  if (!hasVideoDurationCatalog() || (modelOptionName(config.model).startsWith("ep-") && !videoModelProtocol(config.model))) {
+  if (
+    !hasVideoDurationCatalog() ||
+    (modelOptionName(config.model).startsWith("ep-") &&
+      !videoModelProtocol(config.model))
+  ) {
     await fetchModelCatalog();
   }
   validateVideoGenerationConfig(config);
@@ -341,106 +433,206 @@ export async function createVideoGenerationTask(
   if (!text) throw new Error("请输入视频提示词");
   validateVideoGenerationReferences(referenceSnapshot, normalized.model);
   // Each explicit generation is a new intent even with identical parameters.
-  const submissionOptions = { ...options, idempotencyKey: options.idempotencyKey || `video-${createRandomUUID()}` };
-  return submitWithGenerationAdmission("video", () => isSeedanceVideoModel(normalized.model)
-    ? createSeedanceTask(normalized, text, referenceSnapshot, submissionOptions)
-    : createOpenAiVideoTask(normalized, text, referenceSnapshot, submissionOptions), options);
+  const submissionOptions = {
+    ...options,
+    idempotencyKey: options.idempotencyKey || `video-${createRandomUUID()}`,
+  };
+  return submitWithGenerationAdmission(
+    "video",
+    () =>
+      isSeedanceVideoModel(normalized.model)
+        ? createSeedanceTask(
+            normalized,
+            text,
+            referenceSnapshot,
+            submissionOptions
+          )
+        : createOpenAiVideoTask(
+            normalized,
+            text,
+            referenceSnapshot,
+            submissionOptions
+          ),
+    options
+  );
 }
 
 export function validateVideoGenerationConfig(config: VideoGenerationConfig) {
   if (!config.model.trim()) throw new Error("请先配置视频模型");
   // Do not silently send a different duration if capabilities changed since selection.
   const supportedDurations = videoModelDurations(config.model);
-  if (supportedDurations.length && !supportedDurations.includes(Number(config.seconds))) {
+  if (
+    supportedDurations.length &&
+    !supportedDurations.includes(Number(config.seconds))
+  ) {
     throw new Error("所选时长不在当前模型支持范围内，请重新选择时长");
   }
   // Reject stale/raw submissions before normalization, upload or credit freeze.
-  if (!h3VideoSettings(config.model) && !videoOptionAvailable(config.model, "resolutions", normalizeVideoResolutionName(config.resolution))) throw new Error("当前模型不支持所选分辨率，请重新选择");
-  if (!videoOptionAvailable(config.model, "ratios", config.size)) throw new Error("当前模型不支持所选比例，请重新选择");
+  if (
+    !h3VideoSettings(config.model) &&
+    !videoOptionAvailable(
+      config.model,
+      "resolutions",
+      normalizeVideoResolutionName(config.resolution)
+    )
+  )
+    throw new Error("当前模型不支持所选分辨率，请重新选择");
+  if (!videoOptionAvailable(config.model, "ratios", config.size))
+    throw new Error("当前模型不支持所选比例，请重新选择");
 }
 
 /** Check known type/count restrictions before downloading any reference bytes. */
 export function validateVideoReferenceLayout(
-  references: { images: Pick<VideoGenerationImageReference, "kind" | "role">[]; videos: { kind: "video" }[]; audios: { kind: "audio" }[] },
-  model: string,
+  references: {
+    images: Pick<VideoGenerationImageReference, "kind" | "role">[];
+    videos: { kind: "video" }[];
+    audios: { kind: "audio" }[];
+  },
+  model: string
 ) {
   const seedance = isSeedanceVideoModel(model);
   const limits = videoReferenceLimitsForModel(model);
   const h3 = h3VideoSettings(model);
   const capabilities = videoModelCapabilities(model);
-  const frames = references.images.filter(item => item.role === "first_frame" || item.role === "last_frame");
-  const regular = references.images.length - frames.length + references.videos.length + references.audios.length;
-  if (capabilities.frames_exclusive && frames.length && regular) throw new Error("当前模型的首尾帧不能与普通参考素材同时使用，请选择一种方式");
-  for (const item of [...references.images, ...references.videos, ...references.audios]) {
+  const frames = references.images.filter(
+    item => item.role === "first_frame" || item.role === "last_frame"
+  );
+  const regular =
+    references.images.length -
+    frames.length +
+    references.videos.length +
+    references.audios.length;
+  if (capabilities.frames_exclusive && frames.length && regular)
+    throw new Error(
+      "当前模型的首尾帧不能与普通参考素材同时使用，请选择一种方式"
+    );
+  for (const item of [
+    ...references.images,
+    ...references.videos,
+    ...references.audios,
+  ]) {
     const role = ("role" in item && item.role) || `reference_${item.kind}`;
-    if (!videoOptionAvailable(model, "supports", role)) throw new Error(`当前模型不支持该参考素材类型：${{ image: "图片", video: "视频", audio: "音频" }[item.kind]}，请移除或切换模型`);
+    if (!videoOptionAvailable(model, "supports", role))
+      throw new Error(
+        `当前模型不支持该参考素材类型：${{ image: "图片", video: "视频", audio: "音频" }[item.kind]}，请移除或切换模型`
+      );
   }
-  if (h3 && !references.images.length) throw new Error("H3 多参考图生需要至少 1 张参考图片");
-  if (references.images.length > limits.images) throw new Error(`参考图片最多 ${limits.images} 张`);
-  if (references.videos.length > limits.videos) throw new Error(`参考视频最多 ${limits.videos} 个`);
-  if (references.audios.length > limits.audios) throw new Error(`参考音频最多 ${limits.audios} 个`);
+  if (h3 && !references.images.length)
+    throw new Error("H3 多参考图生需要至少 1 张参考图片");
+  if (references.images.length > limits.images)
+    throw new Error(`参考图片最多 ${limits.images} 张`);
+  if (references.videos.length > limits.videos)
+    throw new Error(`参考视频最多 ${limits.videos} 个`);
+  if (references.audios.length > limits.audios)
+    throw new Error(`参考音频最多 ${limits.audios} 个`);
   if (!seedance) {
     if (references.videos.length || references.audios.length) {
-      throw new Error("OpenAI-compatible 视频模型仅支持参考图片，请移除参考视频/音频或切换 Seedance/Wan 模型");
+      throw new Error(
+        "OpenAI-compatible 视频模型仅支持参考图片，请移除参考视频/音频或切换 Seedance/Wan 模型"
+      );
     }
     if (!h3 && references.images.length > videoReferenceLimits.openAiImages) {
       throw new Error("OpenAI-compatible 视频模型最多支持 7 张参考图片");
     }
   }
-  if (!limits.audioOnly && references.audios.length && !references.images.length && !references.videos.length) {
-    throw new Error("Seedance 参考音频不能单独使用，请同时添加参考图或参考视频");
+  if (
+    !limits.audioOnly &&
+    references.audios.length &&
+    !references.images.length &&
+    !references.videos.length
+  ) {
+    throw new Error(
+      "Seedance 参考音频不能单独使用，请同时添加参考图或参考视频"
+    );
   }
 }
 
-export function validateVideoGenerationReferences(references: VideoGenerationReferences, model: string) {
+export function validateVideoGenerationReferences(
+  references: VideoGenerationReferences,
+  model: string
+) {
   validateVideoReferenceLayout(references, model);
   const seedance = isSeedanceVideoModel(model);
   const limits = videoReferenceLimitsForModel(model);
   references.images.forEach((reference, index) => {
     if (isAssetReference(reference.url)) {
-      if (!seedance) throw new Error("asset:// 素材引用仅支持 Seedance / 火山视频模型");
+      if (!seedance)
+        throw new Error("asset:// 素材引用仅支持 Seedance / 火山视频模型");
       return;
     }
     if (!reference.file) throw new Error(`参考图片${index + 1}读取失败`);
-    if (!isSupportedImageReference(reference)) throw new Error(`参考图片${index + 1}格式不支持，请使用图片文件`);
-    if (!Number.isFinite(reference.bytes) || reference.bytes <= 0) throw new Error(`参考图片${index + 1}读取失败`);
-    if (reference.bytes > limits.imageMaxBytes) throw new Error(`参考图片${index + 1}“${reference.name}”超过 ${limits.imageMaxBytes / 1024 / 1024}MB`);
+    if (!isSupportedImageReference(reference))
+      throw new Error(`参考图片${index + 1}格式不支持，请使用图片文件`);
+    if (!Number.isFinite(reference.bytes) || reference.bytes <= 0)
+      throw new Error(`参考图片${index + 1}读取失败`);
+    if (reference.bytes > limits.imageMaxBytes)
+      throw new Error(
+        `参考图片${index + 1}“${reference.name}”超过 ${limits.imageMaxBytes / 1024 / 1024}MB`
+      );
   });
   let videoDurationMs = 0;
   references.videos.forEach((reference, index) => {
     if (isAssetReference(reference.url)) {
-      if (!seedance) throw new Error("asset:// 素材引用仅支持 Seedance / 火山视频模型");
+      if (!seedance)
+        throw new Error("asset:// 素材引用仅支持 Seedance / 火山视频模型");
       return;
     }
     if (!reference.file) throw new Error(`参考视频${index + 1}读取失败`);
-    if (!isSupportedVideoReference(reference)) throw new Error(`参考视频${index + 1}格式不支持，请使用 mp4/mov`);
-    if (!Number.isFinite(reference.bytes) || reference.bytes <= 0) throw new Error(`参考视频${index + 1}读取失败`);
-    if (reference.bytes > limits.videoMaxBytes) throw new Error(`参考视频${index + 1}“${reference.name}”超过 ${limits.videoMaxBytes / 1024 / 1024}MB`);
-    assertReferenceDuration(reference.durationMs, `参考视频${index + 1}“${reference.name}”`, limits.mediaMaxDurationMs, limits.mediaMinDurationMs);
+    if (!isSupportedVideoReference(reference))
+      throw new Error(`参考视频${index + 1}格式不支持，请使用 mp4/mov`);
+    if (!Number.isFinite(reference.bytes) || reference.bytes <= 0)
+      throw new Error(`参考视频${index + 1}读取失败`);
+    if (reference.bytes > limits.videoMaxBytes)
+      throw new Error(
+        `参考视频${index + 1}“${reference.name}”超过 ${limits.videoMaxBytes / 1024 / 1024}MB`
+      );
+    assertReferenceDuration(
+      reference.durationMs,
+      `参考视频${index + 1}“${reference.name}”`,
+      limits.mediaMaxDurationMs,
+      limits.mediaMinDurationMs
+    );
     assertReferenceVideoGeometry(reference, index);
     videoDurationMs += reference.durationMs;
   });
-  if (videoDurationMs > limits.mediaMaxTotalDurationMs) throw new Error(`参考视频总时长不能超过 ${limits.mediaMaxTotalDurationMs / 1000} 秒`);
+  if (videoDurationMs > limits.mediaMaxTotalDurationMs)
+    throw new Error(
+      `参考视频总时长不能超过 ${limits.mediaMaxTotalDurationMs / 1000} 秒`
+    );
   let audioDurationMs = 0;
   references.audios.forEach((reference, index) => {
     if (isAssetReference(reference.url)) {
-      if (!seedance) throw new Error("asset:// 素材引用仅支持 Seedance / 火山视频模型");
+      if (!seedance)
+        throw new Error("asset:// 素材引用仅支持 Seedance / 火山视频模型");
       return;
     }
     if (!reference.file) throw new Error(`参考音频${index + 1}读取失败`);
-    if (!isSupportedAudioReference(reference)) throw new Error(`参考音频${index + 1}格式不支持，请使用 mp3/wav`);
-    if (!Number.isFinite(reference.bytes) || reference.bytes <= 0) throw new Error(`参考音频${index + 1}读取失败`);
-    if (reference.bytes > limits.audioMaxBytes) throw new Error(`参考音频${index + 1}“${reference.name}”超过 ${limits.audioMaxBytes / 1024 / 1024}MB`);
-    assertReferenceDuration(reference.durationMs, `参考音频${index + 1}“${reference.name}”`, limits.mediaMaxDurationMs, limits.mediaMinDurationMs);
+    if (!isSupportedAudioReference(reference))
+      throw new Error(`参考音频${index + 1}格式不支持，请使用 mp3/wav`);
+    if (!Number.isFinite(reference.bytes) || reference.bytes <= 0)
+      throw new Error(`参考音频${index + 1}读取失败`);
+    if (reference.bytes > limits.audioMaxBytes)
+      throw new Error(
+        `参考音频${index + 1}“${reference.name}”超过 ${limits.audioMaxBytes / 1024 / 1024}MB`
+      );
+    assertReferenceDuration(
+      reference.durationMs,
+      `参考音频${index + 1}“${reference.name}”`,
+      limits.mediaMaxDurationMs,
+      limits.mediaMinDurationMs
+    );
     audioDurationMs += reference.durationMs;
   });
-  if (audioDurationMs > limits.mediaMaxTotalDurationMs) throw new Error(`参考音频总时长不能超过 ${limits.mediaMaxTotalDurationMs / 1000} 秒`);
+  if (audioDurationMs > limits.mediaMaxTotalDurationMs)
+    throw new Error(
+      `参考音频总时长不能超过 ${limits.mediaMaxTotalDurationMs / 1000} 秒`
+    );
 }
 
 export async function pollVideoGenerationTask(
   config: VideoGenerationConfig,
   task: VideoGenerationTask,
-  options: RequestOptions = {},
+  options: RequestOptions = {}
 ): Promise<VideoGenerationTaskState> {
   if (!(task.model || config.model).trim()) throw new Error("请先配置视频模型");
   try {
@@ -450,7 +642,13 @@ export async function pollVideoGenerationTask(
   } catch (error) {
     if (options.signal?.aborted) throw error;
     // A failed status request says nothing about the durable generation result.
-    if (error instanceof ApiError && (error.status === 0 || error.status === 408 || error.status === 429 || error.status >= 500)) {
+    if (
+      error instanceof ApiError &&
+      (error.status === 0 ||
+        error.status === 408 ||
+        error.status === 429 ||
+        error.status >= 500)
+    ) {
       return { status: "pending" };
     }
     throw error;
@@ -461,27 +659,37 @@ async function createOpenAiVideoTask(
   config: VideoGenerationConfig,
   prompt: string,
   references: VideoGenerationReferences,
-  options: RequestOptions & { idempotencyKey: string },
+  options: RequestOptions & { idempotencyKey: string }
 ): Promise<VideoGenerationTask> {
   if (references.videos.length || references.audios.length) {
-    throw new Error("OpenAI-compatible 视频模型仅支持参考图片，请移除参考视频/音频或切换 Seedance/Wan 模型");
+    throw new Error(
+      "OpenAI-compatible 视频模型仅支持参考图片，请移除参考视频/音频或切换 Seedance/Wan 模型"
+    );
   }
-  if (!h3VideoSettings(config.model) && references.images.length > videoReferenceLimits.openAiImages) {
+  if (
+    !h3VideoSettings(config.model) &&
+    references.images.length > videoReferenceLimits.openAiImages
+  ) {
     throw new Error("OpenAI-compatible 视频模型最多支持 7 张参考图片");
   }
   const body = new FormData();
   body.append("model", config.model);
   if (options.projectId) body.append("project_id", options.projectId);
   if (options.nodeId) body.append("node_id", options.nodeId);
-  if (options.conversationId) body.append("conversation_id", options.conversationId);
+  if (options.conversationId)
+    body.append("conversation_id", options.conversationId);
   if (options.messageId) body.append("studio_message_id", options.messageId);
   body.append("prompt", prompt);
   body.append("seconds", config.seconds);
   body.append("size", normalizeVideoSizeValue(config.size));
-  body.append("resolution_name", normalizeVideoResolutionName(config.resolution));
+  body.append(
+    "resolution_name",
+    normalizeVideoResolutionName(config.resolution)
+  );
   body.append("preset", "normal");
-  references.images.forEach((reference) => {
-    if (!reference.file) throw new Error("OpenAI-compatible 视频模型不支持 asset:// 图片素材");
+  references.images.forEach(reference => {
+    if (!reference.file)
+      throw new Error("OpenAI-compatible 视频模型不支持 asset:// 图片素材");
     body.append("input_reference[]", reference.file, reference.name);
   });
   const created = await request<JobSubmission>("/api/ai/videos", {
@@ -490,7 +698,9 @@ async function createOpenAiVideoTask(
     headers: { "Idempotency-Key": options.idempotencyKey },
     body,
     signal: options.signal,
-    timeoutMs: config.model.startsWith("sdvideo/") ? sdVideoSubmissionTimeoutMs : 30_000,
+    timeoutMs: config.model.startsWith("sdvideo/")
+      ? sdVideoSubmissionTimeoutMs
+      : 30_000,
   });
   const id = created.job_id || created.id || "";
   if (!id) throw new Error("视频接口没有返回任务 ID");
@@ -501,32 +711,39 @@ async function createSeedanceTask(
   config: VideoGenerationConfig,
   prompt: string,
   references: VideoGenerationReferences,
-  options: RequestOptions & { idempotencyKey: string },
+  options: RequestOptions & { idempotencyKey: string }
 ): Promise<VideoGenerationTask> {
   const content = await buildSeedanceContent(config, prompt, references);
-  const created = unwrapSeedanceTask(await request<ApiEnvelope<SeedanceTask>>(
-    "/api/ai/contents/generations/tasks",
-    {
-      method: "POST",
-      query: { scope: options.scope },
-      headers: { "Idempotency-Key": options.idempotencyKey },
-      body: {
-        model: config.model,
-        project_id: options.projectId,
-        node_id: options.nodeId,
-        conversation_id: options.conversationId,
-        studio_message_id: options.messageId,
-        content,
-        ratio: normalizeSeedanceRatio(config.size),
-        resolution: normalizeSeedanceResolution(config.resolution, config.model),
-        duration: Number(config.seconds),
-        generate_audio: config.generateAudio,
-        watermark: config.watermark,
-      },
-      signal: options.signal,
-      timeoutMs: config.model.startsWith("sdvideo/") ? sdVideoSubmissionTimeoutMs : 30_000,
-    },
-  ));
+  const created = unwrapSeedanceTask(
+    await request<ApiEnvelope<SeedanceTask>>(
+      "/api/ai/contents/generations/tasks",
+      {
+        method: "POST",
+        query: { scope: options.scope },
+        headers: { "Idempotency-Key": options.idempotencyKey },
+        body: {
+          model: config.model,
+          project_id: options.projectId,
+          node_id: options.nodeId,
+          conversation_id: options.conversationId,
+          studio_message_id: options.messageId,
+          content,
+          ratio: normalizeSeedanceRatio(config.size),
+          resolution: normalizeSeedanceResolution(
+            config.resolution,
+            config.model
+          ),
+          duration: Number(config.seconds),
+          generate_audio: config.generateAudio,
+          watermark: config.watermark,
+        },
+        signal: options.signal,
+        timeoutMs: config.model.startsWith("sdvideo/")
+          ? sdVideoSubmissionTimeoutMs
+          : 30_000,
+      }
+    )
+  );
   if (!created.id) throw new Error("Seedance 接口没有返回任务 ID");
   return { id: created.id, provider: "seedance", model: config.model };
 }
@@ -534,39 +751,64 @@ async function createSeedanceTask(
 async function buildSeedanceContent(
   config: VideoGenerationConfig,
   prompt: string,
-  references: VideoGenerationReferences,
+  references: VideoGenerationReferences
 ) {
-  const content: Array<Record<string, unknown>> = [{
-    type: "text",
-    text: buildReferencePromptText(prompt, references),
-  }];
-  const imageBudgetBytes = seedanceImageReferenceBudget(references.images.length);
+  const content: Array<Record<string, unknown>> = [
+    {
+      type: "text",
+      text: buildReferencePromptText(prompt, references),
+    },
+  ];
+  const imageBudgetBytes = seedanceImageReferenceBudget(
+    references.images.length
+  );
   const wanImage = isWanVideoModel(config.model);
   for (const reference of references.images) {
     content.push({
       type: "image_url",
-      image_url: { url: await resolveSeedanceImageReference(reference, imageBudgetBytes, wanImage) },
+      image_url: {
+        url: await resolveSeedanceImageReference(
+          reference,
+          imageBudgetBytes,
+          wanImage
+        ),
+      },
       role: reference.role || "reference_image",
     });
   }
   for (const reference of references.videos) {
     content.push({
       type: "video_url",
-      video_url: { url: isAssetReference(reference.url) ? reference.url : await fileToDataUrl(requiredReferenceFile(reference.file, "参考视频")) },
+      video_url: {
+        url: isAssetReference(reference.url)
+          ? reference.url
+          : await fileToDataUrl(
+              requiredReferenceFile(reference.file, "参考视频")
+            ),
+      },
       role: "reference_video",
     });
   }
   for (const reference of references.audios) {
     content.push({
       type: "audio_url",
-      audio_url: { url: isAssetReference(reference.url) ? reference.url : await fileToDataUrl(requiredReferenceFile(reference.file, "参考音频")) },
+      audio_url: {
+        url: isAssetReference(reference.url)
+          ? reference.url
+          : await fileToDataUrl(
+              requiredReferenceFile(reference.file, "参考音频")
+            ),
+      },
       role: "reference_audio",
     });
   }
   return content;
 }
 
-function buildReferencePromptText(prompt: string, references: VideoGenerationReferences) {
+function buildReferencePromptText(
+  prompt: string,
+  references: VideoGenerationReferences
+) {
   const labels = [
     ...references.images.map((_, index) => `图片${index + 1}`),
     ...references.videos.map((_, index) => `视频${index + 1}`),
@@ -577,54 +819,103 @@ function buildReferencePromptText(prompt: string, references: VideoGenerationRef
     : prompt;
 }
 
-function normalizeReferences(references?: VideoGenerationReferences): VideoGenerationReferences {
+function normalizeReferences(
+  references?: VideoGenerationReferences
+): VideoGenerationReferences {
   return {
-    images: (references?.images || []).map((item) => ({ ...item })),
-    videos: (references?.videos || []).map((item) => ({ ...item })),
-    audios: (references?.audios || []).map((item) => ({ ...item })),
+    images: (references?.images || []).map(item => ({ ...item })),
+    videos: (references?.videos || []).map(item => ({ ...item })),
+    audios: (references?.audios || []).map(item => ({ ...item })),
   };
 }
 
 function seedanceImageReferenceBudget(count: number) {
-  return Math.max(220 * 1024, Math.floor(seedanceImageDataUrlMaxBytes / Math.max(1, count)));
+  return Math.max(
+    220 * 1024,
+    Math.floor(seedanceImageDataUrlMaxBytes / Math.max(1, count))
+  );
 }
 
 async function resolveSeedanceImageReference(
   reference: VideoGenerationImageReference,
   targetBytes: number,
-  wanImage: boolean,
+  wanImage: boolean
 ) {
   if (isAssetReference(reference.url)) return reference.url;
-  let dataUrl = await fileToDataUrl(requiredReferenceFile(reference.file, "参考图片"));
-  if (wanImage) dataUrl = await normalizeWanImageDataUrl(dataUrl, reference.width, reference.height);
+  let dataUrl = await fileToDataUrl(
+    requiredReferenceFile(reference.file, "参考图片")
+  );
+  if (wanImage)
+    dataUrl = await normalizeWanImageDataUrl(
+      dataUrl,
+      reference.width,
+      reference.height
+    );
   return compressImageDataUrl(dataUrl, targetBytes, wanImage);
 }
 
-async function normalizeWanImageDataUrl(dataUrl: string, width: number, height: number) {
+async function normalizeWanImageDataUrl(
+  dataUrl: string,
+  width: number,
+  height: number
+) {
   const sourceWidth = Math.max(1, Math.floor(width || 1));
   const sourceHeight = Math.max(1, Math.floor(height || 1));
-  const scale = Math.min(1, wanImageMaxEdge / Math.max(sourceWidth, sourceHeight));
+  const scale = Math.min(
+    1,
+    wanImageMaxEdge / Math.max(sourceWidth, sourceHeight)
+  );
   const drawWidth = Math.max(1, Math.round(sourceWidth * scale));
   const drawHeight = Math.max(1, Math.round(sourceHeight * scale));
   const canvasWidth = Math.max(wanImageMinEdge, drawWidth);
   const canvasHeight = Math.max(wanImageMinEdge, drawHeight);
-  if (scale === 1 && canvasWidth === sourceWidth && canvasHeight === sourceHeight) return dataUrl;
-  return resizeImageDataUrl(dataUrl, canvasWidth, canvasHeight, drawWidth, drawHeight, 0.92);
+  if (
+    scale === 1 &&
+    canvasWidth === sourceWidth &&
+    canvasHeight === sourceHeight
+  )
+    return dataUrl;
+  return resizeImageDataUrl(
+    dataUrl,
+    canvasWidth,
+    canvasHeight,
+    drawWidth,
+    drawHeight,
+    0.92
+  );
 }
 
-async function compressImageDataUrl(dataUrl: string, targetBytes: number, wanImage: boolean) {
+async function compressImageDataUrl(
+  dataUrl: string,
+  targetBytes: number,
+  wanImage: boolean
+) {
   const meta = await readImageDataUrlMeta(dataUrl);
   const sourceBytes = dataUrlByteSize(dataUrl);
   if (sourceBytes > 0 && sourceBytes <= targetBytes) return dataUrl;
   let bestDataUrl = dataUrl;
   let bestBytes = sourceBytes || Number.MAX_SAFE_INTEGER;
   for (const step of seedanceImageCompressionSteps) {
-    const scale = Math.min(1, step.edge / Math.max(meta.width, meta.height, seedanceImageDataUrlMaxEdge));
+    const scale = Math.min(
+      1,
+      step.edge / Math.max(meta.width, meta.height, seedanceImageDataUrlMaxEdge)
+    );
     const drawWidth = Math.max(1, Math.round(meta.width * scale));
     const drawHeight = Math.max(1, Math.round(meta.height * scale));
-    const canvasWidth = wanImage ? Math.max(wanImageMinEdge, drawWidth) : drawWidth;
-    const canvasHeight = wanImage ? Math.max(wanImageMinEdge, drawHeight) : drawHeight;
-    const candidate = await resizeImageDataUrl(dataUrl, canvasWidth, canvasHeight, drawWidth, drawHeight, step.quality);
+    const canvasWidth = wanImage
+      ? Math.max(wanImageMinEdge, drawWidth)
+      : drawWidth;
+    const canvasHeight = wanImage
+      ? Math.max(wanImageMinEdge, drawHeight)
+      : drawHeight;
+    const candidate = await resizeImageDataUrl(
+      dataUrl,
+      canvasWidth,
+      canvasHeight,
+      drawWidth,
+      drawHeight,
+      step.quality
+    );
     const candidateBytes = dataUrlByteSize(candidate);
     if (candidateBytes > 0 && candidateBytes < bestBytes) {
       bestDataUrl = candidate;
@@ -633,7 +924,9 @@ async function compressImageDataUrl(dataUrl: string, targetBytes: number, wanIma
     if (candidateBytes > 0 && candidateBytes <= targetBytes) return candidate;
   }
   if (bestBytes <= targetBytes) return bestDataUrl;
-  throw new Error(`参考图压缩后仍超过 ${(targetBytes / 1024 / 1024).toFixed(1)}MB，请先压缩图片`);
+  throw new Error(
+    `参考图压缩后仍超过 ${(targetBytes / 1024 / 1024).toFixed(1)}MB，请先压缩图片`
+  );
 }
 
 async function resizeImageDataUrl(
@@ -642,7 +935,7 @@ async function resizeImageDataUrl(
   canvasHeight: number,
   drawWidth: number,
   drawHeight: number,
-  quality: number,
+  quality: number
 ) {
   const image = await loadImageElement(dataUrl);
   const canvas = document.createElement("canvas");
@@ -652,20 +945,30 @@ async function resizeImageDataUrl(
   if (!context) throw new Error("浏览器无法处理参考图");
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, canvasWidth, canvasHeight);
-  context.drawImage(image, (canvasWidth - drawWidth) / 2, (canvasHeight - drawHeight) / 2, drawWidth, drawHeight);
+  context.drawImage(
+    image,
+    (canvasWidth - drawWidth) / 2,
+    (canvasHeight - drawHeight) / 2,
+    drawWidth,
+    drawHeight
+  );
   return canvas.toDataURL("image/jpeg", quality);
 }
 
 async function readImageDataUrlMeta(dataUrl: string) {
   const image = await loadImageElement(dataUrl);
-  return { width: image.naturalWidth || image.width, height: image.naturalHeight || image.height };
+  return {
+    width: image.naturalWidth || image.width,
+    height: image.naturalHeight || image.height,
+  };
 }
 
 function loadImageElement(src: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("参考图读取失败，请换一张图片或重新上传"));
+    image.onerror = () =>
+      reject(new Error("参考图读取失败，请换一张图片或重新上传"));
     image.src = src;
   });
 }
@@ -698,60 +1001,101 @@ function dataUrlByteSize(dataUrl: string) {
   return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
 }
 
-function assertReferenceDuration(durationMs: number, label: string, maxDurationMs: number, minDurationMs: number) {
+function assertReferenceDuration(
+  durationMs: number,
+  label: string,
+  maxDurationMs: number,
+  minDurationMs: number
+) {
   if (
-    !Number.isFinite(durationMs)
-    || durationMs < minDurationMs
-    || durationMs > maxDurationMs
+    !Number.isFinite(durationMs) ||
+    durationMs < minDurationMs ||
+    durationMs > maxDurationMs
   ) {
-    const actual = Number.isFinite(durationMs) && durationMs > 0 ? `，当前为 ${(durationMs / 1000).toFixed(2)} 秒` : "，当前无法读取时长";
-    throw new Error(`${label}时长需要在 ${minDurationMs / 1000}-${maxDurationMs / 1000} 秒之间${actual}，请裁剪素材或切换支持该时长的模型`);
+    const actual =
+      Number.isFinite(durationMs) && durationMs > 0
+        ? `，当前为 ${(durationMs / 1000).toFixed(2)} 秒`
+        : "，当前无法读取时长";
+    throw new Error(
+      `${label}时长需要在 ${minDurationMs / 1000}-${maxDurationMs / 1000} 秒之间${actual}，请裁剪素材或切换支持该时长的模型`
+    );
   }
 }
 
-function assertReferenceVideoGeometry(reference: VideoGenerationVideoReference, index: number) {
+function assertReferenceVideoGeometry(
+  reference: VideoGenerationVideoReference,
+  index: number
+) {
   const label = `参考视频${index + 1}`;
   if (
-    !Number.isFinite(reference.width)
-    || !Number.isFinite(reference.height)
-    || reference.width < videoReferenceLimits.videoMinEdge
-    || reference.width > videoReferenceLimits.videoMaxEdge
-    || reference.height < videoReferenceLimits.videoMinEdge
-    || reference.height > videoReferenceLimits.videoMaxEdge
-  ) throw new Error(`${label}宽高需要在 300-6000px 之间`);
+    !Number.isFinite(reference.width) ||
+    !Number.isFinite(reference.height) ||
+    reference.width < videoReferenceLimits.videoMinEdge ||
+    reference.width > videoReferenceLimits.videoMaxEdge ||
+    reference.height < videoReferenceLimits.videoMinEdge ||
+    reference.height > videoReferenceLimits.videoMaxEdge
+  )
+    throw new Error(`${label}宽高需要在 300-6000px 之间`);
   const ratio = reference.width / reference.height;
-  if (ratio < videoReferenceLimits.videoMinRatio || ratio > videoReferenceLimits.videoMaxRatio) {
+  if (
+    ratio < videoReferenceLimits.videoMinRatio ||
+    ratio > videoReferenceLimits.videoMaxRatio
+  ) {
     throw new Error(`${label}宽高比需要在 0.4-2.5 之间`);
   }
   const pixels = reference.width * reference.height;
-  if (pixels < videoReferenceLimits.videoMinPixels || pixels > videoReferenceLimits.videoMaxPixels) {
-    throw new Error(`${label}像素总量不符合 Seedance 要求，请转成 480p/720p/1080p 后再上传`);
+  if (
+    pixels < videoReferenceLimits.videoMinPixels ||
+    pixels > videoReferenceLimits.videoMaxPixels
+  ) {
+    throw new Error(
+      `${label}像素总量不符合 Seedance 要求，请转成 480p/720p/1080p 后再上传`
+    );
   }
 }
 
-function isSupportedImageReference(reference: Pick<VideoGenerationImageReference, "mime" | "name">) {
-  return reference.mime.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(reference.name);
+function isSupportedImageReference(
+  reference: Pick<VideoGenerationImageReference, "mime" | "name">
+) {
+  return (
+    reference.mime.startsWith("image/") ||
+    /\.(png|jpe?g|webp|gif)$/i.test(reference.name)
+  );
 }
 
-function isSupportedVideoReference(reference: Pick<VideoGenerationVideoReference, "mime" | "name">) {
-  return reference.mime === "video/mp4" || reference.mime === "video/quicktime" || /\.(mp4|mov)$/i.test(reference.name);
+function isSupportedVideoReference(
+  reference: Pick<VideoGenerationVideoReference, "mime" | "name">
+) {
+  return (
+    reference.mime === "video/mp4" ||
+    reference.mime === "video/quicktime" ||
+    /\.(mp4|mov)$/i.test(reference.name)
+  );
 }
 
-function isSupportedAudioReference(reference: Pick<VideoGenerationAudioReference, "mime" | "name">) {
-  return ["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav"].includes(reference.mime)
-    || /\.(mp3|wav)$/i.test(reference.name);
+function isSupportedAudioReference(
+  reference: Pick<VideoGenerationAudioReference, "mime" | "name">
+) {
+  return (
+    ["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav"].includes(
+      reference.mime
+    ) || /\.(mp3|wav)$/i.test(reference.name)
+  );
 }
 
 async function pollOpenAiVideoTask(
   task: VideoGenerationTask,
-  options: RequestOptions,
+  options: RequestOptions
 ): Promise<VideoGenerationTaskState> {
   if (options.signal?.aborted) throw abortError();
   const job = await getJob(task.id, options.signal);
   if (options.signal?.aborted) throw abortError();
   options.onProgress?.(job);
   if (job.status === "succeeded") {
-    return { status: "completed", result: await videoResultFromCompletedJob(job, options) };
+    return {
+      status: "completed",
+      result: await videoResultFromCompletedJob(job, options),
+    };
   }
   if (isTerminalJob(job)) {
     return { status: "failed", error: jobErrorMessage(job, "视频生成失败") };
@@ -761,21 +1105,31 @@ async function pollOpenAiVideoTask(
 
 async function pollSeedanceTask(
   task: VideoGenerationTask,
-  options: RequestOptions,
+  options: RequestOptions
 ): Promise<VideoGenerationTaskState> {
-  const state = unwrapSeedanceTask(await request<ApiEnvelope<SeedanceTask>>(
-    `/api/ai/contents/generations/tasks/${encodeURIComponent(task.id)}`,
-    {
-      query: { model: task.model },
-      signal: options.signal,
-      timeoutMs: 30_000,
-    },
-  ));
+  const state = unwrapSeedanceTask(
+    await request<ApiEnvelope<SeedanceTask>>(
+      `/api/ai/contents/generations/tasks/${encodeURIComponent(task.id)}`,
+      {
+        query: { model: task.model },
+        signal: options.signal,
+        timeoutMs: 30_000,
+      }
+    )
+  );
   const status = (state.status || state.state || "").toLowerCase();
-  if (status === "succeeded" || status === "success" || status === "completed") {
+  if (
+    status === "succeeded" ||
+    status === "success" ||
+    status === "completed"
+  ) {
     return {
       status: "completed",
-      result: await videoResultFromSeedanceTaskContent(task, seedanceVideoUrl(state), options),
+      result: await videoResultFromSeedanceTaskContent(
+        task,
+        seedanceVideoUrl(state),
+        options
+      ),
     };
   }
   if (["failed", "cancelled", "canceled", "expired"].includes(status)) {
@@ -786,32 +1140,48 @@ async function pollSeedanceTask(
 
 async function videoResultFromCompletedJob(
   job: Job,
-  options: RequestOptions,
+  options: RequestOptions
 ): Promise<VideoGenerationResult> {
   const output = firstVideoOutput(job.result);
   if (!output) throw new Error("视频任务没有返回可播放结果");
   const scope = job.scope || "personal";
-  const mimeType = stringValue(output.content_type) || stringValue(output.mimeType) || "video/mp4";
-  const fileName = stringValue(output.file_name)
-    || stringValue(output.filename)
-    || stringValue(output.name)
-    || job.name?.trim()
-    || undefined;
+  const mimeType =
+    stringValue(output.content_type) ||
+    stringValue(output.mimeType) ||
+    "video/mp4";
+  const fileName =
+    stringValue(output.file_name) ||
+    stringValue(output.filename) ||
+    stringValue(output.name) ||
+    job.name?.trim() ||
+    undefined;
   const assetId = stringValue(output.asset_id) || stringValue(output.id);
   const assetUrl = stringValue(output.asset_url);
-  const remoteUrl = stringValue(output.remote_url)
-    || stringValue(output.provider_url)
-    || stringValue(output.video_url)
-    || stringValue(output.url);
+  const remoteUrl =
+    stringValue(output.remote_url) ||
+    stringValue(output.provider_url) ||
+    stringValue(output.video_url) ||
+    stringValue(output.url);
   if (assetId) {
     if (options.signal?.aborted) throw abortError();
     // Completion must not wait for the entire video to download. The native
     // player uses the session cookie and Range requests through this URL.
-    return { url: getAssetMediaUrl(assetId, scope), mimeType, fileName, assetId, scope, ephemeral: false };
+    return {
+      url: getAssetMediaUrl(assetId, scope),
+      mimeType,
+      fileName,
+      assetId,
+      scope,
+      ephemeral: false,
+    };
   }
   if (assetUrl) {
     return {
-      url: await videoObjectUrlFromAuthenticatedUrl(assetUrl, mimeType, options),
+      url: await videoObjectUrlFromAuthenticatedUrl(
+        assetUrl,
+        mimeType,
+        options
+      ),
       mimeType,
       fileName,
       scope,
@@ -827,34 +1197,42 @@ async function videoResultFromCompletedJob(
 async function videoResultFromSeedanceTaskContent(
   task: VideoGenerationTask,
   fallbackUrl: string,
-  options: RequestOptions,
+  options: RequestOptions
 ): Promise<VideoGenerationResult> {
   try {
     const url = await videoObjectUrlFromAuthenticatedUrl(
       `/api/ai/contents/generations/tasks/${encodeURIComponent(task.id)}/content?model=${encodeURIComponent(task.model)}`,
       "video/mp4",
-      options,
+      options
     );
     return { url, mimeType: "video/mp4", scope: "personal", ephemeral: true };
   } catch (error) {
     if (options.signal?.aborted) throw error;
     if (isTrustedRemoteVideoUrl(fallbackUrl)) {
-      return { url: fallbackUrl, mimeType: "video/mp4", scope: "personal", ephemeral: true };
+      return {
+        url: fallbackUrl,
+        mimeType: "video/mp4",
+        scope: "personal",
+        ephemeral: true,
+      };
     }
-    throw error instanceof Error ? error : new Error("Seedance 视频内容下载失败");
+    throw error instanceof Error
+      ? error
+      : new Error("Seedance 视频内容下载失败");
   }
 }
 
 export async function videoGenerationResultToBlob(
   result: VideoGenerationResult,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ) {
   if (!result.url) throw new Error("视频结果没有可下载地址");
   const target = new URL(result.url, `${API_BASE_URL}/`);
   const apiOrigin = new URL(API_BASE_URL).origin;
-  const authenticated = target.protocol === "http:" || target.protocol === "https:"
-    ? target.origin === apiOrigin
-    : false;
+  const authenticated =
+    target.protocol === "http:" || target.protocol === "https:"
+      ? target.origin === apiOrigin
+      : false;
   const token = authenticated ? getAuthToken() : null;
   const response = await fetch(target, {
     credentials: authenticated ? "include" : "omit",
@@ -867,7 +1245,9 @@ export async function videoGenerationResultToBlob(
   if (!response.ok) throw new Error(`视频内容下载失败：${response.status}`);
   const blob = await response.blob();
   if (signal?.aborted) throw abortError();
-  return blob.type ? blob : new Blob([blob], { type: result.mimeType || "video/mp4" });
+  return blob.type
+    ? blob
+    : new Blob([blob], { type: result.mimeType || "video/mp4" });
 }
 
 function videoModelCatalogError(error: unknown) {
@@ -875,7 +1255,9 @@ function videoModelCatalogError(error: unknown) {
     const suffix = error.requestId ? ` (request_id: ${error.requestId})` : "";
     if (error.status === 401) return `登录状态已失效，请重新登录${suffix}`;
     if (error.status === 403) return `当前账号无权使用模型服务${suffix}`;
-    return error.message || `模型服务暂不可用，请联系管理员配置模型服务${suffix}`;
+    return (
+      error.message || `模型服务暂不可用，请联系管理员配置模型服务${suffix}`
+    );
   }
   return "模型服务暂不可用，请联系管理员配置模型服务";
 }
@@ -883,7 +1265,7 @@ function videoModelCatalogError(error: unknown) {
 async function videoObjectUrlFromAuthenticatedUrl(
   url: string,
   mimeType: string,
-  options: RequestOptions,
+  options: RequestOptions
 ) {
   const target = new URL(url, `${API_BASE_URL}/`);
   const apiOrigin = new URL(API_BASE_URL).origin;
@@ -900,24 +1282,36 @@ async function videoObjectUrlFromAuthenticatedUrl(
   if (!response.ok) throw new Error(`视频内容下载失败：${response.status}`);
   const blob = await response.blob();
   if (options.signal?.aborted) throw abortError();
-  return URL.createObjectURL(blob.type ? blob : new Blob([blob], { type: mimeType }));
+  return URL.createObjectURL(
+    blob.type ? blob : new Blob([blob], { type: mimeType })
+  );
 }
 
 function firstVideoOutput(result: unknown): Record<string, unknown> | null {
   if (Array.isArray(result)) return result.find(isRecord) || null;
   if (!isRecord(result)) return null;
-  const outputs = Array.isArray(result.outputs) ? result.outputs.filter(isRecord) : [];
+  const outputs = Array.isArray(result.outputs)
+    ? result.outputs.filter(isRecord)
+    : [];
   if (outputs.length) return outputs[0];
-  const assets = Array.isArray(result.assets) ? result.assets.filter(isRecord) : [];
-  if (assets.length) return { ...assets[0], asset_id: assets[0].id, asset_url: assets[0].url };
+  const assets = Array.isArray(result.assets)
+    ? result.assets.filter(isRecord)
+    : [];
+  if (assets.length)
+    return { ...assets[0], asset_id: assets[0].id, asset_url: assets[0].url };
   return result;
 }
 
 function unwrapSeedanceTask(payload: ApiEnvelope<SeedanceTask>) {
   if (!payload) throw new Error("Seedance 接口没有返回任务");
-  if (isRecord(payload) && "code" in payload && typeof payload.code === "number") {
+  if (
+    isRecord(payload) &&
+    "code" in payload &&
+    typeof payload.code === "number"
+  ) {
     if (payload.code !== 0) throw new Error(seedanceEnvelopeError(payload));
-    if (!payload.data || !isRecord(payload.data)) throw new Error("Seedance 接口没有返回任务");
+    if (!payload.data || !isRecord(payload.data))
+      throw new Error("Seedance 接口没有返回任务");
     return payload.data as SeedanceTask;
   }
   return payload as SeedanceTask;
@@ -927,32 +1321,42 @@ function seedanceEnvelopeError(payload: Record<string, unknown>) {
   if (typeof payload.msg === "string" && payload.msg.trim()) return payload.msg;
   const error = payload.error;
   if (typeof error === "string" && error.trim()) return error;
-  if (isRecord(error) && typeof error.message === "string" && error.message.trim()) return error.message;
+  if (
+    isRecord(error) &&
+    typeof error.message === "string" &&
+    error.message.trim()
+  )
+    return error.message;
   return "Seedance 请求失败";
 }
 
 function seedanceVideoUrl(task: SeedanceTask) {
   const content = task.content || task.result || {};
-  return stringValue(content.video_url)
-    || stringValue(content.videoUrl)
-    || stringValue(content.output_url)
-    || stringValue(content.download_url)
-    || stringValue(content.url);
+  return (
+    stringValue(content.video_url) ||
+    stringValue(content.videoUrl) ||
+    stringValue(content.output_url) ||
+    stringValue(content.download_url) ||
+    stringValue(content.url)
+  );
 }
 
 function seedanceErrorMessage(task: SeedanceTask, status: string) {
   if (task.error_message?.trim()) return task.error_message;
   if (typeof task.error === "string" && task.error.trim()) return task.error;
   if (task.error && typeof task.error === "object") {
-    return task.error.message
-      || task.error.error
-      || task.error.detail
-      || task.error.code
-      || "Seedance 视频生成失败";
+    return (
+      task.error.message ||
+      task.error.error ||
+      task.error.detail ||
+      task.error.code ||
+      "Seedance 视频生成失败"
+    );
   }
   if (task.message?.trim()) return task.message;
   if (status === "expired") return "Seedance 视频生成超时";
-  if (status === "cancelled" || status === "canceled") return "Seedance 视频任务已取消";
+  if (status === "cancelled" || status === "canceled")
+    return "Seedance 视频任务已取消";
   return "Seedance 视频生成失败";
 }
 

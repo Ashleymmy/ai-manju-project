@@ -90,7 +90,7 @@ func catalogVideoCapabilities(modelID string) videoModelCapabilities {
 		return caps
 	}
 	caps.Resolutions = []string{"480p", "720p", "1080p"}
-	caps.Ratios = []string{"16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "adaptive"}
+	caps.Ratios = []string{"16:9", "9:16", "1:1", "4:3", "3:4", "21:9"}
 	caps.Supports = []string{"text", "first_frame", "last_frame", "reference_image", "reference_video", "reference_audio"}
 	caps.HasAudio = &audio
 	caps.References = &videoReferenceCapabilities{Images: 9, Videos: 3, Audios: 3}
@@ -112,11 +112,36 @@ func catalogVideoCapabilities(modelID string) videoModelCapabilities {
 	caps.References.VideoMaxBytes = videoReferenceVideoMaxBytes
 	caps.References.AudioMaxBytes = videoReferenceAudioMaxBytes
 	if wan {
-		caps.Ratios = []string{"16:9", "9:16", "1:1", "4:3", "3:4", "adaptive"}
+		caps.Ratios = []string{"16:9", "9:16", "1:1", "4:3", "3:4"}
 		caps.Durations = integerVideoDurations(4, 30, false)
 		caps.FramesExclusive = true
 	}
 	return caps
+}
+
+func explicitVideoRatio(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto", "adaptive":
+		return "16:9"
+	default:
+		return strings.TrimSpace(value)
+	}
+}
+
+func withoutAutomaticVideoRatios(ratios []string) []string {
+	if len(ratios) == 0 {
+		return ratios
+	}
+	filtered := make([]string, 0, len(ratios))
+	for _, ratio := range ratios {
+		switch strings.ToLower(strings.TrimSpace(ratio)) {
+		case "", "auto", "adaptive":
+			continue
+		default:
+			filtered = append(filtered, ratio)
+		}
+	}
+	return filtered
 }
 
 func (caps videoModelCapabilities) validate(body map[string]any) error {
@@ -135,8 +160,10 @@ func (caps videoModelCapabilities) validate(body map[string]any) error {
 		return err
 	}
 	ratio := stringFromAny(body["ratio"])
-	if ratio == "" {
-		ratio = map[string]string{"1280x720": "16:9", "720x1280": "9:16", "1024x1024": "1:1"}[stringFromAny(body["size"])]
+	if ratio == "" || strings.EqualFold(ratio, "auto") || strings.EqualFold(ratio, "adaptive") {
+		inferred := map[string]string{"1280x720": "16:9", "720x1280": "9:16", "1024x1024": "1:1"}[stringFromAny(body["size"])]
+		ratio = firstNonEmpty(inferred, "16:9")
+		body["ratio"] = ratio
 	}
 	if err := check("比例", ratio, caps.Ratios); err != nil {
 		return err
@@ -243,7 +270,7 @@ func loadSDVideoCapabilities(c *gin.Context, client *sdvideo.Client, modelID str
 	for _, item := range data.Items {
 		if item.Key == modelID {
 			caps := catalogVideoCapabilities(modelID)
-			caps.Resolutions, caps.Ratios, caps.Supports, caps.HasAudio = item.Resolutions, item.Ratios, item.Supports, item.HasAudio
+			caps.Resolutions, caps.Ratios, caps.Supports, caps.HasAudio = item.Resolutions, withoutAutomaticVideoRatios(item.Ratios), item.Supports, item.HasAudio
 			if item.References != nil {
 				caps.References = item.References
 			}
