@@ -36,8 +36,8 @@ describe("Chat project flow", () => {
           content: "雨夜追逐",
           x: 540,
           y: 160,
-          width: 300,
-          height: 220,
+          width: 420,
+          height: 236.25,
           metadata: {
             content: "雨夜追逐",
             generationMode: "image",

@@ -2596,7 +2596,21 @@ export default function CanvasWorkspaceViewContent() {
     setProjectBatchBusy(false);
   };
 
+  /** An empty image node starts in the shape of the ratio it will request. */
   const buildCanvasNodeCandidate = (
+    kind: CanvasNodeKind,
+    position?: { x: number; y: number },
+    nodeCount = nodesRef.current.length
+  ): CanvasNodeData => {
+    const node = buildCanvasNodeDraft(kind, position, nodeCount);
+    if (node.kind !== "image") return node;
+    const requested = canvasEmptyImageRequestDimensions(node, [], []);
+    return requested
+      ? shapeEmptyCanvasImageFrame(node, requested.width, requested.height)
+      : node;
+  };
+
+  const buildCanvasNodeDraft = (
     kind: CanvasNodeKind,
     position?: { x: number; y: number },
     nodeCount = nodesRef.current.length

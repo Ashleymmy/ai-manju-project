@@ -27,6 +27,8 @@ import {
   videoConfigFromNode,
   videoSubModeFromNode,
   autoVideoSubModeForPromptChange,
+  CANVAS_IMAGE_NODE_HEIGHT,
+  CANVAS_IMAGE_NODE_WIDTH,
 } from "./nodeUtils";
 import type { CanvasNodeData } from "./types";
 
@@ -175,6 +177,45 @@ describe("canvas node utilities", () => {
     expect(shapeEmptyCanvasImageFrame(userSized, 1280, 720)).toMatchObject({
       width: 300,
       height: 168.75,
+    });
+  });
+
+  it("shapes new empty image nodes within the 420 px 16:9 frame and leaves legacy 4:3 frames as before", () => {
+    const empty = {
+      kind: "image",
+      width: CANVAS_IMAGE_NODE_WIDTH,
+      height: CANVAS_IMAGE_NODE_HEIGHT,
+      metadata: {},
+    };
+    expect(empty).toMatchObject({ width: 420, height: 236.25 });
+    expect(shapeEmptyCanvasImageFrame(empty, 1280, 720)).toBe(empty);
+    const portrait = shapeEmptyCanvasImageFrame(empty, 720, 1280);
+    expect(portrait).toMatchObject({ width: 315, height: 560 });
+    expect(shapeEmptyCanvasImageFrame(portrait, 1280, 720)).toMatchObject({
+      width: 420,
+      height: 236.25,
+    });
+    expect(shapeEmptyCanvasImageFrame(empty, 1152, 864)).toMatchObject({
+      width: 420,
+      height: 315,
+    });
+
+    const legacy = { kind: "image", width: 320, height: 240, metadata: {} };
+    expect(shapeEmptyCanvasImageFrame(legacy, 1152, 864)).toBe(legacy);
+    expect(shapeEmptyCanvasImageFrame(legacy, 1280, 720)).toMatchObject({
+      width: 320,
+      height: 180,
+    });
+    const generated = {
+      kind: "image",
+      width: 320,
+      height: 240,
+      metadata: { naturalWidth: 1152, naturalHeight: 864 },
+    };
+    expect(applyCanvasImageNaturalSize(generated, 1152, 864)).toBe(generated);
+    expect(fitCanvasImageNodeSize(1920, 1080)).toEqual({
+      width: 320,
+      height: 180,
     });
   });
 

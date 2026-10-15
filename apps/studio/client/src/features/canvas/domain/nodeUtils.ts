@@ -36,11 +36,17 @@ import { workspaceScopeValue } from "./workspace";
 import { CANVAS_NODE_RESIZE_BOUNDS } from "./nodeResize";
 import { extractCanvasMentionTokens } from "./mentions";
 
-/** 空图片节点占位框（4:3）。有图后按原图像素比适配；生成比例另有默认值。 */
-export const CANVAS_IMAGE_NODE_WIDTH = 320;
-export const CANVAS_IMAGE_NODE_HEIGHT = 240;
-/** Earlier default frames (320×238 and 300×220) still count as untouched defaults. */
+/** 空图片节点占位框：与空视频节点同为 420 宽的 16:9，与默认生成比例一致。 */
+export const CANVAS_IMAGE_NODE_WIDTH = 420;
+export const CANVAS_IMAGE_NODE_HEIGHT = (CANVAS_IMAGE_NODE_WIDTH * 9) / 16;
+/**
+ * 旧版空图片框（4:3）。已有节点仍按它适配，保持原样不放大；
+ * 320×238 和 300×220 是更早的近似尺寸，读取时一并视为 320×240。
+ */
+const CANVAS_IMAGE_NODE_LEGACY_WIDTH = 320;
+const CANVAS_IMAGE_NODE_LEGACY_HEIGHT = 240;
 const CANVAS_IMAGE_NODE_LEGACY_DEFAULT_SIZES = [
+  { width: CANVAS_IMAGE_NODE_LEGACY_WIDTH, height: CANVAS_IMAGE_NODE_LEGACY_HEIGHT },
   { width: 320, height: 238 },
   { width: 300, height: 220 },
 ] as const;
@@ -113,7 +119,9 @@ export function canvasImageParamDefaults() {
   } as const;
 }
 
-export function fitCanvasImageNodeSize(
+function fitWithinImageFrame(
+  maxWidth: number,
+  fallback: { width: number; height: number },
   naturalWidth: number,
   naturalHeight: number
 ) {
@@ -123,10 +131,10 @@ export function fitCanvasImageNodeSize(
     !(naturalWidth > 0) ||
     !(naturalHeight > 0)
   ) {
-    return { width: CANVAS_IMAGE_NODE_WIDTH, height: CANVAS_IMAGE_NODE_HEIGHT };
+    return { ...fallback };
   }
   const scale = Math.min(
-    CANVAS_IMAGE_NODE_WIDTH / naturalWidth,
+    maxWidth / naturalWidth,
     CANVAS_IMAGE_NODE_MAX_HEIGHT / naturalHeight
   );
   return {
@@ -135,13 +143,60 @@ export function fitCanvasImageNodeSize(
   };
 }
 
-export function isDefaultCanvasImageNodeSize(width: number, height: number) {
-  return [
+/** Media frames (pasted images, new result nodes, legacy frames) keep the original 320 px width. */
+export function fitCanvasImageNodeSize(
+  naturalWidth: number,
+  naturalHeight: number
+) {
+  return fitWithinImageFrame(
+    CANVAS_IMAGE_NODE_LEGACY_WIDTH,
+    {
+      width: CANVAS_IMAGE_NODE_LEGACY_WIDTH,
+      height: CANVAS_IMAGE_NODE_LEGACY_HEIGHT,
+    },
+    naturalWidth,
+    naturalHeight
+  );
+}
+
+/** An empty image node created with the current default frame is shaped within 420 px, like video. */
+function fitEmptyCanvasImageNodeSize(
+  naturalWidth: number,
+  naturalHeight: number
+) {
+  return fitWithinImageFrame(
+    CANVAS_IMAGE_NODE_WIDTH,
     { width: CANVAS_IMAGE_NODE_WIDTH, height: CANVAS_IMAGE_NODE_HEIGHT },
-    ...CANVAS_IMAGE_NODE_LEGACY_DEFAULT_SIZES,
-  ].some(
+    naturalWidth,
+    naturalHeight
+  );
+}
+
+function matchesFrameSize(
+  width: number,
+  height: number,
+  sizes: readonly { width: number; height: number }[]
+) {
+  return sizes.some(
     size =>
       Math.abs(width - size.width) <= 1 && Math.abs(height - size.height) <= 1
+  );
+}
+
+function isLegacyCanvasImageNodeSize(width: number, height: number) {
+  return matchesFrameSize(width, height, CANVAS_IMAGE_NODE_LEGACY_DEFAULT_SIZES);
+}
+
+function isCurrentCanvasImageNodeSize(width: number, height: number) {
+  return matchesFrameSize(width, height, [
+    { width: CANVAS_IMAGE_NODE_WIDTH, height: CANVAS_IMAGE_NODE_HEIGHT },
+  ]);
+}
+
+export function isDefaultCanvasImageNodeSize(width: number, height: number) {
+  return (
+    isCurrentCanvasImageNodeSize(width, height) ||
+    isLegacyCanvasImageNodeSize(width, height)
   );
 }
 
@@ -183,7 +238,14 @@ type CanvasMediaFrameDefaults = {
 const CANVAS_IMAGE_FRAME_DEFAULTS: CanvasMediaFrameDefaults = {
   width: CANVAS_IMAGE_NODE_WIDTH,
   height: CANVAS_IMAGE_NODE_HEIGHT,
-  isDefault: isDefaultCanvasImageNodeSize,
+  isDefault: isCurrentCanvasImageNodeSize,
+  fit: fitEmptyCanvasImageNodeSize,
+};
+/** Nodes still in the old 4:3 default frame keep adapting within it, so existing canvases look unchanged. */
+const CANVAS_IMAGE_LEGACY_FRAME_DEFAULTS: CanvasMediaFrameDefaults = {
+  width: CANVAS_IMAGE_NODE_LEGACY_WIDTH,
+  height: CANVAS_IMAGE_NODE_LEGACY_HEIGHT,
+  isDefault: isLegacyCanvasImageNodeSize,
   fit: fitCanvasImageNodeSize,
 };
 const CANVAS_VIDEO_FRAME_DEFAULTS: CanvasMediaFrameDefaults = {
@@ -192,9 +254,15 @@ const CANVAS_VIDEO_FRAME_DEFAULTS: CanvasMediaFrameDefaults = {
   isDefault: isDefaultCanvasVideoNodeSize,
   fit: fitCanvasVideoNodeSize,
 };
-function canvasMediaFrameDefaults(node: CanvasFrameNode) {
-  return node.kind === "video"
-    ? CANVAS_VIDEO_FRAME_DEFAULTS
+/** Pick the default-frame profile that matches a node's (or its layout box's) size. */
+function canvasMediaFrameDefaults(
+  node: CanvasFrameNode,
+  width = node.width,
+  height = node.height
+) {
+  if (node.kind === "video") return CANVAS_VIDEO_FRAME_DEFAULTS;
+  return isLegacyCanvasImageNodeSize(width, height)
+    ? CANVAS_IMAGE_LEGACY_FRAME_DEFAULTS
     : CANVAS_IMAGE_FRAME_DEFAULTS;
 }
 
@@ -319,8 +387,12 @@ function canvasImageLayoutBox(node: CanvasFrameNode, includeFrame: boolean) {
           height: Math.max(height, node.height),
         }
       : { width, height };
-  // Legacy default image frames were only roughly 4:3; read them as the current default box.
-  const defaults = canvasMediaFrameDefaults(node);
+  // Near-default frames (including older rounded 4:3 sizes) are read as their canonical box.
+  const defaults = canvasMediaFrameDefaults(
+    node,
+    arranged.width,
+    arranged.height
+  );
   return defaults.isDefault(arranged.width, arranged.height)
     ? { width: defaults.width, height: defaults.height }
     : arranged;
@@ -372,7 +444,7 @@ export function shapeEmptyCanvasImageFrame<T extends CanvasFrameNode>(
 ): T {
   if (!(width > 0) || !(height > 0)) return node;
   const box = canvasImageLayoutBox(node, false);
-  const defaults = canvasMediaFrameDefaults(node);
+  const defaults = canvasMediaFrameDefaults(node, box.width, box.height);
   const frame = defaults.isDefault(box.width, box.height)
     ? defaults.fit(width, height)
     : containInBox(box, width / height);

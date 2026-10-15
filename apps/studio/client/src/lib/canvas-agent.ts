@@ -686,8 +686,9 @@ function nodeSpec(type: string) {
   if (type === "image")
     return {
       title: "图片",
-      width: 320,
-      height: 238,
+      // Matches the canvas empty image frame (16:9, same width as an empty video).
+      width: 420,
+      height: (420 * 9) / 16,
       metadata: { status: "idle" },
     };
   if (type === "video")

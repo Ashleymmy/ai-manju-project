@@ -3,6 +3,8 @@ export {
   CANVAS_IMAGE_DEFAULT_QUALITY,
   CANVAS_IMAGE_DEFAULT_RESOLUTION,
   CANVAS_IMAGE_DEFAULT_SIZE,
+  CANVAS_IMAGE_NODE_HEIGHT,
+  CANVAS_IMAGE_NODE_WIDTH,
   buildCanvasSnapshot,
   canvasAgentSnapshotFromCanvas,
   canvasViewportFromAgent,

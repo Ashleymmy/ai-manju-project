@@ -2,6 +2,8 @@ import {
   CANVAS_IMAGE_DEFAULT_QUALITY,
   CANVAS_IMAGE_DEFAULT_RESOLUTION,
   CANVAS_IMAGE_DEFAULT_SIZE,
+  CANVAS_IMAGE_NODE_HEIGHT,
+  CANVAS_IMAGE_NODE_WIDTH,
 } from "@/features/canvas";
 
 export type ChatCanvasNode = {
@@ -64,8 +66,8 @@ export function createInitialCanvasSnapshot(
         content: prompt,
         x: 540,
         y: 160,
-        width: 300,
-        height: 220,
+        width: CANVAS_IMAGE_NODE_WIDTH,
+        height: CANVAS_IMAGE_NODE_HEIGHT,
         metadata: {
           content: prompt,
           generationMode: "image",
