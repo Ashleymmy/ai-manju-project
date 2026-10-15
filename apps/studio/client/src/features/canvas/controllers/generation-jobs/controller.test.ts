@@ -1815,10 +1815,10 @@ describe("CanvasGenerationJobsController", () => {
         title: "移动后的源节点",
         metadata: { status: "success" },
       });
-      // A default 4:3 image result and an empty video's 16:9 request shrink into the 600×238 frame the user arranged.
+      // A default 16:9 image result and an empty video's 16:9 request shrink into the 600×238 frame the user arranged.
       expect(harness.nodes[0]).toMatchObject(
         kind === "image"
-          ? { width: (238 * 4) / 3, height: 238 }
+          ? { width: (238 * 16) / 9, height: 238 }
           : kind === "video"
             ? { width: (238 * 16) / 9, height: 238 }
             : { width: 600 }
@@ -2496,7 +2496,7 @@ describe("CanvasGenerationJobsController", () => {
     );
   });
 
-  it("submits a saved automatic image ratio as 1:1 instead of the reference image", async () => {
+  it("submits a saved automatic image ratio as the default 16:9 instead of the reference image", async () => {
     const services = createServices({
       getAssetContentObjectUrl: vi.fn(async () => "blob:reference"),
       fetchBlob: vi.fn(async () => new Blob(["image"], { type: "image/png" })),
@@ -2520,11 +2520,11 @@ describe("CanvasGenerationJobsController", () => {
     const harness = createHarness([source, reference], services);
     await harness.controller.generateFromNode(source.id);
     expect(vi.mocked(services.generateImages).mock.calls[0][0]).toMatchObject({
-      size: "1152x864",
+      size: "1280x720",
     });
     expect(harness.nodes[0].metadata).toMatchObject({
-      size: "4:3",
-      requestedImageSize: "1152x864",
+      size: "16:9",
+      requestedImageSize: "1280x720",
     });
     expect(harness.onError).not.toHaveBeenCalled();
   });

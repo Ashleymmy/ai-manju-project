@@ -67,9 +67,9 @@ export const CANVAS_IMAGE_SIZE_OPTIONS = [
   "9:16",
 ] as const;
 
-/** 画布图片「详细参数」默认：1K、4:3、低。旧的自适应比例在读取时改成 4:3。 */
+/** 画布图片「详细参数」默认：1K、16:9、低。旧的自适应比例在读取时改成 16:9。 */
 export const CANVAS_IMAGE_DEFAULT_RESOLUTION = "1K" as const;
-export const CANVAS_IMAGE_DEFAULT_SIZE = "4:3" as const;
+export const CANVAS_IMAGE_DEFAULT_SIZE = "16:9" as const;
 export const CANVAS_IMAGE_DEFAULT_QUALITY: ImageQualityValue = "low";
 export const CANVAS_IMAGE_RESOLUTIONS = ["1K", "2K", "4K"] as const;
 export type CanvasImageResolution = (typeof CANVAS_IMAGE_RESOLUTIONS)[number];
@@ -603,7 +603,7 @@ export function preferredCanvasImageSize(value: unknown) {
   const size = String(value ?? "")
     .trim()
     .toLowerCase();
-  // The old settings default was 1:1. Canvas image nodes are 4:3.
+  // The old settings default was 1:1. Canvas image nodes default to 16:9.
   if (!size || size === "auto" || size === "adaptive" || size === "1:1") {
     return CANVAS_IMAGE_DEFAULT_SIZE;
   }

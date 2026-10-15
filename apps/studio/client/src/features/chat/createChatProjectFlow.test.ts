@@ -23,7 +23,7 @@ describe("Chat project flow", () => {
           metadata: {
             content: "雨夜追逐",
             status: "idle",
-            size: "4:3",
+            size: "16:9",
             quality: "low",
             imageResolution: "1K",
             count: 1,
@@ -42,7 +42,7 @@ describe("Chat project flow", () => {
             content: "雨夜追逐",
             generationMode: "image",
             status: "idle",
-            size: "4:3",
+            size: "16:9",
             quality: "low",
             imageResolution: "1K",
             count: 1,

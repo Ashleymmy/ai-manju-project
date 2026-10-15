@@ -86,7 +86,7 @@ describe("canvas image parameter controls", () => {
   it("changes the displayed pixels and generation settings through the actual parameter buttons", async () => {
     await act(async () => root.render(<Harness />));
     await click("参数");
-    expect(document.body.textContent).toContain("请求尺寸：1152 × 864 px");
+    expect(document.body.textContent).toContain("请求尺寸：1280 × 720 px");
     await click("4K");
     expect(
       (
@@ -95,15 +95,15 @@ describe("canvas image parameter controls", () => {
         ) as HTMLButtonElement
       )?.disabled
     ).toBe(true);
-    await click("16:9");
+    await click("4:3");
     await click("高");
-    expect(document.body.textContent).toContain("请求尺寸：1280 × 720 px");
+    expect(document.body.textContent).toContain("请求尺寸：1152 × 864 px");
     const generate =
       container.querySelector<HTMLButtonElement>(".node-send-button");
     expect(generate).toBeTruthy();
     await act(async () => generate!.click());
     expect(submit).toHaveBeenLastCalledWith({
-      size: "1280x720",
+      size: "1152x864",
       quality: "high",
       imageResolution: "1K",
     });
@@ -116,11 +116,11 @@ describe("canvas image parameter controls", () => {
         ) as HTMLButtonElement
       )?.disabled
     ).toBe(true);
-    await click("4:3");
-    expect(document.body.textContent).toContain("请求尺寸：1152 × 864 px");
+    await click("16:9");
+    expect(document.body.textContent).toContain("请求尺寸：1280 × 720 px");
     await act(async () => generate!.click());
     expect(submit).toHaveBeenLastCalledWith({
-      size: "1152x864",
+      size: "1280x720",
       quality: "high",
       imageResolution: "1K",
     });
@@ -148,7 +148,7 @@ describe("canvas image parameter controls", () => {
       container.querySelector<HTMLButtonElement>(".node-send-button")!.click()
     );
     expect(submit).toHaveBeenLastCalledWith({
-      size: "1152x864",
+      size: "1280x720",
       quality: "auto",
       imageResolution: "1K",
     });

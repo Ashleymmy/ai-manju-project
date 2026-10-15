@@ -329,9 +329,9 @@ describe("canvas node utilities", () => {
   });
 
   it("maps preference size and count onto canvas-supported values", () => {
-    expect(preferredCanvasImageSize("")).toBe("4:3");
-    expect(preferredCanvasImageSize("auto")).toBe("4:3");
-    expect(preferredCanvasImageSize("1:1")).toBe("4:3");
+    expect(preferredCanvasImageSize("")).toBe("16:9");
+    expect(preferredCanvasImageSize("auto")).toBe("16:9");
+    expect(preferredCanvasImageSize("1:1")).toBe("16:9");
     expect(preferredCanvasImageSize("16:9")).toBe("16:9");
     expect(preferredCanvasVideoSize("")).toBe("16:9");
     expect(preferredCanvasVideoSize("9:16")).toBe("9:16");
@@ -340,10 +340,10 @@ describe("canvas node utilities", () => {
     expect(preferredCanvasImageCount("5", 2)).toBe(2);
   });
 
-  it("defaults canvas image params to 1K, 4:3, and low quality", () => {
+  it("defaults canvas image params to 1K, 16:9, and low quality", () => {
     const empty = { metadata: {} } as CanvasNodeData;
     expect(imageResolutionFromNode(empty)).toBe("1K");
-    expect(sizeFromNode(empty)).toBe("4:3");
+    expect(sizeFromNode(empty)).toBe("16:9");
     expect(qualityFromNode(empty)).toBe("low");
     expect(
       qualityFromNode({ metadata: { quality: "auto" } } as CanvasNodeData)
@@ -403,13 +403,13 @@ describe("canvas node utilities", () => {
         kind: "image",
         metadata: { size: "auto" },
       } as CanvasNodeData)
-    ).toBe("4:3");
+    ).toBe("16:9");
     expect(
       sizeFromNode({
         kind: "image",
         metadata: { size: "adaptive" },
       } as CanvasNodeData)
-    ).toBe("4:3");
+    ).toBe("16:9");
   });
 
   it.each(["panorama", "not-a-ratio", "0x0"])(

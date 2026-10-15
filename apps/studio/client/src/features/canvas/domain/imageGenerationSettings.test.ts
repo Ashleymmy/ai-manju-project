@@ -81,7 +81,7 @@ describe("canvas image generation settings", () => {
     ).toEqual({ width: 1280, height: 720 });
     expect(
       canvasEmptyImageRequestDimensions(empty({ size: "auto" }), [], [])
-    ).toEqual({ width: 1152, height: 864 });
+    ).toEqual({ width: 1280, height: 720 });
     expect(
       canvasEmptyImageRequestDimensions(
         empty({ size: "16:9", status: "loading" }),
@@ -133,13 +133,13 @@ describe("canvas image generation settings", () => {
     }
   );
 
-  it("rewrites a saved automatic ratio to 4:3 instead of following a reference bitmap", () => {
+  it("rewrites a saved automatic ratio to 16:9 instead of following a reference bitmap", () => {
     const portrait = { width: 1080, height: 1920 };
     expect(
       canvasImageGenerationSettings(
         node({ size: "auto", imageResolution: "4K", quality: "high" })
       ).size
-    ).toBe("3264x2448");
+    ).toBe("3840x2160");
     expect(
       canvasImageGenerationSettings(
         node({
@@ -149,7 +149,7 @@ describe("canvas image generation settings", () => {
           naturalHeight: 1080,
         })
       ).size
-    ).toBe("3264x2448");
+    ).toBe("3840x2160");
     expect(
       canvasImageGenerationSettings(
         node({ size: "adaptive" }),
@@ -157,7 +157,7 @@ describe("canvas image generation settings", () => {
         undefined,
         portrait
       ).size
-    ).toBe("1152x864");
+    ).toBe("1280x720");
     expect(
       canvasImageGenerationSettings(
         node({ size: "16:9" }),
