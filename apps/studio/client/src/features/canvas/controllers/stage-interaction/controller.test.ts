@@ -44,6 +44,7 @@ class FakeStageAdapter implements CanvasStageInteractionAdapter {
   elementFromPoint = () => null;
   isHotkeyEditingTarget = () => false;
   isInlineNodeEditor = () => false;
+  canScrollNodeText = () => false;
   blurActiveInlineEditorExcept = () => undefined;
   focusInlineEditor = () => undefined;
   focusStage = vi.fn();
@@ -596,6 +597,25 @@ describe("CanvasStageInteractionController", () => {
     } as unknown as WheelEvent);
     harness.adapter.runFrames();
     expect(harness.viewport.zoom).toBe(110);
+
+    // Scrollable text in a selected node takes the plain wheel; the canvas stays put.
+    harness.adapter.canScrollNodeText = () => true;
+    const before = { ...harness.viewport };
+    const preventDefault = vi.fn();
+    harness.adapter.wheelListener?.({
+      target: harness.stage,
+      ctrlKey: false,
+      metaKey: false,
+      deltaX: 0,
+      deltaY: 40,
+      clientX: 100,
+      clientY: 100,
+      preventDefault,
+      stopPropagation: vi.fn(),
+    } as unknown as WheelEvent);
+    harness.adapter.runFrames();
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(harness.viewport).toEqual(before);
   });
 
   it("keeps Escape from ending an active drag and dispose flushes and releases it", () => {

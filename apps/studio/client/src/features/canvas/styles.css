@@ -291,6 +291,9 @@
 .prompt-body p {
   margin: 12px 0 0;
   color: #d9d9d3;
+  /* Keep the text's own line breaks (headings, lists) as the editor shows them. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-size: 11px;
   line-height: 1.7;
 }
@@ -3503,6 +3506,17 @@
   position: relative;
   width: 100%;
   min-height: 0;
+}
+/* In a node card the editor fills the node like the reading view; otherwise its wrapper
+   collapses to a couple of lines and the rest of the text is hidden below. */
+.real-canvas-node > .canvas-mention-editor.node-inline-editor-shell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+.real-canvas-node > .canvas-mention-editor.node-inline-editor-shell > textarea {
+  flex: 1;
+  height: auto;
 }
 .canvas-mention-editor > textarea {
   position: relative;

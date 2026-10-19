@@ -1740,6 +1740,15 @@ export class CanvasStageInteractionController {
       return;
     }
     if (this.adapter.closest(event.target, "[data-canvas-ui]")) return;
+    // Long text in a selected node scrolls first; at either end the wheel pans the canvas again.
+    if (
+      !event.ctrlKey
+      && !event.metaKey
+      && this.adapter.canScrollNodeText(event.target, event.deltaY)
+    ) {
+      event.stopPropagation();
+      return;
+    }
     event.preventDefault();
     if (
       !this.bindings.getWheelZoomRequiresCtrl()

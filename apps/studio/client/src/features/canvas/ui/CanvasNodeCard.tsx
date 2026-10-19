@@ -550,6 +550,10 @@ function CanvasNodeCardView({
         : hasSubmittedGeneration || displayProgress > 0
           ? "生成中"
           : "正在准备生成";
+  // The node's font size applies while reading and while editing, so double-click does not reflow it.
+  const nodeTextSizeStyle = node.metadata?.fontSize
+    ? { fontSize: `${node.metadata.fontSize}px`, lineHeight: 1.65 }
+    : undefined;
   const preview = imageSrcFromNode(node, previews);
   const previewKind = mediaKindFromNode(node);
   const nodeText = nodeEditorTextFromNode(node);
@@ -957,6 +961,7 @@ function CanvasNodeCardView({
             <textarea
               className="node-inline-editor"
               data-node-inline-editor-id={node.id}
+              style={nodeTextSizeStyle}
               value={nodeText}
               placeholder="在节点内直接编辑文本…"
               onPointerDown={event => event.stopPropagation()}
@@ -979,7 +984,9 @@ function CanvasNodeCardView({
           ) : (
             <CanvasResourceMentionTextarea
               className="node-inline-editor"
+              containerClassName="node-inline-editor-shell"
               data-node-inline-editor-id={node.id}
+              style={nodeTextSizeStyle}
               value={nodeText}
               references={mentionReferencesForNode(node.id)}
               mentionLibrary={mentionLibrary}
@@ -1016,16 +1023,7 @@ function CanvasNodeCardView({
                 {nodeKindCenterIcon(node.kind)}
               </span>
             )}
-            <p
-              style={
-                nodeText.trim() && node.metadata?.fontSize
-                  ? {
-                      fontSize: `${node.metadata.fontSize}px`,
-                      lineHeight: 1.65,
-                    }
-                  : undefined
-              }
-            >
+            <p style={nodeText.trim() ? nodeTextSizeStyle : undefined}>
               {nodeText || nodeInlineEditPlaceholder(node.kind)}
             </p>
           </div>

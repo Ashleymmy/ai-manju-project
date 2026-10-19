@@ -152,6 +152,8 @@ export type CanvasStageInteractionAdapter = {
   elementFromPoint(clientX: number, clientY: number): Element | null;
   isHotkeyEditingTarget(target: EventTarget | null): boolean;
   isInlineNodeEditor(target: EventTarget | null): boolean;
+  /** A selected node's text body under the pointer still has room to scroll by deltaY. */
+  canScrollNodeText(target: EventTarget | null, deltaY: number): boolean;
   blurActiveInlineEditorExcept(nodeId: string): void;
   focusInlineEditor(stage: Element | null, nodeId: string): void;
   focusStage(stage: Element | null): void;

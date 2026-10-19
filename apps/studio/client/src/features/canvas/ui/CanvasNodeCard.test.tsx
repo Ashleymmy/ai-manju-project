@@ -237,6 +237,19 @@ describe("CanvasNodeCard render boundary", () => {
     expect(container.querySelector<HTMLParagraphElement>(".prompt-body p")!.style.fontSize).toBe("20px");
   });
 
+  it("keeps the node's font size when double-click switches to editing", async () => {
+    const node = createNode({ id: "node-edit", kind: "text", imageSrc: undefined, content: "### 标题\n正文 gypj", metadata: { fontSize: 18 } });
+    await act(async () => root.render(<CanvasNodeCard {...createProps(node)} isInlineEditing />));
+    const editors = [...container.querySelectorAll<HTMLElement>(".node-inline-editor")];
+    expect(editors.length).toBeGreaterThan(0);
+    // Both the transparent textarea and the overlay that paints the text use the node size.
+    editors.forEach(editor => expect(editor.style.fontSize).toBe("18px"));
+
+    const plain = createNode({ id: "node-plain", kind: "text", imageSrc: undefined, content: "正文", metadata: {} });
+    await act(async () => root.render(<CanvasNodeCard {...createProps(plain)} isInlineEditing />));
+    container.querySelectorAll<HTMLElement>(".node-inline-editor").forEach(editor => expect(editor.style.fontSize).toBe(""));
+  });
+
   it("removes member connection handles while a node belongs to a group", async () => {
     const node = createNode();
     await act(async () => root.render(<CanvasNodeCard {...createProps(node)} isGrouped />));

@@ -574,6 +574,9 @@ export const CanvasResourceMentionTextarea = forwardRef<
         <div
           ref={overlayRef}
           className={`${className || ""} canvas-mention-overlay`}
+          // The overlay draws the visible text over the transparent textarea; both need the same
+          // font metrics or the caret and chips drift from the glyphs.
+          style={props.style}
           aria-hidden="true"
           onPointerDown={handleOverlayPointerDown}
           onDoubleClick={handleOverlayDoubleClick}

@@ -23,6 +23,13 @@ export function createBrowserCanvasStageInteractionAdapter(): CanvasStageInterac
     elementFromPoint: (clientX, clientY) => document.elementFromPoint(clientX, clientY),
     isHotkeyEditingTarget: target => isCanvasHotkeyEditingTarget(target),
     isInlineNodeEditor: target => Boolean(targetElement(target)?.closest(".node-inline-editor")),
+    canScrollNodeText: (target, deltaY) => {
+      const body = targetElement(target)?.closest<HTMLElement>(".real-canvas-node.selected .prompt-body");
+      if (!body || deltaY === 0) return false;
+      const room = body.scrollHeight - body.clientHeight;
+      if (room <= 1) return false;
+      return deltaY < 0 ? body.scrollTop > 0 : body.scrollTop < room - 1;
+    },
     blurActiveInlineEditorExcept: nodeId => {
       const active = document.activeElement;
       if (

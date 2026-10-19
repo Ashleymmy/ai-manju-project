@@ -31,3 +31,25 @@ it("moves focus and clears stale editor selections before the next native paste"
 it("ignores an unmounted stage", () => {
   expect(() => createBrowserCanvasStageInteractionAdapter().focusStage(null)).not.toThrow();
 });
+
+it("lets only a selected node's text body scroll, and only while it has room", () => {
+  const node = document.createElement("article");
+  node.className = "real-canvas-node text selected";
+  const body = document.createElement("div");
+  body.className = "prompt-body";
+  const text = document.createElement("p");
+  body.append(text);
+  node.append(body);
+  document.body.append(node);
+  Object.defineProperties(body, { scrollHeight: { value: 600 }, clientHeight: { value: 200 } });
+  const adapter = createBrowserCanvasStageInteractionAdapter();
+
+  body.scrollTop = 0;
+  expect(adapter.canScrollNodeText(text, 100)).toBe(true);
+  expect(adapter.canScrollNodeText(text, -100)).toBe(false);
+  body.scrollTop = 400;
+  expect(adapter.canScrollNodeText(text, 100)).toBe(false);
+  expect(adapter.canScrollNodeText(text, -100)).toBe(true);
+  node.classList.remove("selected");
+  expect(adapter.canScrollNodeText(text, -100)).toBe(false);
+});
