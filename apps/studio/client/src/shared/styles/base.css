@@ -34,6 +34,13 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
 select {
   line-height: normal;
 }
+/* Text fields use the UI face's field copy (see fonts.css) so descenders are not clipped.
+ * Same specificity as the font reset above, so rules naming another font-family still win. */
+input,
+select,
+textarea {
+  font-family: var(--font-family-field);
+}
 button {
   color: inherit;
 }

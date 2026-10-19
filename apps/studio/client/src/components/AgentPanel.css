@@ -470,7 +470,7 @@
   color: #f0ede5;
   font-size: 13px;
   resize: none;
-  font-family: inherit;
+  font-family: var(--font-family-field);
   line-height: 1.55;
   min-height: 52px;
   max-height: 140px;
@@ -845,7 +845,7 @@
 .agent-field input {
   width: 100%; padding: 8px 10px; background: #242424;
   border: 1px solid rgba(239,235,222,.14); border-radius: 7px;
-  color: #ece9e0; font-size: var(--font-size-control); outline: none; font-family: inherit;
+  color: #ece9e0; font-size: var(--font-size-control); outline: none; font-family: var(--font-family-field);
   transition: border-color .15s;
 }
 .agent-field input:focus { border-color: var(--red, #E9513E); }

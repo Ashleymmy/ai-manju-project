@@ -37,7 +37,7 @@
   color: var(--foreground);
   /* Label line-height is 1.55. Inheriting it into a 36px control clips
      glyphs, and light color-scheme paints native date text nearly black. */
-  font-family: inherit;
+  font-family: var(--font-family-field);
   font-size: 13px;
   font-weight: inherit;
   line-height: normal;

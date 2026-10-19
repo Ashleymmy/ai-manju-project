@@ -264,7 +264,7 @@
   resize: none;
   background: transparent;
   color: var(--foreground);
-  font: 13px/1.85 var(--font-family-ui);
+  font: 13px/1.85 var(--font-family-ui); font-family: var(--font-family-field);
   transition: height var(--chat-composer-motion), padding var(--chat-composer-motion);
 }
 .chat-composer textarea::placeholder {

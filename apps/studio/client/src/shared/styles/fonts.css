@@ -40,3 +40,39 @@
   font-weight: 600 900;
   font-display: swap;
 }
+
+/* Form fields clip the UI face: its typo metrics (880/-120) sit above descenders that reach
+ * -250, so a single-line input cuts off g/y/p/j. This copy adds the missing descent;
+ * page text keeps "Studio UI" so its line spacing does not move. */
+@font-face {
+  font-family: "Studio UI Field";
+  src: url("/fonts/chill-round-gothic/regular.53505f0.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  ascent-override: 90%;
+  descent-override: 26%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Studio UI Field";
+  src: url("/fonts/chill-round-gothic/medium.53505f0.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 500 600;
+  font-display: swap;
+  ascent-override: 90%;
+  descent-override: 26%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Studio UI Field";
+  src: url("/fonts/chill-round-gothic/bold.53505f0.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 700 900;
+  font-display: swap;
+  ascent-override: 90%;
+  descent-override: 26%;
+  line-gap-override: 0%;
+}

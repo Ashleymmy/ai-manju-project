@@ -58,6 +58,13 @@
   font: inherit;
   letter-spacing: normal;
 }
+/* The UI face clips descenders inside single-line fields; hosts that define the
+ * field copy (Studio) use it, other hosts keep the inherited font. */
+.provider-hub input,
+.provider-hub select,
+.provider-hub textarea {
+  font-family: var(--font-family-field, inherit);
+}
 .provider-hub button {
   display: inline-flex;
   align-items: center;

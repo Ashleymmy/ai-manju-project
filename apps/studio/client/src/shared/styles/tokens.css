@@ -26,6 +26,7 @@
 :root {
   /* Regular for reading, Medium for controls, original display face for headings. */
   --font-family-ui: "Studio UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
+  --font-family-field: "Studio UI Field", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
   --font-family-display: "Studio Rounded", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
   /* Chinese metadata uses the UI face, not the browser's default serif fallback. */
   --font-family-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, var(--font-family-ui), monospace;

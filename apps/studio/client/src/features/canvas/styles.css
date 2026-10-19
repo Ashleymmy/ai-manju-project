@@ -2281,6 +2281,7 @@
   -webkit-appearance: none;
   field-sizing: content;
   font: inherit;
+  font-family: var(--font-family-field);
   line-height: inherit;
   color: inherit;
   caret-color: inherit;
@@ -3239,7 +3240,7 @@
   outline: 0;
   color: var(--text, #fff);
   font-size: 13px;
-  font-family: inherit;
+  font-family: var(--font-family-field);
 }
 .canvas-switcher-search input::placeholder {
   color: var(--muted-foreground, #9ea6a2);
