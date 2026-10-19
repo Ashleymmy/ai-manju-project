@@ -75,6 +75,7 @@
   border: 1px solid var(--border, #ddd);
   border-radius: 5px;
   padding: 0 9px;
+  line-height: normal;
   color: inherit;
   background: var(--panel, #fff);
 }

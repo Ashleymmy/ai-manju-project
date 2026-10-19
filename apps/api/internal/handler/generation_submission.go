@@ -13,6 +13,14 @@ import (
 
 var errGenerationSubmissionUncertain = service.ErrComicTextSubmissionUncertain
 
+var errGenerationRateLimited = errors.New("请求过于频繁，请稍后重试")
+
+// providerRateLimited reports a supplier 429, shown to users as a retry-later message.
+func providerRateLimited(err error) bool {
+	var response *provider.ProviderHTTPError
+	return errors.As(err, &response) && response.StatusCode == http.StatusTooManyRequests
+}
+
 // Synchronous text/audio POSTs have no supplier task ID for recovery. A timeout,
 // partial response or gateway 5xx cannot prove the paid request was rejected.
 func safeToRepeatGeneration(err error) bool {

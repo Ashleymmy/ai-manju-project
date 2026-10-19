@@ -803,8 +803,8 @@ func ensureAssetContentTypeForType(contentType string, assetType string) (string
 }
 
 func safeAssetExtension(fileName string, contentType string, assetType string) string {
-	if extensions, err := mime.ExtensionsByType(contentType); err == nil && len(extensions) > 0 {
-		return extensions[0]
+	if extension := service.AssetExtensionForContentType(contentType); extension != "" {
+		return extension
 	}
 	extension := strings.ToLower(filepath.Ext(fileName))
 	switch extension {

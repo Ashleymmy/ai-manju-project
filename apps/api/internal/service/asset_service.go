@@ -938,6 +938,46 @@ func assetWorkspacePath(workspaceID string) string {
 	return filepath.Join("personal", strings.TrimPrefix(workspaceID, "default:"))
 }
 
+// AssetExtensionForContentType is the stored file extension for a content type, or "" if unknown.
+// mime.ExtensionsByType is not used: its order follows the OS registry, and on Windows
+// audio/mpeg comes back as .mp2, which the content lookup did not find (404).
+func AssetExtensionForContentType(contentType string) string {
+	switch strings.TrimSpace(strings.ToLower(strings.SplitN(contentType, ";", 2)[0])) {
+	case "image/png":
+		return ".png"
+	case "image/jpeg":
+		return ".jpg"
+	case "image/webp":
+		return ".webp"
+	case "image/gif":
+		return ".gif"
+	case "video/mp4":
+		return ".mp4"
+	case "video/webm":
+		return ".webm"
+	case "video/quicktime":
+		return ".mov"
+	case "audio/mpeg", "audio/mp3":
+		return ".mp3"
+	case "audio/wav", "audio/x-wav", "audio/wave":
+		return ".wav"
+	case "audio/mp4", "audio/x-m4a":
+		return ".m4a"
+	case "audio/ogg":
+		return ".ogg"
+	case "audio/aac":
+		return ".aac"
+	case "audio/flac":
+		return ".flac"
+	case "audio/opus":
+		return ".opus"
+	case "audio/pcm":
+		return ".pcm"
+	default:
+		return ""
+	}
+}
+
 func candidateAssetExtensions(asset model.Asset) []string {
 	seen := make(map[string]bool)
 	extensions := make([]string, 0, 10)
@@ -949,32 +989,9 @@ func candidateAssetExtensions(asset model.Asset) []string {
 		extensions = append(extensions, extension)
 	}
 	add(filepath.Ext(asset.URL))
-	switch strings.TrimSpace(strings.ToLower(asset.ContentType)) {
-	case "image/png":
-		add(".png")
-	case "image/jpeg":
-		add(".jpeg")
-		add(".jpg")
-	case "image/webp":
-		add(".webp")
-	case "image/gif":
-		add(".gif")
-	case "video/mp4":
-		add(".mp4")
-	case "video/webm":
-		add(".webm")
-	case "video/quicktime":
-		add(".mov")
-	case "audio/mpeg":
-		add(".mp3")
-	case "audio/wav":
-		add(".wav")
-	case "audio/mp4":
-		add(".m4a")
-	case "audio/ogg":
-		add(".ogg")
-	}
-	for _, extension := range []string{".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mov", ".mp3", ".wav", ".m4a", ".ogg", ".bin"} {
+	add(AssetExtensionForContentType(asset.ContentType))
+	// Older uploads on Windows were stored as .mp2 (see AssetExtensionForContentType).
+	for _, extension := range []string{".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mov", ".mp3", ".mp2", ".wav", ".m4a", ".ogg", ".aac", ".flac", ".opus", ".pcm", ".bin"} {
 		add(extension)
 	}
 	return extensions

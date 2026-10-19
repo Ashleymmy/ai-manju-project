@@ -408,3 +408,20 @@ func TestAssetServicePurgeExpiredTrashRemovesDueItems(t *testing.T) {
 		t.Fatalf("remaining trash = %+v", trash)
 	}
 }
+
+func TestAssetAudioExtensionIsStableAndLegacyMp2Readable(t *testing.T) {
+	if got := AssetExtensionForContentType("audio/mpeg"); got != ".mp3" {
+		t.Fatalf("audio/mpeg extension = %q", got)
+	}
+	store := storage.NewLocalFSStorage(t.TempDir())
+	svc := NewAssetService(repository.NewMemoryAssetRepository(), store)
+	ctx := context.Background()
+	// Windows mime tables used to store audio/mpeg uploads as .mp2.
+	asset, err := svc.Upload(ctx, AssetUploadInput{ID: "legacy-audio", UserID: "owner", Scope: WorkspaceScopePersonal, Type: "audio", Extension: ".mp2", Reader: strings.NewReader("audio"), ContentType: "audio/mpeg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DescribeContent(ctx, asset.ID, "owner", WorkspaceScopePersonal); err != nil {
+		t.Fatalf("legacy .mp2 audio content not found: %v", err)
+	}
+}
