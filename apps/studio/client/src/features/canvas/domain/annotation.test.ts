@@ -12,6 +12,11 @@ import {
   canvasArrowGeometry,
   canvasArrowOutlinePath,
   canvasTextEditorOverlay,
+  canvasAnnotationHandles,
+  canvasAnnotationImageStroke,
+  canvasAnnotationImageFontSize,
+  resizeCanvasAnnotation,
+  zoomCanvasAnnotationView,
   cloneCanvasAnnotations,
   shouldKeepCanvasTextEditor,
   isCanvasAnnotationNativeUndoTarget,
@@ -122,5 +127,38 @@ describe("canvas annotation", () => {
     expect(cloned).toEqual(source);
     expect(cloned[0]).not.toBe(source[0]);
     if (cloned[0].type === "brush" && source[0].type === "brush") expect(cloned[0].points[0]).not.toBe(source[0].points[0]);
+  });
+
+  it("resizes boxes from any handle, flips past the opposite edge, and moves arrow ends", () => {
+    const rect = { id: "r", type: "rect" as const, color: "#fff", strokeWidth: 4, start: { x: 100, y: 100 }, end: { x: 300, y: 200 } };
+    const image = { width: 1000, height: 800 };
+    expect(canvasAnnotationHandles(rect)).toHaveLength(8);
+    expect(resizeCanvasAnnotation(rect, "se", { x: 400, y: 260 }, image)).toMatchObject({ start: { x: 100, y: 100 }, end: { x: 400, y: 260 } });
+    expect(resizeCanvasAnnotation(rect, "n", { x: 999, y: 40 }, image)).toMatchObject({ start: { x: 100, y: 40 }, end: { x: 300, y: 200 } });
+    expect(resizeCanvasAnnotation(rect, "w", { x: 500, y: 0 }, image)).toMatchObject({ start: { x: 300, y: 100 }, end: { x: 500, y: 200 } });
+    expect(resizeCanvasAnnotation(rect, "se", { x: 2000, y: -5 }, image)).toMatchObject({ start: { x: 100, y: 0 }, end: { x: 1000, y: 100 } });
+    const arrow = { ...rect, id: "a", type: "arrow" as const };
+    expect(canvasAnnotationHandles(arrow).map(item => item.handle)).toEqual(["start", "end"]);
+    expect(resizeCanvasAnnotation(arrow, "end", { x: 50, y: 60 }, image)).toMatchObject({ start: { x: 100, y: 100 }, end: { x: 50, y: 60 } });
+    expect(canvasAnnotationHandles({ id: "b", type: "brush", color: "#fff", strokeWidth: 4, points: [] })).toEqual([]);
+  });
+
+  it("zooms around the cursor and keeps the view inside the image", () => {
+    const zoomed = zoomCanvasAnnotationView({ zoom: 1, x: 0, y: 0 }, 2, { x: 0.5, y: 0.5 });
+    expect(zoomed).toEqual({ zoom: 2, x: 0.25, y: 0.25 });
+    expect(zoomCanvasAnnotationView({ zoom: 1, x: 0, y: 0 }, 4, { x: 0, y: 0 })).toEqual({ zoom: 4, x: 0, y: 0 });
+    expect(zoomCanvasAnnotationView({ zoom: 1, x: 0, y: 0 }, 4, { x: 1, y: 1 })).toEqual({ zoom: 4, x: 0.75, y: 0.75 });
+    expect(zoomCanvasAnnotationView(zoomed, 0.2, { x: 0.5, y: 0.5 })).toEqual({ zoom: 1, x: 0, y: 0 });
+    expect(zoomCanvasAnnotationView(zoomed, 99, { x: 0.5, y: 0.5 }).zoom).toBe(8);
+  });
+
+  it("scales the slider width with the image so marks look the same on any picture", () => {
+    const small = { width: 206, height: 356 };
+    const large = { width: 1152, height: 864 };
+    // Same share of the long edge for the same slider value.
+    expect(canvasAnnotationImageStroke(8, small) / 356).toBeCloseTo(canvasAnnotationImageStroke(8, large) / 1152, 6);
+    expect(canvasAnnotationImageStroke(8, { width: 1024, height: 512 })).toBe(8);
+    expect(canvasAnnotationImageStroke(1, { width: 40, height: 40 })).toBe(1);
+    expect(canvasAnnotationImageFontSize(8, { width: 2048, height: 1024 })).toBe(64);
   });
 });

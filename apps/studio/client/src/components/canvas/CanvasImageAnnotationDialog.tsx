@@ -11,6 +11,8 @@ import {
   Type,
   Undo2,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 
@@ -34,6 +36,15 @@ import {
   canvasArrowGeometry,
   canvasArrowOutlinePath,
   canvasTextEditorOverlay,
+  canvasAnnotationHandles,
+  canvasAnnotationImageFontSize,
+  canvasAnnotationImageStroke,
+  clampCanvasAnnotationView,
+  resizeCanvasAnnotation,
+  zoomCanvasAnnotationView,
+  CANVAS_ANNOTATION_MAX_ZOOM,
+  CANVAS_ANNOTATION_MIN_ZOOM,
+  type CanvasAnnotationHandle,
   type CanvasAnnotationBounds,
   isCanvasAnnotationNativeUndoTarget,
   isCanvasAnnotationUndoShortcut,
@@ -75,7 +86,12 @@ type MoveState = {
   start: CanvasAnnotationPoint;
   originalMarks: CanvasImageAnnotation[];
   moved: boolean;
+  /** Set when a resize handle is dragged instead of the whole mark. */
+  handle?: CanvasAnnotationHandle;
 };
+
+type AnnotationView = { zoom: number; x: number; y: number };
+const DEFAULT_VIEW: AnnotationView = { zoom: 1, x: 0, y: 0 };
 
 type TextEditorSession = {
   mode: "create" | "edit";
@@ -110,6 +126,9 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
   const [selectedId, setSelectedId] = useState("");
   const [textEditor, setTextEditor] = useState<TextEditorSession | null>(null);
   const [stageSize, setStageSize] = useState({ width: 1, height: 1 });
+  const [view, setView] = useState<AnnotationView>(DEFAULT_VIEW);
+  const viewRef = useRef<AnnotationView>(DEFAULT_VIEW);
+  viewRef.current = view;
   const [undoStack, setUndoStack] = useState<CanvasImageAnnotation[][]>([]);
   const [redoStack, setRedoStack] = useState<CanvasImageAnnotation[][]>([]);
   const [applying, setApplying] = useState(false);
@@ -155,6 +174,7 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
       setColor(CANVAS_ANNOTATION_DEFAULT_COLOR);
       setTextEditor(null);
       textEditorRef.current = null;
+      setView(DEFAULT_VIEW);
       setError("");
     };
     image.onerror = () => active && setError("标注原图读取失败");
@@ -294,7 +314,9 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
     const node = stageWrapRef.current;
     if (!node) return;
     const sync = () => {
-      const rect = node.getBoundingClientRect();
+      // The text editor overlay is placed in image pixels scaled to the drawn image.
+      const svg = stageRef.current;
+      const rect = svg ? imageRectInSvg(svg, imageSize) : node.getBoundingClientRect();
       setStageSize({ width: Math.max(1, rect.width), height: Math.max(1, rect.height) });
     };
     sync();
@@ -343,11 +365,27 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
   };
 
   const pointFromClient = (clientX: number, clientY: number): CanvasAnnotationPoint => {
-    const rect = stageRef.current?.getBoundingClientRect();
-    if (!rect || rect.width <= 0 || rect.height <= 0) return { x: 0, y: 0 };
+    const svg = stageRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    // The SVG box can be wider or taller than the drawn image (letterboxing when the stage
+    // hits its max height, plus zoom). The screen matrix maps the pointer to image pixels.
+    const matrix = svg.getScreenCTM();
+    let x: number;
+    let y: number;
+    if (matrix && typeof DOMPoint !== "undefined") {
+      const local = new DOMPoint(clientX, clientY).matrixTransform(matrix.inverse());
+      x = local.x;
+      y = local.y;
+    } else {
+      const rect = imageRectInSvg(svg, imageSize);
+      if (rect.width <= 0 || rect.height <= 0) return { x: 0, y: 0 };
+      const current = viewRef.current;
+      x = (current.x + (clientX - rect.left) / rect.width / current.zoom) * imageSize.width;
+      y = (current.y + (clientY - rect.top) / rect.height / current.zoom) * imageSize.height;
+    }
     return {
-      x: Math.min(imageSize.width, Math.max(0, (clientX - rect.left) / rect.width * imageSize.width)),
-      y: Math.min(imageSize.height, Math.max(0, (clientY - rect.top) / rect.height * imageSize.height)),
+      x: Math.min(imageSize.width, Math.max(0, x)),
+      y: Math.min(imageSize.height, Math.max(0, y)),
     };
   };
 
@@ -356,6 +394,7 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
   };
 
   const beginDraw = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (beginPan(event)) return;
     if (applying || event.button !== 0) return;
     // 双击第二下不再开新草稿，交给 onDoubleClick 进入文字输入。
     if (event.detail >= 2) return;
@@ -370,18 +409,24 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
     const id = crypto.randomUUID();
     drawRef.current = { id, tool, start: point, end: point, points: [point] };
     setSelectedId("");
-    const draft = draftForPointer(id, tool, point, point, [point], color, strokeWidth);
+    const draft = draftForPointer(id, tool, point, point, [point], color, canvasAnnotationImageStroke(strokeWidth, imageSize));
     draftMarkRef.current = draft;
     setDraftMark(draft);
   };
 
   const continuePointer = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (continuePan(event)) return;
     const point = pointFromEvent(event);
     const moving = moveRef.current;
     if (moving) {
       const dx = point.x - moving.start.x;
       const dy = point.y - moving.start.y;
-      const next = moving.originalMarks.map((mark) => mark.id === moving.id ? translateCanvasAnnotation(mark, dx, dy, imageSize) : mark);
+      const next = moving.originalMarks.map((mark) => {
+        if (mark.id !== moving.id) return mark;
+        return moving.handle
+          ? resizeCanvasAnnotation(mark, moving.handle, point, imageSize)
+          : translateCanvasAnnotation(mark, dx, dy, imageSize);
+      });
       moving.moved = moving.moved || Math.hypot(dx, dy) >= 1;
       marksRef.current = next;
       setMarks(next);
@@ -391,12 +436,16 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
     if (!drawing) return;
     drawing.end = point;
     if (drawing.tool === "brush") drawing.points.push(point);
-    const draft = draftForPointer(drawing.id, drawing.tool, drawing.start, point, drawing.points, color, strokeWidth);
+    const draft = draftForPointer(drawing.id, drawing.tool, drawing.start, point, drawing.points, color, canvasAnnotationImageStroke(strokeWidth, imageSize));
     draftMarkRef.current = draft;
     setDraftMark(draft);
   };
 
   const finishPointer = () => {
+    if (panRef.current) {
+      panRef.current = null;
+      return;
+    }
     const moving = moveRef.current;
     if (moving) {
       moveRef.current = null;
@@ -411,7 +460,7 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
     draftMarkRef.current = null;
     setDraftMark(null);
     if (drawing?.tool === "text" && !applying) {
-      const fontSize = canvasAnnotationFontSize(strokeWidth);
+      const fontSize = canvasAnnotationImageFontSize(strokeWidth, imageSize);
       const origin = canvasAnnotationTextOriginFromDrag(drawing.start, drawing.end, fontSize);
       openTextEditor({
         mode: "create",
@@ -421,7 +470,7 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
         text: "",
         color,
         fontSize,
-        strokeWidth,
+        strokeWidth: canvasAnnotationImageStroke(strokeWidth, imageSize),
       });
       return;
     }
@@ -432,6 +481,8 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
   };
 
   const beginMove = (event: ReactPointerEvent<SVGElement>, mark: CanvasImageAnnotation) => {
+    // With a drawing tool, a press inside an existing box starts a new mark right there.
+    if (tool !== "select" && event.button === 0) return;
     event.stopPropagation();
     if (textEditorRef.current) commitTextEditor();
     setSelectedId(mark.id);
@@ -444,6 +495,94 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
       originalMarks: cloneCanvasAnnotations(marksRef.current),
       moved: false,
     };
+  };
+
+  const beginResize = (event: ReactPointerEvent<SVGElement>, mark: CanvasImageAnnotation, handle: CanvasAnnotationHandle) => {
+    event.stopPropagation();
+    if (applying || event.button !== 0) return;
+    if (textEditorRef.current) commitTextEditor();
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* 指针已释放或非真实指针 */ }
+    setSelectedId(mark.id);
+    moveRef.current = {
+      id: mark.id,
+      start: pointFromEvent(event),
+      originalMarks: cloneCanvasAnnotations(marksRef.current),
+      moved: false,
+      handle,
+    };
+  };
+
+  const zoomAt = (nextZoom: number, clientX?: number, clientY?: number) => {
+    const svg = stageRef.current;
+    const current = viewRef.current;
+    let focus = { x: 0.5, y: 0.5 };
+    if (svg && clientX !== undefined && clientY !== undefined) {
+      const rect = imageRectInSvg(svg, imageSize);
+      if (rect.width > 0 && rect.height > 0) {
+        focus = {
+          x: Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)),
+          y: Math.min(1, Math.max(0, (clientY - rect.top) / rect.height)),
+        };
+      }
+    }
+    const next = zoomCanvasAnnotationView(current, nextZoom, focus);
+    viewRef.current = next;
+    setView(next);
+  };
+
+  // Wheel zoom must cancel page scrolling, which React's passive onWheel cannot do.
+  useEffect(() => {
+    if (!open || !ready) return;
+    const node = stageWrapRef.current;
+    if (!node) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const current = viewRef.current;
+      const factor = Math.pow(1.0015, -event.deltaY);
+      zoomAt(current.zoom * factor, event.clientX, event.clientY);
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+    // zoomAt only reads refs and the image size.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, ready, imageSize.width, imageSize.height]);
+
+  // Middle-button or Space+drag pans a zoomed image without leaving the current tool.
+  const panRef = useRef<{ x: number; y: number; view: AnnotationView } | null>(null);
+  const spaceDownRef = useRef(false);
+  useEffect(() => {
+    if (!open) return;
+    const down = (event: KeyboardEvent) => {
+      if (event.code === "Space" && !isCanvasAnnotationNativeUndoTarget(event.target)) spaceDownRef.current = true;
+    };
+    const up = (event: KeyboardEvent) => { if (event.code === "Space") spaceDownRef.current = false; };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
+  }, [open]);
+
+  const beginPan = (event: ReactPointerEvent<SVGSVGElement>) => {
+    if (viewRef.current.zoom <= 1) return false;
+    if (event.button !== 1 && !(event.button === 0 && spaceDownRef.current)) return false;
+    event.preventDefault();
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* 指针已释放或非真实指针 */ }
+    panRef.current = { x: event.clientX, y: event.clientY, view: viewRef.current };
+    return true;
+  };
+
+  const continuePan = (event: ReactPointerEvent<SVGSVGElement>) => {
+    const pan = panRef.current;
+    const svg = stageRef.current;
+    if (!pan || !svg) return false;
+    const rect = imageRectInSvg(svg, imageSize);
+    const next = clampCanvasAnnotationView({
+      zoom: pan.view.zoom,
+      x: pan.view.x - (event.clientX - pan.x) / rect.width / pan.view.zoom,
+      y: pan.view.y - (event.clientY - pan.y) / rect.height / pan.view.zoom,
+    });
+    viewRef.current = next;
+    setView(next);
+    return true;
   };
 
   const beginEditText = (event: ReactPointerEvent<SVGElement> | ReactMouseEvent<SVGElement>, mark: CanvasImageAnnotation) => {
@@ -465,18 +604,20 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
   const applyStyle = (nextColor: string, nextStrokeWidth: number, coalesce = false) => {
     setColor(nextColor);
     setStrokeWidth(nextStrokeWidth);
-    const fontSize = canvasAnnotationFontSize(nextStrokeWidth);
+    // The slider is image-independent; marks store image pixels (see canvasAnnotationStrokeScale).
+    const fontSize = canvasAnnotationImageFontSize(nextStrokeWidth, imageSize);
+    const markStroke = canvasAnnotationImageStroke(nextStrokeWidth, imageSize);
     const session = textEditorRef.current;
     if (session) {
-      const next = { ...session, color: nextColor, strokeWidth: nextStrokeWidth, fontSize };
+      const next = { ...session, color: nextColor, strokeWidth: markStroke, fontSize };
       textEditorRef.current = next;
       setTextEditor(next);
       return;
     }
     if (tool !== "select" || !selectedMark) return;
     const patch = selectedMark.type === "text"
-      ? { color: nextColor, strokeWidth: nextStrokeWidth, fontSize }
-      : { color: nextColor, strokeWidth: nextStrokeWidth };
+      ? { color: nextColor, strokeWidth: markStroke, fontSize }
+      : { color: nextColor, strokeWidth: markStroke };
     if (!coalesce) {
       updateSelected(patch);
       return;
@@ -510,7 +651,7 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
       return;
     }
     chooseTool("text");
-    const fontSize = canvasAnnotationFontSize(strokeWidth);
+    const fontSize = canvasAnnotationImageFontSize(strokeWidth, imageSize);
     openTextEditor({
       mode: "create",
       id: crypto.randomUUID(),
@@ -519,7 +660,7 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
       text: "",
       color,
       fontSize,
-      strokeWidth,
+      strokeWidth: canvasAnnotationImageStroke(strokeWidth, imageSize),
     });
   };
 
@@ -561,7 +702,11 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
   };
 
   const displayedMarks = (draftMark && tool !== "text" ? [...marks, draftMark] : marks).filter((mark) => !(textEditor?.mode === "edit" && mark.id === textEditor.id));
-  const textOverlay = textEditor ? canvasTextEditorOverlay(textEditor, imageSize, stageSize) : null;
+  const textOverlay = textEditor ? zoomedTextOverlay(canvasTextEditorOverlay(
+    { ...textEditor, x: textEditor.x - view.x * imageSize.width, y: textEditor.y - view.y * imageSize.height },
+    imageSize,
+    { width: stageSize.width * view.zoom, height: stageSize.height * view.zoom },
+  ), stageRef.current, stageWrapRef.current, imageSize) : null;
   const canSave = Boolean(marks.length || textEditor?.text.trim());
   const textGuide = tool === "text" && draftMark?.type === "rect" ? draftMark : null;
 
@@ -585,6 +730,10 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
               <button type="button" title="撤销 (Ctrl+Z)" aria-label="撤销" aria-keyshortcuts="Control+Z" onClick={undo} disabled={applying || (!undoStack.length && !textEditor && !draftMark)}><Undo2 size={16} /></button>
               <button type="button" title="重做" aria-label="重做" onClick={redo} disabled={applying || !redoStack.length}><Redo2 size={16} /></button>
               <button type="button" title="删除所选标注" aria-label="删除所选标注" onClick={removeSelected} disabled={applying || (!selectedId && textEditor?.mode !== "edit")}><Trash2 size={16} /></button>
+              <span className="canvas-annotation-toolbar-separator" />
+              <button type="button" title="缩小" aria-label="缩小" onClick={() => zoomAt(view.zoom / 1.25)} disabled={view.zoom <= CANVAS_ANNOTATION_MIN_ZOOM}><ZoomOut size={16} /></button>
+              <button type="button" className="canvas-annotation-zoom-value" title="恢复原始大小" aria-label="恢复原始大小" onClick={() => zoomAt(1)}>{Math.round(view.zoom * 100)}%</button>
+              <button type="button" title="放大（也可用鼠标滚轮）" aria-label="放大" onClick={() => zoomAt(view.zoom * 1.25)} disabled={view.zoom >= CANVAS_ANNOTATION_MAX_ZOOM}><ZoomIn size={16} /></button>
             </div>
             <div
               ref={stageWrapRef}
@@ -595,7 +744,7 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
             >
               <svg
                 ref={stageRef}
-                viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
+                viewBox={`${view.x * imageSize.width} ${view.y * imageSize.height} ${imageSize.width / view.zoom} ${imageSize.height / view.zoom}`}
                 onPointerDown={beginDraw}
                 onPointerMove={continuePointer}
                 onPointerUp={finishPointer}
@@ -613,7 +762,9 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
                     mark={mark}
                     selected={mark.id === selectedId && !textEditor}
                     movable={tool === "select"}
+                    handleSize={14 * (imageSize.width / Math.max(1, stageSize.width)) / view.zoom}
                     onPointerDown={beginMove}
+                    onResizeStart={beginResize}
                     onDoubleClick={beginEditText}
                   />
                 ))}
@@ -706,7 +857,7 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
               <b>{tool === "text" || selectedMark?.type === "text" || textEditor ? `${canvasAnnotationFontSize(strokeWidth)} px` : `${strokeWidth} px`}</b>
             </label>
             <div className="canvas-annotation-sidebar-foot">
-              <p className="canvas-annotation-hint">选择工具后在图片上拖动绘制；切回选择工具可移动已有标注并改颜色/线宽。双击图片可直接输入文字，双击文字可再编辑。</p>
+              <p className="canvas-annotation-hint">选择工具后在图片上拖动绘制；切回选择工具可移动已有标注、拖动白色控制点调整大小，并改颜色/线宽。滚轮缩放图片，放大后按住空格或鼠标中键拖动可平移。双击图片可直接输入文字，双击文字可再编辑。</p>
               <button type="button" className="canvas-annotation-clear" onClick={clear} disabled={applying || (!marks.length && !textEditor)}><RotateCcw size={15} /> 清空全部标注</button>
               {error ? <p className="dialog-error">{error}</p> : null}
             </div>
@@ -719,6 +870,28 @@ export function CanvasImageAnnotationDialog({ dataUrl, open, loading = false, so
       </DialogContent>
     </Dialog>
   );
+}
+
+/** Screen rect of the drawn image inside the SVG; the SVG box itself may be letterboxed. */
+function imageRectInSvg(svg: SVGSVGElement, image: { width: number; height: number }) {
+  const box = svg.getBoundingClientRect();
+  const scale = Math.min(box.width / Math.max(1, image.width), box.height / Math.max(1, image.height));
+  const width = image.width * scale;
+  const height = image.height * scale;
+  return { left: box.left + (box.width - width) / 2, top: box.top + (box.height - height) / 2, width, height };
+}
+
+/** Shifts the editor overlay by the letterbox offset so it sits on the drawn image. */
+function zoomedTextOverlay(
+  overlay: ReturnType<typeof canvasTextEditorOverlay>,
+  svg: SVGSVGElement | null,
+  wrap: HTMLDivElement | null,
+  image: { width: number; height: number },
+) {
+  if (!svg || !wrap) return overlay;
+  const drawn = imageRectInSvg(svg, image);
+  const host = wrap.getBoundingClientRect();
+  return { ...overlay, left: overlay.left + drawn.left - host.left, top: overlay.top + drawn.top - host.top };
 }
 
 function draftForPointer(
@@ -739,13 +912,17 @@ function AnnotationMark({
   mark,
   selected,
   movable,
+  handleSize,
   onPointerDown,
+  onResizeStart,
   onDoubleClick,
 }: {
   mark: CanvasImageAnnotation;
   selected: boolean;
   movable: boolean;
+  handleSize: number;
   onPointerDown: (event: ReactPointerEvent<SVGElement>, mark: CanvasImageAnnotation) => void;
+  onResizeStart: (event: ReactPointerEvent<SVGElement>, mark: CanvasImageAnnotation, handle: CanvasAnnotationHandle) => void;
   onDoubleClick: (event: ReactMouseEvent<SVGElement>, mark: CanvasImageAnnotation) => void;
 }) {
   const textRef = useRef<SVGTextElement>(null);
@@ -836,6 +1013,29 @@ function AnnotationMark({
         vectorEffect="non-scaling-stroke"
         pointerEvents="none"
       />
+      {movable ? canvasAnnotationHandles(mark).map(({ handle, point }) => (
+        <rect
+          key={handle}
+          data-annotation-handle={handle}
+          x={point.x - handleSize / 2}
+          y={point.y - handleSize / 2}
+          width={handleSize}
+          height={handleSize}
+          fill="#ffffff"
+          stroke="#111111"
+          strokeWidth={1}
+          vectorEffect="non-scaling-stroke"
+          style={{ cursor: resizeCursor(handle) }}
+          onPointerDown={(event) => onResizeStart(event, mark, handle)}
+        />
+      )) : null}
     </g>
   );
+}
+
+function resizeCursor(handle: CanvasAnnotationHandle) {
+  if (handle === "start" || handle === "end") return "crosshair";
+  if (handle === "n" || handle === "s") return "ns-resize";
+  if (handle === "e" || handle === "w") return "ew-resize";
+  return handle === "nw" || handle === "se" ? "nwse-resize" : "nesw-resize";
 }

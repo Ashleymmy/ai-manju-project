@@ -315,3 +315,97 @@ function clamp(value: number, min: number, max: number) {
   if (max < min) return min;
   return Math.min(max, Math.max(min, value));
 }
+
+export type CanvasAnnotationHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "start" | "end";
+
+export const CANVAS_ANNOTATION_MIN_ZOOM = 1;
+export const CANVAS_ANNOTATION_MAX_ZOOM = 8;
+
+/** Resize handles a mark offers: box corners/edges for rect/ellipse, both ends for arrows. */
+export function canvasAnnotationHandles(mark: CanvasImageAnnotation): Array<{ handle: CanvasAnnotationHandle; point: CanvasAnnotationPoint }> {
+  if (mark.type === "arrow") return [{ handle: "start", point: mark.start }, { handle: "end", point: mark.end }];
+  if (mark.type !== "rect" && mark.type !== "ellipse") return [];
+  const left = Math.min(mark.start.x, mark.end.x);
+  const right = Math.max(mark.start.x, mark.end.x);
+  const top = Math.min(mark.start.y, mark.end.y);
+  const bottom = Math.max(mark.start.y, mark.end.y);
+  const midX = (left + right) / 2;
+  const midY = (top + bottom) / 2;
+  return [
+    { handle: "nw", point: { x: left, y: top } },
+    { handle: "n", point: { x: midX, y: top } },
+    { handle: "ne", point: { x: right, y: top } },
+    { handle: "e", point: { x: right, y: midY } },
+    { handle: "se", point: { x: right, y: bottom } },
+    { handle: "s", point: { x: midX, y: bottom } },
+    { handle: "sw", point: { x: left, y: bottom } },
+    { handle: "w", point: { x: left, y: midY } },
+  ];
+}
+
+/** Moves one handle of a rect/ellipse/arrow to `point`, kept inside the image. */
+export function resizeCanvasAnnotation(
+  mark: CanvasImageAnnotation,
+  handle: CanvasAnnotationHandle,
+  point: CanvasAnnotationPoint,
+  image: { width: number; height: number },
+): CanvasImageAnnotation {
+  const p = { x: clamp(point.x, 0, image.width), y: clamp(point.y, 0, image.height) };
+  if (mark.type === "arrow") {
+    if (handle === "start") return { ...mark, start: p };
+    if (handle === "end") return { ...mark, end: p };
+    return mark;
+  }
+  if (mark.type !== "rect" && mark.type !== "ellipse") return mark;
+  let left = Math.min(mark.start.x, mark.end.x);
+  let right = Math.max(mark.start.x, mark.end.x);
+  let top = Math.min(mark.start.y, mark.end.y);
+  let bottom = Math.max(mark.start.y, mark.end.y);
+  if (handle.includes("w")) left = p.x;
+  if (handle.includes("e")) right = p.x;
+  if (handle.includes("n")) top = p.y;
+  if (handle.includes("s")) bottom = p.y;
+  // Dragging past the opposite edge flips the box instead of collapsing it.
+  return {
+    ...mark,
+    start: { x: Math.min(left, right), y: Math.min(top, bottom) },
+    end: { x: Math.max(left, right), y: Math.max(top, bottom) },
+  };
+}
+
+/** Zooms the stage around a point given as a 0–1 fraction of the visible stage. */
+export function zoomCanvasAnnotationView(
+  view: { zoom: number; x: number; y: number },
+  nextZoom: number,
+  focus: { x: number; y: number },
+) {
+  const zoom = clamp(nextZoom, CANVAS_ANNOTATION_MIN_ZOOM, CANVAS_ANNOTATION_MAX_ZOOM);
+  // x/y are the image fractions at the stage's top-left; keep `focus` under the cursor.
+  const imageX = view.x + focus.x / view.zoom;
+  const imageY = view.y + focus.y / view.zoom;
+  return clampCanvasAnnotationView({ zoom, x: imageX - focus.x / zoom, y: imageY - focus.y / zoom });
+}
+
+export function clampCanvasAnnotationView(view: { zoom: number; x: number; y: number }) {
+  const span = 1 / view.zoom;
+  return { zoom: view.zoom, x: clamp(view.x, 0, 1 - span), y: clamp(view.y, 0, 1 - span) };
+}
+
+/** Long edge at which a stroke of N on the slider is N image pixels. */
+export const CANVAS_ANNOTATION_REFERENCE_LONG_EDGE = 1024;
+
+/**
+ * Image pixels per slider unit. Strokes and text scale with the image so "8 px" covers the
+ * same share of any picture; the saved result does not depend on the viewer's screen.
+ */
+export function canvasAnnotationStrokeScale(image: { width: number; height: number }) {
+  return Math.max(1, image.width, image.height) / CANVAS_ANNOTATION_REFERENCE_LONG_EDGE;
+}
+
+export function canvasAnnotationImageStroke(sliderWidth: number, image: { width: number; height: number }) {
+  return Math.max(1, sliderWidth * canvasAnnotationStrokeScale(image));
+}
+
+export function canvasAnnotationImageFontSize(sliderWidth: number, image: { width: number; height: number }) {
+  return canvasAnnotationFontSize(sliderWidth) * canvasAnnotationStrokeScale(image);
+}
