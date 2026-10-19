@@ -8226,6 +8226,8 @@ export default function CanvasWorkspaceViewContent() {
               agent={{
                 userId: user?.id || "",
                 projectId,
+                // Greet the member by name, as the studio Agent does; never by project ID.
+                displayName: user?.display_name || user?.username || "创作者",
                 referenceSelection: agentReferenceSelection,
                 assetScope: projectSessionController.canonicalScope || scope,
                 open: agentOpen && !projectActionDisabled,

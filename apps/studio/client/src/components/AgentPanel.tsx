@@ -1174,7 +1174,7 @@ export default function AgentPanel({
                 <div className="agent-welcome-avatar">
                   <Bot size={17} />
                 </div>
-                <span className="agent-welcome-hi">Hi {displayName || projectId.slice(0, 10)}!</span>
+                <span className="agent-welcome-hi">Hi {displayName || "创作者"}!</span>
               </div>
               <h3>今天一起创作点什么？</h3>
 
