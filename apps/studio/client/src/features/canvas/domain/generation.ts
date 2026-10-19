@@ -68,6 +68,12 @@ export function completeGeneratedAudioTarget(
               audioFormat: config.format,
               audioSpeed: config.speed,
               audioInstructions: config.instructions,
+              ...(config.emotion ? { audioEmotion: config.emotion } : {}),
+              ...(config.lyrics ? { audioLyrics: config.lyrics } : {}),
+              ...(config.gender ? { audioGender: config.gender } : {}),
+              ...(typeof config.isInstrumental === "boolean"
+                ? { audioIsInstrumental: config.isInstrumental }
+                : {}),
               pendingAudioUpload: undefined,
               sourceNodeId,
               status: "success" as const,

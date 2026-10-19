@@ -3,6 +3,16 @@ import {
   CanvasImageRequestSize,
 } from "./CanvasGenerationPrice";
 import { IMAGE_GENERATION_COUNTS } from "@/shared/config/generation";
+import {
+  audioFormatOptionsForModel,
+  audioVoiceOptions as openAIAudioVoiceOptions,
+  audioVoiceOptionsForModel,
+  cosyVoiceInstructionMode,
+  isCosyVoiceAudioModel,
+  isFunMusicAudioModel,
+  isMiniMaxAudioModel,
+  miniMaxEmotionOptions,
+} from "@/shared/config/audio";
 import { imageModelSupportsDetail } from "@/entities/model/imageProtocol";
 import {
   videoModelCapabilities,
@@ -32,6 +42,7 @@ import {
   Plus,
   RotateCcw,
   SlidersHorizontal,
+  Sparkles,
   Square,
   Trash2,
   Ungroup,
@@ -86,6 +97,7 @@ import {
   type CanvasNodeCardActions,
 } from "./CanvasNodeCard";
 import { CanvasModelPicker } from "./CanvasModelPicker";
+import { useCanvasUpscaleAvailability } from "./CanvasUpscaleAvailability";
 import { CanvasImageOutputStatus } from "./CanvasImageOutputStatus";
 import { CanvasCopyPromptButton } from "./CanvasCopyPromptButton";
 import { CanvasInspectorResizeHandles } from "./CanvasInspectorResizeHandles";
@@ -118,10 +130,15 @@ type VideoConfigView = {
 };
 
 type AudioConfigView = {
+  model?: string;
   voice: string;
   format: string;
   speed: string;
   instructions: string;
+  emotion?: string;
+  lyrics?: string;
+  gender?: string;
+  isInstrumental?: boolean;
 };
 
 const CANVAS_GROUP_COLORS = [
@@ -134,6 +151,23 @@ const CANVAS_GROUP_COLORS = [
   { value: "#ff913c", label: "橙色" },
   { value: "#eceae3", label: "白色" },
 ] as const;
+
+// Bailian accepts only these exact instruction formats per voice.
+const cosyVoiceInstructionPlaceholder = {
+  free: "可选，例如：沉稳的中年男性，语速缓慢",
+  dialect:
+    "可选，例如：请用河南话表达。（可选：普通话、广东话、东北话、河南话、湖南话、陕西话、山东话、四川话、安徽话）",
+  emotion:
+    "可选，例如：开心 / 难过 / 生气 / 害怕 / 惊讶 / 厌恶 / 平静（会按该音色要求的格式发送）",
+  none: "当前音色不支持风格/方言指令；需要方言请选「龙安欢 · 支持方言指令」",
+} as const;
+
+function cosyVoiceInstructionDisabled(config: AudioConfigView) {
+  return (
+    isCosyVoiceAudioModel(config.model) &&
+    cosyVoiceInstructionMode(config.voice) === "none"
+  );
+}
 
 function isCanvasGroupColorSelected(current: string, value: string) {
   const normalized = current.toLowerCase();
@@ -388,6 +422,7 @@ export function CanvasInspector({
   enabledSkills,
   actions,
 }: CanvasInspectorProps) {
+  const upscaleAvailability = useCanvasUpscaleAvailability();
   const promptEditorRef = useRef<CanvasMentionEditorHandle>(null);
   const {
     node: {
@@ -422,6 +457,8 @@ export function CanvasInspector({
       removeNode,
       archiveCanvasTextNode,
       captureVideoFrameNode,
+      openVideoUpscaleDialog,
+      openAudioVoiceCloneDialog,
     },
     setInspectorOpen,
     activateConnectionMode,
@@ -1166,82 +1203,319 @@ export function CanvasInspector({
                   </>
                 ) : null}
                 {selectedAudioConfig ? (
-                  <>
-                    <div className="parameter-row">
-                      <span>音色</span>
-                      <select
-                        value={selectedAudioConfig.voice}
-                        onChange={event =>
-                          updateNode(selectedNode.id, {
-                            metadata: {
-                              ...(selectedNode.metadata || {}),
-                              audioVoice: event.target.value,
-                            },
-                          })
-                        }
-                      >
-                        {audioVoiceOptions.map(item => (
-                          <option key={item.value} value={item.value}>
-                            {item.label}
+                  isFunMusicAudioModel(
+                    selectedAudioConfig.model || selectedGenerationModel
+                  ) ? (
+                    <>
+                      <div className="parameter-row">
+                        <span>音乐模式</span>
+                        <select
+                          value={
+                            selectedAudioConfig.isInstrumental
+                              ? "instrumental"
+                              : "song"
+                          }
+                          onChange={event =>
+                            updateNode(selectedNode.id, {
+                              metadata: {
+                                ...(selectedNode.metadata || {}),
+                                audioIsInstrumental:
+                                  event.target.value === "instrumental",
+                              },
+                            })
+                          }
+                        >
+                          <option value="song">
+                            有人声歌曲（主题曲/片头片尾）
                           </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="parameter-row">
-                      <span>格式</span>
-                      <select
-                        value={selectedAudioConfig.format}
-                        onChange={event =>
-                          updateNode(selectedNode.id, {
-                            metadata: {
-                              ...(selectedNode.metadata || {}),
-                              audioFormat: event.target.value,
-                            },
-                          })
-                        }
-                      >
-                        {audioFormatOptions.map(item => (
-                          <option key={item.value} value={item.value}>
-                            {item.label}
+                          <option value="instrumental">
+                            纯音乐 BGM（无人声）
                           </option>
-                        ))}
-                      </select>
-                    </div>
-                    <label className="parameter-row audio-speed-row">
-                      <span>语速 {selectedAudioConfig.speed}x</span>
-                      <input
-                        type="range"
-                        min="0.25"
-                        max="4"
-                        step="0.25"
-                        value={selectedAudioConfig.speed}
-                        onChange={event =>
-                          updateNode(selectedNode.id, {
-                            metadata: {
-                              ...(selectedNode.metadata || {}),
-                              audioSpeed: event.target.value,
-                            },
-                          })
-                        }
-                      />
-                    </label>
-                    <div className="audio-instructions">
-                      <span className="field-label">朗读指令</span>
-                      <textarea
-                        className="prompt-copy"
-                        value={selectedAudioConfig.instructions}
-                        placeholder="可选，例如：温和、自然地朗读"
-                        onChange={event =>
-                          updateNode(selectedNode.id, {
-                            metadata: {
-                              ...(selectedNode.metadata || {}),
-                              audioInstructions: event.target.value,
-                            },
-                          })
-                        }
-                      />
-                    </div>
-                  </>
+                        </select>
+                      </div>
+                      {!selectedAudioConfig.isInstrumental &&
+                      !(selectedAudioConfig.model || selectedGenerationModel)
+                        .toLowerCase()
+                        .includes("preview") ? (
+                        <div className="parameter-row">
+                          <span>演唱人声</span>
+                          <select
+                            value={selectedAudioConfig.gender || "female"}
+                            onChange={event =>
+                              updateNode(selectedNode.id, {
+                                metadata: {
+                                  ...(selectedNode.metadata || {}),
+                                  audioGender: event.target.value,
+                                },
+                              })
+                            }
+                          >
+                            <option value="female">女声 (female)</option>
+                            <option value="male">男声 (male)</option>
+                          </select>
+                        </div>
+                      ) : null}
+                      <div className="parameter-row">
+                        <span>输出格式</span>
+                        <select
+                          value={
+                            selectedAudioConfig.format === "wav" ? "wav" : "mp3"
+                          }
+                          onChange={event =>
+                            updateNode(selectedNode.id, {
+                              metadata: {
+                                ...(selectedNode.metadata || {}),
+                                audioFormat: event.target.value,
+                              },
+                            })
+                          }
+                        >
+                          <option value="mp3">MP3</option>
+                          <option value="wav">WAV（无损）</option>
+                        </select>
+                      </div>
+                      {!selectedAudioConfig.isInstrumental ? (
+                        <div className="audio-instructions">
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 6,
+                              marginBottom: 4,
+                            }}
+                          >
+                            <span className="field-label">
+                              自定义歌词（可选）
+                            </span>
+                            <div style={{ display: "flex", gap: 4 }}>
+                              {(
+                                [
+                                  "[intro]",
+                                  "[verse]",
+                                  "[chorus]",
+                                  "[outro]",
+                                ] as const
+                              ).map(tag => (
+                                <button
+                                  key={tag}
+                                  type="button"
+                                  className="node-chip"
+                                  style={{ fontSize: 11, padding: "1px 6px" }}
+                                  onClick={() => {
+                                    const currentLyrics =
+                                      selectedAudioConfig.lyrics || "";
+                                    const nextLyrics = currentLyrics
+                                      ? `${currentLyrics}\n${tag}\n`
+                                      : `${tag}\n`;
+                                    updateNode(selectedNode.id, {
+                                      metadata: {
+                                        ...(selectedNode.metadata || {}),
+                                        audioLyrics: nextLyrics,
+                                      },
+                                    });
+                                  }}
+                                >
+                                  {tag}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <textarea
+                            className="prompt-copy"
+                            rows={4}
+                            value={selectedAudioConfig.lyrics || ""}
+                            placeholder="留空则由模型根据上方提示词自动作词谱曲；填写歌词时可使用 [verse] 主歌、[chorus] 副歌 等段落标签"
+                            onChange={event =>
+                              updateNode(selectedNode.id, {
+                                metadata: {
+                                  ...(selectedNode.metadata || {}),
+                                  audioLyrics: event.target.value,
+                                },
+                              })
+                            }
+                          />
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      <div className="parameter-row">
+                        <span>音色</span>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                        >
+                          <select
+                            style={{ flex: 1, minWidth: 0 }}
+                            value={selectedAudioConfig.voice}
+                            onChange={event =>
+                              updateNode(selectedNode.id, {
+                                metadata: {
+                                  ...(selectedNode.metadata || {}),
+                                  audioVoice: event.target.value,
+                                },
+                              })
+                            }
+                          >
+                            {audioVoiceOptionsForModel(
+                              selectedAudioConfig.model,
+                              audioVoiceOptions
+                            ).map(item => (
+                              <option key={item.value} value={item.value}>
+                                {item.label}
+                              </option>
+                            ))}
+                            {!audioVoiceOptionsForModel(
+                              selectedAudioConfig.model,
+                              audioVoiceOptions
+                            ).some(
+                              item => item.value === selectedAudioConfig.voice
+                            ) && selectedAudioConfig.voice ? (
+                              <option value={selectedAudioConfig.voice}>
+                                {openAIAudioVoiceOptions.some(
+                                  item =>
+                                    item.value === selectedAudioConfig.voice
+                                )
+                                  ? "默认音色"
+                                  : `复刻/自定义音色 (${selectedAudioConfig.voice})`}
+                              </option>
+                            ) : null}
+                          </select>
+                          {openAudioVoiceCloneDialog ? (
+                            <button
+                              type="button"
+                              className="node-chip"
+                              title="上传参考音频克隆角色专属音色"
+                              onClick={() =>
+                                openAudioVoiceCloneDialog(selectedNode)
+                              }
+                            >
+                              + 克隆音色
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                      {isMiniMaxAudioModel(selectedAudioConfig.model) ? (
+                        <div className="parameter-row">
+                          <span>情绪</span>
+                          <select
+                            value={selectedAudioConfig.emotion || ""}
+                            onChange={event =>
+                              updateNode(selectedNode.id, {
+                                metadata: {
+                                  ...(selectedNode.metadata || {}),
+                                  audioEmotion: event.target.value,
+                                },
+                              })
+                            }
+                          >
+                            {miniMaxEmotionOptions.map(item => (
+                              <option key={item.value} value={item.value}>
+                                {item.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : null}
+                      <div className="parameter-row">
+                        <span>格式</span>
+                        <select
+                          value={selectedAudioConfig.format}
+                          onChange={event =>
+                            updateNode(selectedNode.id, {
+                              metadata: {
+                                ...(selectedNode.metadata || {}),
+                                audioFormat: event.target.value,
+                              },
+                            })
+                          }
+                        >
+                          {audioFormatOptions
+                            .filter(item =>
+                              audioFormatOptionsForModel(
+                                selectedAudioConfig.model
+                              ).some(option => option.value === item.value)
+                            )
+                            .map(item => (
+                              <option key={item.value} value={item.value}>
+                                {item.label}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                      <label className="parameter-row audio-speed-row">
+                        <span>语速 {selectedAudioConfig.speed}x</span>
+                        <input
+                          type="range"
+                          min={
+                            isCosyVoiceAudioModel(selectedAudioConfig.model) ||
+                            isMiniMaxAudioModel(selectedAudioConfig.model)
+                              ? "0.5"
+                              : "0.25"
+                          }
+                          max={
+                            isCosyVoiceAudioModel(selectedAudioConfig.model) ||
+                            isMiniMaxAudioModel(selectedAudioConfig.model)
+                              ? "2"
+                              : "4"
+                          }
+                          step="0.25"
+                          value={selectedAudioConfig.speed}
+                          onChange={event =>
+                            updateNode(selectedNode.id, {
+                              metadata: {
+                                ...(selectedNode.metadata || {}),
+                                audioSpeed: event.target.value,
+                              },
+                            })
+                          }
+                        />
+                      </label>
+                      <div className="audio-instructions">
+                        <span className="field-label">
+                          {isCosyVoiceAudioModel(selectedAudioConfig.model)
+                            ? "风格 / 方言指令（Instruction）"
+                            : "朗读指令"}
+                        </span>
+                        <textarea
+                          className="prompt-copy"
+                          value={
+                            cosyVoiceInstructionDisabled(selectedAudioConfig)
+                              ? ""
+                              : selectedAudioConfig.instructions
+                          }
+                          disabled={cosyVoiceInstructionDisabled(
+                            selectedAudioConfig
+                          )}
+                          placeholder={
+                            isCosyVoiceAudioModel(selectedAudioConfig.model)
+                              ? cosyVoiceInstructionPlaceholder[
+                                  cosyVoiceInstructionMode(
+                                    selectedAudioConfig.voice
+                                  )
+                                ]
+                              : isMiniMaxAudioModel(selectedAudioConfig.model)
+                                ? "可选；正文支持插入 (laughs) (sighs) (gasp) 等语气词"
+                                : "可选，例如：温和、自然地朗读"
+                          }
+                          onChange={event =>
+                            updateNode(selectedNode.id, {
+                              metadata: {
+                                ...(selectedNode.metadata || {}),
+                                audioInstructions: event.target.value,
+                              },
+                            })
+                          }
+                        />
+                      </div>
+                    </>
+                  )
                 ) : null}
                 {!selectedVideoConfig &&
                 !selectedAudioConfig &&
@@ -1627,16 +1901,26 @@ export function CanvasInspector({
                   </button>
                 ) : null}
                 {selectedNode.kind === "video" ? (
-                  <button
-                    className="node-pop-item"
-                    onClick={() => void captureVideoFrameNode(selectedNode)}
-                    disabled={Boolean(captureFrameNodeId)}
-                  >
-                    <Camera size={14} />{" "}
-                    {captureFrameNodeId === selectedNode.id
-                      ? "创建中…"
-                      : "当前帧创建图片"}
-                  </button>
+                  <>
+                    <button
+                      className="node-pop-item"
+                      onClick={() => void captureVideoFrameNode(selectedNode)}
+                      disabled={Boolean(captureFrameNodeId)}
+                    >
+                      <Camera size={14} />{" "}
+                      {captureFrameNodeId === selectedNode.id
+                        ? "创建中…"
+                        : "当前帧创建图片"}
+                    </button>
+                    {upscaleAvailability.video ? (
+                      <button
+                        className="node-pop-item"
+                        onClick={() => openVideoUpscaleDialog?.(selectedNode)}
+                      >
+                        <Sparkles size={14} /> 视频 AI 超分 (2x)
+                      </button>
+                    ) : null}
+                  </>
                 ) : null}
                 {selectedNode.kind === "video" ||
                 selectedNode.kind === "audio" ? (

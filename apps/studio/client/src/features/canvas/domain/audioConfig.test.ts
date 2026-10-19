@@ -26,7 +26,8 @@ describe("canvas audio config", () => {
       format: "unknown",
       speed: "invalid",
     })).toMatchObject({ voice: "alloy", format: "mp3", speed: "1" });
-    expect(canvasAudioMimeType("opus")).toBe("audio/opus");
+    expect(canvasAudioMimeType("opus")).toBe("audio/ogg");
+    expect(canvasAudioMimeType("pcm")).toBe("audio/mpeg");
     expect(canvasAudioMimeType("unknown")).toBe("audio/mpeg");
   });
 });

@@ -1,55 +1,21 @@
+import { apiUrl, ApiError, clearAuthToken, getAuthToken } from "./request";
 import {
-  apiUrl,
-  ApiError,
-  clearAuthToken,
-  getAuthToken,
-} from "./request";
-import { canRecoverGenerationReceipt, readGenerationReceiptResult, type GenerationReceiptOptions } from "./generationReceipt";
-import { submitWithGenerationAdmission, type GenerationAdmissionOptions } from "@/shared/api/generationAdmission";
+  canRecoverGenerationReceipt,
+  isDefinitiveGenerationReceiptFailure,
+  readGenerationReceiptResult,
+  type GenerationReceiptOptions,
+} from "./generationReceipt";
+import {
+  submitWithGenerationAdmission,
+  type GenerationAdmissionOptions,
+} from "@/shared/api/generationAdmission";
 
-export const audioVoiceOptions = [
-  { value: "alloy", label: "Alloy" },
-  { value: "ash", label: "Ash" },
-  { value: "ballad", label: "Ballad" },
-  { value: "coral", label: "Coral" },
-  { value: "echo", label: "Echo" },
-  { value: "fable", label: "Fable" },
-  { value: "nova", label: "Nova" },
-  { value: "onyx", label: "Onyx" },
-  { value: "sage", label: "Sage" },
-  { value: "shimmer", label: "Shimmer" },
-  { value: "verse", label: "Verse" },
-  { value: "marin", label: "Marin" },
-  { value: "cedar", label: "Cedar" },
-] as const;
-
-export const audioFormatOptions = [
-  { value: "mp3", label: "MP3" },
-  { value: "wav", label: "WAV" },
-  { value: "opus", label: "Opus" },
-  { value: "aac", label: "AAC" },
-  { value: "flac", label: "FLAC" },
-  { value: "pcm", label: "PCM" },
-] as const;
-
-export type AudioVoiceValue = (typeof audioVoiceOptions)[number]["value"];
-export type AudioFormatValue = (typeof audioFormatOptions)[number]["value"];
-
-export type AudioGenerationConfig = {
-  model: string;
-  voice?: string;
-  format?: string;
-  speed?: string | number;
-  instructions?: string;
-};
-
-export type NormalizedAudioGenerationConfig = {
-  model: string;
-  voice: AudioVoiceValue;
-  format: AudioFormatValue;
-  speed: string;
-  instructions: string;
-};
+export * from "@/shared/config/audio";
+import {
+  normalizeAudioGenerationConfig,
+  audioMimeType,
+  type AudioGenerationConfig,
+} from "@/shared/config/audio";
 
 type RequestAudioGenerationOptions = {
   signal?: AbortSignal;
@@ -58,83 +24,57 @@ type RequestAudioGenerationOptions = {
   onWaiting?: GenerationAdmissionOptions["onWaiting"];
 };
 
-export function normalizeAudioVoiceValue(
-  value: string | undefined
-): AudioVoiceValue {
-  return audioVoiceOptions.some(item => item.value === value)
-    ? (value as AudioVoiceValue)
-    : "alloy";
-}
-
-export function normalizeAudioFormatValue(
-  value: string | undefined
-): AudioFormatValue {
-  return audioFormatOptions.some(item => item.value === value)
-    ? (value as AudioFormatValue)
-    : "mp3";
-}
-
-export function normalizeAudioSpeedValue(value: string | number | undefined) {
-  const speed = Number(value);
-  if (!Number.isFinite(speed)) return "1";
-  return String(Math.max(0.25, Math.min(4, Number(speed.toFixed(2)))));
-}
-
-export function normalizeAudioGenerationConfig(
-  config: AudioGenerationConfig
-): NormalizedAudioGenerationConfig {
-  return {
-    model: config.model.trim(),
-    voice: normalizeAudioVoiceValue(config.voice),
-    format: normalizeAudioFormatValue(config.format),
-    speed: normalizeAudioSpeedValue(config.speed),
-    instructions: (config.instructions || "").trim(),
-  };
-}
-
-export function audioMimeType(format: string) {
-  const normalized = normalizeAudioFormatValue(format);
-  if (normalized === "wav") return "audio/wav";
-  if (normalized === "opus") return "audio/opus";
-  if (normalized === "aac") return "audio/aac";
-  if (normalized === "flac") return "audio/flac";
-  if (normalized === "pcm") return "audio/pcm";
-  return "audio/mpeg";
-}
-
-export function audioFileName(name: string, format: string) {
-  const clean =
-    name
-      .trim()
-      .replace(/[\\/:*?"<>|]+/g, "-")
-      .slice(0, 80) || "generated-audio";
-  if (/\.(mp3|wav|opus|aac|flac|pcm)$/i.test(clean)) return clean;
-  return `${clean}.${normalizeAudioFormatValue(format)}`;
-}
-
 export async function requestAudioGeneration(
   config: AudioGenerationConfig,
   prompt: string,
   options: RequestAudioGenerationOptions = {}
 ): Promise<Blob> {
-  if (options.receipt?.recoverOnly) return recoverAudioGeneration(config, options);
-  return submitWithGenerationAdmission("audio", async () => {
-    let result: Blob | null;
-    try { result = await requestAudioGenerationOnce(config, prompt, options); }
-    catch (error) {
-      if (options.receipt && canRecoverGenerationReceipt(error, options.signal)) return recoverAudioGeneration(config, options);
-      throw error;
-    }
-    // Recover outside the submission catch so a recovery failure is not read
-    // or reconciled again within the same user action.
-    return result ?? recoverAudioGeneration(config, options);
-  }, options);
+  if (options.receipt?.recoverOnly)
+    return recoverAudioGeneration(config, options);
+  return submitWithGenerationAdmission(
+    "audio",
+    async () => {
+      let result: Blob | null;
+      try {
+        result = await requestAudioGenerationOnce(config, prompt, options);
+      } catch (error) {
+        if (
+          options.receipt &&
+          canRecoverGenerationReceipt(error, options.signal)
+        ) {
+          try {
+            return await recoverAudioGeneration(config, options);
+          } catch (recoveryError) {
+            // The receipt only stores a generic failure text. Once it confirms the
+            // request failed, show the original response's reason and request ID.
+            if (
+              error instanceof ApiError &&
+              isDefinitiveGenerationReceiptFailure(recoveryError)
+            ) {
+              throw new ApiError(
+                error.message,
+                error.status,
+                error.requestId,
+                (recoveryError as ApiError).details
+              );
+            }
+            throw recoveryError;
+          }
+        }
+        throw error;
+      }
+      // Recover outside the submission catch so a recovery failure is not read
+      // or reconciled again within the same user action.
+      return result ?? recoverAudioGeneration(config, options);
+    },
+    options
+  );
 }
 
 async function requestAudioGenerationOnce(
   config: AudioGenerationConfig,
   prompt: string,
-  options: RequestAudioGenerationOptions,
+  options: RequestAudioGenerationOptions
 ): Promise<Blob | null> {
   const normalized = normalizeAudioGenerationConfig(config);
   if (!normalized.model) throw new Error("请先配置音频模型");
@@ -154,29 +94,40 @@ async function requestAudioGenerationOnce(
   const token = getAuthToken();
 
   try {
-    const response = await fetch(apiUrl("/api/ai/audio/speech", { scope: options.receipt?.scope }), {
-      method: "POST",
-      credentials: "include",
-      signal: controller.signal,
-      headers: {
-        Accept:
-          "audio/*,application/octet-stream;q=0.9,application/json;q=0.8,*/*;q=0.1",
-        "Content-Type": "application/json",
-        "X-Request-Id": requestId,
-        ...(options.receipt ? { "Idempotency-Key": options.receipt.key } : {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({
-        model: normalized.model,
-        input,
-        voice: normalized.voice,
-        response_format: normalized.format,
-        speed: Number(normalized.speed),
-        ...(normalized.instructions
-          ? { instructions: normalized.instructions }
-          : {}),
-      }),
-    });
+    const response = await fetch(
+      apiUrl("/api/ai/audio/speech", { scope: options.receipt?.scope }),
+      {
+        method: "POST",
+        credentials: "include",
+        signal: controller.signal,
+        headers: {
+          Accept:
+            "audio/*,application/octet-stream;q=0.9,application/json;q=0.8,*/*;q=0.1",
+          "Content-Type": "application/json",
+          "X-Request-Id": requestId,
+          ...(options.receipt
+            ? { "Idempotency-Key": options.receipt.key }
+            : {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          model: normalized.model,
+          input,
+          voice: normalized.voice,
+          response_format: normalized.format,
+          speed: Number(normalized.speed),
+          ...(normalized.instructions
+            ? { instructions: normalized.instructions }
+            : {}),
+          ...(normalized.emotion ? { emotion: normalized.emotion } : {}),
+          ...(normalized.lyrics ? { lyrics: normalized.lyrics } : {}),
+          ...(normalized.gender ? { gender: normalized.gender } : {}),
+          ...(typeof normalized.isInstrumental === "boolean"
+            ? { is_instrumental: normalized.isInstrumental }
+            : {}),
+        }),
+      }
+    );
     const responseRequestId =
       response.headers.get("X-Request-Id") ||
       response.headers.get("x-request-id") ||
@@ -224,9 +175,21 @@ async function assertAudioBlob(blob: Blob, status: number, requestId: string) {
   if (!blob.size) throw new ApiError(invalid, status, requestId);
   const type = blob.type.toLowerCase().split(";", 1)[0];
   if (type.includes("json")) {
-    throw new ApiError(await readJsonBlobError(blob) || invalid, status, requestId);
+    throw new ApiError(
+      (await readJsonBlobError(blob)) || invalid,
+      status,
+      requestId
+    );
   }
-  if (type && !type.startsWith("audio/") && !["application/octet-stream", "binary/octet-stream", "application/ogg"].includes(type)) {
+  if (
+    type &&
+    !type.startsWith("audio/") &&
+    ![
+      "application/octet-stream",
+      "binary/octet-stream",
+      "application/ogg",
+    ].includes(type)
+  ) {
     throw new ApiError(invalid, status, requestId);
   }
   // Error pages are sometimes mislabeled as audio or generic binary data.
@@ -291,9 +254,22 @@ function statusMessage(status: number, fallback: string) {
   return status ? `${fallback}（${status}）` : fallback;
 }
 
-async function recoverAudioGeneration(config: AudioGenerationConfig, options: RequestAudioGenerationOptions): Promise<Blob> {
-  const response = await readGenerationReceiptResult("audio", options.receipt!, options.signal);
+async function recoverAudioGeneration(
+  config: AudioGenerationConfig,
+  options: RequestAudioGenerationOptions
+): Promise<Blob> {
+  const response = await readGenerationReceiptResult(
+    "audio",
+    options.receipt!,
+    options.signal
+  );
   const blob = await response.blob();
-  await assertAudioBlob(blob, response.status, response.headers.get("X-Request-Id") || "");
-  return blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: audioMimeType(config.format || "mp3") });
+  await assertAudioBlob(
+    blob,
+    response.status,
+    response.headers.get("X-Request-Id") || ""
+  );
+  return blob.type.startsWith("audio/")
+    ? blob
+    : new Blob([blob], { type: audioMimeType(config.format || "mp3") });
 }

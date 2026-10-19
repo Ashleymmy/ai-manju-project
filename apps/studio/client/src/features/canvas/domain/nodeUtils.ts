@@ -780,10 +780,17 @@ export function audioConfigFromNode(
 ) {
   return normalizeCanvasAudioGenerationConfig({
     model: modelFromNode(node, fallbackModel),
-    voice: stringValue(node.metadata?.audioVoice) || "alloy",
+    voice: stringValue(node.metadata?.audioVoice) || undefined,
     format: stringValue(node.metadata?.audioFormat) || "mp3",
     speed: stringValue(node.metadata?.audioSpeed) || "1",
     instructions: stringValue(node.metadata?.audioInstructions),
+    emotion: stringValue(node.metadata?.audioEmotion) || undefined,
+    lyrics: stringValue(node.metadata?.audioLyrics) || undefined,
+    gender: stringValue(node.metadata?.audioGender) || undefined,
+    isInstrumental:
+      typeof node.metadata?.audioIsInstrumental === "boolean"
+        ? node.metadata.audioIsInstrumental
+        : undefined,
   });
 }
 

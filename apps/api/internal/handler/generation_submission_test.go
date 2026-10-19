@@ -168,3 +168,32 @@ func TestComicTextErrorsNeverExposeWrappedSupplierResponse(t *testing.T) {
 		})
 	}
 }
+
+func TestVoiceCloneAudioRejectedOnlyAdvisesUserFixableProblems(t *testing.T) {
+	userFixable := map[string]string{
+		`{"message":"Audio is too short"}`:                       "太短",
+		`{"message":"audio file size exceeds the maximum size"}`: "太大",
+		`{"message":"sample rate must be at least 16000"}`:       "采样率",
+		`{"message":"unsupported audio format"}`:                 "格式",
+		`{"message":"too much background noise"}`:                "不够清晰",
+		`{"message":"download audio failed"}`:                    "读取失败",
+	}
+	for body, want := range userFixable {
+		got := voiceCloneAudioRejected(&provider.ProviderHTTPError{StatusCode: http.StatusBadRequest, Body: body})
+		if !strings.Contains(got, want) {
+			t.Fatalf("body %s: got %q, want advice containing %q", body, got, want)
+		}
+	}
+	adminOnly := []*provider.ProviderHTTPError{
+		{StatusCode: http.StatusBadRequest, Body: `{"message":"voice quota exceeded"}`},
+		{StatusCode: http.StatusForbidden, Body: `{"code":"AccessDenied","message":"unsupported model"}`},
+		{StatusCode: http.StatusUnauthorized, Body: `{"code":"InvalidApiKey"}`},
+		{StatusCode: http.StatusInternalServerError, Body: `{"message":"audio format decode error"}`},
+		{StatusCode: http.StatusTooManyRequests, Body: `{"message":"too large request rate"}`},
+	}
+	for _, err := range adminOnly {
+		if got := voiceCloneAudioRejected(err); got != "" {
+			t.Fatalf("status %d body %s should not be shown to the user, got %q", err.StatusCode, err.Body, got)
+		}
+	}
+}

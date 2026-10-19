@@ -2,8 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   audioFileName,
+  audioVoiceOptions,
+  audioVoiceOptionsForModel,
   normalizeAudioGenerationConfig,
   requestAudioGeneration,
+  voiceCloneFileProblem,
 } from "./audio";
 
 class MemoryStorage implements Storage {
@@ -40,6 +43,43 @@ describe("audio API", () => {
     expect(fetch).toHaveBeenCalledTimes(3);
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/audio/speech"))).toHaveLength(1);
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes("/reconcile"))).toHaveLength(1);
+  });
+
+  it("keeps the original reason and request ID once the receipt confirms the failure", async () => {
+    const json = { "Content-Type": "application/json" };
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ success: false, error: "请求过于频繁，请稍后重试" }), {
+      status: 502, headers: { ...json, "X-Request-Id": "req-original" },
+    }));
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({
+      success: false, error: "生成失败，请查看原任务状态",
+      data: { receipt: { kind: "audio", key: "failed-audio", status: "failed" } },
+    }), { status: 502, headers: json }));
+    const failure = await requestAudioGeneration({ model: "tts" }, "文本", { receipt: { key: "failed-audio" } }).catch(error => error);
+    expect(failure).toMatchObject({ message: "请求过于频繁，请稍后重试", requestId: "req-original" });
+    expect(failure.details?.data?.receipt?.status).toBe("failed");
+  });
+
+  it("offers CosyVoice only its own clones and system voices", () => {
+    const clones = [
+      { value: "cosyvoice-v3.5-plus-role01-abc", label: "复刻 A" },
+      { value: "cosyvoice-v3-flash-role02-def", label: "复刻 B" },
+      ...audioVoiceOptions,
+    ];
+    const values = audioVoiceOptionsForModel("bailian::cosyvoice-v3.5-plus", clones).map(item => item.value);
+    expect(values).toContain("cosyvoice-v3.5-plus-role01-abc");
+    expect(values).not.toContain("cosyvoice-v3-flash-role02-def");
+    expect(values).not.toContain("alloy");
+    expect(values).toContain("longanyang");
+    expect(audioVoiceOptionsForModel("tts-1", clones).map(item => item.value)).toContain("alloy");
+  });
+
+  it("only sends formats and instructions the CosyVoice voice supports", () => {
+    const cosy = "bailian::cosyvoice-v3.5-plus";
+    expect(normalizeAudioGenerationConfig({ model: cosy, format: "flac" }).format).toBe("mp3");
+    expect(normalizeAudioGenerationConfig({ model: cosy, format: "wav" }).format).toBe("wav");
+    expect(normalizeAudioGenerationConfig({ model: "tts-1", format: "flac" }).format).toBe("flac");
+    expect(normalizeAudioGenerationConfig({ model: cosy, voice: "longwan_v3", instructions: "请用河南话表达" }).instructions).toBe("");
+    expect(normalizeAudioGenerationConfig({ model: cosy, voice: "longanhuan_v3", instructions: "请用河南话表达" }).instructions).toBe("请用河南话表达");
   });
 
   it("recovers exact speech bytes after a lost response using a GET, never a second POST", async () => {
@@ -243,5 +283,28 @@ describe("audio API", () => {
       message: "请求超时或已取消",
       status: 0,
     });
+  });
+});
+
+describe("voiceCloneFileProblem", () => {
+  const mb = 1024 * 1024;
+
+  it("tells the user how to fix CosyVoice reference audio", () => {
+    const model = "cosyvoice-v3.5-plus";
+    expect(voiceCloneFileProblem({ name: "a.ogg", size: mb }, 15, model)).toContain("格式");
+    expect(voiceCloneFileProblem({ name: "a.mp3", size: 11 * mb }, 15, model)).toContain("10 MB");
+    expect(voiceCloneFileProblem({ name: "a.mp3", size: mb }, 4, model)).toContain("5 秒");
+    expect(voiceCloneFileProblem({ name: "a.mp3", size: mb }, 61, model)).toContain("60 秒");
+    expect(voiceCloneFileProblem({ name: "a.WAV", size: mb }, 15, model)).toBe("");
+    expect(voiceCloneFileProblem({ name: "a.m4a", size: mb }, undefined, model)).toBe("");
+  });
+
+  it("applies the MiniMax limits", () => {
+    const model = "MiniMax/speech-02-hd";
+    expect(voiceCloneFileProblem({ name: "a.mp3", size: 15 * mb }, 30, model)).toBe("");
+    expect(voiceCloneFileProblem({ name: "a.mp3", size: 21 * mb }, 30, model)).toContain("20 MB");
+    expect(voiceCloneFileProblem({ name: "a.mp3", size: mb }, 8, model)).toContain("10 秒");
+    expect(voiceCloneFileProblem({ name: "a.mp3", size: mb }, 120, model)).toBe("");
+    expect(voiceCloneFileProblem({ name: "a.mp3", size: mb }, 301, model)).toContain("5 分钟");
   });
 });

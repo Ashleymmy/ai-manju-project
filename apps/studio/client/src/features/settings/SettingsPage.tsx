@@ -82,7 +82,6 @@ const audioFormatOptions = [
   { value: "opus", label: "Opus" },
   { value: "aac", label: "AAC" },
   { value: "flac", label: "FLAC" },
-  { value: "pcm", label: "PCM" },
 ] as const;
 
 function SurfaceTitle({
