@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/ai-manju/api/internal/model"
+	"github.com/ai-manju/api/internal/provider"
 	"github.com/ai-manju/api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -276,6 +277,64 @@ func modelProviderPresets() []providerPreset {
 			Notes: []string{
 				"创建请求自动发送 X-DashScope-Async: enable，查询请求不会发送该 Header。",
 				"上游 /models 未必列出 Wan 视频模型；可手动添加 wan3.0-video，拉取模型不会覆盖手动项。",
+			},
+		},
+		{
+			ID:           provider.AliyunVIAPIPresetID,
+			Name:         "阿里云视觉智能超分（图像 / 视频）",
+			Description:  "阿里云视觉智能开放平台（VIAPI）图像超分 MakeSuperResolutionImage（1–4 倍放大，base/enhancement 模式）与视频超分 SuperResolveVideo（2 倍超分 + GetAsyncJobResult 异步查询）。",
+			ProviderType: model.ModelProviderTypeAliyunVIAPI,
+			Mode:         model.ModelProviderModeOpenAICompatible,
+			BaseURL:      provider.DefaultAliyunImageEnhanEndpoint,
+			AuthType:     model.ModelProviderAuthTypeNone,
+			Capabilities: []string{model.ModelCapabilityImageUpscale, model.ModelCapabilityVideoUpscale},
+			ModelsByCapability: map[string][]string{
+				model.ModelCapabilityImageUpscale: {provider.DefaultAliyunImageUpscaleAction},
+				model.ModelCapabilityVideoUpscale: {provider.DefaultAliyunVideoUpscaleAction},
+			},
+			Defaults: map[string]string{
+				model.ModelCapabilityImageUpscale: provider.DefaultAliyunImageUpscaleAction,
+				model.ModelCapabilityVideoUpscale: provider.DefaultAliyunVideoUpscaleAction,
+			},
+			EndpointOverrides: provider.DefaultAliyunVIAPIEndpointOverrides(),
+			Secrets: []providerSecretSpec{
+				{Key: provider.AliyunAccessKeyIDSecret, Label: "阿里云 AccessKey ID（AK）", Required: true, Placeholder: "LTAI...（调用官方 VIAPI 必填）"},
+				{Key: provider.AliyunAccessKeySecretSecret, Label: "阿里云 AccessKey Secret（SK）", Required: true, Placeholder: "用于阿里云 POP HMAC-SHA1 签名"},
+				{Key: provider.AliyunSecurityTokenSecret, Label: "STS Security Token（可选）", Required: false, Placeholder: "使用 RAM 临时安全令牌时填写"},
+			},
+			Notes: []string{
+				"图像超分（imageenhan，Version 2019-09-30）：同步调用 MakeSuperResolutionImage，支持 1–4 倍放大、base/enhancement 模式、png/jpg/bmp 输出；输入图片 <= 5MB、分辨率 32×32 至 1920×1080，返回临时 URL 有效期 30 分钟。",
+				"视频超分（videoenhan，Version 2020-03-20）：第一步调用 SuperResolveVideo 返回 RequestId（作为 JobId），第二步调用 GetAsyncJobResult 查询状态并解析 Data.Result JSON 字符串中的 VideoUrl；支持 2 倍超分与 BitRate 1–20 Mbps（默认 10），输入视频 <= 1GB、分辨率大于 360×360 且小于 1920×1080。",
+				"请确保阿里云账号已在视觉智能开放平台开通图像生产与视频生产服务（或为 RAM 用户授予 AliyunVIAPIFullAccess 权限），且传入的图片/视频 URL 为公网可访问链接并不含中文字符。",
+			},
+		},
+		{
+			ID:           provider.AliyunBailianAudioPresetID,
+			Name:         "阿里云百炼音频（CosyVoice / MiniMax / Fun-Music）",
+			Description:  "阿里云百炼（Model Studio）角色 TTS 配音、声音克隆（cosyvoice-v3.5-plus 主力 / MiniMax/speech-2.8-hd）与 AI 音乐生成（fun-music-v1 / fun-music-preview，片头/片尾/BGM/主题曲）。",
+			ProviderType: model.ModelProviderTypeAliyunBailian,
+			Mode:         model.ModelProviderModeOpenAICompatible,
+			BaseURL:      provider.DefaultAliyunBailianBaseURL,
+			AuthType:     model.ModelProviderAuthTypeBearer,
+			Capabilities: []string{model.ModelCapabilityAudio},
+			ModelsByCapability: map[string][]string{
+				model.ModelCapabilityAudio: {
+					provider.DefaultCosyVoiceModel,
+					"cosyvoice-v3-plus",
+					"cosyvoice-v3-flash",
+					provider.DefaultMiniMaxSpeechModel,
+					"MiniMax/speech-2.8-turbo",
+					provider.DefaultFunMusicModel,
+					"fun-music-preview",
+				},
+			},
+			Defaults: map[string]string{
+				model.ModelCapabilityAudio: provider.DefaultCosyVoiceModel,
+			},
+			EndpointOverrides: provider.DefaultAliyunBailianAudioEndpointOverrides(),
+			Notes: []string{
+				"只需填写 API 地址（https://dashscope.aliyuncs.com 或专属域名 https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com）与百炼 API Key（sk-xxx）。",
+				"主力角色配音与克隆（cosyvoice-v3.5-plus）：走百炼 WebSocket 协议，支持声音复刻音色与自然语言指令控制；MiniMax 配音与克隆（MiniMax/speech-2.8-hd）走同步多模态语音合成接口；音乐生成（fun-music-v1 / fun-music-preview）支持歌词/风格提示词与纯音乐 BGM。",
 			},
 		},
 	}

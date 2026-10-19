@@ -21,6 +21,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -914,7 +915,9 @@ func (h *AIHandler) AudioSpeech(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if strings.TrimSpace(stringFromAny(body["input"])) == "" {
+	if strings.TrimSpace(stringFromAny(body["input"])) == "" &&
+		strings.TrimSpace(stringFromAny(body["prompt"])) == "" &&
+		strings.TrimSpace(stringFromAny(body["lyrics"])) == "" {
 		response.Error(c, http.StatusBadRequest, "音频生成内容不能为空")
 		return
 	}
@@ -925,11 +928,13 @@ func (h *AIHandler) AudioSpeech(c *gin.Context) {
 	removeGenerationPrivateFields(body)
 	var lastConfig model.ModelProviderConfig
 	var lastErr error
+	lastModel := stringFromAny(body["model"])
 	for _, candidate := range candidates {
 		config := candidate.Config
 		lastConfig = config
 		config.TimeoutMS = max(config.TimeoutMS, int(model.GenerationMediaRequestTimeout.Milliseconds()))
 		body["model"] = candidate.Model
+		lastModel = candidate.Model
 		for attempt := 0; attempt < model.GenerationAttemptsPerProvider; attempt++ {
 			if c.Request.Context().Err() != nil {
 				return
@@ -939,9 +944,18 @@ func (h *AIHandler) AudioSpeech(c *gin.Context) {
 				lastErr = err
 				continue
 			}
-			content, contentType, err := client.ProxyBlob(c.Request.Context(), http.MethodPost, providerProxyPath(config, "/audio/speech"), body, true)
+			var content []byte
+			var contentType string
+			if client.HandlesSpecializedAudio(candidate.Model) {
+				// Monitoring records the model actually called (CosyVoice v3.5 may fall back).
+				lastModel = client.SpecializedAudioUpstreamModel(body, candidate.Model)
+				secrets, _ := h.providerHandler.DecryptSecrets(config)
+				content, contentType, err = client.SynthesizeSpecializedAudio(c.Request.Context(), body, candidate.Model, secrets)
+			} else {
+				content, contentType, err = client.ProxyBlob(c.Request.Context(), http.MethodPost, providerProxyPath(config, "/audio/speech"), body, true)
+			}
 			if err == nil && validSpeechOutput(content, contentType) {
-				h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: config, Operation: "audio", Model: candidate.Model, InputCount: 1, OutputCount: 1})
+				h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: config, Operation: "audio", Model: lastModel, InputCount: 1, OutputCount: 1})
 				c.Data(http.StatusOK, firstNonEmpty(contentType, "application/octet-stream"), content)
 				return
 			}
@@ -951,14 +965,18 @@ func (h *AIHandler) AudioSpeech(c *gin.Context) {
 			lastErr = err
 			if !safeToRepeatGeneration(err) {
 				err = uncertainGeneration(err)
-				h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: config, Operation: "audio", Model: candidate.Model, InputCount: 1, Err: err})
+				h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: config, Operation: "audio", Model: lastModel, InputCount: 1, Err: err})
 				response.Error(c, http.StatusBadGateway, generationPublicError(err))
 				return
 			}
 		}
 	}
-	h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: lastConfig, Operation: "audio", Model: stringFromAny(body["model"]), InputCount: 1, Err: lastErr})
-	response.Error(c, http.StatusBadGateway, errGenerationUnavailable.Error())
+	h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: lastConfig, Operation: "audio", Model: lastModel, InputCount: 1, Err: lastErr})
+	message := errGenerationUnavailable.Error()
+	if providerRateLimited(lastErr) {
+		message = errGenerationRateLimited.Error()
+	}
+	response.Error(c, http.StatusBadGateway, message)
 }
 
 func (h *AIHandler) proxyProviderJSON(c *gin.Context, method string, path string, body any, longRequest bool, capability string, requestedModel string) {
@@ -1964,4 +1982,537 @@ func trimRunes(value string, limit int) string {
 		return value
 	}
 	return string(runes[:limit]) + "..."
+}
+
+func (h *AIHandler) ImageUpscale(c *gin.Context) {
+	startedAt := time.Now().UTC()
+	var req provider.ImageUpscaleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	client, config, modelID, ok := h.providerHandler.LoadClientForModel(c, model.ModelCapabilityImageUpscale, req.Model)
+	if !ok {
+		return
+	}
+	if modelID == "" {
+		writeProviderError(c, config.BaseURL, provider.ErrImageUpscaleModelNotConfigured)
+		return
+	}
+	secrets, err := h.providerHandler.DecryptSecrets(config)
+	if err != nil {
+		writeUpscaleFailure(c, fmt.Errorf("decrypt provider secrets: %w", err), false)
+		return
+	}
+	resolvedURL, err := h.resolveUpscaleInputURL(
+		c,
+		client,
+		secrets,
+		firstNonEmptyString(req.URL, req.ImageURL, req.DataURL),
+		req.AssetID,
+		req.Scope,
+		".png",
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "data_url") {
+			logProviderError(c, err)
+			response.Error(c, http.StatusBadRequest, imageUpscaleUnreadable)
+			return
+		}
+		writeUpscaleFailure(c, fmt.Errorf("prepare upscale input: %w", err), false)
+		return
+	}
+	preparedAt := time.Now()
+	req.URL = resolvedURL
+	req.ImageURL = resolvedURL
+	normalized, err := provider.NormalizeImageUpscaleRequest(req)
+	if err != nil {
+		writeUpscaleFailure(c, fmt.Errorf("normalize upscale request: %w", err), false)
+		return
+	}
+	normalized.Model = modelID
+	result, err := client.UpscaleImage(c.Request.Context(), normalized, secrets)
+	upscaledAt := time.Now()
+	if err != nil {
+		h.recordAIRequestAsync(c, aiRequestLogInput{
+			StartedAt:   startedAt,
+			Config:      config,
+			Operation:   "image_upscale",
+			Model:       modelID,
+			InputCount:  1,
+			OutputCount: 0,
+			Err:         err,
+		})
+		writeUpscaleFailure(c, err, false)
+		return
+	}
+	dataURL := result.DataURL
+	outputBytes, outputSize := 0, "unknown"
+	if dataURL == "" && strings.HasPrefix(strings.ToLower(result.URL), "http") {
+		if rawBytes, contentType, dlErr := client.DownloadMediaBytes(c.Request.Context(), result.URL); dlErr == nil && len(rawBytes) > 0 {
+			mimeType := contentType
+			if !strings.HasPrefix(strings.ToLower(mimeType), "image/") {
+				switch result.OutputFormat {
+				case "png":
+					mimeType = "image/png"
+				case "bmp":
+					mimeType = "image/bmp"
+				default:
+					mimeType = "image/jpeg"
+				}
+			}
+			dataURL = "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(rawBytes)
+			outputBytes = len(rawBytes)
+			if size, _, sizeErr := image.DecodeConfig(bytes.NewReader(rawBytes)); sizeErr == nil {
+				outputSize = fmt.Sprintf("%dx%d", size.Width, size.Height)
+			}
+		}
+	}
+	// Proof of the real Alibaba Cloud call: its RequestId can be looked up in the VIAPI console.
+	log.Printf("request_id=%s operation=image_upscale aliyun_request_id=%s action=%s input_host=%s factor=%d mode=%s format=%s prepare_ms=%d aliyun_ms=%d download_ms=%d output_bytes=%d output_size=%s",
+		response.RequestID(c), result.RequestID, result.Model, upscaleURLHost(resolvedURL), result.UpscaleFactor, result.Mode, result.OutputFormat,
+		preparedAt.Sub(startedAt).Milliseconds(), upscaledAt.Sub(preparedAt).Milliseconds(), time.Since(upscaledAt).Milliseconds(), outputBytes, outputSize)
+	h.recordAIRequestAsync(c, aiRequestLogInput{
+		StartedAt:   startedAt,
+		Config:      config,
+		Operation:   "image_upscale",
+		Model:       modelID,
+		InputCount:  1,
+		OutputCount: 1,
+	})
+	response.OK(c, gin.H{
+		"request_id":     result.RequestID,
+		"url":            result.URL,
+		"data_url":       dataURL,
+		"model":          encodeProviderModel(config.ID, result.Model),
+		"mode":           result.Mode,
+		"upscale_factor": result.UpscaleFactor,
+		"output_format":  result.OutputFormat,
+		"output_quality": result.OutputQuality,
+	})
+}
+
+func (h *AIHandler) VideoUpscaleCreate(c *gin.Context) {
+	startedAt := time.Now().UTC()
+	var req provider.VideoUpscaleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	client, config, modelID, ok := h.providerHandler.LoadClientForModel(c, model.ModelCapabilityVideoUpscale, req.Model)
+	if !ok {
+		return
+	}
+	if modelID == "" {
+		writeProviderError(c, config.BaseURL, provider.ErrVideoUpscaleModelNotConfigured)
+		return
+	}
+	secrets, err := h.providerHandler.DecryptSecrets(config)
+	if err != nil {
+		writeUpscaleFailure(c, fmt.Errorf("decrypt provider secrets: %w", err), true)
+		return
+	}
+	resolvedURL, err := h.resolveUpscaleInputURL(
+		c,
+		client,
+		secrets,
+		firstNonEmptyString(req.VideoURL, req.URL),
+		req.AssetID,
+		req.Scope,
+		".mp4",
+	)
+	if err != nil {
+		writeUpscaleFailure(c, fmt.Errorf("prepare upscale input: %w", err), true)
+		return
+	}
+	req.VideoURL = resolvedURL
+	req.URL = resolvedURL
+	normalized, err := provider.NormalizeVideoUpscaleRequest(req)
+	if err != nil {
+		writeUpscaleFailure(c, fmt.Errorf("normalize upscale request: %w", err), true)
+		return
+	}
+	normalized.Model = modelID
+	result, err := client.CreateVideoUpscaleTask(c.Request.Context(), normalized, secrets)
+	if err != nil {
+		h.recordAIRequestAsync(c, aiRequestLogInput{
+			StartedAt:   startedAt,
+			Config:      config,
+			Operation:   "video_upscale",
+			Model:       modelID,
+			InputCount:  1,
+			OutputCount: 0,
+			Err:         err,
+		})
+		writeUpscaleFailure(c, err, true)
+		return
+	}
+	h.recordAIRequestAsync(c, aiRequestLogInput{
+		StartedAt:   startedAt,
+		Config:      config,
+		Operation:   "video_upscale",
+		Model:       modelID,
+		InputCount:  1,
+		OutputCount: 0,
+	})
+	response.OK(c, gin.H{
+		"id":              result.ID,
+		"job_id":          result.JobID,
+		"request_id":      result.RequestID,
+		"status":          result.Status,
+		"upstream_status": result.UpstreamCode,
+		"video_url":       result.VideoURL,
+		"model":           encodeProviderModel(config.ID, result.Model),
+		"bit_rate":        result.BitRate,
+		"message":         result.Message,
+	})
+}
+
+func (h *AIHandler) VideoUpscaleGet(c *gin.Context) {
+	rawID := strings.TrimSpace(c.Param("id"))
+	if rawID == "" {
+		response.Error(c, http.StatusBadRequest, "job id is required")
+		return
+	}
+	providerID, jobID := decodeProviderModel(rawID)
+	requestedModel := strings.TrimSpace(c.Query("model"))
+	if requestedModel == "" && providerID != "" {
+		requestedModel = providerID + providerModelSeparator
+	}
+	if jobID == "" {
+		jobID = rawID
+	}
+	client, config, modelID, ok := h.providerHandler.LoadClientForModel(c, model.ModelCapabilityVideoUpscale, requestedModel)
+	if !ok {
+		return
+	}
+	secrets, err := h.providerHandler.DecryptSecrets(config)
+	if err != nil {
+		writeUpscaleFailure(c, fmt.Errorf("decrypt provider secrets: %w", err), true)
+		return
+	}
+	result, err := client.GetVideoUpscaleTask(c.Request.Context(), jobID, modelID, secrets)
+	if err != nil {
+		writeUpscaleFailure(c, err, true)
+		return
+	}
+	errorMessage := ""
+	if result.Status == "failed" {
+		errorMessage = publicVideoUpscaleFailure(c, jobID, result.ErrorCode, result.ErrorMessage)
+	}
+	payload := gin.H{
+		"id":              result.ID,
+		"job_id":          result.JobID,
+		"request_id":      result.RequestID,
+		"status":          result.Status,
+		"upstream_status": result.UpstreamCode,
+		"video_url":       result.VideoURL,
+		"model":           encodeProviderModel(config.ID, result.Model),
+		"error_code":      result.ErrorCode,
+		"error_message":   errorMessage,
+	}
+	if result.Status == "succeeded" && result.VideoURL != "" && c.Query("save_asset") == "1" && h.assets != nil {
+		asset, saveErr := h.saveUpscaledVideoAsset(c, client, result)
+		if saveErr != nil {
+			log.Printf("request_id=%s operation=video_upscale job_id=%s save_asset_error=%v", response.RequestID(c), jobID, saveErr)
+		} else if asset.ID != "" {
+			payload["asset_id"] = asset.ID
+			payload["asset_url"] = asset.URL
+			payload["mime_type"] = asset.ContentType
+			payload["bytes"] = asset.Size
+		}
+	}
+	response.OK(c, payload)
+}
+
+func (h *AIHandler) resolveUpscaleInputURL(
+	c *gin.Context,
+	client *provider.OpenAICompatibleClient,
+	secrets map[string]string,
+	rawURL string,
+	assetID string,
+	scope string,
+	defaultExt string,
+) (string, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	assetID = strings.TrimSpace(assetID)
+	if assetID == "" && strings.HasPrefix(rawURL, "/api/assets/") && strings.HasSuffix(rawURL, "/content") {
+		trimmed := strings.TrimSuffix(strings.TrimPrefix(rawURL, "/api/assets/"), "/content")
+		assetID = strings.Trim(trimmed, "/")
+	}
+	if strings.HasPrefix(rawURL, "data:") {
+		comma := strings.Index(rawURL, ",")
+		if comma < 0 {
+			return "", errors.New("invalid data_url format")
+		}
+		header := rawURL[:comma]
+		decoded, err := base64.StdEncoding.DecodeString(rawURL[comma+1:])
+		if err != nil {
+			return "", fmt.Errorf("invalid base64 data_url: %w", err)
+		}
+		ext := defaultExt
+		if strings.Contains(header, "image/jpeg") || strings.Contains(header, "image/jpg") {
+			ext = ".jpg"
+		} else if strings.Contains(header, "image/bmp") {
+			ext = ".bmp"
+		} else if strings.Contains(header, "video/mp4") {
+			ext = ".mp4"
+		} else if strings.Contains(header, "audio/wav") || strings.Contains(header, "audio/x-wav") {
+			ext = ".wav"
+		} else if strings.Contains(header, "audio/mp4") || strings.Contains(header, "audio/x-m4a") {
+			ext = ".m4a"
+		} else if strings.Contains(header, "audio/") {
+			ext = ".mp3"
+		}
+		uploaded, upErr := client.UploadMediaToVIAPITempOSS(c.Request.Context(), bytes.NewReader(decoded), ext, secrets)
+		if upErr == nil {
+			return uploaded, nil
+		}
+		if !errors.Is(upErr, provider.ErrAliyunVIAPICredentialsMissing) {
+			// With AccessKeys configured the VIAPI upload is the only path; report its real failure.
+			return "", upErr
+		}
+		return client.UploadMediaToDashScopeTemp(c.Request.Context(), bytes.NewReader(decoded), ext, "voice-enrollment")
+	}
+	if assetID != "" && h.assets != nil {
+		user := auth.MustCurrentUser(c)
+		resolvedScope := strings.TrimSpace(scope)
+		if resolvedScope == "" {
+			resolvedScope = requestWorkspaceScope(c)
+		}
+		content, err := h.assets.DescribeContent(c.Request.Context(), assetID, user.ID, resolvedScope)
+		if err != nil {
+			return "", err
+		}
+		if deliveryURL, err := h.assets.ContentDeliveryURL(c.Request.Context(), content); err == nil && strings.HasPrefix(deliveryURL, "http") {
+			return deliveryURL, nil
+		}
+		opened, err := h.assets.OpenResolvedContent(c.Request.Context(), content)
+		if err != nil {
+			return "", err
+		}
+		defer opened.Reader.Close()
+		ext := filepath.Ext(opened.Object.Key)
+		if ext == "" {
+			ext = defaultExt
+		}
+		return client.UploadMediaToVIAPITempOSS(c.Request.Context(), opened.Reader, ext, secrets)
+	}
+	return rawURL, nil
+}
+
+func (h *AIHandler) saveUpscaledVideoAsset(
+	c *gin.Context,
+	client *provider.OpenAICompatibleClient,
+	result provider.VideoUpscaleTaskResponse,
+) (model.Asset, error) {
+	videoBytes, contentType, err := client.DownloadMediaBytes(c.Request.Context(), result.VideoURL)
+	if err != nil {
+		return model.Asset{}, err
+	}
+	if !strings.HasPrefix(strings.ToLower(contentType), "video/") {
+		contentType = "video/mp4"
+	}
+	user := auth.MustCurrentUser(c)
+	scope := strings.TrimSpace(c.Query("scope"))
+	if scope == "" {
+		scope = requestWorkspaceScope(c)
+	}
+	title := strings.TrimSpace(c.Query("title"))
+	if title == "" {
+		title = "视频-AI超分"
+	}
+	projectID := strings.TrimSpace(c.Query("project_id"))
+	sourceNodeID := strings.TrimSpace(c.Query("node_id"))
+	return h.assets.Upload(c.Request.Context(), service.AssetUploadInput{
+		ID:             "vid_sr_" + sanitizeProviderID(result.JobID),
+		IdempotencyKey: "video_upscale:" + result.JobID,
+		UserID:         user.ID,
+		Scope:          scope,
+		Type:           "video",
+		Name:           title,
+		Extension:      ".mp4",
+		ContentType:    contentType,
+		Reader:         bytes.NewReader(videoBytes),
+		SourceNodeID:   sourceNodeID,
+		Registration: service.AssetRegistrationContext{
+			Category:        "other",
+			SourceType:      "canvas",
+			SourceProjectID: projectID,
+			SourceJobID:     result.JobID,
+			SourceMetadata: map[string]any{
+				"operation":  "video_upscale",
+				"job_id":     result.JobID,
+				"request_id": result.RequestID,
+				"node_id":    sourceNodeID,
+			},
+		},
+	})
+}
+
+func (h *AIHandler) AudioVoiceCloneCreate(c *gin.Context) {
+	startedAt := time.Now().UTC()
+	var req provider.VoiceCloneRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	client, config, modelID, ok := h.providerHandler.LoadClientForModel(c, model.ModelCapabilityAudio, req.TargetModel)
+	if !ok {
+		return
+	}
+	if strings.TrimSpace(req.TargetModel) != "" {
+		_, bareTarget := decodeProviderModel(req.TargetModel)
+		if bareTarget != "" {
+			modelID = bareTarget
+		}
+	}
+	if modelID == "" {
+		modelID = provider.DefaultCosyVoiceModel
+	}
+	secrets, err := h.providerHandler.DecryptSecrets(config)
+	if err != nil {
+		writeVoiceCloneFailure(c, fmt.Errorf("decrypt provider secrets: %w", err))
+		return
+	}
+	source := firstNonEmptyString(req.AudioURL, req.DataURL)
+	if strings.TrimSpace(source) == "" && strings.TrimSpace(req.AssetID) == "" {
+		response.Error(c, http.StatusBadRequest, "请先选择参考音频")
+		return
+	}
+	resolvedURL, err := h.resolveUpscaleInputURL(
+		c,
+		client,
+		secrets,
+		source,
+		req.AssetID,
+		req.Scope,
+		".mp3",
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "data_url") {
+			response.Error(c, http.StatusBadRequest, voiceCloneAudioUnreadable)
+			return
+		}
+		writeVoiceCloneFailure(c, fmt.Errorf("resolve reference audio: %w", err))
+		return
+	}
+	lowerURL := strings.ToLower(strings.TrimSpace(resolvedURL))
+	if !strings.HasPrefix(lowerURL, "http://") && !strings.HasPrefix(lowerURL, "https://") && !strings.HasPrefix(lowerURL, "oss://") {
+		// Local files need Aliyun AK/SK for the temporary upload: an admin setting.
+		writeVoiceCloneFailure(c, errors.New("reference audio has no public URL; configure Aliyun AK/SK for local uploads"))
+		return
+	}
+	req.TargetModel = modelID
+	req.AudioURL = resolvedURL
+	record, err := client.CreateClonedVoice(c.Request.Context(), req, secrets)
+	if err != nil {
+		h.recordAIRequestAsync(c, aiRequestLogInput{
+			StartedAt:   startedAt,
+			Config:      config,
+			Operation:   "audio_voice_clone",
+			Model:       modelID,
+			InputCount:  1,
+			OutputCount: 0,
+			Err:         err,
+		})
+		if message := voiceCloneAudioRejected(err); message != "" {
+			logProviderError(c, err)
+			response.Error(c, http.StatusBadRequest, message)
+			return
+		}
+		writeVoiceCloneFailure(c, err)
+		return
+	}
+	h.recordAIRequestAsync(c, aiRequestLogInput{
+		StartedAt:   startedAt,
+		Config:      config,
+		Operation:   "audio_voice_clone",
+		Model:       modelID,
+		InputCount:  1,
+		OutputCount: 1,
+	})
+	response.OK(c, gin.H{
+		"voice_id":     record.VoiceID,
+		"target_model": record.TargetModel,
+		"status":       record.Status,
+		"demo_audio":   record.DemoAudio,
+		"request_id":   record.RequestID,
+		"model":        encodeProviderModel(config.ID, modelID),
+	})
+}
+
+const (
+	voiceCloneAudioUnreadable = "参考音频读取失败：请重新选择本地文件；如填写链接，请确认链接可公开访问"
+	voiceCloneRetryLater      = "音色克隆暂时失败，请稍后重试"
+)
+
+// writeVoiceCloneFailure handles failures the user cannot fix: the details go to the
+// server log for admins and the user only sees a retry message.
+func writeVoiceCloneFailure(c *gin.Context, err error) {
+	logProviderError(c, err)
+	if providerRateLimited(err) {
+		response.Error(c, http.StatusTooManyRequests, errGenerationRateLimited.Error())
+		return
+	}
+	response.Error(c, http.StatusBadGateway, voiceCloneRetryLater)
+}
+
+// voiceCloneAudioRejected turns a supplier rejection of the reference audio into advice the
+// user can act on; the supplier text stays in the request log for admins.
+func voiceCloneAudioRejected(err error) string {
+	var response *provider.ProviderHTTPError
+	if !errors.As(err, &response) || response.StatusCode >= http.StatusInternalServerError || response.StatusCode == http.StatusTooManyRequests {
+		return ""
+	}
+	body := strings.ToLower(response.Body)
+	has := func(words ...string) bool {
+		for _, word := range words {
+			if strings.Contains(body, word) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	// Account limits (voice quota, balance, permissions) are for admins, not the user.
+	case has("quota", "voice limit", "voice count", "arrearage", "balance", "access denied", "accessdenied", "unauthorized", "invalidapikey", "invalid api key", "permission"):
+		return ""
+	case has("too short"):
+		return "参考音频中可识别的人声太短：需要至少一段超过 5 秒的单人连续说话，且无背景音乐（推荐 10–20 秒）"
+	case has("too long"):
+		return "参考音频太长（最长 60 秒）：请截取 10–20 秒单人清晰说话的片段后重试"
+	case has("file size", "file too large", "too large", "size exceed", "exceeds the maximum size"):
+		return "参考音频文件太大（最大 10 MB）：请截取 10–20 秒的片段或压缩后重试"
+	case has("sample rate", "samplerate", "sampling rate"):
+		return "参考音频采样率太低：请使用 16 kHz 及以上采样率的录音"
+	case has("format", "decode", "unsupported", "codec", "corrupt"):
+		return "参考音频格式不支持：请使用 WAV（16 位）、MP3 或 M4A 文件"
+	case has("noise", "multiple speaker", "multi-speaker", "background music", "no valid", "no speech", "no human voice", "quality", "snr"):
+		return "参考音频不够清晰：请使用单人说话、无背景音乐和杂音的录音（推荐 10–20 秒）"
+	case has("download audio failed", "download failed"):
+		return voiceCloneAudioUnreadable
+	}
+	return ""
+}
+
+func (h *AIHandler) AudioVoiceCloneList(c *gin.Context) {
+	requestedModel := strings.TrimSpace(c.Query("model"))
+	prefix := strings.TrimSpace(c.Query("prefix"))
+	client, config, _, ok := h.providerHandler.LoadClientForModel(c, model.ModelCapabilityAudio, requestedModel)
+	if !ok {
+		return
+	}
+	secrets, err := h.providerHandler.DecryptSecrets(config)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "model provider secrets cannot be decrypted")
+		return
+	}
+	voices, err := client.ListClonedVoices(c.Request.Context(), prefix, secrets)
+	if err != nil {
+		// Non-fatal if provider does not support list_voice (e.g. MiniMax or OpenAI); return empty list.
+		response.OK(c, gin.H{"voices": []provider.VoiceCloneRecord{}, "notice": err.Error()})
+		return
+	}
+	response.OK(c, gin.H{"voices": voices})
 }

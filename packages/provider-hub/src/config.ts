@@ -1,14 +1,60 @@
 /** Versioned documents edit the host's live fields; no second configuration store. */
 export const CONFIG_VERSION = 1;
 export const MAX_CONFIG_BYTES = 64 * 1024;
-export const capabilities = ["text", "image", "video", "audio"] as const;
+export const capabilities = [
+  "text",
+  "image",
+  "video",
+  "audio",
+  "image_upscale",
+  "video_upscale",
+] as const;
 export type Capability = (typeof capabilities)[number];
+export const superResolutionCapabilities = [
+  "image_upscale",
+  "video_upscale",
+] as const;
+export type SuperResolutionCapability =
+  (typeof superResolutionCapabilities)[number];
+export const capabilityFilterGroups = [
+  "all",
+  "text",
+  "image",
+  "video",
+  "audio",
+  "upscale",
+] as const;
+export type CapabilityFilterGroup = (typeof capabilityFilterGroups)[number];
 export const capabilityLabels: Record<Capability, string> = {
   text: "文本 / LLM",
   image: "图像",
   video: "视频",
   audio: "音频",
+  image_upscale: "图片超分",
+  video_upscale: "视频超分",
 };
+export const capabilityGroupLabels: Record<CapabilityFilterGroup, string> = {
+  all: "全部",
+  text: "文本 / LLM",
+  image: "图像",
+  video: "视频",
+  audio: "音频",
+  upscale: "超分",
+};
+export function isSuperResolutionCapability(
+  capability: string,
+): capability is SuperResolutionCapability {
+  return (superResolutionCapabilities as readonly string[]).includes(capability);
+}
+export function providerHasSuperResolution(provider: ProviderRecord): boolean {
+  const caps = provider.capabilities || [];
+  if (superResolutionCapabilities.some((cap) => caps.includes(cap))) return true;
+  if (provider.image_upscale_model || provider.video_upscale_model) return true;
+  const byCap = provider.models_by_capability || {};
+  return Boolean(
+    byCap.image_upscale?.length || byCap.video_upscale?.length,
+  );
+}
 export const imageProtocols = [
   "auto",
   "openai_images",
@@ -29,6 +75,8 @@ export type ProviderRecord = {
   image_model?: string;
   video_model?: string;
   audio_model?: string;
+  image_upscale_model?: string;
+  video_upscale_model?: string;
   sdvideo_models?: Array<{
     key: string;
     name: string;
@@ -60,6 +108,8 @@ export const studioFields = [
   "image_model",
   "video_model",
   "audio_model",
+  "image_upscale_model",
+  "video_upscale_model",
   "capabilities",
   "models_by_capability",
   "model_aliases",
@@ -71,7 +121,7 @@ export const studioFields = [
   "max_concurrency",
   "enabled",
 ] as const;
-const stringFields = new Set<string>(studioFields.slice(0, 12));
+const stringFields = new Set<string>(studioFields.slice(0, 14));
 const stringMaps = new Set([
   "model_aliases",
   "model_protocols",
@@ -235,7 +285,7 @@ export function parseConfigDocument(
           assert(
             Array.isArray(item) &&
               item.every((entry) => capabilities.includes(entry)),
-            `${key} 仅支持 text/image/video/audio`,
+            `${key} 仅支持 text/image/video/audio/image_upscale/video_upscale`,
           );
         if (key === "models_by_capability") {
           assert(isRecord(item), "models_by_capability 必须是对象");
@@ -279,6 +329,8 @@ export function parseConfigDocument(
           "fal_happyhorse",
           "xai_imagine",
           "aliyun_yike",
+          "aliyun_viapi",
+          "aliyun_bailian",
         ],
         auth_type: [
           "none",

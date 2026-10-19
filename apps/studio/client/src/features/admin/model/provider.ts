@@ -6,7 +6,42 @@ import type {
   ModelProviderConfig,
   ModelProviderPreset,
   ModelProviderTestResult,
+  ProviderSecretSpec,
 } from "../services/adminApi";
+
+export const aliyunViapiSecretSpecs: ProviderSecretSpec[] = [
+  {
+    key: "aliyun_access_key_id",
+    label: "阿里云 AccessKey ID（AK）",
+    required: true,
+    placeholder: "LTAI...（调用官方 VIAPI 必填）",
+  },
+  {
+    key: "aliyun_access_key_secret",
+    label: "阿里云 AccessKey Secret（SK）",
+    required: true,
+    placeholder: "用于阿里云 POP HMAC-SHA1 签名",
+  },
+  {
+    key: "aliyun_security_token",
+    label: "STS Security Token（可选）",
+    required: false,
+    placeholder: "使用 RAM 临时安全令牌时填写",
+  },
+];
+
+export function resolveProviderSecretSpecs(
+  selectedPreset: ModelProviderPreset | undefined,
+  providerType: ModelProviderConfig["provider_type"] | undefined
+): ProviderSecretSpec[] {
+  if (selectedPreset?.secrets?.length) {
+    return selectedPreset.secrets;
+  }
+  if (providerType === "aliyun_viapi") {
+    return aliyunViapiSecretSpecs;
+  }
+  return [];
+}
 
 export const capabilityOptions: Array<{
   value: ModelCapability;
@@ -16,6 +51,8 @@ export const capabilityOptions: Array<{
   { value: "image", label: "图像" },
   { value: "video", label: "视频" },
   { value: "audio", label: "音频" },
+  { value: "image_upscale", label: "图片超分" },
+  { value: "video_upscale", label: "视频超分" },
 ];
 
 export const imageProtocolOptions: Array<{
@@ -43,6 +80,8 @@ export const emptyProvider: ModelProviderConfig = {
   image_model: "",
   video_model: "",
   audio_model: "",
+  image_upscale_model: "",
+  video_upscale_model: "",
   capabilities: ["text", "image"],
   models_by_capability: {},
   model_aliases: {},
@@ -86,15 +125,18 @@ export function applyProviderPreset(
     auth_query_param: preset.auth_query_param,
     capabilities: [...preset.capabilities],
     models_by_capability: Object.fromEntries(
-      Object.entries(preset.models_by_capability).map(([capability, models]) => [
-        capability,
-        [...(models || [])],
-      ])
+      Object.entries(preset.models_by_capability).map(
+        ([capability, models]) => [capability, [...(models || [])]]
+      )
     ),
     text_model: preset.defaults.text || draft.text_model,
     image_model: preset.defaults.image || draft.image_model,
     video_model: preset.defaults.video || draft.video_model,
     audio_model: preset.defaults.audio || draft.audio_model,
+    image_upscale_model:
+      preset.defaults.image_upscale || draft.image_upscale_model,
+    video_upscale_model:
+      preset.defaults.video_upscale || draft.video_upscale_model,
     endpoint_overrides: { ...(preset.endpoint_overrides || {}) },
     extra_headers: { ...(preset.extra_headers || {}) },
   };
@@ -137,6 +179,8 @@ export function allConfiguredModelIds(config: ModelProviderConfig) {
         config.image_model || "",
         config.video_model || "",
         config.audio_model || "",
+        config.image_upscale_model || "",
+        config.video_upscale_model || "",
         ...Object.keys(config.model_aliases || {}),
         ...Object.keys(config.model_protocols || {}),
       ]

@@ -145,7 +145,7 @@ func assignMissingDefaults(configs []model.ModelProviderConfig, changes [][]stri
 			hasDefault[capability] = true
 		}
 	}
-	for _, capability := range []string{model.ModelCapabilityText, model.ModelCapabilityImage, model.ModelCapabilityVideo, model.ModelCapabilityAudio} {
+	for _, capability := range []string{model.ModelCapabilityText, model.ModelCapabilityImage, model.ModelCapabilityVideo, model.ModelCapabilityAudio, model.ModelCapabilityImageUpscale, model.ModelCapabilityVideoUpscale} {
 		if hasDefault[capability] {
 			continue
 		}
@@ -176,6 +176,10 @@ func assignMissingDefaults(configs []model.ModelProviderConfig, changes [][]stri
 func inferPresetID(config model.ModelProviderConfig) string {
 	value := providerFingerprint(config)
 	switch {
+	case isBailianAudioFingerprint(value):
+		return "aliyun_bailian_audio"
+	case strings.Contains(value, "imageenhan") || strings.Contains(value, "videoenhan") || strings.Contains(value, "viapi") || strings.Contains(value, "makesuperresolutionimage") || strings.Contains(value, "superresolvevideo"):
+		return "aliyun_viapi_super_resolution"
 	case strings.Contains(value, "seedance"):
 		return "volcengine_seedance"
 	case strings.Contains(value, "seedream"):
@@ -199,9 +203,22 @@ func inferPresetID(config model.ModelProviderConfig) string {
 	}
 }
 
+// isBailianAudioFingerprint keeps native MiniMax suppliers (speech-2.8 on minimax.io) out of the
+// Bailian classification; only DashScope-hosted MiniMax speech belongs there.
+func isBailianAudioFingerprint(value string) bool {
+	if strings.Contains(value, "cosyvoice") || strings.Contains(value, "fun-music") {
+		return true
+	}
+	return strings.Contains(value, "speech-2.8") && (strings.Contains(value, "aliyuncs") || strings.Contains(value, "dashscope"))
+}
+
 func inferProviderType(config model.ModelProviderConfig) string {
 	value := providerFingerprint(config)
 	switch {
+	case isBailianAudioFingerprint(value):
+		return model.ModelProviderTypeAliyunBailian
+	case strings.Contains(value, "imageenhan") || strings.Contains(value, "videoenhan") || strings.Contains(value, "viapi") || strings.Contains(value, "makesuperresolutionimage") || strings.Contains(value, "superresolvevideo"):
+		return model.ModelProviderTypeAliyunVIAPI
 	case strings.Contains(value, "seedance") || strings.Contains(value, "seedream"):
 		return model.ModelProviderTypeVolcengineArk
 	case strings.Contains(value, "gemini") || strings.Contains(value, "veo") || strings.Contains(value, "banana"):
@@ -256,7 +273,7 @@ func seedanceMigrationEndpointOverrides(config model.ModelProviderConfig) map[st
 }
 
 func inferCapabilities(config model.ModelProviderConfig) []string {
-	capabilities := make([]string, 0, 4)
+	capabilities := make([]string, 0, 6)
 	if strings.TrimSpace(config.TextModel) != "" {
 		capabilities = append(capabilities, model.ModelCapabilityText)
 	}
@@ -268,6 +285,12 @@ func inferCapabilities(config model.ModelProviderConfig) []string {
 	}
 	if strings.TrimSpace(config.AudioModel) != "" {
 		capabilities = append(capabilities, model.ModelCapabilityAudio)
+	}
+	if strings.TrimSpace(config.ImageUpscaleModel) != "" {
+		capabilities = append(capabilities, model.ModelCapabilityImageUpscale)
+	}
+	if strings.TrimSpace(config.VideoUpscaleModel) != "" {
+		capabilities = append(capabilities, model.ModelCapabilityVideoUpscale)
 	}
 	return uniqueStrings(capabilities)
 }
@@ -286,6 +309,12 @@ func inferModelsByCapability(config model.ModelProviderConfig) map[string][]stri
 	if modelID := strings.TrimSpace(config.AudioModel); modelID != "" {
 		result[model.ModelCapabilityAudio] = []string{modelID}
 	}
+	if modelID := strings.TrimSpace(config.ImageUpscaleModel); modelID != "" {
+		result[model.ModelCapabilityImageUpscale] = []string{modelID}
+	}
+	if modelID := strings.TrimSpace(config.VideoUpscaleModel); modelID != "" {
+		result[model.ModelCapabilityVideoUpscale] = []string{modelID}
+	}
 	return result
 }
 
@@ -299,6 +328,10 @@ func defaultModelForCapability(config model.ModelProviderConfig, capability stri
 		return config.VideoModel
 	case model.ModelCapabilityAudio:
 		return config.AudioModel
+	case model.ModelCapabilityImageUpscale:
+		return config.ImageUpscaleModel
+	case model.ModelCapabilityVideoUpscale:
+		return config.VideoUpscaleModel
 	default:
 		return ""
 	}
@@ -321,6 +354,8 @@ func providerFingerprint(config model.ModelProviderConfig) string {
 		config.ImageModel,
 		config.VideoModel,
 		config.AudioModel,
+		config.ImageUpscaleModel,
+		config.VideoUpscaleModel,
 	}
 	return strings.ToLower(strings.Join(parts, " "))
 }
@@ -340,6 +375,8 @@ func providerSemanticallyEqual(a, b model.ModelProviderConfig) bool {
 		a.ImageModel == b.ImageModel &&
 		a.VideoModel == b.VideoModel &&
 		a.AudioModel == b.AudioModel &&
+		a.ImageUpscaleModel == b.ImageUpscaleModel &&
+		a.VideoUpscaleModel == b.VideoUpscaleModel &&
 		jsonEqual(a.Capabilities, b.Capabilities) &&
 		jsonEqual(a.ModelsByCapability, b.ModelsByCapability) &&
 		jsonEqual(a.DefaultFor, b.DefaultFor) &&
@@ -424,6 +461,10 @@ func normalizeCapabilities(values []string) []string {
 			result = append(result, model.ModelCapabilityVideo)
 		case model.ModelCapabilityAudio:
 			result = append(result, model.ModelCapabilityAudio)
+		case model.ModelCapabilityImageUpscale:
+			result = append(result, model.ModelCapabilityImageUpscale)
+		case model.ModelCapabilityVideoUpscale:
+			result = append(result, model.ModelCapabilityVideoUpscale)
 		}
 	}
 	return uniqueStrings(result)

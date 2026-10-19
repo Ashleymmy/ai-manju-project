@@ -2,6 +2,17 @@ import {
   CanvasPricingContext,
   CanvasGenerationPrice,
 } from "./ui/CanvasGenerationPrice";
+import {
+  CanvasUpscaleAvailabilityContext,
+  type CanvasUpscaleAvailability,
+} from "./ui/CanvasUpscaleAvailability";
+import {
+  createClonedVoice,
+  createVideoUpscaleTask,
+  getVideoUpscaleTask,
+  listClonedVoices,
+  upscaleImage,
+} from "@/services/api/mediaTools";
 import { CreditBalance } from "@/features/member";
 import {
   registrationProviderId,
@@ -175,7 +186,11 @@ import { assetDownloadFileName } from "@/entities/asset/fileName";
 import { useCanvasAssetNameSync } from "./controllers/useCanvasAssetNameSync";
 import type { PromptPreset } from "@/entities/prompt";
 import { fetchAiModels } from "@/services/api/ai";
-import { audioFormatOptions, audioVoiceOptions } from "@/services/api/audio";
+import {
+  audioFormatOptions,
+  audioVoiceOptions,
+  voiceCloneFileProblem,
+} from "@/services/api/audio";
 import type { SeedanceMaterialAsset } from "@/services/api/material";
 import {
   fetchImageModels,
@@ -200,6 +215,10 @@ import {
 } from "@/features/canvas/ui/CanvasNodeCard";
 import { CanvasInspector } from "@/features/canvas/ui/CanvasInspector";
 import {
+  AI_UPSCALE_IMAGE_MAX_BYTES,
+  aiUpscaleImageFitLongEdge,
+  aiUpscaleImageProblem,
+  aiUpscaleVideoProblem,
   defaultCanvasImageToolDraft,
   type CanvasImageToolDraft,
 } from "@/features/canvas/domain/imageTool";
@@ -762,6 +781,8 @@ export default function CanvasWorkspaceViewContent() {
   const [videoModel, setVideoModel] = useState("");
   const [audioModels, setAudioModels] = useState<string[]>([]);
   const [audioModel, setAudioModel] = useState("");
+  const [upscaleAvailability, setUpscaleAvailability] =
+    useState<CanvasUpscaleAvailability>({ image: false, video: false });
   const [textModelLabels, setTextModelLabels] = useState<
     Record<string, string>
   >({});
@@ -846,6 +867,26 @@ export default function CanvasWorkspaceViewContent() {
   );
   const [imageToolBusy, setImageToolBusy] = useState(false);
   const [imageToolError, setImageToolError] = useState("");
+  const [videoUpscaleNodeId, setVideoUpscaleNodeId] = useState("");
+  const [videoUpscaleBitRate, setVideoUpscaleBitRate] = useState(10);
+  const [videoUpscaleBusy, setVideoUpscaleBusy] = useState(false);
+  const [videoUpscaleError, setVideoUpscaleError] = useState("");
+  const [audioVoiceCloneNodeId, setAudioVoiceCloneNodeId] = useState("");
+  const [audioVoiceCloneModel, setAudioVoiceCloneModel] = useState(
+    "cosyvoice-v3.5-plus"
+  );
+  const [audioVoiceClonePrefix, setAudioVoiceClonePrefix] = useState("role01");
+  const [audioVoiceCloneUrl, setAudioVoiceCloneUrl] = useState("");
+  const [audioVoiceCloneFile, setAudioVoiceCloneFile] = useState<
+    File | undefined
+  >(undefined);
+  const [audioVoiceCloneSampleText, setAudioVoiceCloneSampleText] =
+    useState("你好，这是角色声音复刻试听音频。");
+  const [audioVoiceCloneBusy, setAudioVoiceCloneBusy] = useState(false);
+  const [audioVoiceCloneError, setAudioVoiceCloneError] = useState("");
+  const [clonedAudioVoices, setClonedAudioVoices] = useState<
+    Array<{ value: string; label: string }>
+  >([]);
   const imageAnnotationNodeId = useCanvasStore(
     state => state.ui.imageAnnotationNodeId
   );
@@ -2064,6 +2105,10 @@ export default function CanvasWorkspaceViewContent() {
         const catalog = aiModelsResult.value;
         setVideoModels(catalog.videoModels);
         setAudioModels(catalog.audioModels);
+        setUpscaleAvailability({
+          image: catalog.imageUpscaleModels.length > 0,
+          video: catalog.videoUpscaleModels.length > 0,
+        });
         setTextModelLabels(catalog.modelLabels);
         setModelProviderNames(catalog.modelProviderNames);
         setModelNicknames(catalog.modelNicknames || {}); // [画布别名]
@@ -2987,6 +3032,7 @@ export default function CanvasWorkspaceViewContent() {
     nodeId: string,
     mode: CanvasImageToolMode = "crop"
   ) => {
+    if (mode === "ai-upscale" && !upscaleAvailability.image) return;
     setImageToolDialog({ nodeId, mode });
     setImageToolDraft({ ...defaultCanvasImageToolDraft });
     setImageToolError("");
@@ -3507,6 +3553,105 @@ export default function CanvasWorkspaceViewContent() {
         });
         results = [
           { dataUrl, title: `${sourceNode.title}-放大`, relation: "upscale" },
+        ];
+      }
+      if (mode === "ai-upscale") {
+        const activeScope =
+          projectSessionController.canonicalScope || "personal";
+        const sourceAssetId = assetIdFromNode(sourceNode);
+        const sourceScope =
+          workspaceScopeValue(sourceNode.metadata?.assetScope) || activeScope;
+        let dataUrlPayload = "";
+        let urlPayload = "";
+        const sourceSize = await readCanvasImageSize(source.url);
+        const sizeProblem = aiUpscaleImageProblem(
+          sourceSize.width,
+          sourceSize.height
+        );
+        if (sizeProblem) throw new Error(sizeProblem);
+        const sourceBytes = await fetch(source.url)
+          .then(resp => (resp.ok ? resp.blob() : null))
+          .then(blob => blob?.size || 0)
+          .catch(() => 0);
+        const fitLongEdge = aiUpscaleImageFitLongEdge(
+          sourceSize.width,
+          sourceSize.height,
+          sourceBytes
+        );
+        if (fitLongEdge) {
+          // Alibaba Cloud only accepts ≤1920×1080 and ≤5MB, so send a fitted copy instead.
+          const fitted = await compressDataUrl(source.url, {
+            format: "image/jpeg",
+            quality: 0.95,
+            maxDimension: fitLongEdge,
+            targetBytes: AI_UPSCALE_IMAGE_MAX_BYTES - 256 * 1024,
+          });
+          dataUrlPayload = fitted.dataUrl;
+          toast.info(
+            "原图超过 AI 超分的尺寸上限（1920×1080 / 5MB），已自动缩小后再超分"
+          );
+        } else if (!sourceAssetId) {
+          const rawSrc =
+            sourceNode.imageSrc || stringValue(sourceNode.metadata?.content);
+          if (rawSrc.startsWith("data:image/")) {
+            dataUrlPayload = rawSrc;
+          } else if (/^https?:\/\//i.test(rawSrc)) {
+            urlPayload = rawSrc;
+          } else {
+            const resp = await fetch(source.url);
+            const blob = await resp.blob();
+            dataUrlPayload = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result || ""));
+              reader.onerror = () => reject(new Error("读取图片内容失败"));
+              reader.readAsDataURL(blob);
+            });
+          }
+        }
+        const srResult = await upscaleImage({
+          asset_id: dataUrlPayload ? undefined : sourceAssetId || undefined,
+          scope: sourceScope,
+          url: urlPayload || undefined,
+          data_url: dataUrlPayload || undefined,
+          mode: imageToolDraft.aiUpscaleMode,
+          upscale_factor: imageToolDraft.aiUpscaleFactor,
+          output_format: imageToolDraft.aiUpscaleOutputFormat,
+          output_quality:
+            imageToolDraft.aiUpscaleOutputFormat === "jpg"
+              ? imageToolDraft.aiUpscaleOutputQuality
+              : undefined,
+        });
+        let finalDataUrl = srResult.data_url || "";
+        if (!finalDataUrl && srResult.url) {
+          const resp = await fetch(srResult.url);
+          if (!resp.ok)
+            throw new Error(`下载超分结果图片失败（${resp.status}）`);
+          const blob = await resp.blob();
+          finalDataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ""));
+            reader.onerror = () => reject(new Error("解析超分结果图片失败"));
+            reader.readAsDataURL(blob);
+          });
+        }
+        if (!finalDataUrl) {
+          throw new Error("超分服务未返回可用的图片结果");
+        }
+        results = [
+          {
+            dataUrl: finalDataUrl,
+            title: `${sourceNode.title}-AI超分(${srResult.upscale_factor || imageToolDraft.aiUpscaleFactor}x)`,
+            relation: "ai-upscale",
+            metadata: {
+              upscaleFactor:
+                srResult.upscale_factor || imageToolDraft.aiUpscaleFactor,
+              upscaleMode: srResult.mode || imageToolDraft.aiUpscaleMode,
+              upscaleOutputFormat:
+                srResult.output_format || imageToolDraft.aiUpscaleOutputFormat,
+              // Keep the source's generation model; regenerating with the upscale model would fail.
+              upscaleModel: srResult.model,
+            },
+          },
         ];
       }
       if (mode === "compress") {
@@ -4263,6 +4408,365 @@ export default function CanvasWorkspaceViewContent() {
       );
     } finally {
       setCaptureFrameNodeId("");
+    }
+  };
+
+  const openVideoUpscaleDialog = (sourceNode: CanvasNodeData) => {
+    if (sourceNode.kind !== "video" || !upscaleAvailability.video) return;
+    setVideoUpscaleNodeId(sourceNode.id);
+    setVideoUpscaleBitRate(10);
+    setVideoUpscaleError("");
+    applyNodeSelection([sourceNode.id], sourceNode.id, true);
+  };
+
+  const videoUpscalePolls = useRef(new Set<string>());
+
+  // Polls one Alibaba Cloud video upscale job into its canvas node; also resumes after a reload.
+  const pollCanvasVideoUpscale = async (
+    childId: string,
+    taskId: string,
+    model: string
+  ) => {
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
+    if (!activeScope || !projectKey || videoUpscalePolls.current.has(childId))
+      return;
+    videoUpscalePolls.current.add(childId);
+    const finish = async (
+      metadata: CanvasNodeData["metadata"],
+      imageSrc?: string
+    ) => {
+      const updatedNodes: CanvasNodeData[] = nodesRef.current.map(item =>
+        item.id === childId && item.metadata?.status === "loading"
+          ? {
+              ...item,
+              imageSrc,
+              metadata: {
+                ...item.metadata,
+                ...metadata,
+                generationNotice: undefined,
+                videoUpscaleJobId: undefined,
+              },
+            }
+          : item
+      );
+      nodesRef.current = updatedNodes;
+      setNodes(updatedNodes);
+      await persistSnapshot(
+        updatedNodes,
+        edgesRef.current,
+        viewportRef.current.zoom,
+        { quiet: true }
+      );
+    };
+    try {
+      // About 30 minutes; Alibaba Cloud video jobs can queue for a while.
+      const maxPolls = 520;
+      let saveRetries = 0;
+      for (let attempt = 0; attempt < maxPolls; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 3500));
+        if (projectSessionController.canonicalKey !== projectKey) return;
+        const child = nodesRef.current.find(item => item.id === childId);
+        // Deleted, or no longer waiting on this job: stop quietly.
+        if (
+          !child ||
+          child.metadata?.status !== "loading" ||
+          child.metadata?.videoUpscaleJobId !== taskId
+        )
+          return;
+        try {
+          const statusRes = await getVideoUpscaleTask(taskId, {
+            model: model || undefined,
+            save_asset: true,
+            scope: activeScope,
+            project_id: projectId,
+            node_id: childId,
+            title: child.title,
+          });
+          if (
+            statusRes.status === "succeeded" &&
+            !statusRes.asset_id &&
+            saveRetries < 3
+          ) {
+            // The supplier link expires in 30 minutes; let the server retry saving it.
+            saveRetries += 1;
+            continue;
+          }
+          if (statusRes.status === "succeeded") {
+            const videoUrl = statusRes.asset_url || statusRes.video_url || "";
+            await finish(
+              {
+                status: "success",
+                errorDetails: undefined,
+                assetId: statusRes.asset_id || undefined,
+                assetScope: statusRes.asset_id ? activeScope : undefined,
+                content: statusRes.asset_id ? undefined : videoUrl,
+                mimeType: statusRes.mime_type || "video/mp4",
+                bytes: statusRes.bytes || undefined,
+              },
+              statusRes.asset_id ? undefined : videoUrl
+            );
+            toast.success(`「${child.title}」已完成`);
+            return;
+          }
+          if (statusRes.status === "failed") {
+            const errMsg = statusRes.error_message || "视频 AI 超分失败";
+            await finish({ status: "error", errorDetails: errMsg });
+            toast.error(errMsg);
+            return;
+          }
+        } catch {
+          // Keep polling; a single failed status check is not a failed job.
+        }
+      }
+      if (projectSessionController.canonicalKey !== projectKey) return;
+      const timeoutMessage = "视频超分等待超时，请稍后重新提交";
+      await finish({ status: "error", errorDetails: timeoutMessage });
+      toast.error(timeoutMessage);
+    } finally {
+      videoUpscalePolls.current.delete(childId);
+    }
+  };
+
+  useEffect(() => {
+    if (loading || switching) return;
+    for (const node of nodes) {
+      const taskId = stringValue(node.metadata?.videoUpscaleJobId);
+      if (
+        node.kind === "video" &&
+        node.metadata?.status === "loading" &&
+        taskId
+      )
+        void pollCanvasVideoUpscale(
+          node.id,
+          taskId,
+          stringValue(node.metadata?.upscaleModel)
+        );
+    }
+    // pollCanvasVideoUpscale reads refs; re-running on its identity would only add no-op calls.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, loading, switching, canonicalProjectScope]);
+
+  const runCanvasVideoUpscale = async () => {
+    const sourceNode = nodesRef.current.find(
+      node => node.id === videoUpscaleNodeId
+    );
+    if (!sourceNode || sourceNode.kind !== "video" || videoUpscaleBusy) return;
+    const activeScope = projectSessionController.canonicalScope;
+    const projectKey = projectSessionController.canonicalKey;
+    if (!activeScope || !projectKey || projectSessionController.switching) {
+      setVideoUpscaleError("正在确认项目工作区，暂不能超分视频");
+      return;
+    }
+    const sourceAssetId = assetIdFromNode(sourceNode);
+    const sourceScope =
+      workspaceScopeValue(sourceNode.metadata?.assetScope) || activeScope;
+    const rawVideoUrl =
+      sourceNode.imageSrc || stringValue(sourceNode.metadata?.content);
+    if (!sourceAssetId && !/^https?:\/\//i.test(rawVideoUrl)) {
+      setVideoUpscaleError(
+        "当前视频尚未落库或缺少可访问链接，请先上传或等待生成完成"
+      );
+      return;
+    }
+    const renderedVideo = Array.from(
+      stageRef.current?.querySelectorAll<HTMLElement>("[data-node-id]") || []
+    )
+      .find(element => element.dataset.nodeId === sourceNode.id)
+      ?.querySelector("video");
+    const resolutionProblem = aiUpscaleVideoProblem(
+      renderedVideo?.videoWidth ||
+        Number(sourceNode.metadata?.naturalWidth) ||
+        0,
+      renderedVideo?.videoHeight ||
+        Number(sourceNode.metadata?.naturalHeight) ||
+        0
+    );
+    if (resolutionProblem) {
+      setVideoUpscaleError(resolutionProblem);
+      return;
+    }
+
+    setVideoUpscaleBusy(true);
+    setVideoUpscaleError("");
+    try {
+      const bitRate = Math.max(
+        1,
+        Math.min(20, Math.round(videoUpscaleBitRate || 10))
+      );
+      const createdTask = await createVideoUpscaleTask({
+        asset_id: sourceAssetId || undefined,
+        scope: sourceScope,
+        video_url: !sourceAssetId ? rawVideoUrl : undefined,
+        bit_rate: bitRate,
+      });
+
+      const taskId = createdTask.id || createdTask.job_id;
+      const childId = crypto.randomUUID();
+      const childTitle = `${sourceNode.title}-AI超分`;
+      const prompt =
+        stringValue(sourceNode.metadata?.prompt) || sourceNode.content;
+      const childNode: CanvasNodeData = {
+        id: childId,
+        kind: "video",
+        title: childTitle,
+        content: prompt,
+        x: sourceNode.x + sourceNode.width + 96,
+        y: sourceNode.y,
+        width: sourceNode.width,
+        height: sourceNode.height,
+        metadata: {
+          ...sourceNode.metadata,
+          status: "loading",
+          generationMode: "video",
+          generationNotice: "视频 AI 超分处理中…",
+          // Not jobId: studio job recovery would poll this Alibaba Cloud id as a generation job.
+          videoUpscaleJobId: taskId,
+          jobId: undefined,
+          jobProgress: undefined,
+          generationJobId: undefined,
+          errorDetails: undefined,
+          // The source video must not show as, or stand in for, the upscaled result.
+          assetId: undefined,
+          content: undefined,
+          storageKey: undefined,
+          bytes: undefined,
+          naturalWidth: undefined,
+          naturalHeight: undefined,
+          sourceNodeId: sourceNode.id,
+          editRelation: "video-upscale",
+          upscaleBitRate: bitRate,
+          // Keep the generation model; regenerating with the upscale model would fail.
+          upscaleModel: createdTask.model,
+        },
+      };
+      const nextNodes = [...nodesRef.current, childNode];
+      const nextEdges = addCanvasConnection(
+        edgesRef.current,
+        { from: sourceNode.id, to: childId },
+        () => crypto.randomUUID()
+      );
+      nodesRef.current = nextNodes;
+      edgesRef.current = nextEdges;
+      setNodes(nextNodes);
+      setEdges(nextEdges);
+      applyNodeSelection([childId], childId, true);
+      setVideoUpscaleNodeId("");
+      await persistSnapshot(nextNodes, nextEdges, viewportRef.current.zoom, {
+        quiet: true,
+      });
+      toast.success("已提交视频 AI 超分任务，正在后台轮询结果…");
+      void pollCanvasVideoUpscale(childId, taskId, createdTask.model || "");
+    } catch (error) {
+      setVideoUpscaleError(publicApiError(error, "提交视频 AI 超分任务失败"));
+    } finally {
+      setVideoUpscaleBusy(false);
+    }
+  };
+
+  const openAudioVoiceCloneDialog = (sourceNode: CanvasNodeData) => {
+    const rawModel = modelFromNode(sourceNode, audioModel);
+    const bareModel = rawModel.includes("::")
+      ? rawModel.split("::")[1] || "cosyvoice-v3.5-plus"
+      : rawModel || "cosyvoice-v3.5-plus";
+    setAudioVoiceCloneNodeId(sourceNode.id);
+    setAudioVoiceCloneModel(
+      bareModel.toLowerCase().includes("minimax") ||
+        bareModel.toLowerCase().includes("speech-") ||
+        bareModel.toLowerCase().includes("cosyvoice")
+        ? bareModel
+        : "cosyvoice-v3.5-plus"
+    );
+    setAudioVoiceClonePrefix("role01");
+    setAudioVoiceCloneUrl("");
+    setAudioVoiceCloneFile(undefined);
+    setAudioVoiceCloneError("");
+    void listClonedVoices(rawModel)
+      .then(items => {
+        if (!items.length) return;
+        setClonedAudioVoices(prev => {
+          const map = new Map(prev.map(item => [item.value, item]));
+          for (const v of items) {
+            if (v.voice_id) {
+              map.set(v.voice_id, {
+                value: v.voice_id,
+                label: `复刻音色 · ${v.voice_id}`,
+              });
+            }
+          }
+          return Array.from(map.values());
+        });
+      })
+      .catch(() => undefined);
+  };
+
+  const runCanvasAudioVoiceClone = async () => {
+    const targetNode = nodesRef.current.find(
+      node => node.id === audioVoiceCloneNodeId
+    );
+    if (!targetNode || audioVoiceCloneBusy) return;
+    if (!audioVoiceCloneFile && !audioVoiceCloneUrl.trim()) {
+      setAudioVoiceCloneError(
+        "请上传一段 10–20 秒参考音频文件，或填写音频公网 URL"
+      );
+      return;
+    }
+    if (audioVoiceCloneFile) {
+      const problem = voiceCloneFileProblem(
+        audioVoiceCloneFile,
+        await readAudioFileDuration(audioVoiceCloneFile),
+        audioVoiceCloneModel
+      );
+      if (problem) {
+        setAudioVoiceCloneError(problem);
+        return;
+      }
+    }
+    setAudioVoiceCloneBusy(true);
+    setAudioVoiceCloneError("");
+    try {
+      let dataUrl = "";
+      if (audioVoiceCloneFile) {
+        dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(new Error("读取参考音频文件失败"));
+          reader.readAsDataURL(audioVoiceCloneFile);
+        });
+      }
+      const created = await createClonedVoice({
+        target_model: audioVoiceCloneModel,
+        prefix: audioVoiceClonePrefix.trim() || "role01",
+        voice_id: audioVoiceClonePrefix.trim() || undefined,
+        audio_url: audioVoiceCloneUrl.trim() || undefined,
+        data_url: dataUrl || undefined,
+        scope: projectSessionController.canonicalScope || "personal",
+        text: audioVoiceCloneSampleText.trim() || undefined,
+      });
+      if (!created.voice_id) {
+        throw new Error("未获取到复刻后的音色 ID");
+      }
+      const voiceOption = {
+        value: created.voice_id,
+        label: `复刻音色 · ${created.voice_id}`,
+      };
+      setClonedAudioVoices(prev => [
+        voiceOption,
+        ...prev.filter(item => item.value !== created.voice_id),
+      ]);
+      updateNode(targetNode.id, {
+        metadata: {
+          ...(targetNode.metadata || {}),
+          ...(created.model ? { model: created.model } : {}),
+          audioVoice: created.voice_id,
+        },
+      });
+      setAudioVoiceCloneNodeId("");
+      toast.success(`角色音色已复刻：${created.voice_id}`);
+    } catch (error) {
+      setAudioVoiceCloneError(publicApiError(error, "声音克隆失败"));
+    } finally {
+      setAudioVoiceCloneBusy(false);
     }
   };
 
@@ -6888,6 +7392,8 @@ export default function CanvasWorkspaceViewContent() {
     downloadNodeMedia,
     setBatchPrimaryNode,
     captureVideoFrameNode,
+    openVideoUpscaleDialog,
+    openAudioVoiceCloneDialog,
     updateNodeTextContent,
     updateNodePrompt,
     mentionReferencesForNode,
@@ -6927,1049 +7433,1119 @@ export default function CanvasWorkspaceViewContent() {
         references: mentionReferencesForNode,
       }}
     >
-      <div className="canvas-page real-canvas-page">
-        <Dialog
-          open={Boolean(registrationTarget)}
-          onOpenChange={open => {
-            if (!open) setRegistrationTarget(null);
-          }}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>
-                {registrationTarget?.nodeIds
-                  ? "批量注册拟真人素材"
-                  : "注册拟真人素材"}
-              </DialogTitle>
-              <DialogDescription>
-                {registrationTarget?.nodeIds
-                  ? `将批量注册 ${registrationTarget.nodeIds.length} 张图片${registrationTarget.skippedCount ? `，跳过 ${registrationTarget.skippedCount} 个非图片或空节点` : ""}。已注册或正在注册的图片会自动跳过，失败图片可重试。`
-                  : "选择这张图片将要使用的视频模型。"}
-                提交后会自动关闭此窗口并在后台注册，完成后通知你；注册成功后请使用同一服务商生成视频。
-              </DialogDescription>
-            </DialogHeader>
-            <label className="grid gap-2 text-sm">
-              <span>目标视频模型</span>
-              <select
-                aria-label="目标视频模型"
-                className="h-10 rounded-md border border-input bg-background px-3"
-                value={registrationTarget?.model || ""}
-                onChange={event => {
-                  setRegistrationTarget(current =>
-                    current ? { ...current, model: event.target.value } : null
-                  );
-                }}
-              >
-                {!videoModels.some(isSeedanceVideoModel) && (
-                  <option value="">暂无支持素材注册的视频模型</option>
-                )}
-                {/* [画布别名] */}
-                {videoModels.filter(isSeedanceVideoModel).map(model => (
-                  <option key={model} value={model}>
-                    {canvasModelName(model, textModelLabels, modelNicknames)}
-                    {model.startsWith("sdvideo/")
-                      ? " · SD-video"
-                      : " · 独立 Provider"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <DialogFooter>
-              <button
-                className="outline-button small"
-                onClick={() => setRegistrationTarget(null)}
-              >
-                取消
-              </button>
-              <button
-                className="vermilion-button"
-                disabled={!registrationTarget?.model}
-                onClick={() => void submitImageRegistration()}
-              >
-                {registrationTarget?.nodeIds
-                  ? "开始批量注册"
-                  : "后台注册 / 更新状态"}
-              </button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        {/* 步骤2：聊天台跳转过来的加载覆盖层 —— 从首屏接管覆盖，直到项目快照加载完成（步骤3-5就绪后撤下） */}
-        {bootstrapActive && (
-          <div
-            className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-4"
-            style={{
-              background: "rgba(10, 12, 13, 0.9)",
-              backdropFilter: "blur(18px)",
-              WebkitBackdropFilter: "blur(18px)",
+      <CanvasUpscaleAvailabilityContext.Provider value={upscaleAvailability}>
+        <div className="canvas-page real-canvas-page">
+          <Dialog
+            open={Boolean(registrationTarget)}
+            onOpenChange={open => {
+              if (!open) setRegistrationTarget(null);
             }}
           >
-            <Loader2
-              className="spin"
-              size={40}
-              style={{ color: "var(--primary)" }}
-            />
-            <p
-              className="text-sm font-medium"
-              style={{ color: "var(--foreground)" }}
-            >
-              正在打开画布…
-            </p>
-            <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-              正在同步画布内容与创作指令
-            </p>
-          </div>
-        )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={`image/*,video/*,audio/*,${CANVAS_TEXT_FILE_ACCEPT}`}
-          multiple
-          hidden
-          disabled={projectActionDisabled}
-          onChange={event =>
-            event.target.files && void uploadFilesAsNodes(event.target.files)
-          }
-        />
-        <input
-          ref={replaceImageInputRef}
-          type="file"
-          accept="image/*"
-          hidden
-          disabled={projectActionDisabled}
-          onChange={event => void replaceCanvasImage(event.target.files?.[0])}
-        />
-        <input
-          ref={replaceMediaInputRef}
-          type="file"
-          accept="video/*,audio/*"
-          hidden
-          disabled={projectActionDisabled}
-          onChange={event => {
-            const file = event.target.files?.[0];
-            const kind = file?.type.startsWith("video/")
-              ? ("video" as const)
-              : ("audio" as const);
-            void uploadMediaToNode(replaceMediaNodeIdRef.current, file, kind);
-          }}
-        />
-        <input
-          ref={fragmentInputRef}
-          type="file"
-          accept="application/zip,.zip"
-          hidden
-          disabled={projectActionDisabled || fragmentBusy}
-          onChange={event => void importCanvasFragment(event.target.files?.[0])}
-        />
-        <input
-          ref={projectArchiveInputRef}
-          type="file"
-          accept="application/zip,.zip"
-          hidden
-          disabled={projectActionDisabled || projectArchiveBusy}
-          onChange={event =>
-            void importCanvasProjectArchive(event.target.files?.[0])
-          }
-        />
-        {createProjectDialog}
-        <div className="canvas-heading">
-          <div className="page-intro">
-            <div className="canvas-switcher-container">
-              {projectTitleEditing ? (
-                <input
-                  className="canvas-switcher-title-input"
-                  autoFocus
-                  value={projectTitleDraft}
-                  disabled={projectTitleSaving}
-                  aria-label="画布名称"
-                  onChange={event => setProjectTitleDraft(event.target.value)}
-                  onKeyDown={event => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void commitTitleEdit();
-                    }
-                    if (event.key === "Escape") setProjectTitleEditing(false);
-                  }}
-                  onBlur={() => void commitTitleEdit()}
-                />
-              ) : (
-                <Popover
-                  active={!projectActionDisabled}
-                  open={canvasSwitcherOpen}
-                  onOpenChange={open => {
-                    setCanvasSwitcherOpen(open);
-                    if (open) {
-                      setCanvasSwitcherQuery("");
-                      void refreshProjectList({ cancelRefetch: false });
-                    }
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>
+                  {registrationTarget?.nodeIds
+                    ? "批量注册拟真人素材"
+                    : "注册拟真人素材"}
+                </DialogTitle>
+                <DialogDescription>
+                  {registrationTarget?.nodeIds
+                    ? `将批量注册 ${registrationTarget.nodeIds.length} 张图片${registrationTarget.skippedCount ? `，跳过 ${registrationTarget.skippedCount} 个非图片或空节点` : ""}。已注册或正在注册的图片会自动跳过，失败图片可重试。`
+                    : "选择这张图片将要使用的视频模型。"}
+                  提交后会自动关闭此窗口并在后台注册，完成后通知你；注册成功后请使用同一服务商生成视频。
+                </DialogDescription>
+              </DialogHeader>
+              <label className="grid gap-2 text-sm">
+                <span>目标视频模型</span>
+                <select
+                  aria-label="目标视频模型"
+                  className="h-10 rounded-md border border-input bg-background px-3"
+                  value={registrationTarget?.model || ""}
+                  onChange={event => {
+                    setRegistrationTarget(current =>
+                      current ? { ...current, model: event.target.value } : null
+                    );
                   }}
                 >
-                  <PopoverTrigger asChild>
-                    <button
-                      className="canvas-switcher-trigger"
-                      disabled={projectActionDisabled}
-                      title="单击切换画布 · 双击重命名"
-                      onDoubleClick={event => {
+                  {!videoModels.some(isSeedanceVideoModel) && (
+                    <option value="">暂无支持素材注册的视频模型</option>
+                  )}
+                  {/* [画布别名] */}
+                  {videoModels.filter(isSeedanceVideoModel).map(model => (
+                    <option key={model} value={model}>
+                      {canvasModelName(model, textModelLabels, modelNicknames)}
+                      {model.startsWith("sdvideo/")
+                        ? " · SD-video"
+                        : " · 独立 Provider"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <DialogFooter>
+                <button
+                  className="outline-button small"
+                  onClick={() => setRegistrationTarget(null)}
+                >
+                  取消
+                </button>
+                <button
+                  className="vermilion-button"
+                  disabled={!registrationTarget?.model}
+                  onClick={() => void submitImageRegistration()}
+                >
+                  {registrationTarget?.nodeIds
+                    ? "开始批量注册"
+                    : "后台注册 / 更新状态"}
+                </button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          {/* 步骤2：聊天台跳转过来的加载覆盖层 —— 从首屏接管覆盖，直到项目快照加载完成（步骤3-5就绪后撤下） */}
+          {bootstrapActive && (
+            <div
+              className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-4"
+              style={{
+                background: "rgba(10, 12, 13, 0.9)",
+                backdropFilter: "blur(18px)",
+                WebkitBackdropFilter: "blur(18px)",
+              }}
+            >
+              <Loader2
+                className="spin"
+                size={40}
+                style={{ color: "var(--primary)" }}
+              />
+              <p
+                className="text-sm font-medium"
+                style={{ color: "var(--foreground)" }}
+              >
+                正在打开画布…
+              </p>
+              <p
+                className="text-xs"
+                style={{ color: "var(--muted-foreground)" }}
+              >
+                正在同步画布内容与创作指令
+              </p>
+            </div>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={`image/*,video/*,audio/*,${CANVAS_TEXT_FILE_ACCEPT}`}
+            multiple
+            hidden
+            disabled={projectActionDisabled}
+            onChange={event =>
+              event.target.files && void uploadFilesAsNodes(event.target.files)
+            }
+          />
+          <input
+            ref={replaceImageInputRef}
+            type="file"
+            accept="image/*"
+            hidden
+            disabled={projectActionDisabled}
+            onChange={event => void replaceCanvasImage(event.target.files?.[0])}
+          />
+          <input
+            ref={replaceMediaInputRef}
+            type="file"
+            accept="video/*,audio/*"
+            hidden
+            disabled={projectActionDisabled}
+            onChange={event => {
+              const file = event.target.files?.[0];
+              const kind = file?.type.startsWith("video/")
+                ? ("video" as const)
+                : ("audio" as const);
+              void uploadMediaToNode(replaceMediaNodeIdRef.current, file, kind);
+            }}
+          />
+          <input
+            ref={fragmentInputRef}
+            type="file"
+            accept="application/zip,.zip"
+            hidden
+            disabled={projectActionDisabled || fragmentBusy}
+            onChange={event =>
+              void importCanvasFragment(event.target.files?.[0])
+            }
+          />
+          <input
+            ref={projectArchiveInputRef}
+            type="file"
+            accept="application/zip,.zip"
+            hidden
+            disabled={projectActionDisabled || projectArchiveBusy}
+            onChange={event =>
+              void importCanvasProjectArchive(event.target.files?.[0])
+            }
+          />
+          {createProjectDialog}
+          <div className="canvas-heading">
+            <div className="page-intro">
+              <div className="canvas-switcher-container">
+                {projectTitleEditing ? (
+                  <input
+                    className="canvas-switcher-title-input"
+                    autoFocus
+                    value={projectTitleDraft}
+                    disabled={projectTitleSaving}
+                    aria-label="画布名称"
+                    onChange={event => setProjectTitleDraft(event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === "Enter") {
                         event.preventDefault();
-                        beginTitleEdit();
-                      }}
-                    >
-                      <span className="canvas-switcher-title">
-                        {projectTitle || "无限画布"}
-                      </span>
-                      <ChevronDown
-                        size={16}
-                        className={canvasSwitcherOpen ? "rotated" : ""}
-                      />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    className="canvas-switcher-popover"
-                    align="start"
-                    sideOffset={8}
+                        void commitTitleEdit();
+                      }
+                      if (event.key === "Escape") setProjectTitleEditing(false);
+                    }}
+                    onBlur={() => void commitTitleEdit()}
+                  />
+                ) : (
+                  <Popover
+                    active={!projectActionDisabled}
+                    open={canvasSwitcherOpen}
+                    onOpenChange={open => {
+                      setCanvasSwitcherOpen(open);
+                      if (open) {
+                        setCanvasSwitcherQuery("");
+                        void refreshProjectList({ cancelRefetch: false });
+                      }
+                    }}
                   >
-                    <div className="canvas-switcher-search">
-                      <Search size={14} />
-                      <input
-                        value={canvasSwitcherQuery}
-                        onChange={event =>
-                          setCanvasSwitcherQuery(event.target.value)
-                        }
-                        placeholder="搜索画布…"
-                      />
-                    </div>
-                    {projectListNotice && (
-                      <div className="canvas-project-list-error" role="status">
-                        <span>
-                          {projectListNotice}
-                          {projectListError && hasCachedProjectList
-                            ? "已保留上次加载的画布。"
-                            : ""}
+                    <PopoverTrigger asChild>
+                      <button
+                        className="canvas-switcher-trigger"
+                        disabled={projectActionDisabled}
+                        title="单击切换画布 · 双击重命名"
+                        onDoubleClick={event => {
+                          event.preventDefault();
+                          beginTitleEdit();
+                        }}
+                      >
+                        <span className="canvas-switcher-title">
+                          {projectTitle || "无限画布"}
                         </span>
+                        <ChevronDown
+                          size={16}
+                          className={canvasSwitcherOpen ? "rotated" : ""}
+                        />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      className="canvas-switcher-popover"
+                      align="start"
+                      sideOffset={8}
+                    >
+                      <div className="canvas-switcher-search">
+                        <Search size={14} />
+                        <input
+                          value={canvasSwitcherQuery}
+                          onChange={event =>
+                            setCanvasSwitcherQuery(event.target.value)
+                          }
+                          placeholder="搜索画布…"
+                        />
+                      </div>
+                      {projectListNotice && (
+                        <div
+                          className="canvas-project-list-error"
+                          role="status"
+                        >
+                          <span>
+                            {projectListNotice}
+                            {projectListError && hasCachedProjectList
+                              ? "已保留上次加载的画布。"
+                              : ""}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void refreshProjectList()}
+                            disabled={projectListRefreshing}
+                          >
+                            {projectListRefreshing ? "正在重试…" : "重试"}
+                          </button>
+                        </div>
+                      )}
+                      <div className="canvas-switcher-list">
+                        {filteredProjects.map(project => (
+                          <button
+                            key={project.id}
+                            className={`canvas-switcher-item ${project.id === projectId ? "active" : ""}`}
+                            onClick={() => {
+                              setCanvasSwitcherOpen(false);
+                              setCanvasSwitcherQuery("");
+                              void switchCanvasProject(project.id);
+                            }}
+                            disabled={projectActionDisabled}
+                          >
+                            <div className="canvas-switcher-item-avatar">
+                              <Palette size={14} />
+                            </div>
+                            <span className="canvas-switcher-item-title">
+                              {project.title}
+                            </span>
+                            {project.id === projectId ? (
+                              <Check size={14} />
+                            ) : null}
+                          </button>
+                        ))}
+                        {!filteredProjects.length && !projectListNotice ? (
+                          <div className="canvas-switcher-empty">
+                            <p>
+                              {projectListLoading
+                                ? "正在加载画布…"
+                                : canvasSwitcherQuery.trim()
+                                  ? "无匹配画布"
+                                  : "当前空间还没有画布"}
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="canvas-switcher-footer">
                         <button
-                          type="button"
+                          className="canvas-switcher-new"
                           onClick={() => void refreshProjectList()}
                           disabled={projectListRefreshing}
                         >
-                          {projectListRefreshing ? "正在重试…" : "重试"}
+                          <RefreshCw
+                            size={14}
+                            className={
+                              projectListRefreshing ? "animate-spin" : undefined
+                            }
+                          />
+                          {projectListRefreshing ? "正在刷新" : "刷新列表"}
                         </button>
-                      </div>
-                    )}
-                    <div className="canvas-switcher-list">
-                      {filteredProjects.map(project => (
                         <button
-                          key={project.id}
-                          className={`canvas-switcher-item ${project.id === projectId ? "active" : ""}`}
+                          className="canvas-switcher-new"
                           onClick={() => {
                             setCanvasSwitcherOpen(false);
-                            setCanvasSwitcherQuery("");
-                            void switchCanvasProject(project.id);
+                            openCreateProjectDialog();
                           }}
                           disabled={projectActionDisabled}
                         >
-                          <div className="canvas-switcher-item-avatar">
-                            <Palette size={14} />
-                          </div>
-                          <span className="canvas-switcher-item-title">
-                            {project.title}
-                          </span>
-                          {project.id === projectId ? (
-                            <Check size={14} />
-                          ) : null}
+                          <Plus size={14} />
+                          新建画布
                         </button>
-                      ))}
-                      {!filteredProjects.length && !projectListNotice ? (
-                        <div className="canvas-switcher-empty">
-                          <p>
-                            {projectListLoading
-                              ? "正在加载画布…"
-                              : canvasSwitcherQuery.trim()
-                                ? "无匹配画布"
-                                : "当前空间还没有画布"}
-                          </p>
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="canvas-switcher-footer">
-                      <button
-                        className="canvas-switcher-new"
-                        onClick={() => void refreshProjectList()}
-                        disabled={projectListRefreshing}
-                      >
-                        <RefreshCw
-                          size={14}
-                          className={
-                            projectListRefreshing ? "animate-spin" : undefined
-                          }
-                        />
-                        {projectListRefreshing ? "正在刷新" : "刷新列表"}
-                      </button>
-                      <button
-                        className="canvas-switcher-new"
-                        onClick={() => {
-                          setCanvasSwitcherOpen(false);
-                          openCreateProjectDialog();
-                        }}
-                        disabled={projectActionDisabled}
-                      >
-                        <Plus size={14} />
-                        新建画布
-                      </button>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              )}
-              <p className="canvas-switcher-desc">
-                节点、连线和生成结果都会保存到{" "}
-                {currentProjectDisplayScope === "team" ? "团队" : "个人"}{" "}
-                工作区服务端快照。
-              </p>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                )}
+                <p className="canvas-switcher-desc">
+                  节点、连线和生成结果都会保存到{" "}
+                  {currentProjectDisplayScope === "team" ? "团队" : "个人"}{" "}
+                  工作区服务端快照。
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="canvas-head-actions">
-            <CreditBalance />
-            <button
-              className="outline-button small canvas-home-button"
-              onClick={() => navigate("/dashboard")}
-              title="返回首页"
-              aria-label="返回首页"
-            >
-              <Home size={15} /> 首页
-            </button>
-            {/* 空间切换是"离开当前画布"的导航出口：项目加载中/未确认时直接回列表页，不参与保存门禁，避免按钮卡死 */}
-            {/* "团队空间"已全局暂时隐藏：team 入口在 scopeOptions 数组定义处注释掉了，恢复见该处 */}
-            <div className="scope-switch mini-scope">
-              {scopeOptions.map(item => (
-                <button
-                  key={item.value}
-                  className={
-                    currentProjectDisplayScope === item.value ? "active" : ""
-                  }
-                  onClick={() => {
-                    if (loading || projectScopePending) {
-                      navigate(canvasListHref(item.value));
-                      return;
+            <div className="canvas-head-actions">
+              <CreditBalance />
+              <button
+                className="outline-button small canvas-home-button"
+                onClick={() => navigate("/dashboard")}
+                title="返回首页"
+                aria-label="返回首页"
+              >
+                <Home size={15} /> 首页
+              </button>
+              {/* 空间切换是"离开当前画布"的导航出口：项目加载中/未确认时直接回列表页，不参与保存门禁，避免按钮卡死 */}
+              {/* "团队空间"已全局暂时隐藏：team 入口在 scopeOptions 数组定义处注释掉了，恢复见该处 */}
+              <div className="scope-switch mini-scope">
+                {scopeOptions.map(item => (
+                  <button
+                    key={item.value}
+                    className={
+                      currentProjectDisplayScope === item.value ? "active" : ""
                     }
-                    void switchCanvasScope(item.value);
-                  }}
-                  disabled={switching}
-                  title={
-                    loading || projectScopePending
-                      ? "返回该工作区的画布列表"
+                    onClick={() => {
+                      if (loading || projectScopePending) {
+                        navigate(canvasListHref(item.value));
+                        return;
+                      }
+                      void switchCanvasScope(item.value);
+                    }}
+                    disabled={switching}
+                    title={
+                      loading || projectScopePending
+                        ? "返回该工作区的画布列表"
+                        : undefined
+                    }
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="outline-button small canvas-icon-button canvas-history-button"
+                title={canUndo ? "撤销上一步画布操作" : "暂无可撤销的画布操作"}
+                aria-label="撤销"
+                onClick={() => void undoCanvas()}
+                disabled={!canUndo || projectActionDisabled}
+              >
+                <Undo2 size={15} />
+              </button>
+              <button
+                className="outline-button small canvas-icon-button canvas-history-button"
+                title={canRedo ? "重做下一步画布操作" : "暂无可重做的画布操作"}
+                aria-label="重做"
+                onClick={() => void redoCanvas()}
+                disabled={!canRedo || projectActionDisabled}
+              >
+                <Redo2 size={15} />
+              </button>
+              <button
+                className="outline-button small"
+                onClick={() => void persistSnapshot()}
+                disabled={
+                  saving ||
+                  syncStatus === "saving" ||
+                  projectActionDisabled ||
+                  !snapshotWriteReady
+                }
+                title={
+                  projectScopePending
+                    ? "正在确认项目工作区，保存已暂停以避免写入错误空间"
+                    : !snapshotWriteReady
+                      ? "未取得完整原始快照，保存已暂停以保护现有画布数据"
                       : undefined
-                  }
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <button
-              className="outline-button small canvas-icon-button canvas-history-button"
-              title={canUndo ? "撤销上一步画布操作" : "暂无可撤销的画布操作"}
-              aria-label="撤销"
-              onClick={() => void undoCanvas()}
-              disabled={!canUndo || projectActionDisabled}
-            >
-              <Undo2 size={15} />
-            </button>
-            <button
-              className="outline-button small canvas-icon-button canvas-history-button"
-              title={canRedo ? "重做下一步画布操作" : "暂无可重做的画布操作"}
-              aria-label="重做"
-              onClick={() => void redoCanvas()}
-              disabled={!canRedo || projectActionDisabled}
-            >
-              <Redo2 size={15} />
-            </button>
-            <button
-              className="outline-button small"
-              onClick={() => void persistSnapshot()}
-              disabled={
-                saving ||
-                syncStatus === "saving" ||
-                projectActionDisabled ||
-                !snapshotWriteReady
-              }
-              title={
-                projectScopePending
-                  ? "正在确认项目工作区，保存已暂停以避免写入错误空间"
-                  : !snapshotWriteReady
-                    ? "未取得完整原始快照，保存已暂停以保护现有画布数据"
-                    : undefined
-              }
-            >
-              <Save size={15} />{" "}
-              {projectScopePending
-                ? "确认工作区"
-                : switching
-                  ? "切换中"
-                  : saving || syncStatus === "saving"
-                    ? "保存中"
-                    : snapshotWriteReady
-                      ? "保存"
-                      : "保存已暂停"}
-            </button>
-            {/* 暂时隐藏：顶部工具栏的"检查器"切换按钮（选中节点时检查器仍会自动打开）。
+                }
+              >
+                <Save size={15} />{" "}
+                {projectScopePending
+                  ? "确认工作区"
+                  : switching
+                    ? "切换中"
+                    : saving || syncStatus === "saving"
+                      ? "保存中"
+                      : snapshotWriteReady
+                        ? "保存"
+                        : "保存已暂停"}
+              </button>
+              {/* 暂时隐藏：顶部工具栏的"检查器"切换按钮（选中节点时检查器仍会自动打开）。
               恢复时取消下方注释，并在顶部 lucide-react 导入中恢复 PanelRight
           <button className={`outline-button small inspector-trigger ${inspectorOpen ? "is-active" : ""}`} onClick={() => setInspectorOpen((value) => !value)} disabled={projectActionDisabled}><PanelRight size={15} /> 检查器</button>
           */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className="outline-button small canvas-icon-button canvas-more-trigger"
-                  title="更多操作"
-                  aria-label="更多操作"
-                  disabled={projectActionDisabled}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="outline-button small canvas-icon-button canvas-more-trigger"
+                    title="更多操作"
+                    aria-label="更多操作"
+                    disabled={projectActionDisabled}
+                  >
+                    <MoreHorizontal size={16} />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  className="canvas-more-menu"
+                  align="end"
+                  sideOffset={8}
                 >
-                  <MoreHorizontal size={16} />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                className="canvas-more-menu"
-                align="end"
-                sideOffset={8}
-              >
-                <DropdownMenuItem
-                  disabled={!selectedNode || projectActionDisabled}
-                  onSelect={() => void duplicateSelectedNode()}
-                >
-                  <Copy size={14} /> 复制节点
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={exporting || projectActionDisabled}
-                  onSelect={() => void exportImageNodes()}
-                >
-                  <Archive size={14} /> 导出图片节点
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={projectArchiveBusy || projectActionDisabled}
-                  onSelect={() => void exportCurrentCanvasProject()}
-                >
-                  <Download size={14} /> 导出完整项目
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={projectArchiveBusy || projectActionDisabled}
-                  onSelect={() => projectArchiveInputRef.current?.click()}
-                >
-                  <Upload size={14} /> 导入完整项目
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={
-                    !selectedNodeIds.size ||
-                    fragmentBusy ||
-                    projectActionDisabled
-                  }
-                  onSelect={() => void exportSelectedCanvasFragment()}
-                >
-                  <Download size={14} /> 导出选区包
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={fragmentBusy || projectActionDisabled}
-                  onSelect={() => fragmentInputRef.current?.click()}
-                >
-                  <Upload size={14} /> 导入选区包
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="canvas-more-danger"
-                  disabled={projectActionDisabled}
-                  onSelect={() => {
-                    setDeleteProjectError("");
-                    setDeleteProjectOpen(true);
-                  }}
-                >
-                  <Trash2 size={14} /> 删除画布
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="canvas-more-danger"
-                  disabled={
-                    projectActionDisabled ||
-                    clearCanvasBusy ||
-                    (!nodes.length && !edges.length && !groups.length)
-                  }
-                  onSelect={() => {
-                    setClearCanvasError("");
-                    setClearCanvasOpen(true);
-                  }}
-                >
-                  <Eraser size={14} /> 清空画布
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  <DropdownMenuItem
+                    disabled={!selectedNode || projectActionDisabled}
+                    onSelect={() => void duplicateSelectedNode()}
+                  >
+                    <Copy size={14} /> 复制节点
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={exporting || projectActionDisabled}
+                    onSelect={() => void exportImageNodes()}
+                  >
+                    <Archive size={14} /> 导出图片节点
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={projectArchiveBusy || projectActionDisabled}
+                    onSelect={() => void exportCurrentCanvasProject()}
+                  >
+                    <Download size={14} /> 导出完整项目
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={projectArchiveBusy || projectActionDisabled}
+                    onSelect={() => projectArchiveInputRef.current?.click()}
+                  >
+                    <Upload size={14} /> 导入完整项目
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={
+                      !selectedNodeIds.size ||
+                      fragmentBusy ||
+                      projectActionDisabled
+                    }
+                    onSelect={() => void exportSelectedCanvasFragment()}
+                  >
+                    <Download size={14} /> 导出选区包
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={fragmentBusy || projectActionDisabled}
+                    onSelect={() => fragmentInputRef.current?.click()}
+                  >
+                    <Upload size={14} /> 导入选区包
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="canvas-more-danger"
+                    disabled={projectActionDisabled}
+                    onSelect={() => {
+                      setDeleteProjectError("");
+                      setDeleteProjectOpen(true);
+                    }}
+                  >
+                    <Trash2 size={14} /> 删除画布
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="canvas-more-danger"
+                    disabled={
+                      projectActionDisabled ||
+                      clearCanvasBusy ||
+                      (!nodes.length && !edges.length && !groups.length)
+                    }
+                    onSelect={() => {
+                      setClearCanvasError("");
+                      setClearCanvasOpen(true);
+                    }}
+                  >
+                    <Eraser size={14} /> 清空画布
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
-        </div>
 
-        <div
-          className={`canvas-workspace real-canvas-workspace ${inspectorOpen && !projectActionDisabled ? "inspector-open" : ""} ${agentOpen && !projectActionDisabled ? "agent-open" : ""} ${connectFrom ? "connecting" : ""}`}
-        >
-          <CanvasStage
-            stageRef={stageRef}
-            gridRef={gridRef}
-            backgroundMode={backgroundMode}
-            zoom={zoom}
-            panX={panX}
-            panY={panY}
-            projectActionDisabled={projectActionDisabled}
-            pinnedMarkers={pinnedMarkers}
-            onFocusPinnedNode={nodeIds => {
-              if (!nodeIds.length) return;
-              applyNodeSelection(nodeIds, nodeIds[0], false);
-              panNodesIntoViewport(nodeIds);
-            }}
-            topToolbar={{
-              disabled: projectActionDisabled,
-              connecting: Boolean(connectFrom),
-              selectedNodeId: selectedNode?.id,
-              canUndo,
-              canRedo,
-              uploading,
-              selectedNodeCount: selectedNodeIds.size,
-              selectedGroupId,
-              selectedGroupRunning: runningGroupId === selectedGroupId,
-              groupRunning: Boolean(runningGroupId),
-              fragmentBusy,
-              agentOpen,
-              onActivateConnection: activateConnectionMode,
-              onUndo: () => void undoCanvas(),
-              onRedo: () => void redoCanvas(),
-              onAddNode: addNode,
-              onUpload: () => fileInputRef.current?.click(),
-              onOpenAssets: openAssetPicker,
-              onCreateGroup: createGroupFromSelected,
-              onConnectSelection: () => setConnectSelectionOpen(true),
-              onRunGroup: groupId => void runCanvasGroupGeneration(groupId),
-              onUngroup: ungroupCanvasGroup,
-              onExportSelection: () => void exportSelectedCanvasFragment(),
-              onRemoveSelection: () => removeNodes(selectedNodeIdsRef.current),
-              onOpenSeedanceAssets: setSeedanceAssetNodeId,
-              onToggleAgent: () => setAgentOpen(value => !value),
-            }}
-            bottomToolbar={{
-              disabled: projectActionDisabled,
-              saving,
-              syncSaving: syncStatus === "saving",
-              snapshotWriteReady,
-              zoom,
-              minimapOpen,
-              backgroundMode,
-              onPersist: () => void persistSnapshot(),
-              onZoomOut: () =>
-                zoomCanvasAroundCenter(viewportRef.current.zoom - 10),
-              onZoomIn: () =>
-                zoomCanvasAroundCenter(viewportRef.current.zoom + 10),
-              onToggleMinimap: () => setMinimapOpen(open => !open),
-              onFit: fitCanvasToContent,
-              onSetBackground: setBackgroundMode,
-              onOpenGenerationHistory: () => setGenerationHistoryOpen(true),
-              generationHistoryOpen,
-            }}
-            canvasInteractionBlocked={canvasInteractionBlocked}
-            switching={switching}
-            projectScopePending={projectScopePending}
-            groups={groups}
-            selectedGroupId={selectedGroupId}
-            selectionBoxStyle={selectionBoxStyle}
-            alignmentGuides={alignmentGuides}
-            connectionLayerBounds={connectionLayerBounds}
-            connectFrom={connectFrom}
-            connectHandleType={connectHandleType}
-            edges={edges}
-            nodes={nodes}
-            nodeMap={nodeMap}
-            selectedEdgeId={selectedEdgeId}
-            hoveredEdgeId={hoveredEdgeId}
-            connectionPreviewPath={connectionPreviewPath}
-            renderedNodes={renderedNodes}
-            nodeCardProps={node => ({
-              seedanceRegistrationState:
-                seedanceRegistrationStates[
-                  seedanceRegistrationKey(
-                    projectSessionController.canonicalKey,
-                    node
-                  )
-                ],
-              node,
-              mentionLibrary:
-                editingInlineNodeId === node.id ? mentionLibrary : undefined,
-              previews,
-              isSelected: selectedNodeIds.has(node.id),
-              // Groups also retain a primary node; only a single-node selection owns its toolbar.
-              isSelectedSingle:
-                !selectedGroupId &&
-                selectedNodeIds.size === 1 &&
-                selectedId === node.id,
-              isHovered: hoveredId === node.id,
-              isConnectionTarget: connectionTargetId === node.id,
-              isGrouped: groups.some(group => group.nodeIds.includes(node.id)),
-              isConnecting: Boolean(connectFrom),
-              connectActiveTarget:
-                connectFrom === node.id && connectHandleType === "target",
-              connectActiveSource:
-                connectFrom === node.id && connectHandleType === "source",
-              isTitleEditing: titleEditingNodeId === node.id,
-              titleDraft: titleEditingNodeId === node.id ? titleDraft : "",
-              isInlineEditing: editingInlineNodeId === node.id,
-              isRunning: runningNodeIds.has(node.id),
-              progress: jobProgressByNode[node.id] || 0,
-              captureBusy: Boolean(captureFrameNodeId),
-              isCapturingFrame: captureFrameNodeId === node.id,
-              imageToolBusy,
-              storyboardBusy,
-              actions: nodeCardActions,
-            })}
-            agentOpen={agentOpen}
-            minimapOpen={minimapOpen}
-            minimapModel={minimapModel}
-            selectedNodeIds={selectedNodeIds}
-            batchDownloadBusy={batchDownloadBusy}
-            contextMenu={contextMenu}
-            contextMenuFlipX={contextMenuFlipX}
-            contextMenuStyle={contextMenuStyle}
-            contextMenuNode={contextMenuNode}
-            previews={previews}
-            captureFrameNodeId={captureFrameNodeId}
-            pendingConnectionCreate={pendingConnectionCreate}
-            pendingConnectionMenuStyle={pendingConnectionMenuStyle}
-            actions={{
-              handleStagePointerDown,
-              openCanvasContextMenu,
-              handleCanvasDoubleClick,
-              dropOnCanvas,
-              selectCanvasGroup,
-              startGroupDrag,
-              moveGroupDrag,
-              endGroupDrag,
-              startGroupResize,
-              moveGroupResize,
-              endGroupResize,
-              handleCanvasLinesPointerDown,
-              handleCanvasLinesPointerMove,
-              handleCanvasLinesPointerLeave,
-              handleCanvasLinesClick,
-              handleCanvasLinesDoubleClick,
-              handleCanvasLinesContextMenu,
-              handleEdgeClick,
-              removeEdge,
-              setHoveredEdgeId,
-              clientToStagePoint,
-              screenToCanvasPoint,
-              setContextMenu,
-              toggleAgent: () => setAgentOpen(value => !value),
-              navigateFromMinimap,
-              node: nodeCardActions,
-              activateConnectionMode,
-              copySelectedNodes,
-              openConnectSelection: () => setConnectSelectionOpen(true),
-              registerSelectedImagesAsSeedanceAssets,
-              archiveSelectedNodesToLibrary,
-              downloadSelectedNodes,
-              generateFromNode,
-              renderCanvasSubmenu,
-              copyCanvasImagePrompt,
-              addNode,
-              pasteCopiedNodes: () => {
-                void pasteSystemClipboard();
-              },
-              createNodeFromConnectionDraft,
-              cancelPendingConnectionCreate,
-              dismissPendingGroup,
-              confirmPendingGroup,
-              cancelPendingGroup,
-            }}
-          />
-
-          <CanvasInspector
-            seedanceRegistrationState={
-              selectedNode
-                ? seedanceRegistrationStates[
+          <div
+            className={`canvas-workspace real-canvas-workspace ${inspectorOpen && !projectActionDisabled ? "inspector-open" : ""} ${agentOpen && !projectActionDisabled ? "agent-open" : ""} ${connectFrom ? "connecting" : ""}`}
+          >
+            <CanvasStage
+              stageRef={stageRef}
+              gridRef={gridRef}
+              backgroundMode={backgroundMode}
+              zoom={zoom}
+              panX={panX}
+              panY={panY}
+              projectActionDisabled={projectActionDisabled}
+              pinnedMarkers={pinnedMarkers}
+              onFocusPinnedNode={nodeIds => {
+                if (!nodeIds.length) return;
+                applyNodeSelection(nodeIds, nodeIds[0], false);
+                panNodesIntoViewport(nodeIds);
+              }}
+              topToolbar={{
+                disabled: projectActionDisabled,
+                connecting: Boolean(connectFrom),
+                selectedNodeId: selectedNode?.id,
+                canUndo,
+                canRedo,
+                uploading,
+                selectedNodeCount: selectedNodeIds.size,
+                selectedGroupId,
+                selectedGroupRunning: runningGroupId === selectedGroupId,
+                groupRunning: Boolean(runningGroupId),
+                fragmentBusy,
+                agentOpen,
+                onActivateConnection: activateConnectionMode,
+                onUndo: () => void undoCanvas(),
+                onRedo: () => void redoCanvas(),
+                onAddNode: addNode,
+                onUpload: () => fileInputRef.current?.click(),
+                onOpenAssets: openAssetPicker,
+                onCreateGroup: createGroupFromSelected,
+                onConnectSelection: () => setConnectSelectionOpen(true),
+                onRunGroup: groupId => void runCanvasGroupGeneration(groupId),
+                onUngroup: ungroupCanvasGroup,
+                onExportSelection: () => void exportSelectedCanvasFragment(),
+                onRemoveSelection: () =>
+                  removeNodes(selectedNodeIdsRef.current),
+                onOpenSeedanceAssets: setSeedanceAssetNodeId,
+                onToggleAgent: () => setAgentOpen(value => !value),
+              }}
+              bottomToolbar={{
+                disabled: projectActionDisabled,
+                saving,
+                syncSaving: syncStatus === "saving",
+                snapshotWriteReady,
+                zoom,
+                minimapOpen,
+                backgroundMode,
+                onPersist: () => void persistSnapshot(),
+                onZoomOut: () =>
+                  zoomCanvasAroundCenter(viewportRef.current.zoom - 10),
+                onZoomIn: () =>
+                  zoomCanvasAroundCenter(viewportRef.current.zoom + 10),
+                onToggleMinimap: () => setMinimapOpen(open => !open),
+                onFit: fitCanvasToContent,
+                onSetBackground: setBackgroundMode,
+                onOpenGenerationHistory: () => setGenerationHistoryOpen(true),
+                generationHistoryOpen,
+              }}
+              canvasInteractionBlocked={canvasInteractionBlocked}
+              switching={switching}
+              projectScopePending={projectScopePending}
+              groups={groups}
+              selectedGroupId={selectedGroupId}
+              selectionBoxStyle={selectionBoxStyle}
+              alignmentGuides={alignmentGuides}
+              connectionLayerBounds={connectionLayerBounds}
+              connectFrom={connectFrom}
+              connectHandleType={connectHandleType}
+              edges={edges}
+              nodes={nodes}
+              nodeMap={nodeMap}
+              selectedEdgeId={selectedEdgeId}
+              hoveredEdgeId={hoveredEdgeId}
+              connectionPreviewPath={connectionPreviewPath}
+              renderedNodes={renderedNodes}
+              nodeCardProps={node => ({
+                seedanceRegistrationState:
+                  seedanceRegistrationStates[
                     seedanceRegistrationKey(
                       projectSessionController.canonicalKey,
-                      selectedNode
+                      node
                     )
-                  ]
-                : undefined
-            }
-            panelRef={panelRef}
-            selectedNode={selectedNode}
-            selectedGroup={selectedGroup}
-            inspectorOpen={inspectorOpen}
-            projectActionDisabled={projectActionDisabled}
-            selectedPanelStyle={selectedPanelStyle}
-            selectedGroupPanelStyle={selectedGroupPanelStyle}
-            edges={edges}
-            nodes={nodes}
-            previews={previews}
-            visiblePromptPresets={visiblePromptPresets}
-            imageToolBusy={imageToolBusy}
-            storyboardBusy={storyboardBusy}
-            selectedGenerationMode={selectedGenerationMode}
-            selectedGenerationModel={selectedGenerationModel}
-            // [画布别名] 模型选择显示别名
-            selectedGenerationModelLabel={
-              canvasModelName(
-                selectedGenerationModel,
-                textModelLabels,
-                modelNicknames
-              ) || "选择模型"
-            }
-            generationModelOptions={
-              selectedGenerationMode === "text"
-                ? []
-                : selectedGenerationMode === "image"
-                  ? canvasGenerationModelOptions(
-                      modelCatalog?.models || [],
-                      selectedGenerationModel,
-                      modelCatalog?.labels,
-                      modelNicknames
-                    )
-                  : selectedGenerationMode === "video"
-                    ? canvasVideoModelOptions(
-                        videoModels,
+                  ],
+                node,
+                mentionLibrary:
+                  editingInlineNodeId === node.id ? mentionLibrary : undefined,
+                previews,
+                isSelected: selectedNodeIds.has(node.id),
+                // Groups also retain a primary node; only a single-node selection owns its toolbar.
+                isSelectedSingle:
+                  !selectedGroupId &&
+                  selectedNodeIds.size === 1 &&
+                  selectedId === node.id,
+                isHovered: hoveredId === node.id,
+                isConnectionTarget: connectionTargetId === node.id,
+                isGrouped: groups.some(group =>
+                  group.nodeIds.includes(node.id)
+                ),
+                isConnecting: Boolean(connectFrom),
+                connectActiveTarget:
+                  connectFrom === node.id && connectHandleType === "target",
+                connectActiveSource:
+                  connectFrom === node.id && connectHandleType === "source",
+                isTitleEditing: titleEditingNodeId === node.id,
+                titleDraft: titleEditingNodeId === node.id ? titleDraft : "",
+                isInlineEditing: editingInlineNodeId === node.id,
+                isRunning: runningNodeIds.has(node.id),
+                progress: jobProgressByNode[node.id] || 0,
+                captureBusy: Boolean(captureFrameNodeId),
+                isCapturingFrame: captureFrameNodeId === node.id,
+                imageToolBusy,
+                storyboardBusy,
+                actions: nodeCardActions,
+              })}
+              agentOpen={agentOpen}
+              minimapOpen={minimapOpen}
+              minimapModel={minimapModel}
+              selectedNodeIds={selectedNodeIds}
+              batchDownloadBusy={batchDownloadBusy}
+              contextMenu={contextMenu}
+              contextMenuFlipX={contextMenuFlipX}
+              contextMenuStyle={contextMenuStyle}
+              contextMenuNode={contextMenuNode}
+              previews={previews}
+              captureFrameNodeId={captureFrameNodeId}
+              pendingConnectionCreate={pendingConnectionCreate}
+              pendingConnectionMenuStyle={pendingConnectionMenuStyle}
+              actions={{
+                handleStagePointerDown,
+                openCanvasContextMenu,
+                handleCanvasDoubleClick,
+                dropOnCanvas,
+                selectCanvasGroup,
+                startGroupDrag,
+                moveGroupDrag,
+                endGroupDrag,
+                startGroupResize,
+                moveGroupResize,
+                endGroupResize,
+                handleCanvasLinesPointerDown,
+                handleCanvasLinesPointerMove,
+                handleCanvasLinesPointerLeave,
+                handleCanvasLinesClick,
+                handleCanvasLinesDoubleClick,
+                handleCanvasLinesContextMenu,
+                handleEdgeClick,
+                removeEdge,
+                setHoveredEdgeId,
+                clientToStagePoint,
+                screenToCanvasPoint,
+                setContextMenu,
+                toggleAgent: () => setAgentOpen(value => !value),
+                navigateFromMinimap,
+                node: nodeCardActions,
+                activateConnectionMode,
+                copySelectedNodes,
+                openConnectSelection: () => setConnectSelectionOpen(true),
+                registerSelectedImagesAsSeedanceAssets,
+                archiveSelectedNodesToLibrary,
+                downloadSelectedNodes,
+                generateFromNode,
+                renderCanvasSubmenu,
+                copyCanvasImagePrompt,
+                addNode,
+                pasteCopiedNodes: () => {
+                  void pasteSystemClipboard();
+                },
+                createNodeFromConnectionDraft,
+                cancelPendingConnectionCreate,
+                dismissPendingGroup,
+                confirmPendingGroup,
+                cancelPendingGroup,
+              }}
+            />
+
+            <CanvasInspector
+              seedanceRegistrationState={
+                selectedNode
+                  ? seedanceRegistrationStates[
+                      seedanceRegistrationKey(
+                        projectSessionController.canonicalKey,
+                        selectedNode
+                      )
+                    ]
+                  : undefined
+              }
+              panelRef={panelRef}
+              selectedNode={selectedNode}
+              selectedGroup={selectedGroup}
+              inspectorOpen={inspectorOpen}
+              projectActionDisabled={projectActionDisabled}
+              selectedPanelStyle={selectedPanelStyle}
+              selectedGroupPanelStyle={selectedGroupPanelStyle}
+              edges={edges}
+              nodes={nodes}
+              previews={previews}
+              visiblePromptPresets={visiblePromptPresets}
+              imageToolBusy={imageToolBusy}
+              storyboardBusy={storyboardBusy}
+              selectedGenerationMode={selectedGenerationMode}
+              selectedGenerationModel={selectedGenerationModel}
+              // [画布别名] 模型选择显示别名
+              selectedGenerationModelLabel={
+                canvasModelName(
+                  selectedGenerationModel,
+                  textModelLabels,
+                  modelNicknames
+                ) || "选择模型"
+              }
+              generationModelOptions={
+                selectedGenerationMode === "text"
+                  ? []
+                  : selectedGenerationMode === "image"
+                    ? canvasGenerationModelOptions(
+                        modelCatalog?.models || [],
                         selectedGenerationModel,
-                        textModelLabels,
-                        modelProviderNames,
+                        modelCatalog?.labels,
                         modelNicknames
                       )
-                    : canvasGenerationModelOptions(
-                        audioModels,
-                        selectedGenerationModel,
-                        textModelLabels,
-                        modelNicknames
-                      )
-            }
-            selectedVideoConfig={selectedVideoConfig || null}
-            selectedVideoSeedance={selectedVideoSeedance}
-            selectedVideoDurations={
-              selectedVideoConfig
-                ? videoModelDurations(selectedVideoConfig.model)
-                : []
-            }
-            selectedVideoResolutions={
-              selectedVideoH3?.resolutions ??
-              (selectedVideoSeedance
-                ? videoModelSettings.seedanceResolutions
-                : videoModelSettings.openAiResolutions)
-            }
-            selectedVideoRatios={
-              selectedVideoH3?.ratios ??
-              (selectedVideoSeedance
-                ? videoModelSettings.seedanceRatios
-                : videoModelSettings.openAiSizes.map(sizeToRatioLabel))
-            }
-            selectedAudioConfig={selectedAudioConfig || null}
-            audioVoiceOptions={audioVoiceOptions}
-            audioFormatOptions={audioFormatOptions}
-            runningGroupId={runningGroupId}
-            runningNodeIds={runningNodeIds}
-            captureFrameNodeId={captureFrameNodeId}
-            styleCategory={styleCategory}
-            promptOptimizing={promptOptimizing}
-            enabledSkills={enabledSkills}
-            actions={{
-              node: nodeCardActions,
-              setInspectorOpen,
-              activateConnectionMode,
-              updateCanvasGroup,
-              runCanvasGroupGeneration,
-              ungroupCanvasGroup,
-              updateNode,
-              commitInspectorNodeTitle,
-              disconnectIncomingSource,
-              generateFromNode,
-              openAssetPicker,
-              selectGenerationModel: value => {
-                if (!selectedNode || selectedGenerationMode === "text") return;
-                // Image choices belong to this node; new nodes keep the catalog default.
-                if (selectedGenerationMode === "video") setVideoModel(value);
-                if (selectedGenerationMode === "audio") setAudioModel(value);
-                updateNode(selectedNode.id, {
-                  metadata: { ...(selectedNode.metadata || {}), model: value },
-                });
-              },
-              setPromptLibraryNodeId,
-              setStyleCategory,
-              setStoryboardEditorNodeId,
-              setPresetManagerOpen,
-              onSkillsOpen: () =>
-                setEnabledSkills(loadSkills().filter(skill => skill.enabled)),
-              optimizeNodePrompt,
-              setSkillLibraryOpen,
-              setSeedanceAssetNodeId,
-              downloadSelectedMedia,
-              startPanelResize,
-            }}
-          />
-          <CanvasWorkspaceDialogHost
-            agent={{
-              userId: user?.id || "",
-              projectId,
-              referenceSelection: agentReferenceSelection,
-              assetScope: projectSessionController.canonicalScope || scope,
-              open: agentOpen && !projectActionDisabled,
-              onClose: () => setAgentOpen(false),
-              snapshot: agentSnapshot,
-              canUndoOps: Boolean(agentUndoSnapshot),
-              onApplyOps: applyAgentOperations,
-              onExecuteWorkspaceTool: executeAgentWorkspaceTool,
-              onUndoOps: undoAgentOperations,
-              initialPrompt,
-            }}
-            skillLibrary={{
-              open: skillLibraryOpen,
-              onOpenChange: setSkillLibraryOpen,
-            }}
-            presetManager={{
-              open: presetManagerOpen,
-              onOpenChange: setPresetManagerOpen,
-              onPresetsChange: setPromptPresets,
-            }}
-            storyboardEditor={{
-              open: Boolean(storyboardEditorNodeId),
-              onOpenChange: open => {
-                if (!open) setStoryboardEditorNodeId("");
-              },
-              title:
-                nodes.find(item => item.id === storyboardEditorNodeId)?.title ||
-                "",
-              scenes: storyboardScenesFromNode(
-                nodes.find(item => item.id === storyboardEditorNodeId)
-              ),
-              onSave: scenes => {
-                const node = nodes.find(
-                  item => item.id === storyboardEditorNodeId
-                );
-                if (node)
-                  updateNode(node.id, {
+                    : selectedGenerationMode === "video"
+                      ? canvasVideoModelOptions(
+                          videoModels,
+                          selectedGenerationModel,
+                          textModelLabels,
+                          modelProviderNames,
+                          modelNicknames
+                        )
+                      : canvasGenerationModelOptions(
+                          audioModels,
+                          selectedGenerationModel,
+                          textModelLabels,
+                          modelNicknames
+                        )
+              }
+              selectedVideoConfig={selectedVideoConfig || null}
+              selectedVideoSeedance={selectedVideoSeedance}
+              selectedVideoDurations={
+                selectedVideoConfig
+                  ? videoModelDurations(selectedVideoConfig.model)
+                  : []
+              }
+              selectedVideoResolutions={
+                selectedVideoH3?.resolutions ??
+                (selectedVideoSeedance
+                  ? videoModelSettings.seedanceResolutions
+                  : videoModelSettings.openAiResolutions)
+              }
+              selectedVideoRatios={
+                selectedVideoH3?.ratios ??
+                (selectedVideoSeedance
+                  ? videoModelSettings.seedanceRatios
+                  : videoModelSettings.openAiSizes.map(sizeToRatioLabel))
+              }
+              selectedAudioConfig={selectedAudioConfig || null}
+              audioVoiceOptions={[...clonedAudioVoices, ...audioVoiceOptions]}
+              audioFormatOptions={audioFormatOptions}
+              runningGroupId={runningGroupId}
+              runningNodeIds={runningNodeIds}
+              captureFrameNodeId={captureFrameNodeId}
+              styleCategory={styleCategory}
+              promptOptimizing={promptOptimizing}
+              enabledSkills={enabledSkills}
+              actions={{
+                node: nodeCardActions,
+                setInspectorOpen,
+                activateConnectionMode,
+                updateCanvasGroup,
+                runCanvasGroupGeneration,
+                ungroupCanvasGroup,
+                updateNode,
+                commitInspectorNodeTitle,
+                disconnectIncomingSource,
+                generateFromNode,
+                openAssetPicker,
+                selectGenerationModel: value => {
+                  if (!selectedNode || selectedGenerationMode === "text")
+                    return;
+                  // Image choices belong to this node; new nodes keep the catalog default.
+                  if (selectedGenerationMode === "video") setVideoModel(value);
+                  if (selectedGenerationMode === "audio") setAudioModel(value);
+                  updateNode(selectedNode.id, {
                     metadata: {
-                      ...(node.metadata || {}),
-                      storyboardScenes: scenes as unknown as Record<
-                        string,
-                        unknown
-                      >[],
+                      ...(selectedNode.metadata || {}),
+                      model: value,
                     },
                   });
-              },
-            }}
-            promptLibrary={{
-              open: Boolean(promptLibraryNodeId),
+                },
+                setPromptLibraryNodeId,
+                setStyleCategory,
+                setStoryboardEditorNodeId,
+                setPresetManagerOpen,
+                onSkillsOpen: () =>
+                  setEnabledSkills(loadSkills().filter(skill => skill.enabled)),
+                optimizeNodePrompt,
+                setSkillLibraryOpen,
+                setSeedanceAssetNodeId,
+                downloadSelectedMedia,
+                startPanelResize,
+              }}
+            />
+            <CanvasWorkspaceDialogHost
+              agent={{
+                userId: user?.id || "",
+                projectId,
+                referenceSelection: agentReferenceSelection,
+                assetScope: projectSessionController.canonicalScope || scope,
+                open: agentOpen && !projectActionDisabled,
+                onClose: () => setAgentOpen(false),
+                snapshot: agentSnapshot,
+                canUndoOps: Boolean(agentUndoSnapshot),
+                onApplyOps: applyAgentOperations,
+                onExecuteWorkspaceTool: executeAgentWorkspaceTool,
+                onUndoOps: undoAgentOperations,
+                initialPrompt,
+              }}
+              skillLibrary={{
+                open: skillLibraryOpen,
+                onOpenChange: setSkillLibraryOpen,
+              }}
+              presetManager={{
+                open: presetManagerOpen,
+                onOpenChange: setPresetManagerOpen,
+                onPresetsChange: setPromptPresets,
+              }}
+              storyboardEditor={{
+                open: Boolean(storyboardEditorNodeId),
+                onOpenChange: open => {
+                  if (!open) setStoryboardEditorNodeId("");
+                },
+                title:
+                  nodes.find(item => item.id === storyboardEditorNodeId)
+                    ?.title || "",
+                scenes: storyboardScenesFromNode(
+                  nodes.find(item => item.id === storyboardEditorNodeId)
+                ),
+                onSave: scenes => {
+                  const node = nodes.find(
+                    item => item.id === storyboardEditorNodeId
+                  );
+                  if (node)
+                    updateNode(node.id, {
+                      metadata: {
+                        ...(node.metadata || {}),
+                        storyboardScenes: scenes as unknown as Record<
+                          string,
+                          unknown
+                        >[],
+                      },
+                    });
+                },
+              }}
+              promptLibrary={{
+                open: Boolean(promptLibraryNodeId),
+                onOpenChange: open => {
+                  if (!open) setPromptLibraryNodeId("");
+                },
+                onSelect: prompt => {
+                  if (promptLibraryNodeId)
+                    updateNodePrompt(promptLibraryNodeId, prompt);
+                },
+              }}
+              seedanceMaterial={{
+                open: Boolean(materialNodeId),
+                selectedAssets:
+                  materialNode?.metadata?.seedanceMaterialAssets || [],
+                onClose: () => setMaterialNodeId(""),
+                onSelect: selectSeedanceMaterial,
+                onRemove: removeSeedanceMaterial,
+              }}
+              seedanceAsset={{
+                open: Boolean(seedanceAssetNodeId),
+                selectedAssets:
+                  seedanceAssetNode?.metadata?.seedanceVolcanoAssets || [],
+                onClose: () => setSeedanceAssetNodeId(""),
+                onSelect: selectSeedanceVolcanoAsset,
+                onRemove: removeSeedanceVolcanoAsset,
+              }}
+            />
+          </div>
+          <CanvasDialogHost
+            assetArchive={{
+              open: Boolean(archiveNode) && !projectActionDisabled,
+              nodeKey: `${canonicalProjectScope}:${projectId}:${archiveNode?.id || ""}`,
+              assetName: archiveNode?.title || "素材",
+              projectTitle,
               onOpenChange: open => {
-                if (!open) setPromptLibraryNodeId("");
+                if (!open)
+                  setArchiveNode(current =>
+                    current === archiveNode ? null : current
+                  );
               },
-              onSelect: prompt => {
-                if (promptLibraryNodeId)
-                  updateNodePrompt(promptLibraryNodeId, prompt);
+              onSave: saveCanvasNodeToLibrary,
+            }}
+            batchAssetArchive={{
+              open: batchArchiveNodeIds.length > 0 && !projectActionDisabled,
+              nodeKey: `${canonicalProjectScope}:${projectId}:batch:${batchArchiveNodeIds.join(",")}`,
+              assetName: `已选 ${batchArchiveNodeIds.length} 个节点`,
+              projectTitle,
+              onOpenChange: open => {
+                if (!open) setBatchArchiveNodeIds([]);
+              },
+              onSave: saveSelectedNodesToLibrary,
+            }}
+            imageTool={{
+              dialog: imageToolDialog,
+              busy: imageToolBusy,
+              error: imageToolError || originalToolImage.error,
+              preview: imageToolPreview,
+              loading: originalToolImage.loading,
+              onRetry: originalToolImage.retry,
+              node: imageToolNode,
+              crop: imageToolCrop,
+              cropStageRef: imageCropStageRef,
+              draft: imageToolDraft,
+              onOpenChange: open => {
+                if (!open && imageToolBusy) return;
+                if (!open) {
+                  setImageToolDialog(null);
+                  setImageToolError("");
+                }
+              },
+              onStartCropPointer: startImageCropPointer,
+              onSelectMode: mode => {
+                if (mode === "ai-upscale" && !upscaleAvailability.image) return;
+                setImageToolDialog(current =>
+                  current ? { ...current, mode } : current
+                );
+              },
+              onDraftChange: setImageToolDraft,
+              onCancel: () => {
+                setImageToolDialog(null);
+                setImageToolError("");
+              },
+              onRun: () => void runCanvasImageTool(),
+            }}
+            videoUpscale={{
+              open: Boolean(videoUpscaleNodeId) && !projectActionDisabled,
+              node: nodes.find(node => node.id === videoUpscaleNodeId),
+              bitRate: videoUpscaleBitRate,
+              busy: videoUpscaleBusy,
+              error: videoUpscaleError,
+              onBitRateChange: setVideoUpscaleBitRate,
+              onOpenChange: open => {
+                if (!open && !videoUpscaleBusy) {
+                  setVideoUpscaleNodeId("");
+                  setVideoUpscaleError("");
+                }
+              },
+              onCancel: () => {
+                if (!videoUpscaleBusy) {
+                  setVideoUpscaleNodeId("");
+                  setVideoUpscaleError("");
+                }
+              },
+              onConfirm: () => void runCanvasVideoUpscale(),
+            }}
+            audioVoiceClone={{
+              open: Boolean(audioVoiceCloneNodeId) && !projectActionDisabled,
+              node: nodes.find(node => node.id === audioVoiceCloneNodeId),
+              targetModel: audioVoiceCloneModel,
+              prefix: audioVoiceClonePrefix,
+              audioUrl: audioVoiceCloneUrl,
+              fileName: audioVoiceCloneFile?.name || "",
+              sampleText: audioVoiceCloneSampleText,
+              busy: audioVoiceCloneBusy,
+              error: audioVoiceCloneError,
+              onTargetModelChange: setAudioVoiceCloneModel,
+              onPrefixChange: setAudioVoiceClonePrefix,
+              onAudioUrlChange: setAudioVoiceCloneUrl,
+              onSelectFile: setAudioVoiceCloneFile,
+              onSampleTextChange: setAudioVoiceCloneSampleText,
+              onOpenChange: open => {
+                if (!open && !audioVoiceCloneBusy) {
+                  setAudioVoiceCloneNodeId("");
+                  setAudioVoiceCloneError("");
+                }
+              },
+              onCancel: () => {
+                if (!audioVoiceCloneBusy) {
+                  setAudioVoiceCloneNodeId("");
+                  setAudioVoiceCloneError("");
+                }
+              },
+              onConfirm: () => void runCanvasAudioVoiceClone(),
+            }}
+            annotationMask={{
+              annotation: {
+                dataUrl: imageAnnotationPreview,
+                open: Boolean(imageAnnotationNode),
+                loading: originalAnnotationImage.loading,
+                sourceError: originalAnnotationImage.error,
+                onRetry: originalAnnotationImage.retry,
+                onClose: () => setImageAnnotationNodeId(""),
+                onConfirm: annotateCanvasImage,
+              },
+              mask: {
+                price: imageMaskNode ? (
+                  <CanvasGenerationPrice node={imageMaskNode} edit />
+                ) : undefined,
+                dataUrl: imageMaskPreview,
+                open: Boolean(imageMaskNode),
+                loading: originalMaskImage.loading,
+                sourceError: originalMaskImage.error,
+                onRetry: originalMaskImage.retry,
+                busy: imageToolBusy,
+                error: imageToolError,
+                onClose: () => {
+                  setImageMaskNodeId("");
+                  setImageToolError("");
+                },
+                onConfirm: maskEditCanvasImage,
               },
             }}
-            seedanceMaterial={{
-              open: Boolean(materialNodeId),
-              selectedAssets:
-                materialNode?.metadata?.seedanceMaterialAssets || [],
-              onClose: () => setMaterialNodeId(""),
-              onSelect: selectSeedanceMaterial,
-              onRemove: removeSeedanceMaterial,
+            storyboard={{
+              nodeId: storyboardNodeId,
+              busy: storyboardBusy,
+              layout: storyboardLayout,
+              selectedCount: storyboardSelectedCount,
+              onClose: () => setStoryboardNodeId(""),
+              onLayoutChange: setStoryboardLayout,
+              onExport: () => void exportCanvasStoryboard(),
             }}
-            seedanceAsset={{
-              open: Boolean(seedanceAssetNodeId),
-              selectedAssets:
-                seedanceAssetNode?.metadata?.seedanceVolcanoAssets || [],
-              onClose: () => setSeedanceAssetNodeId(""),
-              onSelect: selectSeedanceVolcanoAsset,
-              onRemove: removeSeedanceVolcanoAsset,
+            imagePreview={{
+              node: imagePreviewNode,
+              source: originalImagePreview.source,
+              siblings: imagePreviewSiblings,
+              loading: originalImagePreview.loading,
+              error: originalImagePreview.error,
+              originalBytes: originalImagePreview.bytes,
+              onRetry: originalImagePreview.retry,
+              selectedNodeId: imagePreviewNodeId,
+              previews,
+              modelLabel: imagePreviewModel
+                ? imageModelLabel(imagePreviewModel, modelCatalog || undefined)
+                : "—",
+              // [画布别名]
+              modelNickname: imagePreviewModel
+                ? modelNickname(imagePreviewModel, modelNicknames)
+                : "",
+              createdAt: previewAssetMeta.createdAt,
+              creatorLabel: user?.display_name || user?.username || "—",
+              onSelectNode: setImagePreviewNodeId,
+              onSetBatchPrimary: setBatchPrimaryNode,
+              onDetachBatchChild: detachBatchChildToCanvas,
+              onDownload: node => void downloadNodeMedia(node),
+              onClose: () => setImagePreviewNodeId(""),
+            }}
+            mentionPreview={{
+              preview: mentionMediaPreview,
+              onClose: closeMentionMediaPreview,
+            }}
+            assetPicker={{
+              open: assetPickerOpen,
+              insertBusy: assetPickerInsertBusy,
+              scopeOptions,
+              scope: assetPickerScope,
+              loading: assetPickerLoading,
+              query: assetPickerQuery,
+              kind: assetPickerKind,
+              folderId: assetPickerFolderId,
+              folders: assetPickerFolders,
+              error: assetPickerError,
+              items: assetPickerItems,
+              selectedIds: assetPickerSelectedIds,
+              thumbnails: assetPickerThumbnails,
+              onOpenChange: setAssetPickerOpen,
+              onScopeChange: setAssetPickerScope,
+              onKindChange: setAssetPickerKind,
+              onFolderChange: setAssetPickerFolder,
+              onQueryChange: setAssetPickerQuery,
+              onSearch: searchAssetPicker,
+              onToggleItem: toggleAssetPickerItem,
+              onCancel: cancelAssetPicker,
+              onInsert: () => void insertAssetPickerSelection(),
+            }}
+            generationHistory={{
+              open: generationHistoryOpen,
+              items: generationHistoryItems,
+              loading: serverVideoHistory.loading,
+              error: serverVideoHistory.error,
+              onRetry: serverVideoHistory.retry,
+              preferredNodeId: selectedId,
+              formatModel: (model, kind) => {
+                if (!model) return "—";
+                if (kind === "image")
+                  return imageModelLabel(model, modelCatalog || undefined);
+                return canvasHistoryModelName(model, textModelLabels);
+              },
+              formatModelNickname: model =>
+                modelNickname(model, modelNicknames), // [画布别名]
+              onOpenChange: setGenerationHistoryOpen,
+              onApply: applyGenerationHistoryItem,
+            }}
+            connectSelection={{
+              open: connectSelectionOpen,
+              selectedNodeCount: selectedNodeIds.size,
+              disabled: projectActionDisabled,
+              nodes,
+              onOpenChange: setConnectSelectionOpen,
+              onConnect: connectSelectedNodesToConfig,
+            }}
+            destructive={{
+              clearOpen: clearCanvasOpen,
+              clearBusy: clearCanvasBusy,
+              clearError: clearCanvasError,
+              deleteOpen: deleteProjectOpen,
+              deleteBusy: deleteProjectBusy,
+              deleteError: deleteProjectError,
+              projectTitle,
+              onClearOpenChange: open => {
+                if (!clearCanvasBusy) {
+                  setClearCanvasOpen(open);
+                  if (!open) setClearCanvasError("");
+                }
+              },
+              onClear: () => void clearCurrentCanvas(),
+              onDeleteOpenChange: open => {
+                if (!deleteProjectBusy) setDeleteProjectOpen(open);
+              },
+              onDelete: () => void removeCurrentProject(),
             }}
           />
         </div>
-        <CanvasDialogHost
-          assetArchive={{
-            open: Boolean(archiveNode) && !projectActionDisabled,
-            nodeKey: `${canonicalProjectScope}:${projectId}:${archiveNode?.id || ""}`,
-            assetName: archiveNode?.title || "素材",
-            projectTitle,
-            onOpenChange: open => {
-              if (!open)
-                setArchiveNode(current =>
-                  current === archiveNode ? null : current
-                );
-            },
-            onSave: saveCanvasNodeToLibrary,
-          }}
-          batchAssetArchive={{
-            open: batchArchiveNodeIds.length > 0 && !projectActionDisabled,
-            nodeKey: `${canonicalProjectScope}:${projectId}:batch:${batchArchiveNodeIds.join(",")}`,
-            assetName: `已选 ${batchArchiveNodeIds.length} 个节点`,
-            projectTitle,
-            onOpenChange: open => {
-              if (!open) setBatchArchiveNodeIds([]);
-            },
-            onSave: saveSelectedNodesToLibrary,
-          }}
-          imageTool={{
-            dialog: imageToolDialog,
-            busy: imageToolBusy,
-            error: imageToolError || originalToolImage.error,
-            preview: imageToolPreview,
-            loading: originalToolImage.loading,
-            onRetry: originalToolImage.retry,
-            node: imageToolNode,
-            crop: imageToolCrop,
-            cropStageRef: imageCropStageRef,
-            draft: imageToolDraft,
-            onOpenChange: open => {
-              if (!open && imageToolBusy) return;
-              if (!open) {
-                setImageToolDialog(null);
-                setImageToolError("");
-              }
-            },
-            onStartCropPointer: startImageCropPointer,
-            onSelectMode: mode =>
-              setImageToolDialog(current =>
-                current ? { ...current, mode } : current
-              ),
-            onDraftChange: setImageToolDraft,
-            onCancel: () => {
-              setImageToolDialog(null);
-              setImageToolError("");
-            },
-            onRun: () => void runCanvasImageTool(),
-          }}
-          annotationMask={{
-            annotation: {
-              dataUrl: imageAnnotationPreview,
-              open: Boolean(imageAnnotationNode),
-              loading: originalAnnotationImage.loading,
-              sourceError: originalAnnotationImage.error,
-              onRetry: originalAnnotationImage.retry,
-              onClose: () => setImageAnnotationNodeId(""),
-              onConfirm: annotateCanvasImage,
-            },
-            mask: {
-              price: imageMaskNode ? (
-                <CanvasGenerationPrice node={imageMaskNode} edit />
-              ) : undefined,
-              dataUrl: imageMaskPreview,
-              open: Boolean(imageMaskNode),
-              loading: originalMaskImage.loading,
-              sourceError: originalMaskImage.error,
-              onRetry: originalMaskImage.retry,
-              busy: imageToolBusy,
-              error: imageToolError,
-              onClose: () => {
-                setImageMaskNodeId("");
-                setImageToolError("");
-              },
-              onConfirm: maskEditCanvasImage,
-            },
-          }}
-          storyboard={{
-            nodeId: storyboardNodeId,
-            busy: storyboardBusy,
-            layout: storyboardLayout,
-            selectedCount: storyboardSelectedCount,
-            onClose: () => setStoryboardNodeId(""),
-            onLayoutChange: setStoryboardLayout,
-            onExport: () => void exportCanvasStoryboard(),
-          }}
-          imagePreview={{
-            node: imagePreviewNode,
-            source: originalImagePreview.source,
-            siblings: imagePreviewSiblings,
-            loading: originalImagePreview.loading,
-            error: originalImagePreview.error,
-            originalBytes: originalImagePreview.bytes,
-            onRetry: originalImagePreview.retry,
-            selectedNodeId: imagePreviewNodeId,
-            previews,
-            modelLabel: imagePreviewModel
-              ? imageModelLabel(imagePreviewModel, modelCatalog || undefined)
-              : "—",
-            // [画布别名]
-            modelNickname: imagePreviewModel
-              ? modelNickname(imagePreviewModel, modelNicknames)
-              : "",
-            createdAt: previewAssetMeta.createdAt,
-            creatorLabel: user?.display_name || user?.username || "—",
-            onSelectNode: setImagePreviewNodeId,
-            onSetBatchPrimary: setBatchPrimaryNode,
-            onDetachBatchChild: detachBatchChildToCanvas,
-            onDownload: node => void downloadNodeMedia(node),
-            onClose: () => setImagePreviewNodeId(""),
-          }}
-          mentionPreview={{
-            preview: mentionMediaPreview,
-            onClose: closeMentionMediaPreview,
-          }}
-          assetPicker={{
-            open: assetPickerOpen,
-            insertBusy: assetPickerInsertBusy,
-            scopeOptions,
-            scope: assetPickerScope,
-            loading: assetPickerLoading,
-            query: assetPickerQuery,
-            kind: assetPickerKind,
-            folderId: assetPickerFolderId,
-            folders: assetPickerFolders,
-            error: assetPickerError,
-            items: assetPickerItems,
-            selectedIds: assetPickerSelectedIds,
-            thumbnails: assetPickerThumbnails,
-            onOpenChange: setAssetPickerOpen,
-            onScopeChange: setAssetPickerScope,
-            onKindChange: setAssetPickerKind,
-            onFolderChange: setAssetPickerFolder,
-            onQueryChange: setAssetPickerQuery,
-            onSearch: searchAssetPicker,
-            onToggleItem: toggleAssetPickerItem,
-            onCancel: cancelAssetPicker,
-            onInsert: () => void insertAssetPickerSelection(),
-          }}
-          generationHistory={{
-            open: generationHistoryOpen,
-            items: generationHistoryItems,
-            loading: serverVideoHistory.loading,
-            error: serverVideoHistory.error,
-            onRetry: serverVideoHistory.retry,
-            preferredNodeId: selectedId,
-            formatModel: (model, kind) => {
-              if (!model) return "—";
-              if (kind === "image")
-                return imageModelLabel(model, modelCatalog || undefined);
-              return canvasHistoryModelName(model, textModelLabels);
-            },
-            formatModelNickname: model => modelNickname(model, modelNicknames), // [画布别名]
-            onOpenChange: setGenerationHistoryOpen,
-            onApply: applyGenerationHistoryItem,
-          }}
-          connectSelection={{
-            open: connectSelectionOpen,
-            selectedNodeCount: selectedNodeIds.size,
-            disabled: projectActionDisabled,
-            nodes,
-            onOpenChange: setConnectSelectionOpen,
-            onConnect: connectSelectedNodesToConfig,
-          }}
-          destructive={{
-            clearOpen: clearCanvasOpen,
-            clearBusy: clearCanvasBusy,
-            clearError: clearCanvasError,
-            deleteOpen: deleteProjectOpen,
-            deleteBusy: deleteProjectBusy,
-            deleteError: deleteProjectError,
-            projectTitle,
-            onClearOpenChange: open => {
-              if (!clearCanvasBusy) {
-                setClearCanvasOpen(open);
-                if (!open) setClearCanvasError("");
-              }
-            },
-            onClear: () => void clearCurrentCanvas(),
-            onDeleteOpenChange: open => {
-              if (!deleteProjectBusy) setDeleteProjectOpen(open);
-            },
-            onDelete: () => void removeCurrentProject(),
-          }}
-        />
-      </div>
+      </CanvasUpscaleAvailabilityContext.Provider>
     </CanvasPricingContext.Provider>
   );
 }
@@ -8010,6 +8586,7 @@ function canvasImageToolLabel(mode: CanvasImageToolMode) {
       focus: "聚焦提取",
       split: "切图",
       upscale: "放大",
+      "ai-upscale": "AI 超分",
       compress: "压缩",
       outpaint: "扩图",
       angle: "AI 多角度",
@@ -8144,4 +8721,22 @@ function clamp(value: number, min: number, max: number) {
 
 function wait(ms: number) {
   return new Promise<void>(resolve => window.setTimeout(resolve, ms));
+}
+
+/** Duration of a local audio file in seconds, or undefined if the browser cannot read it. */
+function readAudioFileDuration(file: File) {
+  return new Promise<number | undefined>(resolve => {
+    const url = URL.createObjectURL(file);
+    const audio = new Audio();
+    const finish = (seconds?: number) => {
+      URL.revokeObjectURL(url);
+      resolve(
+        seconds !== undefined && Number.isFinite(seconds) ? seconds : undefined
+      );
+    };
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => finish(audio.duration);
+    audio.onerror = () => finish();
+    audio.src = url;
+  });
 }

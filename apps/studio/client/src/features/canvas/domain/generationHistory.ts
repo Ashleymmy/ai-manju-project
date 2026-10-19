@@ -317,17 +317,21 @@ export function collectCanvasPreviewAssetRefs(
     id: string;
     kind: "image" | "video" | "audio";
     scope?: "personal" | "team";
+    fullResolution?: boolean;
   }> = [];
   const seen = new Set<string>();
   const push = (
     id: string,
     kind: "image" | "video" | "audio",
-    scope?: "personal" | "team"
+    scope?: "personal" | "team",
+    fullResolution = false
   ) => {
     const key = `${scope || ""}:${kind}:${id}`;
     if (!id || seen.has(key)) return;
     seen.add(key);
-    refs.push({ id, kind, scope });
+    refs.push(
+      fullResolution ? { id, kind, scope, fullResolution } : { id, kind, scope }
+    );
   };
   for (const node of nodes) {
     const id = assetIdFromNode(node);
@@ -339,7 +343,10 @@ export function collectCanvasPreviewAssetRefs(
           : node.kind === "audio"
             ? "audio"
             : "image",
-        node.metadata?.assetScope
+        node.metadata?.assetScope,
+        // Upscaled results are only worth anything at full size; a 320px thumbnail hides the gain.
+        node.metadata?.editRelation === "ai-upscale" ||
+          node.metadata?.editRelation === "upscale"
       );
     }
     for (const revision of node.metadata?.generationRevisions || []) {

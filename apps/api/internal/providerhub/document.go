@@ -39,6 +39,8 @@ type studioConfig struct {
 	ImageModel         string              `json:"image_model"`
 	VideoModel         string              `json:"video_model"`
 	AudioModel         string              `json:"audio_model"`
+	ImageUpscaleModel  string              `json:"image_upscale_model"`
+	VideoUpscaleModel  string              `json:"video_upscale_model"`
 	Capabilities       []string            `json:"capabilities"`
 	ModelsByCapability map[string][]string `json:"models_by_capability"`
 	ModelAliases       map[string]string   `json:"model_aliases"`
@@ -193,19 +195,19 @@ func (cfg studioConfig) validate() error {
 		return err
 	}
 	for _, cap := range append(cfg.Capabilities, cfg.DefaultFor...) {
-		if !contains(cap, "text", "image", "video", "audio") {
+		if !contains(cap, "text", "image", "video", "audio", "image_upscale", "video_upscale") {
 			return errors.New("unsupported capability")
 		}
 	}
 	for cap := range cfg.ModelsByCapability {
-		if !contains(cap, "text", "image", "video", "audio") {
+		if !contains(cap, "text", "image", "video", "audio", "image_upscale", "video_upscale") {
 			return errors.New("unsupported model capability")
 		}
 	}
 	for field, valid := range map[string]bool{
 		"mode":          contains(cfg.Mode, "", "openai_compatible", "local_openai"),
 		"auth_type":     contains(cfg.AuthType, "", "none", "bearer", "x_api_key", "x_goog_api_key", "auto_api_key", "custom_header", "query_param"),
-		"provider_type": contains(cfg.ProviderType, "", "openai_compatible", "volcengine_ark", "gemini_media", "kling_video", "minimax_hailuo", "fal_happyhorse", "xai_imagine", "aliyun_yike"),
+		"provider_type": contains(cfg.ProviderType, "", "openai_compatible", "volcengine_ark", "gemini_media", "kling_video", "minimax_hailuo", "fal_happyhorse", "xai_imagine", "aliyun_yike", "aliyun_viapi", "aliyun_bailian"),
 	} {
 		if !valid {
 			return fmt.Errorf("unsupported %s", field)

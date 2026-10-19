@@ -51,6 +51,8 @@ export async function fetchModelCatalog(): Promise<ModelCatalog> {
     imageModels,
     videoModels,
     audioModels,
+    imageUpscaleModels: normalizeModelList(data.image_upscale_models),
+    videoUpscaleModels: normalizeModelList(data.video_upscale_models),
     defaultTextModel: preferredModel(defaultTextModel, textModels),
     defaultImageModel: pickDefaultImageModel(imageModels, defaultImageModel),
     defaultVideoModel: preferredModel(defaultVideoModel, videoModels),

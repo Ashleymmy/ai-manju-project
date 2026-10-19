@@ -10,15 +10,20 @@ import "./provider-hub-page.css";
 import { ArrowLeft, KeyRound, TestTube2 } from "lucide-react";
 import { Link } from "wouter";
 import { useModelProvidersController } from "../controllers/useModelProvidersController";
-import { emptyProvider } from "../model/provider";
+import { emptyProvider, resolveProviderSecretSpecs } from "../model/provider";
 
 export default function ProviderHubPage() {
   const controller = useModelProvidersController(true);
   const { providerDraft: draft, selectedPreset, activeProvider } = controller;
+  const secretSpecs = resolveProviderSecretSpecs(
+    selectedPreset,
+    draft.provider_type
+  );
   const presets: ProviderPreset[] = controller.presets.map(preset => ({
     id: preset.id,
     name: preset.name,
     description: preset.description,
+    notes: preset.notes,
     config: {
       preset_id: preset.id,
       provider_type: preset.provider_type,
@@ -33,6 +38,8 @@ export default function ProviderHubPage() {
       image_model: preset.defaults.image || "",
       video_model: preset.defaults.video || "",
       audio_model: preset.defaults.audio || "",
+      image_upscale_model: preset.defaults.image_upscale || "",
+      video_upscale_model: preset.defaults.video_upscale || "",
       endpoint_overrides: preset.endpoint_overrides || {},
       extra_headers: preset.extra_headers || {},
     },
@@ -110,7 +117,7 @@ export default function ProviderHubPage() {
                       }
                     />
                   </label>
-                  {selectedPreset?.secrets?.map(secret => (
+                  {secretSpecs.map(secret => (
                     <label key={secret.key}>
                       {secret.label}
                       <input

@@ -52,6 +52,8 @@ type modelProviderRequest struct {
 	ImageModel         *string             `json:"image_model"`
 	VideoModel         *string             `json:"video_model"`
 	AudioModel         *string             `json:"audio_model"`
+	ImageUpscaleModel  *string             `json:"image_upscale_model"`
+	VideoUpscaleModel  *string             `json:"video_upscale_model"`
 	Capabilities       []string            `json:"capabilities"`
 	ModelsByCapability map[string][]string `json:"models_by_capability"`
 	ModelAliases       map[string]string   `json:"model_aliases"`
@@ -311,6 +313,46 @@ func (h *ModelProviderHandler) testProvider(c *gin.Context, id string) {
 	if !ok {
 		return
 	}
+	if strings.TrimSpace(config.ProviderType) == model.ModelProviderTypeAliyunVIAPI {
+		secrets, err := h.DecryptSecrets(config)
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, "model provider secrets cannot be decrypted")
+			return
+		}
+		creds := provider.ExtractAliyunVIAPICredentials(secrets)
+		if !creds.HasAKSK() && strings.TrimSpace(apiKey) == "" {
+			response.ErrorWithData(c, http.StatusBadRequest, "请填写阿里云 AccessKey ID（AK）与 AccessKey Secret（SK）后再测试连接", gin.H{
+				"ok":              false,
+				"models_ok":       false,
+				"provider_config": sanitizedProviderSummary(config),
+			})
+			return
+		}
+		response.OK(c, storedModelsResponse(config, gin.H{
+			"ok":              true,
+			"models_ok":       true,
+			"message":         "阿里云视觉智能（VIAPI）超分配置与签名凭据校验通过",
+			"provider_config": sanitizedProviderSummary(config),
+		}))
+		return
+	}
+	if strings.TrimSpace(config.ProviderType) == model.ModelProviderTypeAliyunBailian {
+		if strings.TrimSpace(apiKey) == "" {
+			response.ErrorWithData(c, http.StatusBadRequest, "请填写阿里云百炼 API Key（sk-xxx）后再测试连接", gin.H{
+				"ok":              false,
+				"models_ok":       false,
+				"provider_config": sanitizedProviderSummary(config),
+			})
+			return
+		}
+		response.OK(c, storedModelsResponse(config, gin.H{
+			"ok":              true,
+			"models_ok":       true,
+			"message":         "阿里云百炼音频（CosyVoice / MiniMax / Fun-Music）配置与 API Key 校验通过",
+			"provider_config": sanitizedProviderSummary(config),
+		}))
+		return
+	}
 	client, err := provider.NewOpenAICompatibleClient(config, apiKey)
 	if err != nil {
 		writeProviderError(c, config.BaseURL, err)
@@ -385,6 +427,10 @@ func (h *ModelProviderHandler) modelsForProvider(c *gin.Context, id string) {
 	if !ok {
 		return
 	}
+	if (strings.TrimSpace(config.ProviderType) == model.ModelProviderTypeAliyunVIAPI || strings.TrimSpace(config.ProviderType) == model.ModelProviderTypeAliyunBailian) && hasStoredModels(config) {
+		response.OK(c, storedModelsResponse(config, nil))
+		return
+	}
 	if strings.TrimSpace(config.BaseURL) == "" && hasStoredModels(config) {
 		response.OK(c, storedModelsResponse(config, nil))
 		return
@@ -438,6 +484,22 @@ func (h *ModelProviderHandler) LoadConfigForModel(c *gin.Context, capability str
 		return model.ModelProviderConfig{}, "", "", false
 	}
 	return selection.Config, selection.APIKey, selection.Model, true
+}
+
+func (h *ModelProviderHandler) DecryptSecrets(config model.ModelProviderConfig) (map[string]string, error) {
+	encryptedMap := jsonStringMapFromJSONB(config.SecretsEncrypted)
+	decrypted := make(map[string]string, len(encryptedMap))
+	for key, cipherText := range encryptedMap {
+		if strings.TrimSpace(cipherText) == "" {
+			continue
+		}
+		plainText, err := h.secretBox.Decrypt(cipherText)
+		if err != nil {
+			return nil, err
+		}
+		decrypted[key] = strings.TrimSpace(plainText)
+	}
+	return decrypted, nil
 }
 
 func (h *ModelProviderHandler) loadConfigForUse(c *gin.Context, capability string, requestedModel string) (modelSelection, bool) {
@@ -582,6 +644,8 @@ func configFromPreset(presetID string) model.ModelProviderConfig {
 			ImageModel:         preset.Defaults[model.ModelCapabilityImage],
 			VideoModel:         preset.Defaults[model.ModelCapabilityVideo],
 			AudioModel:         preset.Defaults[model.ModelCapabilityAudio],
+			ImageUpscaleModel:  preset.Defaults[model.ModelCapabilityImageUpscale],
+			VideoUpscaleModel:  preset.Defaults[model.ModelCapabilityVideoUpscale],
 			Capabilities:       mustProviderJSONB(preset.Capabilities),
 			ModelsByCapability: mustProviderJSONB(preset.ModelsByCapability),
 			DefaultFor:         mustProviderJSONB([]string{}),
@@ -654,6 +718,12 @@ func (h *ModelProviderHandler) applyRequestToConfig(config *model.ModelProviderC
 	}
 	if req.AudioModel != nil {
 		config.AudioModel = strings.TrimSpace(*req.AudioModel)
+	}
+	if req.ImageUpscaleModel != nil {
+		config.ImageUpscaleModel = strings.TrimSpace(*req.ImageUpscaleModel)
+	}
+	if req.VideoUpscaleModel != nil {
+		config.VideoUpscaleModel = strings.TrimSpace(*req.VideoUpscaleModel)
 	}
 	if req.Capabilities != nil {
 		config.Capabilities = mustProviderJSONB(normalizeCapabilities(req.Capabilities))
@@ -745,6 +815,8 @@ func modelProviderResponse(config model.ModelProviderConfig) gin.H {
 		"image_model":          config.ImageModel,
 		"video_model":          config.VideoModel,
 		"audio_model":          config.AudioModel,
+		"image_upscale_model":  config.ImageUpscaleModel,
+		"video_upscale_model":  config.VideoUpscaleModel,
 		"capabilities":         capabilitiesFromConfig(config),
 		"models_by_capability": modelsByCapabilityFromConfig(config),
 		"model_aliases":        modelAliasesFromConfig(config),
@@ -763,21 +835,23 @@ func modelProviderResponse(config model.ModelProviderConfig) gin.H {
 func sanitizedProviderSummary(config model.ModelProviderConfig) gin.H {
 	normalizeModelProviderDefaults(&config)
 	return gin.H{
-		"id":            config.ID,
-		"name":          config.Name,
-		"preset_id":     config.PresetID,
-		"provider_type": config.ProviderType,
-		"mode":          config.Mode,
-		"auth_type":     config.AuthType,
-		"auth_header":   provider.AuthHeaderName(config.AuthType),
-		"text_model":    config.TextModel,
-		"image_model":   config.ImageModel,
-		"video_model":   config.VideoModel,
-		"audio_model":   config.AudioModel,
-		"timeout_ms":    config.TimeoutMS,
-		"enabled":       config.Enabled,
-		"api_key_set":   config.APIKeyEncrypted != "",
-		"secrets_set":   secretStatus(config.SecretsEncrypted),
+		"id":                  config.ID,
+		"name":                config.Name,
+		"preset_id":           config.PresetID,
+		"provider_type":       config.ProviderType,
+		"mode":                config.Mode,
+		"auth_type":           config.AuthType,
+		"auth_header":         provider.AuthHeaderName(config.AuthType),
+		"text_model":          config.TextModel,
+		"image_model":         config.ImageModel,
+		"video_model":         config.VideoModel,
+		"audio_model":         config.AudioModel,
+		"image_upscale_model": config.ImageUpscaleModel,
+		"video_upscale_model": config.VideoUpscaleModel,
+		"timeout_ms":          config.TimeoutMS,
+		"enabled":             config.Enabled,
+		"api_key_set":         config.APIKeyEncrypted != "",
+		"secrets_set":         secretStatus(config.SecretsEncrypted),
 	}
 }
 
@@ -797,17 +871,23 @@ func modelsResponseWithCapabilities(config model.ModelProviderConfig, models []s
 	imageModels := modelsWithSupportedDefault(config, model.ModelCapabilityImage, byCapability[model.ModelCapabilityImage])
 	videoModels := modelsWithSupportedDefault(config, model.ModelCapabilityVideo, byCapability[model.ModelCapabilityVideo])
 	audioModels := modelsWithSupportedDefault(config, model.ModelCapabilityAudio, byCapability[model.ModelCapabilityAudio])
+	imageUpscaleModels := modelsWithSupportedDefault(config, model.ModelCapabilityImageUpscale, byCapability[model.ModelCapabilityImageUpscale])
+	videoUpscaleModels := modelsWithSupportedDefault(config, model.ModelCapabilityVideoUpscale, byCapability[model.ModelCapabilityVideoUpscale])
 	result := gin.H{
-		"models":              uniqueStrings(models),
-		"text_models":         uniqueStrings(textModels),
-		"image_models":        uniqueStrings(imageModels),
-		"video_models":        uniqueStrings(videoModels),
-		"audio_models":        uniqueStrings(audioModels),
-		"default_text_model":  supportedDefaultModel(config, model.ModelCapabilityText),
-		"default_image_model": supportedDefaultModel(config, model.ModelCapabilityImage),
-		"default_video_model": supportedDefaultModel(config, model.ModelCapabilityVideo),
-		"default_audio_model": supportedDefaultModel(config, model.ModelCapabilityAudio),
-		"provider_config":     sanitizedProviderSummary(config),
+		"models":                      uniqueStrings(models),
+		"text_models":                 uniqueStrings(textModels),
+		"image_models":                uniqueStrings(imageModels),
+		"video_models":                uniqueStrings(videoModels),
+		"audio_models":                uniqueStrings(audioModels),
+		"image_upscale_models":        uniqueStrings(imageUpscaleModels),
+		"video_upscale_models":        uniqueStrings(videoUpscaleModels),
+		"default_text_model":          supportedDefaultModel(config, model.ModelCapabilityText),
+		"default_image_model":         supportedDefaultModel(config, model.ModelCapabilityImage),
+		"default_video_model":         supportedDefaultModel(config, model.ModelCapabilityVideo),
+		"default_audio_model":         supportedDefaultModel(config, model.ModelCapabilityAudio),
+		"default_image_upscale_model": supportedDefaultModel(config, model.ModelCapabilityImageUpscale),
+		"default_video_upscale_model": supportedDefaultModel(config, model.ModelCapabilityVideoUpscale),
+		"provider_config":             sanitizedProviderSummary(config),
 	}
 	for key, value := range extra {
 		result[key] = value
@@ -962,10 +1042,12 @@ func (h *ModelProviderHandler) normalizedProviders() ([]model.ModelProviderConfi
 func aggregateModelProviders(configs []model.ModelProviderConfig, resolvers ...func(string) string) gin.H {
 	all := make([]string, 0)
 	byCapability := map[string][]string{
-		model.ModelCapabilityText:  {},
-		model.ModelCapabilityImage: {},
-		model.ModelCapabilityVideo: {},
-		model.ModelCapabilityAudio: {},
+		model.ModelCapabilityText:         {},
+		model.ModelCapabilityImage:        {},
+		model.ModelCapabilityVideo:        {},
+		model.ModelCapabilityAudio:        {},
+		model.ModelCapabilityImageUpscale: {},
+		model.ModelCapabilityVideoUpscale: {},
 	}
 	defaults := make(map[string]string)
 	modelLabels := make(map[string]string)
@@ -1033,29 +1115,43 @@ func aggregateModelProviders(configs []model.ModelProviderConfig, resolvers ...f
 			mediaModels[encoded] = true
 		}
 	}
+	upscaleModels := make(map[string]bool)
+	for _, capability := range []string{model.ModelCapabilityImageUpscale, model.ModelCapabilityVideoUpscale} {
+		for _, encoded := range byCapability[capability] {
+			upscaleModels[encoded] = true
+		}
+	}
 	visible := make([]string, 0, len(all))
 	for _, encoded := range all {
+		// Upscale actions are not generation models; generic pickers must never offer them.
+		if upscaleModels[encoded] {
+			continue
+		}
 		if encoded == pinnedText || mediaModels[encoded] || !containsString(textModels, encoded) {
 			visible = append(visible, encoded)
 		}
 	}
 	return gin.H{
-		"models":                   uniqueStrings(visible),
-		"text_models":              pinnedTextModels,
-		"agent_text_models":        onlyModel(uniqueStrings(agentTextModels), pinnedText),
-		"image_models":             uniqueStrings(byCapability[model.ModelCapabilityImage]),
-		"video_models":             uniqueStrings(byCapability[model.ModelCapabilityVideo]),
-		"audio_models":             uniqueStrings(byCapability[model.ModelCapabilityAudio]),
-		"default_text_model":       defaults[model.ModelCapabilityText],
-		"default_image_model":      defaults[model.ModelCapabilityImage],
-		"default_video_model":      defaults[model.ModelCapabilityVideo],
-		"default_audio_model":      defaults[model.ModelCapabilityAudio],
-		"model_labels":             modelLabels,
-		"model_provider_names":     modelProviderNames,
-		"video_model_protocols":    videoModelProtocols,
-		"video_model_durations":    videoModelDurations,
-		"video_model_capabilities": videoCapabilities,
-		"image_model_protocols":    imageModelProtocols,
+		"models":                      uniqueStrings(visible),
+		"text_models":                 pinnedTextModels,
+		"agent_text_models":           onlyModel(uniqueStrings(agentTextModels), pinnedText),
+		"image_models":                uniqueStrings(byCapability[model.ModelCapabilityImage]),
+		"video_models":                uniqueStrings(byCapability[model.ModelCapabilityVideo]),
+		"audio_models":                uniqueStrings(byCapability[model.ModelCapabilityAudio]),
+		"image_upscale_models":        uniqueStrings(byCapability[model.ModelCapabilityImageUpscale]),
+		"video_upscale_models":        uniqueStrings(byCapability[model.ModelCapabilityVideoUpscale]),
+		"default_text_model":          defaults[model.ModelCapabilityText],
+		"default_image_model":         defaults[model.ModelCapabilityImage],
+		"default_video_model":         defaults[model.ModelCapabilityVideo],
+		"default_audio_model":         defaults[model.ModelCapabilityAudio],
+		"default_image_upscale_model": defaults[model.ModelCapabilityImageUpscale],
+		"default_video_upscale_model": defaults[model.ModelCapabilityVideoUpscale],
+		"model_labels":                modelLabels,
+		"model_provider_names":        modelProviderNames,
+		"video_model_protocols":       videoModelProtocols,
+		"video_model_durations":       videoModelDurations,
+		"video_model_capabilities":    videoCapabilities,
+		"image_model_protocols":       imageModelProtocols,
 	}
 }
 
@@ -1215,10 +1311,17 @@ func (h *ModelProviderHandler) enforceDefaultProviderUniqueness(saved model.Mode
 
 func validateConfigForSave(config *model.ModelProviderConfig) error {
 	normalizeModelProviderDefaults(config)
-	if provider.AuthRequiresAPIKey(config.AuthType) && config.APIKeyEncrypted == "" {
+	if strings.TrimSpace(config.ProviderType) == model.ModelProviderTypeAliyunVIAPI {
+		secrets := secretStatus(config.SecretsEncrypted)
+		hasAKSK := (secrets[provider.AliyunAccessKeyIDSecret] || secrets["access_key_id"] || secrets["access_key"]) &&
+			(secrets[provider.AliyunAccessKeySecretSecret] || secrets["access_key_secret"] || secrets["secret_access_key"] || secrets["secret_key"])
+		if !hasAKSK && config.APIKeyEncrypted == "" {
+			return errors.New("aliyun_viapi requires aliyun_access_key_id and aliyun_access_key_secret (or api_key)")
+		}
+	} else if provider.AuthRequiresAPIKey(config.AuthType) && config.APIKeyEncrypted == "" {
 		return errors.New("api_key is required when auth_type requires a key")
 	}
-	if strings.TrimSpace(config.TextModel) == "" && strings.TrimSpace(config.ImageModel) == "" && strings.TrimSpace(config.VideoModel) == "" && strings.TrimSpace(config.AudioModel) == "" && !hasStoredModels(*config) {
+	if strings.TrimSpace(config.TextModel) == "" && strings.TrimSpace(config.ImageModel) == "" && strings.TrimSpace(config.VideoModel) == "" && strings.TrimSpace(config.AudioModel) == "" && strings.TrimSpace(config.ImageUpscaleModel) == "" && strings.TrimSpace(config.VideoUpscaleModel) == "" && !hasStoredModels(*config) {
 		return errors.New("at least one model or models_by_capability entry is required")
 	}
 	for modelID, protocol := range modelProtocolsFromConfig(*config) {
@@ -1304,6 +1407,8 @@ func normalizeModelProviderDefaults(config *model.ModelProviderConfig) {
 		ImageModel:         config.ImageModel,
 		VideoModel:         config.VideoModel,
 		AudioModel:         config.AudioModel,
+		ImageUpscaleModel:  config.ImageUpscaleModel,
+		VideoUpscaleModel:  config.VideoUpscaleModel,
 		DefaultFor:         mustProviderJSONB(defaultFor),
 		APIKeyEncrypted:    config.APIKeyEncrypted,
 		SecretsEncrypted:   config.SecretsEncrypted,
@@ -1356,20 +1461,7 @@ func writeProviderError(c *gin.Context, baseURL string, err error) {
 	if errors.Is(err, provider.ErrProviderNotConfigured) || errors.Is(err, provider.ErrProviderDisabled) || errors.Is(err, provider.ErrUnsupportedImageUpload) {
 		status = http.StatusBadRequest
 	}
-	var providerHTTPError *provider.ProviderHTTPError
-	if errors.As(err, &providerHTTPError) {
-		log.Printf(
-			"request_id=%s operation=%s provider_method=%s provider_url=%s provider_status=%d provider_error=%q",
-			response.RequestID(c),
-			c.FullPath(),
-			providerHTTPError.Method,
-			providerHTTPError.SafeURL(),
-			providerHTTPError.StatusCode,
-			providerHTTPError.BodySnippet(2000),
-		)
-	} else {
-		log.Printf("request_id=%s operation=%s provider_error=%v", response.RequestID(c), c.FullPath(), err)
-	}
+	logProviderError(c, err)
 
 	data := gin.H{
 		"reason":     errorInfo.Reason,
@@ -1385,6 +1477,24 @@ func writeProviderError(c *gin.Context, baseURL string, err error) {
 		data["docker_hint"] = hint
 	}
 	response.ErrorWithData(c, status, readableErrorMessage(errorInfo), data)
+}
+
+// logProviderError keeps the supplier's full answer in the server log for admins.
+func logProviderError(c *gin.Context, err error) {
+	var providerHTTPError *provider.ProviderHTTPError
+	if errors.As(err, &providerHTTPError) {
+		log.Printf(
+			"request_id=%s operation=%s provider_method=%s provider_url=%s provider_status=%d provider_error=%q",
+			response.RequestID(c),
+			c.FullPath(),
+			providerHTTPError.Method,
+			providerHTTPError.SafeURL(),
+			providerHTTPError.StatusCode,
+			providerHTTPError.BodySnippet(2000),
+		)
+	} else {
+		log.Printf("request_id=%s operation=%s provider_error=%v", response.RequestID(c), c.FullPath(), err)
+	}
 }
 
 func readableErrorMessage(info providerErrorInfo) string {
@@ -1478,7 +1588,11 @@ func isVideoModelName(name string) bool {
 }
 
 func isSpeechSynthesisModelName(name string) bool {
-	return strings.Contains(name, "tts") || strings.Contains(name, "speech") || strings.Contains(name, "voice")
+	return strings.Contains(name, "tts") ||
+		strings.Contains(name, "speech") ||
+		strings.Contains(name, "voice") ||
+		strings.Contains(name, "cosyvoice") ||
+		strings.Contains(name, "fun-music")
 }
 
 func isImageModelName(name string) bool {
@@ -1598,7 +1712,7 @@ func defaultForFromConfig(config model.ModelProviderConfig) []string {
 }
 
 func inferCapabilities(config model.ModelProviderConfig) []string {
-	capabilities := make([]string, 0, 4)
+	capabilities := make([]string, 0, 6)
 	if strings.TrimSpace(config.TextModel) != "" {
 		capabilities = append(capabilities, model.ModelCapabilityText)
 	}
@@ -1611,12 +1725,18 @@ func inferCapabilities(config model.ModelProviderConfig) []string {
 	if strings.TrimSpace(config.AudioModel) != "" {
 		capabilities = append(capabilities, model.ModelCapabilityAudio)
 	}
+	if strings.TrimSpace(config.ImageUpscaleModel) != "" {
+		capabilities = append(capabilities, model.ModelCapabilityImageUpscale)
+	}
+	if strings.TrimSpace(config.VideoUpscaleModel) != "" {
+		capabilities = append(capabilities, model.ModelCapabilityVideoUpscale)
+	}
 	return uniqueStrings(capabilities)
 }
 
 func inferDefaultFor(config model.ModelProviderConfig) []string {
-	defaultFor := make([]string, 0, 4)
-	for _, capability := range []string{model.ModelCapabilityText, model.ModelCapabilityImage, model.ModelCapabilityVideo, model.ModelCapabilityAudio} {
+	defaultFor := make([]string, 0, 6)
+	for _, capability := range []string{model.ModelCapabilityText, model.ModelCapabilityImage, model.ModelCapabilityVideo, model.ModelCapabilityAudio, model.ModelCapabilityImageUpscale, model.ModelCapabilityVideoUpscale} {
 		if defaultModelForCapability(config, capability) != "" {
 			defaultFor = append(defaultFor, capability)
 		}
@@ -1625,7 +1745,7 @@ func inferDefaultFor(config model.ModelProviderConfig) []string {
 }
 
 func defaultForWithConfiguredModel(config model.ModelProviderConfig) []string {
-	defaultFor := make([]string, 0, 4)
+	defaultFor := make([]string, 0, 6)
 	for _, capability := range defaultForFromConfig(config) {
 		if supportsCapability(config, capability) && defaultModelForCapability(config, capability) != "" {
 			defaultFor = append(defaultFor, capability)
@@ -1648,6 +1768,12 @@ func inferModelsByCapability(config model.ModelProviderConfig) map[string][]stri
 	if modelID := strings.TrimSpace(config.AudioModel); modelID != "" {
 		result[model.ModelCapabilityAudio] = []string{modelID}
 	}
+	if modelID := strings.TrimSpace(config.ImageUpscaleModel); modelID != "" {
+		result[model.ModelCapabilityImageUpscale] = []string{modelID}
+	}
+	if modelID := strings.TrimSpace(config.VideoUpscaleModel); modelID != "" {
+		result[model.ModelCapabilityVideoUpscale] = []string{modelID}
+	}
 	return result
 }
 
@@ -1661,6 +1787,10 @@ func defaultModelForCapability(config model.ModelProviderConfig, capability stri
 		return strings.TrimSpace(config.VideoModel)
 	case model.ModelCapabilityAudio:
 		return strings.TrimSpace(config.AudioModel)
+	case model.ModelCapabilityImageUpscale:
+		return strings.TrimSpace(config.ImageUpscaleModel)
+	case model.ModelCapabilityVideoUpscale:
+		return strings.TrimSpace(config.VideoUpscaleModel)
 	default:
 		return ""
 	}
@@ -1700,6 +1830,10 @@ func normalizeCapability(value string) string {
 		return model.ModelCapabilityVideo
 	case model.ModelCapabilityAudio:
 		return model.ModelCapabilityAudio
+	case model.ModelCapabilityImageUpscale:
+		return model.ModelCapabilityImageUpscale
+	case model.ModelCapabilityVideoUpscale:
+		return model.ModelCapabilityVideoUpscale
 	default:
 		return ""
 	}

@@ -14,6 +14,7 @@ import {
   type CanvasNodeCardActions,
   type CanvasNodeCardProps,
 } from "./CanvasNodeCard";
+import { CanvasUpscaleAvailabilityContext } from "./CanvasUpscaleAvailability";
 
 const setString: Dispatch<SetStateAction<string>> = () => undefined;
 const resolveNothing = async () => undefined;
@@ -138,6 +139,15 @@ describe("CanvasNodeCard render boundary", () => {
     await act(async () => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("loads audio duration as soon as a generated clip appears", async () => {
+    const node = createNode({ kind: "audio", imageSrc: "blob:audio" });
+    await act(async () => root.render(<CanvasNodeCard {...createProps(node, createActions())} />));
+    const audio = container.querySelector<HTMLAudioElement>("[data-testid='canvas-node-audio']")!;
+    expect(audio.preload).toBe("metadata");
+    await act(async () => root.render(<CanvasNodeCard {...createProps({ ...node, imageSrc: "blob:next" }, createActions())} />));
+    expect(container.querySelector("[data-testid='canvas-node-audio']")).not.toBe(audio);
   });
 
   it("reads original video proportions before selection and reloads them when the source changes", async () => {
@@ -351,4 +361,24 @@ describe("CanvasNodeCard render boundary", () => {
       expect(container.querySelector("article")?.getAttribute("data-node-id")).toBe(`node-${kind}`);
     },
   );
+
+  it("keeps the video upscale button disabled until an upscale model is configured", async () => {
+    const actions = createActions();
+    actions.openVideoUpscaleDialog = vi.fn();
+    const node = createNode({ kind: "video", imageSrc: "blob:video" });
+    const upscaleButton = () => container.querySelector<HTMLButtonElement>('button[title^="视频 AI 超分"]')!;
+
+    await act(async () => root.render(<CanvasNodeCard {...createProps(node, actions)} isSelectedSingle />));
+    expect(upscaleButton().disabled).toBe(true);
+    expect(upscaleButton().title).toBe("视频 AI 超分暂未开放");
+
+    await act(async () => root.render(
+      <CanvasUpscaleAvailabilityContext.Provider value={{ image: false, video: true }}>
+        <CanvasNodeCard {...createProps(node, actions)} isSelectedSingle />
+      </CanvasUpscaleAvailabilityContext.Provider>
+    ));
+    expect(upscaleButton().disabled).toBe(false);
+    await act(async () => upscaleButton().click());
+    expect(actions.openVideoUpscaleDialog).toHaveBeenCalledWith(node);
+  });
 });

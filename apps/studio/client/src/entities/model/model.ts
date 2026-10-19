@@ -6,6 +6,8 @@ export type AiModelsResponse = {
   image_models?: ModelDescriptor[];
   video_models?: ModelDescriptor[];
   audio_models?: ModelDescriptor[];
+  image_upscale_models?: ModelDescriptor[];
+  video_upscale_models?: ModelDescriptor[];
   models?: ModelDescriptor[];
   default_text_model?: ModelDescriptor;
   default_image_model?: ModelDescriptor;
@@ -42,6 +44,8 @@ export type ModelCatalog = {
   imageModels: string[];
   videoModels: string[];
   audioModels: string[];
+  imageUpscaleModels: string[];
+  videoUpscaleModels: string[];
   defaultTextModel: string;
   defaultImageModel: string;
   defaultVideoModel: string;

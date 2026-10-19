@@ -305,6 +305,8 @@ const (
 	ModelProviderTypeFalHappyHorse     = "fal_happyhorse"
 	ModelProviderTypeXAIImagine        = "xai_imagine"
 	ModelProviderTypeAliyunYike        = "aliyun_yike"
+	ModelProviderTypeAliyunVIAPI       = "aliyun_viapi"
+	ModelProviderTypeAliyunBailian     = "aliyun_bailian"
 	ModelProviderAuthTypeNone          = "none"
 	ModelProviderAuthTypeBearer        = "bearer"
 	ModelProviderAuthTypeXAPIKey       = "x_api_key"
@@ -327,10 +329,12 @@ const (
 	ImageProtocolDashScopeMultimodal   = "dashscope_multimodal"
 	ImageProtocolStabilityImage        = "stability_image"
 
-	ModelCapabilityText  = "text"
-	ModelCapabilityImage = "image"
-	ModelCapabilityVideo = "video"
-	ModelCapabilityAudio = "audio"
+	ModelCapabilityText         = "text"
+	ModelCapabilityImage        = "image"
+	ModelCapabilityVideo        = "video"
+	ModelCapabilityAudio        = "audio"
+	ModelCapabilityImageUpscale = "image_upscale"
+	ModelCapabilityVideoUpscale = "video_upscale"
 )
 
 // PinnedTextModelName is the only language model used by Studio text features
@@ -356,6 +360,8 @@ type ModelProviderConfig struct {
 	ImageModel         string `json:"image_model"`
 	VideoModel         string `json:"video_model"`
 	AudioModel         string `json:"audio_model"`
+	ImageUpscaleModel  string `json:"image_upscale_model"`
+	VideoUpscaleModel  string `json:"video_upscale_model"`
 	Capabilities       JSONB  `json:"capabilities" gorm:"type:jsonb"`
 	ModelsByCapability JSONB  `json:"models_by_capability" gorm:"type:jsonb"`
 	// AllowedUserIDs is an operator-managed allowlist of immutable account IDs.

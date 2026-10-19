@@ -83,6 +83,8 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   /** Waiting for a submission slot; no server job has been accepted yet. */
   generationQueued?: boolean;
   generationNotice?: string;
+  /** Alibaba Cloud video upscale job; kept apart from jobId so studio job recovery never polls it. */
+  videoUpscaleJobId?: string;
   model?: string;
   videoProvider?: "openai" | "seedance";
   size?: string;
@@ -128,6 +130,10 @@ export type CanvasNodeMetadata = Record<string, unknown> & {
   audioFormat?: string;
   audioSpeed?: string;
   audioInstructions?: string;
+  audioEmotion?: string;
+  audioLyrics?: string;
+  audioGender?: string;
+  audioIsInstrumental?: boolean;
   /** Original server-owned text/audio attempt, safe to retrieve after refresh. */
   generationReceipt?: import("./generationReceipt").CanvasGenerationReceipt;
   /** Original prompt-edit response; independent from text/audio node generation. */

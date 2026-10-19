@@ -1,5 +1,6 @@
 import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
 import { CanvasMinimap } from "./CanvasMinimap";
+import { useCanvasUpscaleAvailability } from "./CanvasUpscaleAvailability";
 import {
   Archive,
   BadgeCheck,
@@ -35,7 +36,10 @@ import {
   canvasDisplayEdges,
   isHiddenCanvasConnectionEndpoint,
 } from "@/features/canvas/domain/connections";
-import type { CanvasGroupData, CanvasGroupResizeCorner } from "@/features/canvas/domain/groups";
+import type {
+  CanvasGroupData,
+  CanvasGroupResizeCorner,
+} from "@/features/canvas/domain/groups";
 import type { CanvasMinimapModel } from "@/features/canvas/domain/minimap";
 import type { CanvasAlignGuide } from "@/features/canvas/domain/nodeSnap";
 import { imageSrcFromNode } from "@/features/canvas/domain/nodes";
@@ -88,7 +92,7 @@ type PendingConnectionCreateState = {
 function groupConnectionNode(
   group: CanvasGroupData,
   nodeMap: Map<string, CanvasNodeData>,
-  side: "left" | "right",
+  side: "left" | "right"
 ) {
   const members = group.nodeIds
     .map(nodeId => nodeMap.get(nodeId))
@@ -98,8 +102,12 @@ function groupConnectionNode(
     const nodePosition = side === "left" ? node.x : node.x + node.width;
     const bestPosition = side === "left" ? best.x : best.x + best.width;
     return side === "left"
-      ? nodePosition < bestPosition ? node : best
-      : nodePosition > bestPosition ? node : best;
+      ? nodePosition < bestPosition
+        ? node
+        : best
+      : nodePosition > bestPosition
+        ? node
+        : best;
   }, null);
 }
 
@@ -107,12 +115,22 @@ type CanvasStageActions = {
   handleStagePointerDown: (event: PointerEvent<HTMLElement>) => void;
   openCanvasContextMenu: (event: ReactMouseEvent<Element>) => void;
   handleCanvasDoubleClick: (event: ReactMouseEvent<Element>) => void;
-  dropOnCanvas: (data: DataTransfer, position: { x: number; y: number }) => void;
+  dropOnCanvas: (
+    data: DataTransfer,
+    position: { x: number; y: number }
+  ) => void;
   selectCanvasGroup: (group: CanvasGroupData) => void;
-  startGroupDrag: (event: PointerEvent<HTMLElement>, group: CanvasGroupData) => void;
+  startGroupDrag: (
+    event: PointerEvent<HTMLElement>,
+    group: CanvasGroupData
+  ) => void;
   moveGroupDrag: (event: PointerEvent<HTMLElement>) => void;
   endGroupDrag: () => void;
-  startGroupResize: (event: PointerEvent<HTMLElement>, group: CanvasGroupData, corner: CanvasGroupResizeCorner) => void;
+  startGroupResize: (
+    event: PointerEvent<HTMLElement>,
+    group: CanvasGroupData,
+    corner: CanvasGroupResizeCorner
+  ) => void;
   moveGroupResize: (event: PointerEvent<HTMLElement>) => void;
   endGroupResize: (event: PointerEvent<HTMLElement>) => void;
   handleCanvasLinesPointerDown: (event: PointerEvent<SVGSVGElement>) => void;
@@ -124,8 +142,14 @@ type CanvasStageActions = {
   handleEdgeClick: (edgeId: string) => void;
   removeEdge: (edgeId: string) => void;
   setHoveredEdgeId: (edgeId: string) => void;
-  clientToStagePoint: (clientX: number, clientY: number) => { x: number; y: number };
-  screenToCanvasPoint: (clientX: number, clientY: number) => { x: number; y: number };
+  clientToStagePoint: (
+    clientX: number,
+    clientY: number
+  ) => { x: number; y: number };
+  screenToCanvasPoint: (
+    clientX: number,
+    clientY: number
+  ) => { x: number; y: number };
   setContextMenu: (menu: CanvasContextMenuState | null) => void;
   toggleAgent: () => void;
   navigateFromMinimap: (world: { x: number; y: number }) => void;
@@ -137,11 +161,19 @@ type CanvasStageActions = {
   archiveSelectedNodesToLibrary: () => void;
   downloadSelectedNodes: (nodeIds?: Iterable<string>) => Promise<unknown>;
   generateFromNode: (nodeId?: string) => Promise<unknown>;
-  renderCanvasSubmenu: (key: string, icon: ReactNode, label: string, items: ReactNode) => ReactNode;
+  renderCanvasSubmenu: (
+    key: string,
+    icon: ReactNode,
+    label: string,
+    items: ReactNode
+  ) => ReactNode;
   copyCanvasImagePrompt: (node: CanvasNodeData) => Promise<unknown>;
   addNode: (kind: CanvasNodeKind, position?: { x: number; y: number }) => void;
   pasteCopiedNodes: () => void;
-  createNodeFromConnectionDraft: (kind: CanvasNodeKind, draft: PendingConnectionCreateState) => void;
+  createNodeFromConnectionDraft: (
+    kind: CanvasNodeKind,
+    draft: PendingConnectionCreateState
+  ) => void;
   cancelPendingConnectionCreate: () => void;
   dismissPendingGroup: () => void;
   confirmPendingGroup: (groupId: string) => void;
@@ -239,6 +271,7 @@ export function CanvasStage({
   pendingConnectionMenuStyle,
   actions,
 }: CanvasStageProps) {
+  const upscaleAvailability = useCanvasUpscaleAvailability();
   const {
     handleStagePointerDown,
     openCanvasContextMenu,
@@ -275,6 +308,7 @@ export function CanvasStage({
       setStoryboardNodeId,
       archiveCanvasMediaNode,
       captureVideoFrameNode,
+      openVideoUpscaleDialog,
       archiveCanvasTextNode,
       removeNode,
     },
@@ -291,42 +325,73 @@ export function CanvasStage({
   } = actions;
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const connectionMenuRef = useRef<HTMLDivElement>(null);
-  const displayEdges = useMemo(() => canvasDisplayEdges(edges, groups), [edges, groups]);
-  useOutsidePress(Boolean(contextMenu), event => event.composedPath().includes(contextMenuRef.current!), () => setContextMenu(null));
+  const displayEdges = useMemo(
+    () => canvasDisplayEdges(edges, groups),
+    [edges, groups]
+  );
+  useOutsidePress(
+    Boolean(contextMenu),
+    event => event.composedPath().includes(contextMenuRef.current!),
+    () => setContextMenu(null)
+  );
   // This menu opens on pointerup; the same gesture's trailing click must not dismiss it.
-  useOutsidePress(Boolean(pendingConnectionCreate), event => event.composedPath().includes(connectionMenuRef.current!), cancelPendingConnectionCreate, false);
+  useOutsidePress(
+    Boolean(pendingConnectionCreate),
+    event => event.composedPath().includes(connectionMenuRef.current!),
+    cancelPendingConnectionCreate,
+    false
+  );
   useLayoutEffect(() => {
     const grid = gridRef.current;
     const toolbar = grid?.querySelector<HTMLElement>(".node-toolbar-wrap");
     const node = toolbar?.closest<HTMLElement>(".real-canvas-node");
     if (!grid || !toolbar || !node) return;
-    const headers = [...grid.querySelectorAll<HTMLElement>(".canvas-group-header")];
+    const headers = [
+      ...grid.querySelectorAll<HTMLElement>(".canvas-group-header"),
+    ];
     if (!headers.length) return;
     const placeToolbar = () => {
       toolbar.style.removeProperty("--node-toolbar-group-lift");
       const worldScale = zoom / 100;
       if (worldScale <= 0) return;
       const nodeRect = node.getBoundingClientRect();
-      const controlsScale = worldScale * (parseFloat(getComputedStyle(toolbar).scale) || 1);
+      const controlsScale =
+        worldScale * (parseFloat(getComputedStyle(toolbar).scale) || 1);
       // Layout dimensions ignore the toolbar's entrance animation, so it does not jump afterwards.
-      const bottom = nodeRect.top + (node.clientTop + toolbar.offsetTop) * worldScale;
+      const bottom =
+        nodeRect.top + (node.clientTop + toolbar.offsetTop) * worldScale;
       const height = toolbar.offsetHeight * controlsScale;
       const width = toolbar.offsetWidth * controlsScale;
-      const left = nodeRect.left + (node.clientLeft + toolbar.offsetLeft) * worldScale - width / 2;
+      const left =
+        nodeRect.left +
+        (node.clientLeft + toolbar.offsetLeft) * worldScale -
+        width / 2;
       let lift = 0;
-      const headerRects = headers.map(header => header.getBoundingClientRect()).sort((a, b) => b.top - a.top);
+      const headerRects = headers
+        .map(header => header.getBoundingClientRect())
+        .sort((a, b) => b.top - a.top);
       for (const header of headerRects) {
-        if (left < header.right && left + width > header.left
-          && bottom - lift > header.top - NODE_TOOLBAR_GROUP_GAP
-          && bottom - lift - height < header.bottom + NODE_TOOLBAR_GROUP_GAP) {
+        if (
+          left < header.right &&
+          left + width > header.left &&
+          bottom - lift > header.top - NODE_TOOLBAR_GROUP_GAP &&
+          bottom - lift - height < header.bottom + NODE_TOOLBAR_GROUP_GAP
+        ) {
           lift = bottom - header.top + NODE_TOOLBAR_GROUP_GAP;
         }
       }
-      if (lift > 0) toolbar.style.setProperty("--node-toolbar-group-lift", `${lift / worldScale}px`);
+      if (lift > 0)
+        toolbar.style.setProperty(
+          "--node-toolbar-group-lift",
+          `${lift / worldScale}px`
+        );
     };
     placeToolbar();
     // Price text and responsive group headers can change size after the initial render.
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(placeToolbar);
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(placeToolbar);
     observer?.observe(toolbar);
     headers.forEach(header => observer?.observe(header));
     return () => {
@@ -335,311 +400,964 @@ export function CanvasStage({
     };
   }, [gridRef, zoom, groups, renderedNodes, nodeCardProps]);
   return (
-        <section
-          ref={stageRef}
-          tabIndex={-1}
-          aria-label="画布"
-          className={`canvas-stage real-canvas-stage canvas-background-${backgroundMode}`}
-          style={{ "--canvas-grid-size": `${40 * zoom / 100}px`, "--canvas-grid-x": `${panX}px`, "--canvas-grid-y": `${panY}px`, "--canvas-zoom": String(zoom) } as CSSProperties}
-          onPointerDown={handleStagePointerDown}
-          onPointerDownCapture={(event) => {
-            if (event.button === 2) return;
-            if (connectFrom || !groups.some((group) => group.pending)) return;
-            const target = event.target instanceof Element ? event.target : null;
-            if (target?.closest(".canvas-minimap, .canvas-group-frame.pending, .canvas-group-pending-actions, .canvas-node-handle, .canvas-context-menu, .canvas-connection-create-menu")) return;
-            dismissPendingGroup();
+    <section
+      ref={stageRef}
+      tabIndex={-1}
+      aria-label="画布"
+      className={`canvas-stage real-canvas-stage canvas-background-${backgroundMode}`}
+      style={
+        {
+          "--canvas-grid-size": `${(40 * zoom) / 100}px`,
+          "--canvas-grid-x": `${panX}px`,
+          "--canvas-grid-y": `${panY}px`,
+          "--canvas-zoom": String(zoom),
+        } as CSSProperties
+      }
+      onPointerDown={handleStagePointerDown}
+      onPointerDownCapture={event => {
+        if (event.button === 2) return;
+        if (connectFrom || !groups.some(group => group.pending)) return;
+        const target = event.target instanceof Element ? event.target : null;
+        if (
+          target?.closest(
+            ".canvas-minimap, .canvas-group-frame.pending, .canvas-group-pending-actions, .canvas-node-handle, .canvas-context-menu, .canvas-connection-create-menu"
+          )
+        )
+          return;
+        dismissPendingGroup();
+      }}
+      onContextMenu={event => {
+        if (projectActionDisabled) {
+          event.preventDefault();
+          return;
+        }
+        openCanvasContextMenu(event);
+      }}
+      onDoubleClick={event => {
+        if (!projectActionDisabled) handleCanvasDoubleClick(event);
+      }}
+      onDragOver={event => {
+        if (!projectActionDisabled) event.preventDefault();
+      }}
+      onDrop={event => {
+        event.preventDefault();
+        if (!projectActionDisabled)
+          dropOnCanvas(
+            event.dataTransfer,
+            screenToCanvasPoint(event.clientX, event.clientY)
+          );
+      }}
+    >
+      <div className="canvas-left-dock" data-canvas-ui data-canvas-no-zoom>
+        <CanvasTopToolbar {...topToolbar} />
+        <CanvasPinRail markers={pinnedMarkers} onFocus={onFocusPinnedNode} />
+      </div>
+
+      {canvasInteractionBlocked ? (
+        <div className="empty-output">
+          <Loader2 className="spin" size={28} />
+          <p>
+            {switching
+              ? "正在保存当前画布，切换完成前请勿操作…"
+              : projectScopePending
+                ? "正在确认项目工作区，暂不可操作画布…"
+                : "正在读取画布快照…"}
+          </p>
+        </div>
+      ) : (
+        <div
+          className="real-canvas-grid"
+          ref={gridRef}
+          style={{
+            transform: `translate(${panX}px, ${panY}px) scale(${zoom / 100})`,
           }}
-          onContextMenu={(event) => { if (projectActionDisabled) { event.preventDefault(); return; } openCanvasContextMenu(event); }}
-          onDoubleClick={(event) => { if (!projectActionDisabled) handleCanvasDoubleClick(event); }}
-          onDragOver={(event) => { if (!projectActionDisabled) event.preventDefault(); }}
-          onDrop={(event) => { event.preventDefault(); if (!projectActionDisabled) dropOnCanvas(event.dataTransfer, screenToCanvasPoint(event.clientX, event.clientY)); }}
         >
-          <div className="canvas-left-dock" data-canvas-ui data-canvas-no-zoom>
-            <CanvasTopToolbar {...topToolbar} />
-            <CanvasPinRail markers={pinnedMarkers} onFocus={onFocusPinnedNode} />
-          </div>
-
-          {canvasInteractionBlocked ? (
-            <div className="empty-output"><Loader2 className="spin" size={28} /><p>{switching ? "正在保存当前画布，切换完成前请勿操作…" : projectScopePending ? "正在确认项目工作区，暂不可操作画布…" : "正在读取画布快照…"}</p></div>
-          ) : (
-            <div className="real-canvas-grid" ref={gridRef}
-              style={{ transform: `translate(${panX}px, ${panY}px) scale(${zoom / 100})` }}
+          {groups.map(group => (
+            <section
+              key={group.id}
+              className={`canvas-group-frame${group.pending ? " pending" : ""} ${selectedGroupId === group.id ? "selected" : ""}`}
+              data-group-id={group.id}
+              style={
+                {
+                  left: group.position.x,
+                  top: group.position.y,
+                  width: group.width,
+                  height: `calc(${group.height}px + var(--group-frame-top-extension, 0px))`,
+                  "--canvas-group-width": group.width,
+                  "--canvas-group-color": group.color,
+                } as CSSProperties
+              }
+              onClick={event => {
+                event.stopPropagation();
+                selectCanvasGroup(group);
+              }}
+              onContextMenu={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                selectCanvasGroup(group);
+                openCanvasContextMenu(event);
+              }}
+              onPointerDown={event => startGroupDrag(event, group)}
+              onPointerMove={moveGroupDrag}
+              onPointerUp={endGroupDrag}
+              onPointerCancel={endGroupDrag}
             >
-              {groups.map((group) => (
-                <section
-                  key={group.id}
-                  className={`canvas-group-frame${group.pending ? " pending" : ""} ${selectedGroupId === group.id ? "selected" : ""}`}
-                  data-group-id={group.id}
-                  style={{
-                    left: group.position.x,
-                    top: group.position.y,
-                    width: group.width,
-                    height: `calc(${group.height}px + var(--group-frame-top-extension, 0px))`,
-                    "--canvas-group-width": group.width,
-                    "--canvas-group-color": group.color,
-                  } as CSSProperties}
-                  onClick={(event) => { event.stopPropagation(); selectCanvasGroup(group); }}
-                  onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); selectCanvasGroup(group); openCanvasContextMenu(event); }}
-                  onPointerDown={(event) => startGroupDrag(event, group)}
-                  onPointerMove={moveGroupDrag}
-                  onPointerUp={endGroupDrag}
-                  onPointerCancel={endGroupDrag}
-                >
-                  {!group.pending ? (
-                    <div className="canvas-group-header">
-                      <Boxes size={14} />
-                      <b title={group.title}>{group.title}</b>
-                      <span>{group.nodeIds.length} 节点</span>
-                      <details className="canvas-group-prices" onPointerDown={event => event.stopPropagation()}><summary>积分明细</summary>{nodes.filter(node => group.nodeIds.includes(node.id)).map(node => <div key={node.id}>{node.title} · <CanvasGenerationPrice node={node} /></div>)}</details>
-                      <div className="canvas-group-header-actions" onPointerDown={(event) => event.stopPropagation()}>
-                        <button type="button" title="批量执行分组" onClick={() => topToolbar.onRunGroup(group.id)} disabled={topToolbar.groupRunning}>
-                          {topToolbar.selectedGroupRunning ? <Loader2 className="spin" size={12} /> : <WandSparkles size={12} />}
-                        </button>
-                        <button type="button" title="将分组节点连接到配置" onClick={() => actions.openConnectSelection()}>
-                          <GitMerge size={12} />
-                        </button>
-                        <button type="button" title="解绑组" onClick={() => topToolbar.onUngroup(group.id)}>
-                          <Ungroup size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                  {group.pending ? (
-                    <div className="canvas-group-pending-actions" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-                      <span>已框选 {group.nodeIds.length} 个节点</span>
-                      <button type="button" onClick={() => confirmPendingGroup(group.id)}>组成分组</button>
-                      <button type="button" disabled={batchDownloadBusy} onClick={() => void actions.downloadSelectedNodes(group.nodeIds)}>{batchDownloadBusy ? "打包中…" : "批量下载"}</button>
-                      <button type="button" onClick={() => cancelPendingGroup(group.id)}>取消</button>
-                    </div>
-                  ) : null}
-                  {!group.pending && (["top-left", "top-right", "bottom-left", "bottom-right"] as CanvasGroupResizeCorner[]).map((corner) => (
-                    <span
-                      key={corner}
-                      className={`canvas-group-corner ${corner}`}
-                      aria-hidden="true"
-                    />
-                  ))}
-                  {!groups.some(other => other.pending && other.id !== group.id && other.nodeIds.some(id => group.nodeIds.includes(id))) ? (() => {
-                    const leftNode = groupConnectionNode(group, nodeMap, "left");
-                    const rightNode = groupConnectionNode(group, nodeMap, "right");
-                    return <>
-                      <button
-                        ref={(element) => {
-                          if (leftNode) actions.node.registerConnectionHandle(leftNode.id, "target", element);
-                        }}
-                        type="button"
-                        className={`canvas-group-connection-handle target canvas-node-handle ${leftNode && connectFrom === leftNode.id && connectHandleType === "target" ? "active" : ""}`}
-                        data-connection-handle-type="target"
-                        data-connection-node-id={leftNode?.id || ""}
-                        aria-label={group.pending ? "连接到选区" : "连接到分组"}
-                        title="输入：连接另一节点或分组的右侧输出"
-                        onClick={(event) => event.stopPropagation()}
-                        onPointerDown={(event) => {
-                          event.stopPropagation();
-                          if (leftNode) actions.node.beginConnection(event, leftNode.id, "target");
-                        }}
-                      />
-                      <button
-                        ref={(element) => {
-                          if (rightNode) actions.node.registerConnectionHandle(rightNode.id, "source", element);
-                        }}
-                        type="button"
-                        className={`canvas-group-connection-handle source canvas-node-handle ${rightNode && connectFrom === rightNode.id && connectHandleType === "source" ? "active" : ""}`}
-                        data-connection-handle-type="source"
-                        data-connection-node-id={rightNode?.id || ""}
-                        aria-label={group.pending ? "从选区连接" : "从分组连接"}
-                        title="输出：连接另一节点或分组的左侧输入"
-                        onClick={(event) => event.stopPropagation()}
-                        onPointerDown={(event) => {
-                          event.stopPropagation();
-                          if (rightNode) actions.node.beginConnection(event, rightNode.id, "source");
-                        }}
-                      />
-                    </>;
-                  })() : null}
-                </section>
-              ))}
-              {selectionBoxStyle ? <div className="canvas-selection-box" style={selectionBoxStyle} /> : null}
-              {alignmentGuides.length ? (
-                <svg className="canvas-align-guides" aria-hidden="true" fill="none">
-                  {alignmentGuides.map((guide, index) => {
-                    const x1 = guide.axis === "x" ? guide.position : guide.start;
-                    const y1 = guide.axis === "y" ? guide.position : guide.start;
-                    const x2 = guide.axis === "x" ? guide.position : guide.end;
-                    const y2 = guide.axis === "y" ? guide.position : guide.end;
-                    return (
-                      <g key={`${guide.axis}-${guide.position}-${index}`}>
-                        <line className="canvas-align-guide-shadow" x1={x1} y1={y1} x2={x2} y2={y2} />
-                        <line className="canvas-align-guide" x1={x1} y1={y1} x2={x2} y2={y2} />
-                      </g>
-                    );
-                  })}
-                </svg>
-              ) : null}
-              <svg
-                className="real-canvas-lines"
-                aria-hidden="true"
-                style={{
-                  left: connectionLayerBounds.left,
-                  top: connectionLayerBounds.top,
-                  width: connectionLayerBounds.width,
-                  height: connectionLayerBounds.height,
-                }}
-                viewBox={connectionLayerBounds.viewBox}
-                onPointerDown={handleCanvasLinesPointerDown}
-                onPointerMove={handleCanvasLinesPointerMove}
-                onPointerLeave={handleCanvasLinesPointerLeave}
-                onClick={handleCanvasLinesClick}
-                onDoubleClick={handleCanvasLinesDoubleClick}
-                onContextMenu={handleCanvasLinesContextMenu}
-              >
-                {displayEdges.map(({ edge, fromGroup, toGroup }) => {
-                  const from = nodeMap.get(edge.from);
-                  const to = nodeMap.get(edge.to);
-                  if (!from || !to || isHiddenCanvasConnectionEndpoint(from, nodes) || isHiddenCanvasConnectionEndpoint(to, nodes)) return null;
-                  const displayFrom = canvasConnectionDisplayNode(from, fromGroup ? [fromGroup] : []);
-                  const displayTo = canvasConnectionDisplayNode(to, toGroup ? [toGroup] : []);
-                  const path = canvasActiveConnectionPath(displayFrom, "source", { x: displayTo.x, y: displayTo.y }, displayTo);
-                  const active = selectedEdgeId === edge.id || hoveredEdgeId === edge.id;
-                  return (
-                <g key={edge.id} className={selectedEdgeId === edge.id ? "selected-canvas-edge" : ""}>
-                      <path
-                        className="real-canvas-edge-hit"
-                        data-edge-id={edge.id}
-                        d={path}
-                        fill="none"
-                        stroke="transparent"
-                        strokeWidth={16}
-                        style={{ cursor: "pointer", pointerEvents: "stroke" }}
-                        onClick={(event) => { event.stopPropagation(); handleEdgeClick(edge.id); }}
-                        onDoubleClick={(event) => { event.stopPropagation(); removeEdge(edge.id); }}
-                        onMouseEnter={() => setHoveredEdgeId(edge.id)}
-                        onMouseLeave={() => setHoveredEdgeId("")}
-                        onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); const point = clientToStagePoint(event.clientX, event.clientY); const canvasPoint = screenToCanvasPoint(event.clientX, event.clientY); handleEdgeClick(edge.id); setContextMenu({ x: point.x, y: point.y, canvasX: canvasPoint.x, canvasY: canvasPoint.y, edgeId: edge.id }); }}
-                      />
-                      <path
-                        className="real-canvas-edge-visible"
-                        d={path}
-                        fill="none"
-                        pointerEvents="none"
-                        style={active ? { stroke: "#7dd3fc", strokeWidth: 2.4, filter: "drop-shadow(0 0 8px rgba(125, 211, 252, .45))" } : undefined}
-                      />
-                    </g>
-                  );
-                })}
-                {connectionPreviewPath ? <path className="real-canvas-edge-preview" d={connectionPreviewPath} fill="none" pointerEvents="none" /> : null}
-              </svg>
-              {renderedNodes.map((node) => <CanvasNodeCard key={node.id} {...nodeCardProps(node)} />)}
-            </div>
-          )}
-
-          <CanvasBottomToolbar {...bottomToolbar} />
-          <button
-            className={`canvas-agent-fab ${agentOpen ? "is-active" : ""}`}
-            onClick={toggleAgent}
-            disabled={projectActionDisabled}
-            title={agentOpen ? "关闭 Agent" : "打开 Agent"}
-            data-canvas-ui
-            data-canvas-no-zoom
-          >
-            <MetaBallOrb className="canvas-agent-fab-orb" />
-            <Sparkles size={20} />
-          </button>
-          {minimapOpen && !projectActionDisabled && !canvasInteractionBlocked ? (
-            <CanvasMinimap model={minimapModel} selectedNodeIds={selectedNodeIds} onNavigate={navigateFromMinimap} />
-          ) : null}
-          {contextMenu && !projectActionDisabled ? (
-            <div ref={contextMenuRef} className={`canvas-context-menu${contextMenuFlipX ? " flip-x" : ""}`} data-canvas-ui data-canvas-no-zoom style={contextMenuStyle} onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>
-              {contextMenu.nodeId || contextMenu.edgeId ? (
-                <div className="inspector-head">
-                  <div><p className="eyebrow">MENU</p><h3>{contextMenu.edgeId ? "连线操作" : "节点操作"}</h3></div>
+              {!group.pending ? (
+                <div className="canvas-group-header">
+                  <Boxes size={14} />
+                  <b title={group.title}>{group.title}</b>
+                  <span>{group.nodeIds.length} 节点</span>
+                  <details
+                    className="canvas-group-prices"
+                    onPointerDown={event => event.stopPropagation()}
+                  >
+                    <summary>积分明细</summary>
+                    {nodes
+                      .filter(node => group.nodeIds.includes(node.id))
+                      .map(node => (
+                        <div key={node.id}>
+                          {node.title} · <CanvasGenerationPrice node={node} />
+                        </div>
+                      ))}
+                  </details>
+                  <div
+                    className="canvas-group-header-actions"
+                    onPointerDown={event => event.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      title="批量执行分组"
+                      onClick={() => topToolbar.onRunGroup(group.id)}
+                      disabled={topToolbar.groupRunning}
+                    >
+                      {topToolbar.selectedGroupRunning ? (
+                        <Loader2 className="spin" size={12} />
+                      ) : (
+                        <WandSparkles size={12} />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      title="将分组节点连接到配置"
+                      onClick={() => actions.openConnectSelection()}
+                    >
+                      <GitMerge size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      title="解绑组"
+                      onClick={() => topToolbar.onUngroup(group.id)}
+                    >
+                      <Ungroup size={12} />
+                    </button>
+                  </div>
                 </div>
               ) : null}
-              <div className={`canvas-context-menu-list${contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? " has-submenus" : ""}`}>
-                {!contextMenu.edgeId && selectedNodeIds.size >= 2 ? (
-                  <button className="full-outline" disabled={batchDownloadBusy} onClick={() => { void actions.downloadSelectedNodes(); setContextMenu(null); }}><Download size={14} /> {batchDownloadBusy ? "打包中…" : "批量下载"}</button>
-                ) : null}
-                {!contextMenu.edgeId && selectedNodeIds.size >= 2 ? (
-                  <button className="full-outline" onClick={() => { actions.registerSelectedImagesAsSeedanceAssets(); setContextMenu(null); }}><BadgeCheck size={14} /> 批量注册拟真人素材</button>
-                ) : null}
-                {!contextMenu.edgeId && selectedNodeIds.size >= 2 ? (
-                  <button className="full-outline" onClick={() => { actions.archiveSelectedNodesToLibrary(); setContextMenu(null); }}><Archive size={14} /> 批量加入素材库</button>
-                ) : null}
-                {contextMenu.nodeId ? (
-                  <>
-                    {selectedNodeIds.size < 2 && contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? (
-                      <button className="full-outline" onClick={() => { void archiveCanvasMediaNode(contextMenuNode); setContextMenu(null); }}><Archive size={14} /> 加入素材库</button>
-                    ) : null}
-                    <button className="full-outline" onClick={() => { copySelectedNodes(); setContextMenu(null); }}>复制所选节点</button>
-                    {selectedNodeIds.size >= 2 ? <button className="full-outline" onClick={() => { openConnectSelection(); setContextMenu(null); }}>连接所选节点到配置</button> : null}
-                    <button className="full-outline" onClick={() => { void duplicateSelectedNode(contextMenu.nodeId!); setContextMenu(null); }}>创建副本</button>
-                    {contextMenuNode?.kind === "director" ? <button className="full-outline" onClick={() => { void openDirectorNode(contextMenuNode); setContextMenu(null); }}>打开导演台</button> : null}
-                    {contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? (
+              {group.pending ? (
+                <div
+                  className="canvas-group-pending-actions"
+                  onPointerDown={event => event.stopPropagation()}
+                  onClick={event => event.stopPropagation()}
+                >
+                  <span>已框选 {group.nodeIds.length} 个节点</span>
+                  <button
+                    type="button"
+                    onClick={() => confirmPendingGroup(group.id)}
+                  >
+                    组成分组
+                  </button>
+                  <button
+                    type="button"
+                    disabled={batchDownloadBusy}
+                    onClick={() =>
+                      void actions.downloadSelectedNodes(group.nodeIds)
+                    }
+                  >
+                    {batchDownloadBusy ? "打包中…" : "批量下载"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => cancelPendingGroup(group.id)}
+                  >
+                    取消
+                  </button>
+                </div>
+              ) : null}
+              {!group.pending &&
+                (
+                  [
+                    "top-left",
+                    "top-right",
+                    "bottom-left",
+                    "bottom-right",
+                  ] as CanvasGroupResizeCorner[]
+                ).map(corner => (
+                  <span
+                    key={corner}
+                    className={`canvas-group-corner ${corner}`}
+                    aria-hidden="true"
+                  />
+                ))}
+              {!groups.some(
+                other =>
+                  other.pending &&
+                  other.id !== group.id &&
+                  other.nodeIds.some(id => group.nodeIds.includes(id))
+              )
+                ? (() => {
+                    const leftNode = groupConnectionNode(
+                      group,
+                      nodeMap,
+                      "left"
+                    );
+                    const rightNode = groupConnectionNode(
+                      group,
+                      nodeMap,
+                      "right"
+                    );
+                    return (
                       <>
-                        {renderCanvasSubmenu("image-edit", <Scissors size={14} />, "图片处理", (
-                          <>
-                            <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "crop"); setContextMenu(null); }}>裁剪图片</button>
-                            <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "focus"); setContextMenu(null); }}>聚焦提取</button>
-                            <button className="full-outline" onClick={() => { setImageAnnotationNodeId(contextMenuNode.id); setContextMenu(null); }}>图片标注</button>
-                            <button className="full-outline" onClick={() => { setImageMaskNodeId(contextMenuNode.id); setImageToolError(""); setContextMenu(null); }}>蒙版修改</button>
-                            <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "outpaint"); setContextMenu(null); }}>扩图</button>
-                            <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "split"); setContextMenu(null); }}>切分图片</button>
-                            <button className="full-outline" onClick={() => { void flipCanvasImageNode(contextMenuNode, "horizontal"); setContextMenu(null); }}>水平翻转</button>
-                            <button className="full-outline" onClick={() => { void flipCanvasImageNode(contextMenuNode, "vertical"); setContextMenu(null); }}>垂直翻转</button>
-                            <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "upscale"); setContextMenu(null); }}>放大图片</button>
-                            <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "compress"); setContextMenu(null); }}>压缩图片</button>
-                          </>
-                        ))}
-                        {renderCanvasSubmenu("image-ai", <Sparkles size={14} />, "AI 生成", (
-                          <>
-                            <button className="full-outline" onClick={() => { void generatePanoramaCanvasImage(contextMenuNode); setContextMenu(null); }}>生成全景图 <CanvasGenerationPrice node={contextMenuNode} edit panorama /></button>
-                            <button className="full-outline" onClick={() => { openImageToolDialog(contextMenuNode.id, "angle"); setContextMenu(null); }}>AI 多角度</button>
-                            <button className="full-outline" disabled title="AI 超分暂未开放">AI 超分（暂未开放）</button>
-                            <button className="full-outline" onClick={() => { void createImageReversePromptNodes(contextMenuNode); setContextMenu(null); }}>反推提示词</button>
-                            <button className="full-outline" onClick={() => { setStoryboardNodeId(contextMenuNode.id); setContextMenu(null); }}>故事板导出</button>
-                          </>
-                        ))}
+                        <button
+                          ref={element => {
+                            if (leftNode)
+                              actions.node.registerConnectionHandle(
+                                leftNode.id,
+                                "target",
+                                element
+                              );
+                          }}
+                          type="button"
+                          className={`canvas-group-connection-handle target canvas-node-handle ${leftNode && connectFrom === leftNode.id && connectHandleType === "target" ? "active" : ""}`}
+                          data-connection-handle-type="target"
+                          data-connection-node-id={leftNode?.id || ""}
+                          aria-label={
+                            group.pending ? "连接到选区" : "连接到分组"
+                          }
+                          title="输入：连接另一节点或分组的右侧输出"
+                          onClick={event => event.stopPropagation()}
+                          onPointerDown={event => {
+                            event.stopPropagation();
+                            if (leftNode)
+                              actions.node.beginConnection(
+                                event,
+                                leftNode.id,
+                                "target"
+                              );
+                          }}
+                        />
+                        <button
+                          ref={element => {
+                            if (rightNode)
+                              actions.node.registerConnectionHandle(
+                                rightNode.id,
+                                "source",
+                                element
+                              );
+                          }}
+                          type="button"
+                          className={`canvas-group-connection-handle source canvas-node-handle ${rightNode && connectFrom === rightNode.id && connectHandleType === "source" ? "active" : ""}`}
+                          data-connection-handle-type="source"
+                          data-connection-node-id={rightNode?.id || ""}
+                          aria-label={
+                            group.pending ? "从选区连接" : "从分组连接"
+                          }
+                          title="输出：连接另一节点或分组的左侧输入"
+                          onClick={event => event.stopPropagation()}
+                          onPointerDown={event => {
+                            event.stopPropagation();
+                            if (rightNode)
+                              actions.node.beginConnection(
+                                event,
+                                rightNode.id,
+                                "source"
+                              );
+                          }}
+                        />
                       </>
-                    ) : null}
-                    {contextMenuNode?.kind === "video" ? <button className="full-outline" disabled={Boolean(captureFrameNodeId)} onClick={() => { void captureVideoFrameNode(contextMenuNode); setContextMenu(null); }}>当前帧创建图片</button> : null}
-                    {selectedNodeIds.size < 2 && (contextMenuNode?.kind === "video" || contextMenuNode?.kind === "audio") ? <button className="full-outline" onClick={() => { void archiveCanvasMediaNode(contextMenuNode); setContextMenu(null); }}>加入素材库</button> : null}
-                    {selectedNodeIds.size < 2 && contextMenuNode?.kind === "text" ? <button className="full-outline" onClick={() => { void archiveCanvasTextNode(contextMenuNode); setContextMenu(null); }}>加入素材库</button> : null}
-                    <hr className="canvas-menu-divider" />
-                    <button className="full-outline danger" onClick={() => { removeNode(contextMenu.nodeId!); }}>删除节点</button>
-                  </>
-                ) : contextMenu.edgeId ? (
-                  <>
-                    <button className="full-outline" onClick={() => { handleEdgeClick(contextMenu.edgeId!); setContextMenu(null); }}>选中连线</button>
-                    <button className="full-outline danger" onClick={() => { removeEdge(contextMenu.edgeId!); }}>删除连线</button>
-                  </>
-                ) : (
-                  <>
-                    <button className="full-outline" onClick={() => { addNode("image", { x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}><ImageIcon size={14} /> 新建图片</button>
-                    <button className="full-outline" onClick={() => { addNode("video", { x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}><Film size={14} /> 新建视频</button>
-                    <button className="full-outline" onClick={() => { addNode("text", { x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}><Type size={14} /> 新建文本</button>
-                    <button className="full-outline" onClick={() => { addNode("audio", { x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}><Music2 size={14} /> 新建音频</button>
-                    <button className="full-outline" onClick={() => { addNode("config", { x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}><SlidersHorizontal size={14} /> 新建配置</button>
-                    <hr className="canvas-menu-divider" />
-                    <button className="full-outline" onClick={() => { pasteCopiedNodes(); setContextMenu(null); }}><ClipboardPaste size={14} /> 粘贴</button>
-                  </>
-                )}
+                    );
+                  })()
+                : null}
+            </section>
+          ))}
+          {selectionBoxStyle ? (
+            <div className="canvas-selection-box" style={selectionBoxStyle} />
+          ) : null}
+          {alignmentGuides.length ? (
+            <svg className="canvas-align-guides" aria-hidden="true" fill="none">
+              {alignmentGuides.map((guide, index) => {
+                const x1 = guide.axis === "x" ? guide.position : guide.start;
+                const y1 = guide.axis === "y" ? guide.position : guide.start;
+                const x2 = guide.axis === "x" ? guide.position : guide.end;
+                const y2 = guide.axis === "y" ? guide.position : guide.end;
+                return (
+                  <g key={`${guide.axis}-${guide.position}-${index}`}>
+                    <line
+                      className="canvas-align-guide-shadow"
+                      x1={x1}
+                      y1={y1}
+                      x2={x2}
+                      y2={y2}
+                    />
+                    <line
+                      className="canvas-align-guide"
+                      x1={x1}
+                      y1={y1}
+                      x2={x2}
+                      y2={y2}
+                    />
+                  </g>
+                );
+              })}
+            </svg>
+          ) : null}
+          <svg
+            className="real-canvas-lines"
+            aria-hidden="true"
+            style={{
+              left: connectionLayerBounds.left,
+              top: connectionLayerBounds.top,
+              width: connectionLayerBounds.width,
+              height: connectionLayerBounds.height,
+            }}
+            viewBox={connectionLayerBounds.viewBox}
+            onPointerDown={handleCanvasLinesPointerDown}
+            onPointerMove={handleCanvasLinesPointerMove}
+            onPointerLeave={handleCanvasLinesPointerLeave}
+            onClick={handleCanvasLinesClick}
+            onDoubleClick={handleCanvasLinesDoubleClick}
+            onContextMenu={handleCanvasLinesContextMenu}
+          >
+            {displayEdges.map(({ edge, fromGroup, toGroup }) => {
+              const from = nodeMap.get(edge.from);
+              const to = nodeMap.get(edge.to);
+              if (
+                !from ||
+                !to ||
+                isHiddenCanvasConnectionEndpoint(from, nodes) ||
+                isHiddenCanvasConnectionEndpoint(to, nodes)
+              )
+                return null;
+              const displayFrom = canvasConnectionDisplayNode(
+                from,
+                fromGroup ? [fromGroup] : []
+              );
+              const displayTo = canvasConnectionDisplayNode(
+                to,
+                toGroup ? [toGroup] : []
+              );
+              const path = canvasActiveConnectionPath(
+                displayFrom,
+                "source",
+                { x: displayTo.x, y: displayTo.y },
+                displayTo
+              );
+              const active =
+                selectedEdgeId === edge.id || hoveredEdgeId === edge.id;
+              return (
+                <g
+                  key={edge.id}
+                  className={
+                    selectedEdgeId === edge.id ? "selected-canvas-edge" : ""
+                  }
+                >
+                  <path
+                    className="real-canvas-edge-hit"
+                    data-edge-id={edge.id}
+                    d={path}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth={16}
+                    style={{ cursor: "pointer", pointerEvents: "stroke" }}
+                    onClick={event => {
+                      event.stopPropagation();
+                      handleEdgeClick(edge.id);
+                    }}
+                    onDoubleClick={event => {
+                      event.stopPropagation();
+                      removeEdge(edge.id);
+                    }}
+                    onMouseEnter={() => setHoveredEdgeId(edge.id)}
+                    onMouseLeave={() => setHoveredEdgeId("")}
+                    onContextMenu={event => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const point = clientToStagePoint(
+                        event.clientX,
+                        event.clientY
+                      );
+                      const canvasPoint = screenToCanvasPoint(
+                        event.clientX,
+                        event.clientY
+                      );
+                      handleEdgeClick(edge.id);
+                      setContextMenu({
+                        x: point.x,
+                        y: point.y,
+                        canvasX: canvasPoint.x,
+                        canvasY: canvasPoint.y,
+                        edgeId: edge.id,
+                      });
+                    }}
+                  />
+                  <path
+                    className="real-canvas-edge-visible"
+                    d={path}
+                    fill="none"
+                    pointerEvents="none"
+                    style={
+                      active
+                        ? {
+                            stroke: "#7dd3fc",
+                            strokeWidth: 2.4,
+                            filter:
+                              "drop-shadow(0 0 8px rgba(125, 211, 252, .45))",
+                          }
+                        : undefined
+                    }
+                  />
+                </g>
+              );
+            })}
+            {connectionPreviewPath ? (
+              <path
+                className="real-canvas-edge-preview"
+                d={connectionPreviewPath}
+                fill="none"
+                pointerEvents="none"
+              />
+            ) : null}
+          </svg>
+          {renderedNodes.map(node => (
+            <CanvasNodeCard key={node.id} {...nodeCardProps(node)} />
+          ))}
+        </div>
+      )}
+
+      <CanvasBottomToolbar {...bottomToolbar} />
+      <button
+        className={`canvas-agent-fab ${agentOpen ? "is-active" : ""}`}
+        onClick={toggleAgent}
+        disabled={projectActionDisabled}
+        title={agentOpen ? "关闭 Agent" : "打开 Agent"}
+        data-canvas-ui
+        data-canvas-no-zoom
+      >
+        <MetaBallOrb className="canvas-agent-fab-orb" />
+        <Sparkles size={20} />
+      </button>
+      {minimapOpen && !projectActionDisabled && !canvasInteractionBlocked ? (
+        <CanvasMinimap
+          model={minimapModel}
+          selectedNodeIds={selectedNodeIds}
+          onNavigate={navigateFromMinimap}
+        />
+      ) : null}
+      {contextMenu && !projectActionDisabled ? (
+        <div
+          ref={contextMenuRef}
+          className={`canvas-context-menu${contextMenuFlipX ? " flip-x" : ""}`}
+          data-canvas-ui
+          data-canvas-no-zoom
+          style={contextMenuStyle}
+          onClick={event => event.stopPropagation()}
+          onContextMenu={event => event.preventDefault()}
+        >
+          {contextMenu.nodeId || contextMenu.edgeId ? (
+            <div className="inspector-head">
+              <div>
+                <p className="eyebrow">MENU</p>
+                <h3>{contextMenu.edgeId ? "连线操作" : "节点操作"}</h3>
               </div>
             </div>
           ) : null}
-          {pendingConnectionCreate && !projectActionDisabled ? (
-            <div ref={connectionMenuRef} className="canvas-context-menu canvas-connection-create-menu" data-canvas-ui data-canvas-no-zoom style={pendingConnectionMenuStyle} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()}>
-              <div className="inspector-head">
-                <div><p className="eyebrow">CONNECT</p><h3>新建节点并连接</h3></div>
-              </div>
-              <div className="canvas-context-menu-list">
-                <button className="full-outline" onClick={() => createNodeFromConnectionDraft("image", pendingConnectionCreate)}>新建图片</button>
-                <button className="full-outline" onClick={() => createNodeFromConnectionDraft("video", pendingConnectionCreate)}>新建视频</button>
-                <button className="full-outline" onClick={() => createNodeFromConnectionDraft("text", pendingConnectionCreate)}>新建文本</button>
-                <button className="full-outline" onClick={() => createNodeFromConnectionDraft("audio", pendingConnectionCreate)}>新建音频</button>
-                <button className="full-outline danger" onClick={() => cancelPendingConnectionCreate()}>取消连接</button>
-              </div>
+          <div
+            className={`canvas-context-menu-list${contextMenuNode?.kind === "image" && imageSrcFromNode(contextMenuNode, previews) ? " has-submenus" : ""}`}
+          >
+            {!contextMenu.edgeId && selectedNodeIds.size >= 2 ? (
+              <button
+                className="full-outline"
+                disabled={batchDownloadBusy}
+                onClick={() => {
+                  void actions.downloadSelectedNodes();
+                  setContextMenu(null);
+                }}
+              >
+                <Download size={14} />{" "}
+                {batchDownloadBusy ? "打包中…" : "批量下载"}
+              </button>
+            ) : null}
+            {!contextMenu.edgeId && selectedNodeIds.size >= 2 ? (
+              <button
+                className="full-outline"
+                onClick={() => {
+                  actions.registerSelectedImagesAsSeedanceAssets();
+                  setContextMenu(null);
+                }}
+              >
+                <BadgeCheck size={14} /> 批量注册拟真人素材
+              </button>
+            ) : null}
+            {!contextMenu.edgeId && selectedNodeIds.size >= 2 ? (
+              <button
+                className="full-outline"
+                onClick={() => {
+                  actions.archiveSelectedNodesToLibrary();
+                  setContextMenu(null);
+                }}
+              >
+                <Archive size={14} /> 批量加入素材库
+              </button>
+            ) : null}
+            {contextMenu.nodeId ? (
+              <>
+                {selectedNodeIds.size < 2 &&
+                contextMenuNode?.kind === "image" &&
+                imageSrcFromNode(contextMenuNode, previews) ? (
+                  <button
+                    className="full-outline"
+                    onClick={() => {
+                      void archiveCanvasMediaNode(contextMenuNode);
+                      setContextMenu(null);
+                    }}
+                  >
+                    <Archive size={14} /> 加入素材库
+                  </button>
+                ) : null}
+                <button
+                  className="full-outline"
+                  onClick={() => {
+                    copySelectedNodes();
+                    setContextMenu(null);
+                  }}
+                >
+                  复制所选节点
+                </button>
+                {selectedNodeIds.size >= 2 ? (
+                  <button
+                    className="full-outline"
+                    onClick={() => {
+                      openConnectSelection();
+                      setContextMenu(null);
+                    }}
+                  >
+                    连接所选节点到配置
+                  </button>
+                ) : null}
+                <button
+                  className="full-outline"
+                  onClick={() => {
+                    void duplicateSelectedNode(contextMenu.nodeId!);
+                    setContextMenu(null);
+                  }}
+                >
+                  创建副本
+                </button>
+                {contextMenuNode?.kind === "director" ? (
+                  <button
+                    className="full-outline"
+                    onClick={() => {
+                      void openDirectorNode(contextMenuNode);
+                      setContextMenu(null);
+                    }}
+                  >
+                    打开导演台
+                  </button>
+                ) : null}
+                {contextMenuNode?.kind === "image" &&
+                imageSrcFromNode(contextMenuNode, previews) ? (
+                  <>
+                    {renderCanvasSubmenu(
+                      "image-edit",
+                      <Scissors size={14} />,
+                      "图片处理",
+                      <>
+                        <button
+                          className="full-outline"
+                          onClick={() => {
+                            openImageToolDialog(contextMenuNode.id, "crop");
+                            setContextMenu(null);
+                          }}
+                        >
+                          裁剪图片
+                        </button>
+                        <button
+                          className="full-outline"
+                          onClick={() => {
+                            openImageToolDialog(contextMenuNode.id, "focus");
+                            setContextMenu(null);
+                          }}
+                        >
+                          聚焦提取
+                        </button>
+                        <button
+                          className="full-outline"
+                          onClick={() => {
+                            setImageAnnotationNodeId(contextMenuNode.id);
+                            setContextMenu(null);
+                          }}
+                        >
+                          图片标注
+                        </button>
+                        <button
+                          className="full-outline"
+                          onClick={() => {
+                            setImageMaskNodeId(contextMenuNode.id);
+                            setImageToolError("");
+                            setContextMenu(null);
+                          }}
+                        >
+                          蒙版修改
+                        </button>
+                        <button
+                          className="full-outline"
+                          onClick={() => {
+                            openImageToolDialog(contextMenuNode.id, "outpaint");
+                            setContextMenu(null);
+                          }}
+                        >
+                          扩图
+                        </button>
+                        <button
+                          className="full-outline"
+                          onClick={() => {
+                            openImageToolDialog(contextMenuNode.id, "split");
+                            setContextMenu(null);
+                          }}
+                        >
+                          切分图片
+                        </button>
+                        <button
+                          className="full-outline"
+                          onClick={() => {
+                            void flipCanvasImageNode(
+                              contextMenuNode,
+                              "horizontal"
+                            );
+                            setContextMenu(null);
+                          }}
+                        >
+                          水平翻转
+                        </button>
+                        <button
+                          className="full-outline"
+                          onClick={() => {
+                            void flipCanvasImageNode(
+                              contextMenuNode,
+                              "vertical"
+                            );
+                            setContextMenu(null);
+                          }}
+                        >
+                          垂直翻转
+                        </button>
+                        <button
+                          className="full-outline"
+                          onClick={() => {
+                            openImageToolDialog(contextMenuNode.id, "upscale");
+                            setContextMenu(null);
+                          }}
+                        >
+                          放大图片
+                        </button>
+                        <button
+                          className="full-outline"
+                          onClick={() => {
+                            openImageToolDialog(contextMenuNode.id, "compress");
+                            setContextMenu(null);
+                          }}
+                        >
+                          压缩图片
+                        </button>
+                      </>
+                    )}
+                    {renderCanvasSubmenu(
+                      "image-ai",
+                      <Sparkles size={14} />,
+                      "AI 生成",
+                      <>
+                        <button
+                          className="full-outline"
+                          onClick={() => {
+                            void generatePanoramaCanvasImage(contextMenuNode);
+                            setContextMenu(null);
+                          }}
+                        >
+                          生成全景图{" "}
+                          <CanvasGenerationPrice
+                            node={contextMenuNode}
+                            edit
+                            panorama
+                          />
+                        </button>
+                        <button
+                          className="full-outline"
+                          onClick={() => {
+                            openImageToolDialog(contextMenuNode.id, "angle");
+                            setContextMenu(null);
+                          }}
+                        >
+                          AI 多角度
+                        </button>
+                        {upscaleAvailability.image ? (
+                          <button
+                            className="full-outline"
+                            onClick={() => {
+                              openImageToolDialog(
+                                contextMenuNode.id,
+                                "ai-upscale"
+                              );
+                              setContextMenu(null);
+                            }}
+                          >
+                            AI 超分
+                          </button>
+                        ) : (
+                          <button
+                            className="full-outline"
+                            disabled
+                            title="AI 超分暂未开放"
+                          >
+                            AI 超分（暂未开放）
+                          </button>
+                        )}
+                        <button
+                          className="full-outline"
+                          onClick={() => {
+                            void createImageReversePromptNodes(contextMenuNode);
+                            setContextMenu(null);
+                          }}
+                        >
+                          反推提示词
+                        </button>
+                        <button
+                          className="full-outline"
+                          onClick={() => {
+                            setStoryboardNodeId(contextMenuNode.id);
+                            setContextMenu(null);
+                          }}
+                        >
+                          故事板导出
+                        </button>
+                      </>
+                    )}
+                  </>
+                ) : null}
+                {contextMenuNode?.kind === "video" ? (
+                  <button
+                    className="full-outline"
+                    disabled={Boolean(captureFrameNodeId)}
+                    onClick={() => {
+                      void captureVideoFrameNode(contextMenuNode);
+                      setContextMenu(null);
+                    }}
+                  >
+                    当前帧创建图片
+                  </button>
+                ) : null}
+                {contextMenuNode?.kind === "video" &&
+                upscaleAvailability.video &&
+                imageSrcFromNode(contextMenuNode, previews) ? (
+                  <button
+                    className="full-outline"
+                    onClick={() => {
+                      openVideoUpscaleDialog?.(contextMenuNode);
+                      setContextMenu(null);
+                    }}
+                  >
+                    视频 AI 超分
+                  </button>
+                ) : null}
+                {selectedNodeIds.size < 2 &&
+                (contextMenuNode?.kind === "video" ||
+                  contextMenuNode?.kind === "audio") ? (
+                  <button
+                    className="full-outline"
+                    onClick={() => {
+                      void archiveCanvasMediaNode(contextMenuNode);
+                      setContextMenu(null);
+                    }}
+                  >
+                    加入素材库
+                  </button>
+                ) : null}
+                {selectedNodeIds.size < 2 &&
+                contextMenuNode?.kind === "text" ? (
+                  <button
+                    className="full-outline"
+                    onClick={() => {
+                      void archiveCanvasTextNode(contextMenuNode);
+                      setContextMenu(null);
+                    }}
+                  >
+                    加入素材库
+                  </button>
+                ) : null}
+                <hr className="canvas-menu-divider" />
+                <button
+                  className="full-outline danger"
+                  onClick={() => {
+                    removeNode(contextMenu.nodeId!);
+                  }}
+                >
+                  删除节点
+                </button>
+              </>
+            ) : contextMenu.edgeId ? (
+              <>
+                <button
+                  className="full-outline"
+                  onClick={() => {
+                    handleEdgeClick(contextMenu.edgeId!);
+                    setContextMenu(null);
+                  }}
+                >
+                  选中连线
+                </button>
+                <button
+                  className="full-outline danger"
+                  onClick={() => {
+                    removeEdge(contextMenu.edgeId!);
+                  }}
+                >
+                  删除连线
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className="full-outline"
+                  onClick={() => {
+                    addNode("image", {
+                      x: contextMenu.canvasX,
+                      y: contextMenu.canvasY,
+                    });
+                    setContextMenu(null);
+                  }}
+                >
+                  <ImageIcon size={14} /> 新建图片
+                </button>
+                <button
+                  className="full-outline"
+                  onClick={() => {
+                    addNode("video", {
+                      x: contextMenu.canvasX,
+                      y: contextMenu.canvasY,
+                    });
+                    setContextMenu(null);
+                  }}
+                >
+                  <Film size={14} /> 新建视频
+                </button>
+                <button
+                  className="full-outline"
+                  onClick={() => {
+                    addNode("text", {
+                      x: contextMenu.canvasX,
+                      y: contextMenu.canvasY,
+                    });
+                    setContextMenu(null);
+                  }}
+                >
+                  <Type size={14} /> 新建文本
+                </button>
+                <button
+                  className="full-outline"
+                  onClick={() => {
+                    addNode("audio", {
+                      x: contextMenu.canvasX,
+                      y: contextMenu.canvasY,
+                    });
+                    setContextMenu(null);
+                  }}
+                >
+                  <Music2 size={14} /> 新建音频
+                </button>
+                <button
+                  className="full-outline"
+                  onClick={() => {
+                    addNode("config", {
+                      x: contextMenu.canvasX,
+                      y: contextMenu.canvasY,
+                    });
+                    setContextMenu(null);
+                  }}
+                >
+                  <SlidersHorizontal size={14} /> 新建配置
+                </button>
+                <hr className="canvas-menu-divider" />
+                <button
+                  className="full-outline"
+                  onClick={() => {
+                    pasteCopiedNodes();
+                    setContextMenu(null);
+                  }}
+                >
+                  <ClipboardPaste size={14} /> 粘贴
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+      {pendingConnectionCreate && !projectActionDisabled ? (
+        <div
+          ref={connectionMenuRef}
+          className="canvas-context-menu canvas-connection-create-menu"
+          data-canvas-ui
+          data-canvas-no-zoom
+          style={pendingConnectionMenuStyle}
+          onPointerDown={event => event.stopPropagation()}
+          onClick={event => event.stopPropagation()}
+          onContextMenu={event => event.preventDefault()}
+        >
+          <div className="inspector-head">
+            <div>
+              <p className="eyebrow">CONNECT</p>
+              <h3>新建节点并连接</h3>
             </div>
-          ) : null}
-        </section>
+          </div>
+          <div className="canvas-context-menu-list">
+            <button
+              className="full-outline"
+              onClick={() =>
+                createNodeFromConnectionDraft("image", pendingConnectionCreate)
+              }
+            >
+              新建图片
+            </button>
+            <button
+              className="full-outline"
+              onClick={() =>
+                createNodeFromConnectionDraft("video", pendingConnectionCreate)
+              }
+            >
+              新建视频
+            </button>
+            <button
+              className="full-outline"
+              onClick={() =>
+                createNodeFromConnectionDraft("text", pendingConnectionCreate)
+              }
+            >
+              新建文本
+            </button>
+            <button
+              className="full-outline"
+              onClick={() =>
+                createNodeFromConnectionDraft("audio", pendingConnectionCreate)
+              }
+            >
+              新建音频
+            </button>
+            <button
+              className="full-outline danger"
+              onClick={() => cancelPendingConnectionCreate()}
+            >
+              取消连接
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }

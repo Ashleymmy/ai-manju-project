@@ -261,7 +261,9 @@ func ValidateProviderConfig(config model.ModelProviderConfig) error {
 		providerType != model.ModelProviderTypeMinimaxHailuo &&
 		providerType != model.ModelProviderTypeFalHappyHorse &&
 		providerType != model.ModelProviderTypeXAIImagine &&
-		providerType != model.ModelProviderTypeAliyunYike {
+		providerType != model.ModelProviderTypeAliyunYike &&
+		providerType != model.ModelProviderTypeAliyunVIAPI &&
+		providerType != model.ModelProviderTypeAliyunBailian {
 		return fmt.Errorf("unsupported provider_type %q", config.ProviderType)
 	}
 	if config.AuthType != model.ModelProviderAuthTypeNone &&

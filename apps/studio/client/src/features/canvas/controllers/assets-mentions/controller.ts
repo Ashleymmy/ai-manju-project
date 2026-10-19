@@ -401,7 +401,7 @@ export class CanvasAssetsMentionsController {
         const scope = workspaceScopeValue(ref.scope) || canonicalScope || fallbackScope;
         // Publish URLs immediately. Native images load independently; videos use
         // Range on playback instead of downloading full files on canvas restore.
-        previews[ref.id] = this.services.getAssetMediaUrl(ref.id, scope, ref.kind === "image" ? CANVAS_THUMBNAIL_WIDTH : undefined);
+        previews[ref.id] = this.services.getAssetMediaUrl(ref.id, scope, ref.kind === "image" && !ref.fullResolution ? CANVAS_THUMBNAIL_WIDTH : undefined);
       }
     }
     this.patchPreviews(previews);

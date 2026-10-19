@@ -1,18 +1,70 @@
 import { lazy, Suspense, type ComponentProps } from "react";
 
-const CanvasAssetPickerDialog = lazy(() => import("./CanvasAssetPickerDialog").then(module => ({ default: module.CanvasAssetPickerDialog })));
-const CanvasArchiveAssetDialog = lazy(() => import("./CanvasArchiveAssetDialog").then(module => ({ default: module.CanvasArchiveAssetDialog })));
-const CanvasConnectSelectionDialog = lazy(() => import("./CanvasConfirmationDialogs").then(module => ({ default: module.CanvasConnectSelectionDialog })));
-const CanvasDestructiveDialogs = lazy(() => import("./CanvasConfirmationDialogs").then(module => ({ default: module.CanvasDestructiveDialogs })));
-const CanvasImageToolDialog = lazy(() => import("./CanvasDialogs").then(module => ({ default: module.CanvasImageToolDialog })));
-const CanvasAnnotationMaskDialogs = lazy(() => import("./CanvasPreviewDialogs").then(module => ({ default: module.CanvasAnnotationMaskDialogs })));
-const CanvasImagePreviewDialog = lazy(() => import("./CanvasPreviewDialogs").then(module => ({ default: module.CanvasImagePreviewDialog })));
-const CanvasMentionPreviewDialog = lazy(() => import("./CanvasPreviewDialogs").then(module => ({ default: module.CanvasMentionPreviewDialog })));
-const CanvasStoryboardDialog = lazy(() => import("./CanvasPreviewDialogs").then(module => ({ default: module.CanvasStoryboardDialog })));
-const CanvasGenerationHistoryDialog = lazy(() => import("./CanvasGenerationHistoryDialog").then(module => ({ default: module.CanvasGenerationHistoryDialog })));
+const CanvasAssetPickerDialog = lazy(() =>
+  import("./CanvasAssetPickerDialog").then(module => ({
+    default: module.CanvasAssetPickerDialog,
+  }))
+);
+const CanvasArchiveAssetDialog = lazy(() =>
+  import("./CanvasArchiveAssetDialog").then(module => ({
+    default: module.CanvasArchiveAssetDialog,
+  }))
+);
+const CanvasConnectSelectionDialog = lazy(() =>
+  import("./CanvasConfirmationDialogs").then(module => ({
+    default: module.CanvasConnectSelectionDialog,
+  }))
+);
+const CanvasDestructiveDialogs = lazy(() =>
+  import("./CanvasConfirmationDialogs").then(module => ({
+    default: module.CanvasDestructiveDialogs,
+  }))
+);
+const CanvasImageToolDialog = lazy(() =>
+  import("./CanvasDialogs").then(module => ({
+    default: module.CanvasImageToolDialog,
+  }))
+);
+const CanvasVideoUpscaleDialog = lazy(() =>
+  import("./CanvasDialogs").then(module => ({
+    default: module.CanvasVideoUpscaleDialog,
+  }))
+);
+const CanvasAudioVoiceCloneDialog = lazy(() =>
+  import("./CanvasDialogs").then(module => ({
+    default: module.CanvasAudioVoiceCloneDialog,
+  }))
+);
+const CanvasAnnotationMaskDialogs = lazy(() =>
+  import("./CanvasPreviewDialogs").then(module => ({
+    default: module.CanvasAnnotationMaskDialogs,
+  }))
+);
+const CanvasImagePreviewDialog = lazy(() =>
+  import("./CanvasPreviewDialogs").then(module => ({
+    default: module.CanvasImagePreviewDialog,
+  }))
+);
+const CanvasMentionPreviewDialog = lazy(() =>
+  import("./CanvasPreviewDialogs").then(module => ({
+    default: module.CanvasMentionPreviewDialog,
+  }))
+);
+const CanvasStoryboardDialog = lazy(() =>
+  import("./CanvasPreviewDialogs").then(module => ({
+    default: module.CanvasStoryboardDialog,
+  }))
+);
+const CanvasGenerationHistoryDialog = lazy(() =>
+  import("./CanvasGenerationHistoryDialog").then(module => ({
+    default: module.CanvasGenerationHistoryDialog,
+  }))
+);
 
 export type CanvasDialogHostProps = {
   imageTool: ComponentProps<typeof CanvasImageToolDialog>;
+  videoUpscale?: ComponentProps<typeof CanvasVideoUpscaleDialog>;
+  audioVoiceClone?: ComponentProps<typeof CanvasAudioVoiceCloneDialog>;
   annotationMask: ComponentProps<typeof CanvasAnnotationMaskDialogs>;
   storyboard: ComponentProps<typeof CanvasStoryboardDialog>;
   imagePreview: ComponentProps<typeof CanvasImagePreviewDialog>;
@@ -27,6 +79,8 @@ export type CanvasDialogHostProps = {
 
 export function CanvasDialogHost({
   imageTool,
+  videoUpscale,
+  audioVoiceClone,
   annotationMask,
   storyboard,
   imagePreview,
@@ -41,13 +95,20 @@ export function CanvasDialogHost({
   return (
     <Suspense fallback={null}>
       <CanvasImageToolDialog {...imageTool} />
+      {videoUpscale ? <CanvasVideoUpscaleDialog {...videoUpscale} /> : null}
+      {audioVoiceClone ? (
+        <CanvasAudioVoiceCloneDialog {...audioVoiceClone} />
+      ) : null}
       <CanvasAnnotationMaskDialogs {...annotationMask} />
       <CanvasStoryboardDialog {...storyboard} />
       <CanvasImagePreviewDialog {...imagePreview} />
       <CanvasMentionPreviewDialog {...mentionPreview} />
       <CanvasAssetPickerDialog {...assetPicker} />
       <CanvasArchiveAssetDialog key={assetArchive.nodeKey} {...assetArchive} />
-      <CanvasArchiveAssetDialog key={batchAssetArchive.nodeKey} {...batchAssetArchive} />
+      <CanvasArchiveAssetDialog
+        key={batchAssetArchive.nodeKey}
+        {...batchAssetArchive}
+      />
       <CanvasGenerationHistoryDialog {...generationHistory} />
       <CanvasConnectSelectionDialog {...connectSelection} />
       <CanvasDestructiveDialogs {...destructive} />

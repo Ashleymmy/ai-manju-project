@@ -25,6 +25,7 @@ export type ProviderPreset = {
   id: string;
   name: string;
   description?: string;
+  notes?: string[];
   config: Record<string, unknown>;
 };
 const providerTypes = {
@@ -36,6 +37,8 @@ const providerTypes = {
   fal_happyhorse: "fal / HappyHorse",
   xai_imagine: "xAI Imagine",
   aliyun_yike: "阿里云 Wan",
+  aliyun_viapi: "阿里云视觉智能 (VIAPI)",
+  aliyun_bailian: "阿里云百炼音频 (DashScope)",
 };
 const protocolLabels: Record<string, string> = {
   auto: "自动识别",
@@ -406,6 +409,16 @@ export function ProviderConfigForm({
             }
           </p>
         )}
+        {!!presets.find((preset) => preset.id === config.preset_id)?.notes
+          ?.length && (
+          <ul className="hub-preset-notes">
+            {presets
+              .find((preset) => preset.id === config.preset_id)!
+              .notes!.map((note, idx) => (
+                <li key={idx}>{note}</li>
+              ))}
+          </ul>
+        )}
       </section>
       <section className="hub-form-section">
         <div className="hub-form-grid">
@@ -499,6 +512,35 @@ export function ProviderConfigForm({
                 </button>
               ))}
             </div>
+            {currentCapability === "image_upscale" && (
+              <div className="hub-upscale-hint">
+                <strong>图像超分（MakeSuperResolutionImage）</strong>
+                <span>
+                  阿里云 VIAPI <code>imageenhan</code>（Version{" "}
+                  <code>2019-09-30</code>）同步接口：支持{" "}
+                  <code>UpscaleFactor</code> 1–4 倍放大、<code>Mode</code>{" "}
+                  （<code>base</code> / <code>enhancement</code>）、输出{" "}
+                  <code>png / jpg / bmp</code>；输入图片 ≤ 5MB、32×32 至
+                  1920×1080。
+                </span>
+              </div>
+            )}
+            {currentCapability === "video_upscale" && (
+              <div className="hub-upscale-hint">
+                <strong>
+                  视频超分（SuperResolveVideo + GetAsyncJobResult）
+                </strong>
+                <span>
+                  阿里云 VIAPI <code>videoenhan</code>（Version{" "}
+                  <code>2020-03-20</code>）两步异步接口：提交返回{" "}
+                  <code>RequestId</code> 作为 <code>JobId</code>，轮询{" "}
+                  <code>GetAsyncJobResult</code> 解析{" "}
+                  <code>Data.Result</code> 中的 <code>VideoUrl</code>；支持 2
+                  倍超分与 <code>BitRate</code> 1–20 Mbps（默认 10），输入视频 ≤
+                  1GB、大于 360×360 且小于 1920×1080。
+                </span>
+              </div>
+            )}
             <div className="hub-model-toolbar">
               <label className="hub-search">
                 <Search size={16} />

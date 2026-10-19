@@ -19,16 +19,24 @@ import {
   Trash2,
   Video,
   MessageSquare,
+  Sparkles,
 } from "lucide-react";
 import {
   capabilities,
+  capabilityFilterGroups,
+  capabilityGroupLabels,
   capabilityLabels,
+  isSuperResolutionCapability,
   mergeConfigDocument,
   parseConfigDocument,
+  providerHasSuperResolution,
+  superResolutionCapabilities,
   toConfigDocument,
   type Capability,
+  type CapabilityFilterGroup,
   type ConfigDocument,
   type ProviderRecord,
+  type SuperResolutionCapability,
 } from "./config";
 
 export type ProviderHubProps<T extends ProviderRecord> = {
@@ -51,11 +59,21 @@ export type ProviderHubProps<T extends ProviderRecord> = {
   navigation?: ReactNode;
   renderForm: () => ReactNode;
 };
-const capabilityIcons = {
+const capabilityIcons: Record<Capability, typeof MessageSquare> = {
   text: MessageSquare,
   image: Image,
   video: Video,
   audio: AudioLines,
+  image_upscale: Sparkles,
+  video_upscale: Sparkles,
+};
+const groupIcons: Record<CapabilityFilterGroup, typeof LayoutGrid> = {
+  all: LayoutGrid,
+  text: MessageSquare,
+  image: Image,
+  video: Video,
+  audio: AudioLines,
+  upscale: Sparkles,
 };
 function providerModels(provider: ProviderRecord): string[] {
   return (
@@ -67,6 +85,8 @@ function providerModels(provider: ProviderRecord): string[] {
           provider.image_model,
           provider.video_model,
           provider.audio_model,
+          provider.image_upscale_model,
+          provider.video_upscale_model,
         ].filter((value): value is string => Boolean(value)),
       ),
     ]
@@ -97,7 +117,10 @@ export function ProviderHub<T extends ProviderRecord>(
     onSaveJSON,
     renderForm,
   } = props;
-  const [capability, setCapability] = useState<Capability | "all">("all");
+  const [capability, setCapability] = useState<CapabilityFilterGroup>("all");
+  const [upscaleKind, setUpscaleKind] = useState<
+    SuperResolutionCapability | "all"
+  >("all");
   const [search, setSearch] = useState("");
   const [mode, setMode] = useState<"form" | "json">("form");
   const [open, setOpen] = useState(false);
@@ -159,7 +182,17 @@ export function ProviderHub<T extends ProviderRecord>(
   const begin = (provider?: T, duplicate = false) => {
     if (provider) {
       duplicate ? props.onDuplicate?.(provider) : onSelect(provider);
-    } else onCreate(capability === "all" ? undefined : capability);
+    } else {
+      const initialCapability: Capability | undefined =
+        capability === "all"
+          ? undefined
+          : capability === "upscale"
+            ? upscaleKind === "all"
+              ? "image_upscale"
+              : upscaleKind
+            : capability;
+      onCreate(initialCapability);
+    }
     setInitial(null);
     setSaveError("");
     setMode("form");
@@ -217,9 +250,21 @@ export function ProviderHub<T extends ProviderRecord>(
     link.click();
     URL.revokeObjectURL(url);
   };
+  const matchesCapability = (provider: T) => {
+    if (capability === "all") return true;
+    if (capability === "upscale") {
+      if (upscaleKind === "all") return providerHasSuperResolution(provider);
+      return Boolean(
+        provider.capabilities?.includes(upscaleKind) ||
+          provider[`${upscaleKind}_model` as const] ||
+          provider.models_by_capability?.[upscaleKind]?.length,
+      );
+    }
+    return Boolean(provider.capabilities?.includes(capability));
+  };
   const visible = providers.filter(
     (provider) =>
-      (capability === "all" || provider.capabilities?.includes(capability)) &&
+      matchesCapability(provider) &&
       `${provider.name} ${publicAddress(provider)} ${providerModels(provider).join(" ")}`
         .toLowerCase()
         .includes(search.toLowerCase()),
@@ -245,17 +290,20 @@ export function ProviderHub<T extends ProviderRecord>(
           {props.navigation}
         </div>
         <nav className="hub-capabilities" aria-label="模型能力分类">
-          {(["all", ...capabilities] as const).map((cap) => {
-            const Icon = cap === "all" ? LayoutGrid : capabilityIcons[cap];
+          {capabilityFilterGroups.map((group) => {
+            const Icon = groupIcons[group];
             return (
               <button
                 type="button"
-                key={cap}
-                aria-pressed={capability === cap}
-                onClick={() => setCapability(cap)}
+                key={group}
+                aria-pressed={capability === group}
+                onClick={() => {
+                  setCapability(group);
+                  if (group !== "upscale") setUpscaleKind("all");
+                }}
               >
                 <Icon size={18} />
-                {cap === "all" ? "全部" : capabilityLabels[cap]}
+                {capabilityGroupLabels[group]}
               </button>
             );
           })}
@@ -289,9 +337,42 @@ export function ProviderHub<T extends ProviderRecord>(
             <h2>
               {capability === "all"
                 ? "全部供应商"
-                : `${capabilityLabels[capability]}供应商`}
+                : capability === "upscale"
+                  ? upscaleKind === "all"
+                    ? "超分辨率供应商"
+                    : `${capabilityLabels[upscaleKind]}供应商`
+                  : `${capabilityGroupLabels[capability]}供应商`}
             </h2>
             <span>{visible.length} 个供应商</span>
+            {capability === "upscale" && (
+              <div
+                className="hub-subcapabilities"
+                role="group"
+                aria-label="超分辨率类型"
+              >
+                <button
+                  type="button"
+                  aria-pressed={upscaleKind === "all"}
+                  onClick={() => setUpscaleKind("all")}
+                >
+                  全部超分
+                </button>
+                {superResolutionCapabilities.map((sub) => {
+                  const SubIcon = sub === "image_upscale" ? Image : Video;
+                  return (
+                    <button
+                      type="button"
+                      key={sub}
+                      aria-pressed={upscaleKind === sub}
+                      onClick={() => setUpscaleKind(sub)}
+                    >
+                      <SubIcon size={14} />
+                      {capabilityLabels[sub]}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <label className="hub-search">
             <Search size={16} />
@@ -322,9 +403,12 @@ export function ProviderHub<T extends ProviderRecord>(
               provider.sdvideo_models &&
               provider.enabled &&
               provider.sdvideo_models.some((model) => !model.enabled);
+            const primaryCapability = provider.capabilities?.[0] || "text";
             const Icon = provider.sdvideo_models
               ? Video
-              : capabilityIcons[provider.capabilities?.[0] || "text"];
+              : isSuperResolutionCapability(primaryCapability)
+                ? Sparkles
+                : capabilityIcons[primaryCapability];
             return (
               <article
                 key={provider.id}

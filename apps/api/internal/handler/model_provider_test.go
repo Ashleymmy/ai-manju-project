@@ -2004,6 +2004,56 @@ func TestAIAudioSpeechProxyReturnsBlob(t *testing.T) {
 	}
 }
 
+func TestAIAudioSpeechRateLimitedShowsRetryLater(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"code":"Throttling.RateQuota","message":"Requests rate limit exceeded"}`))
+	}))
+	defer server.Close()
+
+	router, providerRepo := newProviderTestRouter(t, "secret")
+	encrypted, err := provider.NewSecretBox("secret").Encrypt("sk-audio")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := providerRepo.UpsertDefaultModelProvider(model.ModelProviderConfig{
+		ID:              model.ModelProviderIDDefault,
+		Mode:            model.ModelProviderModeOpenAICompatible,
+		BaseURL:         server.URL + "/v1",
+		AuthType:        model.ModelProviderAuthTypeBearer,
+		APIKeyEncrypted: encrypted,
+		AudioModel:      "tts-1",
+		Capabilities:    mustProviderJSONB([]string{model.ModelCapabilityAudio}),
+		ModelsByCapability: mustProviderJSONB(map[string][]string{
+			model.ModelCapabilityAudio: {"tts-1"},
+		}),
+		DefaultFor: mustProviderJSONB([]string{model.ModelCapabilityAudio}),
+		TimeoutMS:  model.ModelProviderDefaultTimeoutMilli,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	memberCookie := loginCookie(t, router, "member", "secret")
+	req := httptest.NewRequest(http.MethodPost, "/api/ai/audio/speech", strings.NewReader(`{"model":"tts-1","input":"hello","voice":"alloy"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(memberCookie)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusBadGateway || !strings.Contains(recorder.Body.String(), "请求过于频繁，请稍后重试") {
+		t.Fatalf("rate limited audio response = %d %q", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "Throttling") {
+		t.Fatalf("supplier detail leaked to user: %q", recorder.Body.String())
+	}
+	if calls != 3 {
+		t.Fatalf("rate limited supplier called %d times, want 3 attempts", calls)
+	}
+}
+
 func assertAITextSendsAuthHeader(t *testing.T, authType string, wantHeader string, wantValue string) {
 	t.Helper()
 	var gotHeader string
@@ -2299,5 +2349,51 @@ func TestImageProviderJobKwargsCarriesResolvedProtocol(t *testing.T) {
 	}
 	if providerConfig["protocol"] != model.ImageProtocolOpenAIChatCompletions || providerConfig["endpoint"] != "chat/completions" {
 		t.Fatalf("provider config = %#v", providerConfig)
+	}
+}
+
+func TestAggregateModelsKeepsUpscaleOutOfGenerationListsAndHonorsUncheckedVideoUpscale(t *testing.T) {
+	result := aggregateModelProviders([]model.ModelProviderConfig{
+		{
+			ID:           "relay",
+			TextModel:    "gpt-5.4",
+			ImageModel:   "gpt-image-2",
+			Capabilities: mustProviderJSONB([]string{model.ModelCapabilityText, model.ModelCapabilityImage}),
+			ModelsByCapability: mustProviderJSONB(map[string][]string{
+				model.ModelCapabilityText:  {"gpt-5.4"},
+				model.ModelCapabilityImage: {"gpt-image-2"},
+			}),
+			DefaultFor: mustProviderJSONB([]string{model.ModelCapabilityText, model.ModelCapabilityImage}),
+			Enabled:    true,
+		},
+		{
+			// Video upscale not purchased yet: the admin unticks it, the model stays on file.
+			ID:                "viapi",
+			ProviderType:      model.ModelProviderTypeAliyunVIAPI,
+			ImageUpscaleModel: "MakeSuperResolutionImage",
+			VideoUpscaleModel: "SuperResolveVideo",
+			Capabilities:      mustProviderJSONB([]string{model.ModelCapabilityImageUpscale}),
+			ModelsByCapability: mustProviderJSONB(map[string][]string{
+				model.ModelCapabilityImageUpscale: {"MakeSuperResolutionImage"},
+				model.ModelCapabilityVideoUpscale: {"SuperResolveVideo"},
+			}),
+			Enabled: true,
+		},
+	})
+	if got := result["image_upscale_models"].([]string); len(got) != 1 {
+		t.Fatalf("image_upscale_models = %v", got)
+	}
+	if got := result["video_upscale_models"].([]string); len(got) != 0 {
+		t.Fatalf("unticked video upscale still offered: %v", got)
+	}
+	for _, key := range []string{"models", "image_models", "video_models", "text_models"} {
+		for _, encoded := range result[key].([]string) {
+			if strings.Contains(encoded, "SuperResolution") || strings.Contains(encoded, "SuperResolve") {
+				t.Fatalf("%s leaked upscale model %q", key, encoded)
+			}
+		}
+	}
+	if got := result["image_models"].([]string); len(got) != 1 || !strings.HasSuffix(got[0], "gpt-image-2") {
+		t.Fatalf("existing image models changed: %v", got)
 	}
 }
