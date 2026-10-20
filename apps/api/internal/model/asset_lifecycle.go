@@ -7,6 +7,11 @@ const (
 	// Countdown UI and both repository implementations must use this same window.
 	AssetTrashRetention = 30 * 24 * time.Hour
 
+	// CanvasDroppedGenerationRetention is how long an overwritten generation stays
+	// recoverable in the canvas history after its node is deleted. It then moves to
+	// the trash, where AssetTrashRetention applies as usual.
+	CanvasDroppedGenerationRetention = 90 * 24 * time.Hour
+
 	// AssetTrashedByCanvasCleanup marks assets the system moved to trash after a
 	// canvas stopped using them. Only these are restored automatically when the
 	// canvas uses them again; assets a person trashed are never restored that way.

@@ -77,3 +77,59 @@ it("deduplicates current/revision/server records by asset and preserves original
     generatedAt: asset.created_at,
   });
 });
+it("keeps generated images in the history after their canvas node is deleted", () => {
+  const image: Asset = {
+    id: "generated-image",
+    type: "image",
+    name: "主画布image-5",
+    source_job_id: "job-image",
+    created_at: "2026-10-19T09:00:00Z",
+    source_metadata: { prompt: "雨夜街道", model: "provider::gpt-image-2" },
+  };
+  const browserGenerated: Asset = {
+    id: "browser-image",
+    type: "image",
+    created_at: "2026-10-19T09:05:00Z",
+    source_metadata: { prompt: "局部重绘" },
+  };
+  const nodes = serverVideoHistoryNodes(
+    [
+      image,
+      browserGenerated,
+      {
+        id: "imported",
+        type: "image",
+        source_metadata: { canvas_node_id: "n1" },
+      },
+      { ...image, id: "trashed-image", trashed_at: "2026-10-19" },
+    ],
+    "personal"
+  );
+  expect(nodes.map(node => node.kind)).toEqual(["image", "image"]);
+  // No canvas node survives; the history still lists both generations.
+  const history = mergeCanvasGenerationHistory(
+    collectCanvasGenerationHistory([]),
+    collectCanvasGenerationHistory(nodes)
+  );
+  expect(history.map(item => item.assetId).sort()).toEqual([
+    "browser-image",
+    "generated-image",
+  ]);
+  expect(
+    history.find(item => item.assetId === "generated-image")
+  ).toMatchObject({
+    kind: "image",
+    prompt: "雨夜街道",
+    model: "provider::gpt-image-2",
+    jobId: "job-image",
+  });
+  const restored = cloneCanvasNodeFromGenerationHistory(nodes[0], {
+    id: "new-node",
+    x: 0,
+    y: 0,
+  });
+  expect(restored).toMatchObject({
+    kind: "image",
+    imageAssetId: "generated-image",
+  });
+});

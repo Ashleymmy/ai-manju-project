@@ -13,9 +13,11 @@ import (
 // canvas still uses. For assets the canvas created itself:
 //   - a generation that survives only in a node's generation history is hidden,
 //     and returns as soon as any node displays it again ("apply to canvas", undo);
-//   - an asset the canvas stops using entirely moves to the trash, except a
-//     generation that was still displayed when its node went away;
-//   - a trashed asset returns when the canvas uses it again.
+//   - a hidden generation whose node is deleted stays hidden but recoverable from
+//     the canvas history for CanvasDroppedGenerationRetention, then moves to the
+//     trash; a generation that was still displayed stays in the library;
+//   - an import the canvas stops using moves to the trash straight away;
+//   - a trashed or expiring asset returns when the canvas uses it again.
 //
 // Assets the user organised or that are used elsewhere are left alone.
 type CanvasLibraryVisibilityService struct {
@@ -35,7 +37,11 @@ func NewCanvasLibraryVisibilityService(assets repository.AssetRepository, folder
 // dropped out of it are trashed, so media still being uploaded or generated,
 // which no node references yet, is never touched.
 func (s *CanvasLibraryVisibilityService) Sync(workspaceID string, userID string, projectID string, previous []string, displayed []string, historyOnly []string) error {
-	if err := s.restoreCleanedUp(workspaceID, append(append([]string{}, displayed...), historyOnly...)); err != nil {
+	used := append(append([]string{}, displayed...), historyOnly...)
+	if err := s.restoreCleanedUp(workspaceID, used); err != nil {
+		return err
+	}
+	if err := s.assets.SetRetainUntil(used, workspaceID, nil); err != nil {
 		return err
 	}
 	if err := s.hideSuperseded(workspaceID, userID, projectID, displayed, historyOnly); err != nil {
@@ -109,19 +115,57 @@ func (s *CanvasLibraryVisibilityService) trashDropped(workspaceID string, userID
 	if err != nil {
 		return err
 	}
-	candidates := make([]model.Asset, 0, len(assets))
+	imports := make([]model.Asset, 0, len(assets))
+	overwritten := make([]model.Asset, 0, len(assets))
 	for _, asset := range assets {
+		if !canvasOwnedAsset(asset, projectID) {
+			continue
+		}
+		switch {
+		case !canvasGeneratedAsset(asset):
+			imports = append(imports, asset)
+		case asset.SupersededAt != nil:
+			overwritten = append(overwritten, asset)
+		}
 		// A generation without the hidden flag was displayed until its node went
 		// away; it stays in the library like any finished result.
-		if canvasOwnedAsset(asset, projectID) && (!canvasGeneratedAsset(asset) || asset.SupersededAt != nil) {
-			candidates = append(candidates, asset)
-		}
 	}
-	trash, _, err := s.splitKept(workspaceID, userID, projectID, candidates)
+	trash, _, err := s.splitKept(workspaceID, userID, projectID, imports)
 	if err != nil {
 		return err
 	}
-	return s.trash(workspaceID, trash)
+	if err := s.trash(workspaceID, trash); err != nil {
+		return err
+	}
+	// Overwritten generations cost credits: keep them recoverable from the canvas
+	// history for a while instead of trashing them with the node.
+	expiring, _, err := s.splitKept(workspaceID, userID, projectID, overwritten)
+	if err != nil {
+		return err
+	}
+	until := time.Now().UTC().Add(model.CanvasDroppedGenerationRetention)
+	return s.assets.SetRetainUntil(expiring, workspaceID, &until)
+}
+
+// TrashExpiredRetention moves generations whose history grace period ended to the
+// trash. They are marked as canvas cleanup, so using them again still restores them.
+func (s *CanvasLibraryVisibilityService) TrashExpiredRetention(now time.Time) (int, error) {
+	assets, err := s.assets.ListExpiredRetention(now, 100)
+	if err != nil {
+		return 0, err
+	}
+	byWorkspace := make(map[string][]string)
+	for _, asset := range assets {
+		byWorkspace[asset.WorkspaceID] = append(byWorkspace[asset.WorkspaceID], asset.ID)
+	}
+	moved := 0
+	for workspaceID, ids := range byWorkspace {
+		if _, err := s.assets.TrashByWorkspace(ids, workspaceID, model.AssetTrashedByCanvasCleanup, now, now.Add(model.AssetTrashRetention)); err != nil {
+			return moved, err
+		}
+		moved += len(ids)
+	}
+	return moved, nil
 }
 
 func (s *CanvasLibraryVisibilityService) splitKept(workspaceID string, userID string, projectID string, assets []model.Asset) ([]string, []string, error) {

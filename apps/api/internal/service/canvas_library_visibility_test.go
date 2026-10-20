@@ -138,10 +138,14 @@ func TestCanvasOverwrittenGenerationsLeaveTheLibraryUntilShownAgain(t *testing.T
 	f.save(t, projectID, canvasVisibilityNode{id: "image_node", assetID: "asset_gen_old", revisions: []string{"asset_gen_new"}}, video)
 	assertLibrary(t, f.libraryIDs(t), []string{"asset_gen_old"}, []string{"asset_gen_new"})
 
-	// A revision that falls off the bounded history moves to the trash.
+	// A revision that falls off the bounded history stays hidden and recoverable
+	// for the retention window instead of moving straight to the trash.
 	f.save(t, projectID, canvasVisibilityNode{id: "image_node", assetID: "asset_gen_old"}, video)
 	assertLibrary(t, f.libraryIDs(t), nil, []string{"asset_gen_new"})
-	assertCleanedUp(t, f.trashedBy(t), []string{"asset_gen_new"}, nil)
+	assertCleanedUp(t, f.trashedBy(t), nil, []string{"asset_gen_new"})
+	if f.retainUntil(t, "asset_gen_new") == nil {
+		t.Fatal("dropped overwritten generation should start its retention window")
+	}
 
 	// Deleting the canvas trashes everything it created; library assets are kept.
 	if err := f.projects.Delete(projectID, "user_a", WorkspaceScopePersonal); err != nil {
@@ -149,6 +153,71 @@ func TestCanvasOverwrittenGenerationsLeaveTheLibraryUntilShownAgain(t *testing.T
 	}
 	assertLibrary(t, f.libraryIDs(t), []string{"asset_upload_old"}, []string{"asset_gen_old", "asset_video_new", "asset_video_old"})
 	assertCleanedUp(t, f.trashedBy(t), []string{"asset_gen_old", "asset_gen_new", "asset_video_new", "asset_video_old"}, []string{"asset_upload_old"})
+}
+
+func (f canvasVisibilityFixture) retainUntil(t *testing.T, id string) *time.Time {
+	t.Helper()
+	asset, err := f.assets.GetByWorkspace(id, f.workspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return asset.RetainUntil
+}
+
+func TestDeletedNodeKeepsOverwrittenGenerationsRecoverableForNinetyDays(t *testing.T) {
+	f := newCanvasVisibilityFixture(t)
+	projectID := f.createProject(t, "画布")
+	for _, id := range []string{"asset_a", "asset_b", "asset_c"} {
+		f.generation(t, id, projectID, "image")
+	}
+	f.createAsset(t, model.Asset{ID: "asset_import", SourceType: model.AssetSourceCanvas, SourceProjectID: projectID})
+
+	// C is shown; A and B were overwritten and live in the node's history.
+	f.save(t, projectID,
+		canvasVisibilityNode{id: "node", assetID: "asset_c", revisions: []string{"asset_b", "asset_a"}},
+		canvasVisibilityNode{id: "imported", assetID: "asset_import"},
+	)
+	assertLibrary(t, f.libraryIDs(t), []string{"asset_c", "asset_import"}, []string{"asset_a", "asset_b"})
+
+	// Deleting both nodes: the displayed generation stays, the import is trashed,
+	// and the overwritten generations wait out their retention window.
+	f.save(t, projectID)
+	assertLibrary(t, f.libraryIDs(t), []string{"asset_c"}, []string{"asset_a", "asset_b", "asset_import"})
+	assertCleanedUp(t, f.trashedBy(t), []string{"asset_import"}, []string{"asset_a", "asset_b", "asset_c"})
+	until := f.retainUntil(t, "asset_a")
+	if until == nil || until.Sub(time.Now().UTC()) < model.CanvasDroppedGenerationRetention-time.Minute {
+		t.Fatalf("retention should last about 90 days, got %v", until)
+	}
+	if f.retainUntil(t, "asset_c") != nil {
+		t.Fatal("the displayed generation never expires")
+	}
+
+	visibility := NewCanvasLibraryVisibilityService(f.assets, f.folders, nil, f.usage, f.tags)
+	// Nothing expires early.
+	if moved, err := visibility.TrashExpiredRetention(time.Now().UTC()); err != nil || moved != 0 {
+		t.Fatalf("moved %d early, err %v", moved, err)
+	}
+
+	// Applying B from history before it expires cancels its window.
+	f.save(t, projectID, canvasVisibilityNode{id: "applied", assetID: "asset_b"})
+	if f.retainUntil(t, "asset_b") != nil {
+		t.Fatal("using a generation again must cancel its retention window")
+	}
+
+	// After 90 days A moves to the trash (30-day countdown) as canvas cleanup.
+	later := time.Now().UTC().Add(model.CanvasDroppedGenerationRetention + time.Hour)
+	if moved, err := visibility.TrashExpiredRetention(later); err != nil || moved != 1 {
+		t.Fatalf("expected 1 expired generation moved, got %d err %v", moved, err)
+	}
+	assertCleanedUp(t, f.trashedBy(t), []string{"asset_a", "asset_import"}, []string{"asset_b", "asset_c"})
+	trashed, err := f.assets.GetByWorkspace("asset_a", f.workspaceID)
+	if err != nil || trashed.TrashExpiresAt == nil || trashed.TrashExpiresAt.Sub(later) != model.AssetTrashRetention || trashed.RetainUntil != nil {
+		t.Fatalf("expired generation should get the normal 30-day trash window: %+v %v", trashed, err)
+	}
+
+	// Using it again from the trash still restores it like any canvas cleanup.
+	f.save(t, projectID, canvasVisibilityNode{id: "applied", assetID: "asset_b"}, canvasVisibilityNode{id: "again", assetID: "asset_a"})
+	assertCleanedUp(t, f.trashedBy(t), nil, []string{"asset_a"})
 }
 
 func (f canvasVisibilityFixture) trashedBy(t *testing.T) map[string]string {

@@ -64,6 +64,11 @@ type AssetRepository interface {
 	// SetSuperseded marks (non-nil at) or clears (nil) the library-hidden state
 	// of the given assets; rows already in the requested state are left as is.
 	SetSuperseded(ids []string, workspaceID string, at *time.Time) error
+	// SetRetainUntil starts (non-nil until) or cancels (nil) the history grace
+	// period of hidden canvas generations; rows already in that state are left as is.
+	SetRetainUntil(ids []string, workspaceID string, until *time.Time) error
+	// ListExpiredRetention returns untrashed assets whose history grace period ended.
+	ListExpiredRetention(now time.Time, limit int) ([]model.Asset, error)
 }
 
 type AssetLibraryFilter struct {
@@ -430,6 +435,41 @@ func (r *MemoryAssetRepository) SetSuperseded(ids []string, workspaceID string, 
 	return nil
 }
 
+func (r *MemoryAssetRepository) SetRetainUntil(ids []string, workspaceID string, until *time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, id := range uniqueAssetIDs(ids) {
+		asset, ok := r.assets[id]
+		if !ok || !assetBelongsToWorkspace(asset, workspaceID) || asset.TrashedAt != nil || (asset.RetainUntil == nil) == (until == nil) {
+			continue
+		}
+		if until == nil {
+			asset.RetainUntil = nil
+		} else {
+			value := until.UTC()
+			asset.RetainUntil = &value
+		}
+		r.assets[id] = asset
+	}
+	return nil
+}
+
+func (r *MemoryAssetRepository) ListExpiredRetention(now time.Time, limit int) ([]model.Asset, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	assets := make([]model.Asset, 0)
+	for _, asset := range r.assets {
+		if asset.TrashedAt == nil && asset.RetainUntil != nil && !asset.RetainUntil.After(now) {
+			assets = append(assets, asset)
+		}
+	}
+	sort.Slice(assets, func(i, j int) bool { return assets[i].RetainUntil.Before(*assets[j].RetainUntil) })
+	if limit > 0 && len(assets) > limit {
+		assets = assets[:limit]
+	}
+	return assets, nil
+}
+
 func (r *MemoryAssetRepository) ListTrash(workspaceID string) ([]model.Asset, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -461,6 +501,7 @@ func (r *MemoryAssetRepository) TrashByWorkspace(ids []string, workspaceID strin
 		asset.TrashExpiresAt = &expiresAtCopy
 		asset.TrashedBy = trashedBy
 		asset.SupersededAt = nil
+		asset.RetainUntil = nil
 		asset.UpdatedAt = trashedAt
 		r.assets[id] = asset
 		result = append(result, asset)
@@ -763,6 +804,28 @@ func (r *GormAssetRepository) SetSuperseded(ids []string, workspaceID string, at
 	return query.Where("superseded_at IS NULL").UpdateColumn("superseded_at", at.UTC()).Error
 }
 
+func (r *GormAssetRepository) SetRetainUntil(ids []string, workspaceID string, until *time.Time) error {
+	ids = uniqueAssetIDs(ids)
+	if len(ids) == 0 {
+		return nil
+	}
+	query := r.workspaceQuery(workspaceID).Where("id IN ? AND trashed_at IS NULL", ids)
+	if until == nil {
+		return query.Where("retain_until IS NOT NULL").UpdateColumn("retain_until", nil).Error
+	}
+	return query.Where("retain_until IS NULL").UpdateColumn("retain_until", until.UTC()).Error
+}
+
+func (r *GormAssetRepository) ListExpiredRetention(now time.Time, limit int) ([]model.Asset, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	var assets []model.Asset
+	err := r.db.Where("trashed_at IS NULL AND retain_until IS NOT NULL AND retain_until <= ?", now).
+		Order("retain_until ASC").Limit(limit).Find(&assets).Error
+	return assets, err
+}
+
 func (r *GormAssetRepository) ListTrash(workspaceID string) ([]model.Asset, error) {
 	var assets []model.Asset
 	err := r.workspaceQuery(workspaceID).Where("trashed_at IS NOT NULL").Order("trashed_at DESC, id DESC").Find(&assets).Error
@@ -784,7 +847,7 @@ func (r *GormAssetRepository) TrashByWorkspace(ids []string, workspaceID string,
 			return ErrAssetNotFound
 		}
 		return r.workspaceQueryOn(tx, workspaceID).Where("id IN ? AND trashed_at IS NULL", unique).Updates(map[string]any{
-			"trashed_at": trashedAt, "trash_expires_at": expiresAt, "trashed_by": trashedBy, "superseded_at": nil, "updated_at": trashedAt,
+			"trashed_at": trashedAt, "trash_expires_at": expiresAt, "trashed_by": trashedBy, "superseded_at": nil, "retain_until": nil, "updated_at": trashedAt,
 		}).Error
 	})
 	if err != nil {
@@ -796,6 +859,7 @@ func (r *GormAssetRepository) TrashByWorkspace(ids []string, workspaceID string,
 		result[index].TrashExpiresAt = &expiresAtCopy
 		result[index].TrashedBy = trashedBy
 		result[index].SupersededAt = nil
+		result[index].RetainUntil = nil
 		result[index].UpdatedAt = trashedAt
 	}
 	return result, nil

@@ -183,8 +183,11 @@ type Asset struct {
 	// SupersededAt marks a canvas generation that survives only in a node's
 	// generation history. The library hides it until a node displays it again.
 	SupersededAt *time.Time `json:"superseded_at,omitempty" gorm:"index"`
-	CreatedAt    time.Time  `json:"created_at" gorm:"index:idx_assets_workspace_folder_created,priority:3;index:idx_assets_workspace_category_created,priority:3;index:idx_assets_workspace_lifecycle_created,priority:3"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	// RetainUntil is set on a hidden generation whose canvas node was deleted: it stays
+	// in the generation history until then, and only afterwards moves to the trash.
+	RetainUntil *time.Time `json:"retain_until,omitempty" gorm:"index"`
+	CreatedAt   time.Time  `json:"created_at" gorm:"index:idx_assets_workspace_folder_created,priority:3;index:idx_assets_workspace_category_created,priority:3;index:idx_assets_workspace_lifecycle_created,priority:3"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // SeedanceAssetGroup mirrors the Volcengine AIGC asset group used by the

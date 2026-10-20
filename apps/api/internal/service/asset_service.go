@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -73,6 +74,8 @@ type AssetService struct {
 	tagFilterer   AssetTagFilterer
 	usageFilterer AssetUsageFilterer
 	lineage       *AssetLineageService
+	// expireRetention moves assets past their retention to the trash (canvas history grace period).
+	expireRetention func(time.Time) (int, error)
 	// uploadNameMu spans name lookup and insert so concurrent uploads of one
 	// file name in this process cannot both claim the same free name.
 	uploadNameMu sync.Mutex
@@ -842,6 +845,12 @@ func (s *AssetService) PurgeExpiredTrash(ctx context.Context) (AssetPermanentDel
 	return result, nil
 }
 
+// SetRetentionExpirer adds a step to trash maintenance that moves assets whose
+// retention ended to the trash before expired trash is purged.
+func (s *AssetService) SetRetentionExpirer(expire func(time.Time) (int, error)) {
+	s.expireRetention = expire
+}
+
 func (s *AssetService) StartTrashMaintenance(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = AssetTrashMaintenanceInterval
@@ -850,6 +859,11 @@ func (s *AssetService) StartTrashMaintenance(ctx context.Context, interval time.
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
+			if s.expireRetention != nil {
+				if _, err := s.expireRetention(time.Now().UTC()); err != nil {
+					log.Printf("canvas history retention expiry failed: %v", err)
+				}
+			}
 			_, _ = s.PurgeExpiredTrash(context.WithoutCancel(ctx))
 			select {
 			case <-ctx.Done():
