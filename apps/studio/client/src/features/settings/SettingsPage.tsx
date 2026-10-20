@@ -525,7 +525,11 @@ export function SettingsView() {
                     <option value="high">高</option>
                   </select>
                 </label>
-                <label>
+                <div
+                  className="settings-field"
+                  role="group"
+                  aria-label="图像数量"
+                >
                   图像数量
                   <div className="stepper">
                     <button
@@ -546,8 +550,12 @@ export function SettingsView() {
                       +
                     </button>
                   </div>
-                </label>
-                <label>
+                </div>
+                <div
+                  className="settings-field"
+                  role="group"
+                  aria-label="画布默认张数"
+                >
                   画布默认张数
                   <div className="stepper">
                     <button
@@ -572,7 +580,7 @@ export function SettingsView() {
                       +
                     </button>
                   </div>
-                </label>
+                </div>
               </div>
               <p className="settings-group-label">视频</p>
               <div className="settings-fields">
@@ -852,7 +860,11 @@ export function SettingsView() {
                   <i />
                 </div>
                 <div>
-                  <label>
+                  <div
+                    className="settings-field"
+                    role="group"
+                    aria-label="背景参考"
+                  >
                     背景参考
                     <div className="seg-switch">
                       <button
@@ -874,7 +886,7 @@ export function SettingsView() {
                         空白
                       </button>
                     </div>
-                  </label>
+                  </div>
                   <label className="toggle-line">
                     <span>
                       <b>滚轮缩放需要 Ctrl</b>

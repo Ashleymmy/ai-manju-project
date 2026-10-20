@@ -7008,7 +7008,7 @@ export default function CanvasWorkspaceViewContent() {
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2">
-          <label className="grid gap-2 text-sm">
+          <div className="grid gap-2 text-sm" role="group">
             <span>工作空间</span>
             <div className="scope-switch">
               {scopeOptions.map(item => (
@@ -7023,7 +7023,7 @@ export default function CanvasWorkspaceViewContent() {
                 </button>
               ))}
             </div>
-          </label>
+          </div>
           <label className="grid gap-2 text-sm">
             <span>画布名称</span>
             <input

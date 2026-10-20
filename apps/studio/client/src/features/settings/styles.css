@@ -54,7 +54,10 @@
   gap: 20px 17px;
   margin-top: 31px;
 }
-.settings-fields label {
+/* Groups of buttons (steppers, segmented switches) are not <label>s: a label sends
+   clicks anywhere in its area to its first button, e.g. the stepper's "−". */
+.settings-fields label,
+.settings-fields .settings-field {
   color: #bebebe;
   font: var(--font-size-caption) var(--font-family-mono);
 }
@@ -200,7 +203,8 @@
   background: var(--red);
   transform: rotate(45deg);
 }
-.canvas-pref-preview label {
+.canvas-pref-preview label,
+.canvas-pref-preview .settings-field {
   display: block;
   color: #bbbbbb;
   font: var(--font-size-caption) var(--font-family-mono);

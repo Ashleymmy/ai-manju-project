@@ -108,7 +108,7 @@
 .image-composer .prompt-editor { margin-top: 16px; }
 .reference-strip { display: flex; gap: 9px; margin-top: 21px; }
 .composer-options { display: grid; grid-template-columns: 1.2fr 1fr .62fr; gap: 13px; margin-top: 22px; }
-.composer-options label { display: block; color: #b9b9b9; font: var(--font-size-caption) var(--font-family-mono); }
+.composer-options label, .composer-options .composer-field { display: block; color: #b9b9b9; font: var(--font-size-caption) var(--font-family-mono); }
 .ratio-buttons { display: flex; align-items: center; justify-content: space-between; height: 35px; margin-top: 7px; padding: 0 9px; border: 1px solid var(--line); background: #262626; color: #dfded5; font: var(--font-size-small) "Noto Sans SC", sans-serif; }
 .composer-options select { width: 100%; height: 35px; margin-top: 7px; padding: 0 9px; border: 1px solid var(--line); background: #262626; color: #dfded5; font: var(--font-size-small) "Noto Sans SC", sans-serif; cursor: pointer; outline: none; }
 .composer-options select:hover { border-color: rgba(239,235,222,.25); }
@@ -258,8 +258,8 @@
 }
 .image-page .reference-empty { margin-top: 10px; color: #929d96; }
 .image-page .composer-options { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 14px; }
-.image-page .composer-options > label:only-child { grid-column: 1 / -1; }
-.image-page .composer-options > label { min-width: 0; }
+.image-page .composer-options > label:only-child, .image-page .composer-options > .composer-field:only-child { grid-column: 1 / -1; }
+.image-page .composer-options > label, .image-page .composer-options > .composer-field { min-width: 0; }
 .image-page .composer-options select,
 .image-page .ratio-buttons,
 .image-page .counter,
@@ -509,7 +509,8 @@
 .composer-size-settings {
   margin-top: 20px;
 }
-.composer-size-settings > label {
+.composer-size-settings > label,
+.composer-size-settings > .composer-field {
   display: block;
   color: #b9b9b9;
   font: var(--font-size-caption) var(--font-family-mono);
@@ -701,7 +702,8 @@
   }
 }
 /* 闁轰椒鍗抽崳鐑樻綇閹惧啿寮虫俊?*/
-.counter input[type="number"] {
+.counter input[type="number"],
+.counter input[type="text"] {
   width: 50px;
   height: 100%;
   border: 0;

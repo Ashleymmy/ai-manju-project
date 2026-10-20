@@ -204,6 +204,8 @@ export function ImageWorkbenchView() {
   const [size, setSize] = useState<ImageWorkbenchSizeOption>("1:1");
   const [quality, setQuality] = useState<ImageWorkbenchQuality>("auto");
   const [count, setCount] = useState(1);
+  /** Raw text while the user types a count; null shows the committed count. */
+  const [countDraft, setCountDraft] = useState<string | null>(null);
   const [width, setWidth] = useState(1024);
   const [height, setHeight] = useState(1024);
   const [align16, setAlign16] = useState(true);
@@ -1221,7 +1223,7 @@ export function ImageWorkbenchView() {
               </label>
             </div>
             <div className="composer-options">
-              <label>
+              <div className="composer-field" role="group" aria-label="质量">
                 质量
                 <div className="ratio-buttons">
                   {(["auto", "high", "medium", "low"] as const).map(q => (
@@ -1248,36 +1250,62 @@ export function ImageWorkbenchView() {
                     </button>
                   ))}
                 </div>
-              </label>
-              <label>
+              </div>
+              {/* A <label> around several controls forwards every click and hover in its
+                  area to the first control, so these groups are plain containers. */}
+              <div className="composer-field" role="group" aria-label="数量">
                 数量
                 <div className="counter">
-                  <button onClick={() => setCount(v => Math.max(1, v - 1))}>
+                  <button
+                    type="button"
+                    aria-label="减少数量"
+                    onClick={() => {
+                      setCountDraft(null);
+                      setCount(v => Math.max(1, v - 1));
+                    }}
+                  >
                     −
                   </button>
                   <input
-                    type="number"
-                    value={count}
-                    onChange={e =>
-                      setCount(
-                        Math.max(1, Math.min(15, Number(e.target.value) || 1))
-                      )
-                    }
-                    min="1"
-                    max="15"
+                    type="text"
+                    inputMode="numeric"
+                    aria-label="生成数量"
+                    // Typing keeps the raw text so the field can be cleared or retyped;
+                    // the value is clamped to 1–15 when editing ends.
+                    value={countDraft ?? String(count)}
+                    onChange={e => {
+                      const digits = e.target.value
+                        .replace(/\D/g, "")
+                        .slice(0, 2);
+                      setCountDraft(digits);
+                      if (digits)
+                        setCount(Math.max(1, Math.min(15, Number(digits))));
+                    }}
+                    onBlur={() => setCountDraft(null)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                    }}
                   />
-                  <button onClick={() => setCount(v => Math.min(15, v + 1))}>
+                  <button
+                    type="button"
+                    aria-label="增加数量"
+                    onClick={() => {
+                      setCountDraft(null);
+                      setCount(v => Math.min(15, v + 1));
+                    }}
+                  >
                     +
                   </button>
                 </div>
-              </label>
+              </div>
             </div>
             <div className="composer-size-settings">
-              <label>
+              <div className="composer-field" role="group" aria-label="尺寸">
                 尺寸
                 <div className="size-inputs">
                   <span>W</span>
                   <input
+                    aria-label="宽度"
                     type="number"
                     value={width}
                     onChange={e => {
@@ -1291,7 +1319,9 @@ export function ImageWorkbenchView() {
                     step={align16 ? "16" : "1"}
                   />
                   <button
+                    type="button"
                     className="swap-size"
+                    title="交换宽高"
                     onClick={() => {
                       setWidth(height);
                       setHeight(width);
@@ -1302,6 +1332,7 @@ export function ImageWorkbenchView() {
                   </button>
                   <span>H</span>
                   <input
+                    aria-label="高度"
                     type="number"
                     value={height}
                     onChange={e => {
@@ -1334,7 +1365,7 @@ export function ImageWorkbenchView() {
                     <span>16倍数对齐</span>
                   </label>
                 </div>
-              </label>
+              </div>
             </div>
             <div className="composer-ratio-grid">
               <label>宽高比</label>
