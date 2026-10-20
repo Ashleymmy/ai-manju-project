@@ -112,12 +112,23 @@ export function listTagAssets(
   );
 }
 
-export function getAssetFolders(scope: WorkspaceScope = "personal", signal?: AbortSignal) {
-  return request<AssetFolder[]>("/api/asset-folders", { query: { scope }, signal });
+export function getAssetFolders(
+  scope: WorkspaceScope = "personal",
+  signal?: AbortSignal
+) {
+  return request<AssetFolder[]>("/api/asset-folders", {
+    query: { scope },
+    signal,
+  });
 }
 
 export function createAssetFolder(
-  input: { name: string; parent_id?: string; sort_order?: number; idempotency_key?: string },
+  input: {
+    name: string;
+    parent_id?: string;
+    sort_order?: number;
+    idempotency_key?: string;
+  },
   scope: WorkspaceScope = "personal"
 ) {
   return request<AssetFolder>("/api/asset-folders", {
@@ -343,21 +354,23 @@ export function createAssetExport(
     query: { scope },
     body: {
       ...input,
-      filter: input.filter ? {
-        folder_id: input.filter.folderId,
-        include_descendants: input.filter.includeDescendants,
-        smart_view: input.filter.smartView,
-        type: input.filter.type,
-        category: input.filter.category,
-        source_type: input.filter.sourceType,
-        keyword: input.filter.keyword,
-        tag_ids: input.filter.tagIds,
-        tag_match: input.filter.tagMatch,
-        include_tag_descendants: input.filter.includeTagDescendants,
-        created_from: input.filter.createdFrom,
-        created_to: input.filter.createdTo,
-        sort: input.filter.sort,
-      } : undefined,
+      filter: input.filter
+        ? {
+            folder_id: input.filter.folderId,
+            include_descendants: input.filter.includeDescendants,
+            smart_view: input.filter.smartView,
+            type: input.filter.type,
+            category: input.filter.category,
+            source_type: input.filter.sourceType,
+            keyword: input.filter.keyword,
+            tag_ids: input.filter.tagIds,
+            tag_match: input.filter.tagMatch,
+            include_tag_descendants: input.filter.includeTagDescendants,
+            created_from: input.filter.createdFrom,
+            created_to: input.filter.createdTo,
+            sort: input.filter.sort,
+          }
+        : undefined,
     },
   });
 }
@@ -388,10 +401,17 @@ export function cancelAssetExport(
   );
 }
 
-export function deleteAssetExport(exportId: string, scope: WorkspaceScope = "personal") {
-  return request<{ deleted: boolean }>(`/api/asset-exports/${encodeURIComponent(exportId)}`, {
-    method: "DELETE", query: { scope },
-  });
+export function deleteAssetExport(
+  exportId: string,
+  scope: WorkspaceScope = "personal"
+) {
+  return request<{ deleted: boolean }>(
+    `/api/asset-exports/${encodeURIComponent(exportId)}`,
+    {
+      method: "DELETE",
+      query: { scope },
+    }
+  );
 }
 
 export async function downloadAssetExport(
@@ -422,15 +442,40 @@ export async function downloadAssetExport(
  * HEAD checks readiness and the cookie used by native downloads; no auth token
  * is placed in a URL and no archive-sized Blob is allocated by the page.
  */
-export async function startAssetExportDownload(exportId: string, scope: WorkspaceScope = "personal") {
-  const url = new URL(`${API_BASE_URL}/api/asset-exports/${encodeURIComponent(exportId)}/content`);
+export async function startAssetExportDownload(
+  exportId: string,
+  scope: WorkspaceScope = "personal"
+) {
+  const url = new URL(
+    `${API_BASE_URL}/api/asset-exports/${encodeURIComponent(exportId)}/content`
+  );
   url.searchParams.set("scope", scope);
   const response = await fetch(url, { method: "HEAD", credentials: "include" });
   if (!response.ok) {
-    if (response.status === 401) throw new Error("下载登录状态已失效，请重新登录后下载");
+    if (response.status === 401)
+      throw new Error("下载登录状态已失效，请重新登录后下载");
     if (response.status === 410) throw new Error("资产包已过期，请重新导出");
     throw new Error(`资产包暂时无法下载（${response.status}），请稍后重试`);
   }
+  const link = document.createElement("a");
+  link.href = url.toString();
+  link.download = "";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+/**
+ * Download an asset straight through the browser: the server streams the bytes
+ * with its Content-Disposition filename and records the download, so large media
+ * is never buffered in page memory first.
+ */
+export function startAssetMediaDownload(
+  id: string,
+  scope: WorkspaceScope = "personal"
+) {
+  const url = new URL(getAssetMediaUrl(id, scope));
+  url.searchParams.set("download", "1");
   const link = document.createElement("a");
   link.href = url.toString();
   link.download = "";
@@ -451,11 +496,15 @@ export async function getAssetContentBlob(
   url.searchParams.set("scope", scope);
   if (thumbnail) url.searchParams.set("thumbnail", String(thumbnail));
   const token = getAuthToken();
-  return fetchMediaBlob(url, {
-    credentials: "include",
-    signal,
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  }, "读取资产内容");
+  return fetchMediaBlob(
+    url,
+    {
+      credentials: "include",
+      signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    },
+    "读取资产内容"
+  );
 }
 
 export async function getAssetContentObjectUrl(
@@ -464,15 +513,23 @@ export async function getAssetContentObjectUrl(
   thumbnail?: 320 | 640,
   signal?: AbortSignal
 ) {
-  return URL.createObjectURL(await getAssetContentBlob(id, scope, thumbnail, signal));
+  return URL.createObjectURL(
+    await getAssetContentBlob(id, scope, thumbnail, signal)
+  );
 }
 
 /** Native media requests use the login cookie and retain browser Range support.
  * Keep the authenticated API URL stable so each new request gets a fresh signature.
  * Never put the session token into a media URL.
  */
-export function getAssetMediaUrl(id: string, scope: WorkspaceScope = "personal", thumbnail?: 320 | 640) {
-  const url = new URL(`${API_BASE_URL}/api/assets/${encodeURIComponent(id)}/content`);
+export function getAssetMediaUrl(
+  id: string,
+  scope: WorkspaceScope = "personal",
+  thumbnail?: 320 | 640
+) {
+  const url = new URL(
+    `${API_BASE_URL}/api/assets/${encodeURIComponent(id)}/content`
+  );
   url.searchParams.set("scope", scope);
   if (thumbnail) url.searchParams.set("thumbnail", String(thumbnail));
   return url.toString();

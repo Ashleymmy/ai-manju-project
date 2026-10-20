@@ -153,6 +153,7 @@ import {
 import {
   createAssetExport,
   startAssetExportDownload,
+  startAssetMediaDownload,
   getAsset,
   getAssetContentObjectUrl,
   getAssetContentBlob,
@@ -5437,7 +5438,28 @@ export default function CanvasWorkspaceViewContent() {
     });
   };
 
+  // Ignores rapid repeated clicks while one download is in flight (single-node downloads).
+  const downloadBusyNodeIdsRef = useRef(new Set<string>());
   const downloadNodeMedia = async (node: CanvasNodeData) => {
+    if (downloadBusyNodeIdsRef.current.has(node.id)) return;
+    downloadBusyNodeIdsRef.current.add(node.id);
+    window.setTimeout(
+      () => downloadBusyNodeIdsRef.current.delete(node.id),
+      1500
+    );
+    const assetId = assetIdFromNode(node);
+    if (assetId) {
+      // Browser-native streaming: the server sets the filename and records the download.
+      const sourceScope =
+        workspaceScopeValue(node.metadata?.assetScope) ||
+        projectSessionController.canonicalScope;
+      if (!sourceScope)
+        return toast.warning("正在确认项目工作区，暂不能下载原文件");
+      startAssetMediaDownload(assetId, sourceScope);
+      toast.success("已开始下载，进度请查看浏览器下载栏");
+      return;
+    }
+    const toastId = toast.loading("正在准备下载…");
     try {
       const blob = await downloadCanvasOriginalMedia(
         node,
@@ -5452,8 +5474,9 @@ export default function CanvasWorkspaceViewContent() {
           content_type: blob.type || stringValue(node.metadata?.mimeType),
         })
       );
+      toast.success("已开始下载", { id: toastId });
     } catch (error) {
-      toast.error(publicApiError(error, "下载媒体失败"));
+      toast.error(publicApiError(error, "下载媒体失败"), { id: toastId });
     }
   };
 

@@ -36,6 +36,7 @@ export {
   deleteAssetExport,
   downloadAssetExport,
   startAssetExportDownload,
+  startAssetMediaDownload,
   getAssetContentObjectUrl,
   getAssetMediaUrl,
   getAssetContentBlob,

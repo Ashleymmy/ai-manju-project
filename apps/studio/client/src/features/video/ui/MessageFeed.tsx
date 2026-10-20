@@ -1,9 +1,21 @@
 import { VideoRetryPrice } from "./VideoRetryPrice";
 import { VideoThumbnail } from "@/shared/ui/VideoThumbnail";
-import { Download, Film, Image as ImageIcon, Loader2, Music2, Pencil, RotateCcw, Square } from "lucide-react";
+import {
+  Download,
+  Film,
+  Image as ImageIcon,
+  Loader2,
+  Music2,
+  Pencil,
+  RotateCcw,
+  Square,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { getAssetContentObjectUrl, getSeedanceAssetPreviewUrl } from "@/entities/asset";
+import {
+  getAssetContentObjectUrl,
+  getSeedanceAssetPreviewUrl,
+} from "@/entities/asset";
 
 import { workbenchFormatBytes } from "../model/referenceEngine";
 import {
@@ -34,6 +46,7 @@ export function MessageFeed({
   onEditMessage,
   editingMessageId,
   onDownload,
+  downloadingIds,
   empty,
 }: {
   messages: VideoWorkbenchMessage[];
@@ -47,6 +60,8 @@ export function MessageFeed({
   onEditMessage: (message: VideoWorkbenchMessage) => void;
   editingMessageId?: string;
   onDownload: (message: VideoWorkbenchMessage) => void;
+  /** Ids whose download just started; their buttons stay disabled briefly. */
+  downloadingIds?: ReadonlySet<string>;
   empty: string;
 }) {
   return (
@@ -57,28 +72,31 @@ export function MessageFeed({
           <p>{empty}</p>
         </div>
       ) : null}
-      {messages.map((message) => message.role === "user" ? (
-        <UserBubble
-          key={message.id}
-          message={message}
-          resolveThumb={resolveThumb}
-          onOpenMedia={onOpenMedia}
-          onEditMessage={onEditMessage}
-          editingMessageId={editingMessageId}
-        />
-      ) : (
-        <SystemTaskCard
-          messages={messages}
-          key={message.id}
-          message={message}
-          runtime={taskRuntime[message.id] || {}}
-          resultUrlFor={resultUrlFor}
-          onOpenMedia={onOpenMedia}
-          onCancel={onCancelTask}
-          onRetry={onRetryTask}
-          onDownload={onDownload}
-        />
-      ))}
+      {messages.map(message =>
+        message.role === "user" ? (
+          <UserBubble
+            key={message.id}
+            message={message}
+            resolveThumb={resolveThumb}
+            onOpenMedia={onOpenMedia}
+            onEditMessage={onEditMessage}
+            editingMessageId={editingMessageId}
+          />
+        ) : (
+          <SystemTaskCard
+            messages={messages}
+            key={message.id}
+            message={message}
+            runtime={taskRuntime[message.id] || {}}
+            resultUrlFor={resultUrlFor}
+            onOpenMedia={onOpenMedia}
+            onCancel={onCancelTask}
+            onRetry={onRetryTask}
+            onDownload={onDownload}
+            downloading={downloadingIds?.has(message.id)}
+          />
+        )
+      )}
     </div>
   );
 }
@@ -99,14 +117,30 @@ function UserBubble({
   return (
     <div className="wb-msg user">
       <div className="wb-bubble">
-        <button type="button" className="wb-msg-retry" title="重新编辑提示词和参考素材" aria-label="重新编辑提示词和参考素材" disabled={Boolean(editingMessageId)} onClick={() => onEditMessage(message)}>
-          {editingMessageId === message.id ? <Loader2 className="spin" size={12} /> : <Pencil size={12} />}
+        <button
+          type="button"
+          className="wb-msg-retry"
+          title="重新编辑提示词和参考素材"
+          aria-label="重新编辑提示词和参考素材"
+          disabled={Boolean(editingMessageId)}
+          onClick={() => onEditMessage(message)}
+        >
+          {editingMessageId === message.id ? (
+            <Loader2 className="spin" size={12} />
+          ) : (
+            <Pencil size={12} />
+          )}
         </button>
         <p>{message.text}</p>
         {message.attachments?.length ? (
           <div className="wb-msg-attachments">
-            {message.attachments.map((attachment) => (
-              <AttachmentThumb key={attachment.id} attachment={attachment} resolveThumb={resolveThumb} onOpenMedia={onOpenMedia} />
+            {message.attachments.map(attachment => (
+              <AttachmentThumb
+                key={attachment.id}
+                attachment={attachment}
+                resolveThumb={resolveThumb}
+                onOpenMedia={onOpenMedia}
+              />
             ))}
           </div>
         ) : null}
@@ -125,6 +159,7 @@ function SystemTaskCard({
   onCancel,
   onRetry,
   onDownload,
+  downloading = false,
 }: {
   messages: VideoWorkbenchMessage[];
   message: VideoWorkbenchMessage;
@@ -134,34 +169,63 @@ function SystemTaskCard({
   onCancel: (message: VideoWorkbenchMessage) => void;
   onRetry: (message: VideoWorkbenchMessage) => void;
   onDownload: (message: VideoWorkbenchMessage) => void;
+  downloading?: boolean;
 }) {
   const status = runtime.status || message.taskStatus || "queued";
-  const progress = typeof runtime.progress === "number" ? runtime.progress : message.taskProgress;
+  const progress =
+    typeof runtime.progress === "number"
+      ? runtime.progress
+      : message.taskProgress;
   const running = status === "queued" || status === "running";
-  const videoUrl = runtime.url || (status === "succeeded" ? resultUrlFor(message) : "");
+  const videoUrl =
+    runtime.url || (status === "succeeded" ? resultUrlFor(message) : "");
   return (
     <div className="wb-msg system">
       <div className="wb-bubble task">
         <div className="wb-task-head">
           <Film size={14} />
-          <span className="wb-task-prompt" title={message.text}>{message.text || "视频生成任务"}</span>
+          <span className="wb-task-prompt" title={message.text}>
+            {message.text || "视频生成任务"}
+          </span>
           <span className="wb-task-meta">
             {message.model ? <i>{message.model}</i> : null}
-            {message.config?.seconds ? <i>{message.config.seconds === "-1" ? "智能时长" : `${message.config.seconds}s`}</i> : null}
+            {message.config?.seconds ? (
+              <i>
+                {message.config.seconds === "-1"
+                  ? "智能时长"
+                  : `${message.config.seconds}s`}
+              </i>
+            ) : null}
             {message.config?.size ? <i>{message.config.size}</i> : null}
           </span>
-          {message.taskId ? <span className="wb-task-id">ID: {message.taskId}</span> : null}
+          {message.taskId ? (
+            <span className="wb-task-id">ID: {message.taskId}</span>
+          ) : null}
         </div>
         {running ? (
           <div className="wb-task-running">
             <Loader2 className="spin" size={16} />
             <div className="wb-task-progress">
-              <b>{runtime.notice || (status === "queued" ? "排队中" : "生成中")}</b>
+              <b>
+                {runtime.notice || (status === "queued" ? "排队中" : "生成中")}
+              </b>
               {typeof progress === "number" ? (
-                <div className="wb-progress"><i style={{ width: `${Math.max(0, Math.min(100, Math.round(progress)))}%` }} /><b>{Math.round(progress)}%</b></div>
+                <div className="wb-progress">
+                  <i
+                    style={{
+                      width: `${Math.max(0, Math.min(100, Math.round(progress)))}%`,
+                    }}
+                  />
+                  <b>{Math.round(progress)}%</b>
+                </div>
               ) : null}
             </div>
-            <button type="button" className="wb-task-cancel" disabled={Boolean(runtime.cancelling)} onClick={() => onCancel(message)}>
+            <button
+              type="button"
+              className="wb-task-cancel"
+              disabled={Boolean(runtime.cancelling)}
+              onClick={() => onCancel(message)}
+            >
               <Square size={11} /> {runtime.cancelling ? "取消中…" : "取消生成"}
             </button>
           </div>
@@ -169,24 +233,54 @@ function SystemTaskCard({
         {status === "failed" ? (
           <div className="wb-task-error">
             <p>{runtime.error || message.taskError || "视频生成失败"}</p>
-            <button type="button" onClick={() => onRetry(message)}><RotateCcw size={12} /> 重试 <VideoRetryPrice message={message} messages={messages} /></button>
+            <button type="button" onClick={() => onRetry(message)}>
+              <RotateCcw size={12} /> 重试{" "}
+              <VideoRetryPrice message={message} messages={messages} />
+            </button>
           </div>
         ) : null}
-        {status === "canceled" ? <div className="wb-task-error"><p>任务已取消</p><button type="button" onClick={() => onRetry(message)}><RotateCcw size={12} /> 重试 <VideoRetryPrice message={message} messages={messages} /></button></div> : null}
+        {status === "canceled" ? (
+          <div className="wb-task-error">
+            <p>任务已取消</p>
+            <button type="button" onClick={() => onRetry(message)}>
+              <RotateCcw size={12} /> 重试{" "}
+              <VideoRetryPrice message={message} messages={messages} />
+            </button>
+          </div>
+        ) : null}
         {status === "succeeded" && videoUrl ? (
-          <div className="wb-task-video" onClick={() => onOpenMedia(videoUrl, "video")} role="button" tabIndex={0}
-            onKeyDown={(event) => { if (event.key === "Enter") onOpenMedia(videoUrl, "video"); }}>
+          <div
+            className="wb-task-video"
+            onClick={() => onOpenMedia(videoUrl, "video")}
+            role="button"
+            tabIndex={0}
+            onKeyDown={event => {
+              if (event.key === "Enter") onOpenMedia(videoUrl, "video");
+            }}
+          >
             <VideoThumbnail src={videoUrl} />
-            <span className="wb-task-play"><Film size={18} /></span>
+            <span className="wb-task-play">
+              <Film size={18} />
+            </span>
           </div>
         ) : null}
         {status === "succeeded" && !videoUrl ? (
-          <div className="wb-task-error"><p>结果记录已完成，正在读取可播放预览…</p></div>
+          <div className="wb-task-error">
+            <p>结果记录已完成，正在读取可播放预览…</p>
+          </div>
         ) : null}
         {status === "succeeded" ? (
           <div className="wb-task-actions">
-            <button type="button" onClick={() => onDownload(message)}><Download size={12} /> 下载</button>
-            <button type="button" onClick={() => onRetry(message)}><RotateCcw size={12} /> 再来一条</button>
+            <button
+              type="button"
+              onClick={() => onDownload(message)}
+              disabled={downloading}
+            >
+              <Download size={12} /> {downloading ? "下载中…" : "下载"}
+            </button>
+            <button type="button" onClick={() => onRetry(message)}>
+              <RotateCcw size={12} /> 再来一条
+            </button>
           </div>
         ) : null}
       </div>
@@ -210,13 +304,31 @@ export function AttachmentThumb({
     <span
       className={`wb-att ${clickable ? "clickable" : ""}`}
       title={`${attachment.name} · ${workbenchFormatBytes(attachment.bytes)}`}
-      onClick={clickable ? () => onOpenMedia?.(url, attachment.kind === "video" ? "video" : "image") : undefined}
+      onClick={
+        clickable
+          ? () =>
+              onOpenMedia?.(
+                url,
+                attachment.kind === "video" ? "video" : "image"
+              )
+          : undefined
+      }
     >
-      {attachment.kind === "image" && url ? <img src={url} alt={attachment.name} loading="lazy" /> : null}
-      {attachment.kind === "video" && url ? <video src={url} muted preload="metadata" /> : null}
+      {attachment.kind === "image" && url ? (
+        <img src={url} alt={attachment.name} loading="lazy" />
+      ) : null}
+      {attachment.kind === "video" && url ? (
+        <video src={url} muted preload="metadata" />
+      ) : null}
       {attachment.kind === "audio" ? <Music2 size={15} /> : null}
       {!url && attachment.kind !== "audio" ? <ImageIcon size={15} /> : null}
-      <i>{attachment.role === "first_frame" ? "首帧" : attachment.role === "last_frame" ? "尾帧" : attachment.token || "参考"}</i>
+      <i>
+        {attachment.role === "first_frame"
+          ? "首帧"
+          : attachment.role === "last_frame"
+            ? "尾帧"
+            : attachment.token || "参考"}
+      </i>
     </span>
   );
 }
@@ -225,27 +337,50 @@ export function AttachmentThumb({
 export function useWorkbenchThumbCache() {
   const [cache, setCache] = useState<Record<string, string>>({});
   const pendingRef = useRef(new Set<string>());
-  useEffect(() => () => {
-    pendingRef.current.clear();
-    setCache((current) => {
-      Object.values(current).forEach((url) => { if (url.startsWith("blob:")) URL.revokeObjectURL(url); });
-      return {};
-    });
-  }, []);
+  useEffect(
+    () => () => {
+      pendingRef.current.clear();
+      setCache(current => {
+        Object.values(current).forEach(url => {
+          if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+        });
+        return {};
+      });
+    },
+    []
+  );
 
   const resolveThumb = (attachment: VideoWorkbenchAttachment) => {
-    const key = attachment.assetRef ? `provider:${attachment.scope}:${attachment.assetRef}:${attachment.previewUrl}` : attachment.assetId ? `asset:${attachment.assetId}` : attachment.storageKey ? `local:${attachment.storageKey}` : "";
+    const key = attachment.assetRef
+      ? `provider:${attachment.scope}:${attachment.assetRef}:${attachment.previewUrl}`
+      : attachment.assetId
+        ? `asset:${attachment.assetId}`
+        : attachment.storageKey
+          ? `local:${attachment.storageKey}`
+          : "";
     if (!key) return "";
     const hit = cache[key];
     if (hit !== undefined) return hit;
     if (!pendingRef.current.has(key)) {
       pendingRef.current.add(key);
-      const load = attachment.assetRef ? getSeedanceAssetPreviewUrl(attachment.previewUrl) : attachment.assetId
-        ? getAssetContentObjectUrl(attachment.assetId, attachment.scope || "personal", 320)
-        : loadWorkbenchMedia(attachment.storageKey || "").then((blob) => URL.createObjectURL(blob));
+      const load = attachment.assetRef
+        ? getSeedanceAssetPreviewUrl(attachment.previewUrl)
+        : attachment.assetId
+          ? getAssetContentObjectUrl(
+              attachment.assetId,
+              attachment.scope || "personal",
+              320
+            )
+          : loadWorkbenchMedia(attachment.storageKey || "").then(blob =>
+              URL.createObjectURL(blob)
+            );
       load
-        .then((url) => setCache((current) => current[key] ? current : { ...current, [key]: url }))
-        .catch(() => setCache((current) => ({ ...current, [key]: "" })))
+        .then(url =>
+          setCache(current =>
+            current[key] ? current : { ...current, [key]: url }
+          )
+        )
+        .catch(() => setCache(current => ({ ...current, [key]: "" })))
         .finally(() => pendingRef.current.delete(key));
     }
     return "";

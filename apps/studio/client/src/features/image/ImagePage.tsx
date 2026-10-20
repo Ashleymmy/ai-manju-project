@@ -44,6 +44,7 @@ import { useLocation } from "wouter";
 import {
   getAssetContentObjectUrl,
   preflightAssetTrash,
+  startAssetMediaDownload,
   trashAssets,
   type Asset,
 } from "@/entities/asset";
@@ -806,15 +807,13 @@ export function ImageWorkbenchView() {
     toast.info("已载入预览区域，可使用下方编辑功能");
   };
 
-  const downloadHistoryAsset = async (asset: Asset) => {
-    try {
-      const url = await getAssetContentObjectUrl(asset.id, scope);
-      const blob = await fetch(url).then(response => response.blob());
-      downloadBlob(blob, asset.name);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      toast.error(publicApiError(error, "下载失败"));
-    }
+  const [downloadingAssetId, setDownloadingAssetId] = useState("");
+  const downloadHistoryAsset = (asset: Asset) => {
+    if (downloadingAssetId) return;
+    setDownloadingAssetId(asset.id);
+    startAssetMediaDownload(asset.id, scope);
+    toast.success("已开始下载，进度请查看浏览器下载栏");
+    window.setTimeout(() => setDownloadingAssetId(""), 1200);
   };
 
   /* 从预览区域移除单张结果：仅移出当前预览，不影响已归档的资产；清空后自动回到等待落点态 */
@@ -1724,7 +1723,8 @@ export function ImageWorkbenchView() {
           setHistoryPreview(null);
           void addAssetAsReference(asset);
         }}
-        onDownload={asset => void downloadHistoryAsset(asset)}
+        onDownload={asset => downloadHistoryAsset(asset)}
+        downloading={Boolean(downloadingAssetId)}
       />
       {lightboxOpen && selectedSrc && (
         <div
