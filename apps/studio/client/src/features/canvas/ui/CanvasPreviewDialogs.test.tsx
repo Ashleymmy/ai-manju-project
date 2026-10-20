@@ -16,9 +16,9 @@ describe("canvas image preview resolution", () => {
   let root: Root;
   let container: HTMLDivElement;
 
-  async function render(current = node, source = "/image-a.png") {
+  async function render(current = node, source = "/image-a.png", siblings = [current]) {
     await act(async () => root.render(<CanvasImagePreviewDialog
-      node={current} source={source} siblings={[current]} selectedNodeId={current.id}
+      node={current} source={source} siblings={siblings} selectedNodeId={current.id}
       previews={{}} modelLabel="测试模型" creatorLabel="测试用户"
       onSelectNode={vi.fn()} onSetBatchPrimary={vi.fn()} onDetachBatchChild={vi.fn()}
       onDownload={vi.fn()} onClose={vi.fn()}
@@ -51,6 +51,14 @@ describe("canvas image preview resolution", () => {
     container.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("only mentions arrow-key switching when the image belongs to a group", async () => {
+    await render();
+    expect(document.body.textContent).toContain("节点产物的详细预览。");
+    expect(document.body.textContent).not.toContain("← →");
+    await render(node, "/image-a.png", [node, { ...node, id: "image-b" }]);
+    expect(document.body.textContent).toContain("键盘 ← → 可切换同组图片");
   });
 
   it("shows decoded pixel dimensions above file size, ignoring canvas size and stale metadata", async () => {

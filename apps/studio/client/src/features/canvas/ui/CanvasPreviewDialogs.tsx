@@ -162,10 +162,23 @@ export function CanvasImagePreviewDialog({
 
   return (
     <Dialog open={Boolean(node)} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-[1120px] canvas-image-preview-dialog">
+      <DialogContent
+        className="sm:max-w-[1120px] canvas-image-preview-dialog"
+        // Opening would focus the first button (the "previous" pager arrow). Its focus ring
+        // then stays on "previous" while ← → switch images, which reads as the wrong direction.
+        onOpenAutoFocus={event => {
+          event.preventDefault();
+          (event.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{node?.title || "图片预览"}</DialogTitle>
-          <DialogDescription>节点产物的详细预览，底部缩略图或键盘 ← → 可切换同组图片。</DialogDescription>
+          {/* Switching only exists for an image group; a single image must not advertise it. */}
+          <DialogDescription>
+            {siblings.length > 1
+              ? "节点产物的详细预览，底部缩略图或键盘 ← → 可切换同组图片。"
+              : "节点产物的详细预览。"}
+          </DialogDescription>
         </DialogHeader>
         {node ? (
           <div className="preview-detail-layout">
