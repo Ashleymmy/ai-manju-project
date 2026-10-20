@@ -122,13 +122,14 @@ export function PromptLibraryView() {
     systemPromptQuery.isPending,
   ]);
 
-  const persist = async (next: PromptPreset[], success: string) => {
+  /** Saves the list and selects `selectId`; it falls back to the first preset only when that one is gone (deleted). */
+  const persist = async (next: PromptPreset[], success: string, selectId = activeId) => {
     const normalized = next.map((item, index) => ({ ...item, sort_order: item.sort_order ?? index }));
     const preferences = await updatePreferences({ canvas: { promptPresets: normalized } });
     queryClient.setQueryData(settingsQueryKeys.preferences(), preferences);
     const saved = preferences.canvas?.promptPresets || normalized;
     setPresets(saved);
-    setActiveId(saved[0]?.id || "");
+    setActiveId(saved.some((item) => item.id === selectId) ? selectId : saved[0]?.id || "");
     toast.success(success);
   };
 
@@ -136,13 +137,13 @@ export function PromptLibraryView() {
     const now = new Date().toISOString();
     const created: PromptPreset = { id: crypto.randomUUID(), title: "未命名提示词", prompt: PROMPT_PRESET_PLACEHOLDER, tags: [], priority: "normal", sort_order: presets.length, createdAt: now, updatedAt: now };
     setActiveId(created.id);
-    await persist([...presets, created], "已创建提示词预设");
+    await persist([...presets, created], "已创建提示词预设", created.id);
   };
 
   const saveSystemPromptAsPreset = async (item: SystemPrompt) => {
     const now = new Date().toISOString();
     const created: PromptPreset = { id: crypto.randomUUID(), title: item.title, prompt: item.prompt, tags: item.tags.slice(0, 6), priority: "normal", sort_order: presets.length, createdAt: now, updatedAt: now };
-    await persist([...presets, created], "系统提示词已存为个人预设");
+    await persist([...presets, created], "系统提示词已存为个人预设", activeId);
   };
 
   const patchActive = (patch: Partial<PromptPreset>) => active && setPresets((items) => items.map((item) => item.id === active.id ? { ...item, ...patch } : item));
@@ -158,8 +159,7 @@ export function PromptLibraryView() {
       if (item.id === active.id) return { ...item, sort_order: target.sort_order };
       if (item.id === target.id) return { ...item, sort_order: active.sort_order };
       return item;
-    }), "提示词顺序已更新");
-    setActiveId(active.id);
+    }), "提示词顺序已更新", active.id);
   };
 
   const toggleSystemTag = (tag: string) => setSystemTagFilter((tags) => tags.includes(tag) ? tags.filter((item) => item !== tag) : [...tags, tag]);
@@ -176,7 +176,7 @@ export function PromptLibraryView() {
       <div className="preset-section"><span className="field-label">标签</span><PromptTagInput key={active.id} tags={active.tags} suggestions={semanticPromptTags.map((tag) => tag.name)} onChange={(tags) => patchActive({ tags })} placeholder="以逗号分隔；可输入或从语义标签库选择" />{semanticPromptTags.length ? <div className="prompt-semantic-hint"><span className="field-label">语义标签库</span>{semanticPromptTags.slice(0, 10).map((tag) => <button key={tag.id} type="button" disabled={active.tags.includes(tag.name)} onClick={() => patchActive({ tags: [...active.tags, tag.name] })}>#{tag.name}</button>)}</div> : null}</div>
       <div className="preset-section"><span className="field-label">优先级与排序</span><div className="preset-order-row"><select value={active.priority} onChange={(e) => patchActive({ priority: e.target.value as PromptPreset["priority"] })} aria-label="优先级"><option value="pinned">置顶</option><option value="high">高</option><option value="normal">普通</option><option value="low">低</option></select><div className="prompt-order-actions"><button onClick={() => void moveActive(-1)}>上移</button><button onClick={() => void moveActive(1)}>下移</button></div></div></div>
       <div className="preset-actions">
-        <button className="vermilion-button" onClick={() => void persist(presets.map((item) => item.id === active.id ? { ...item, updatedAt: new Date().toISOString() } : item), "提示词已保存")}><Check size={16} /> 保存预设</button>
+        <button className="vermilion-button" onClick={() => void persist(presets.map((item) => item.id === active.id ? { ...item, updatedAt: new Date().toISOString() } : item), "提示词已保存", active.id)}><Check size={16} /> 保存预设</button>
         <div className="preset-secondary-actions"><button className="full-outline" onClick={() => { sessionStorage.setItem("ai-manju:image-prompt", active.prompt); window.location.assign("/image"); }}><WandSparkles size={15} /> 送入关键帧</button><button className="full-outline" onClick={async () => { await navigator.clipboard.writeText(active.prompt); toast.success("提示词已复制"); }}><FileText size={15} /> 复制完整提示词</button></div>
         <button className="full-outline preset-danger" onClick={() => { if (window.confirm(`删除"${active.title}"？`)) void persist(presets.filter((item) => item.id !== active.id), "提示词已删除"); }}><Trash2 size={15} /> 删除预设</button>
       </div>

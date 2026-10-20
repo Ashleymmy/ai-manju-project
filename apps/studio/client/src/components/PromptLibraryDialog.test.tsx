@@ -175,4 +175,19 @@ describe("canvas prompt library file transfer", () => {
     expect(mocks.download).not.toHaveBeenCalled();
     expect(mocks.error).toHaveBeenCalled();
   });
+
+  it("shows unfilled presets as a hint instead of placeholder text to delete, and never inserts it", async () => {
+    const unfilled: PromptPreset = { ...existing, id: "unfilled", title: "bbb", prompt: "请在此填写提示词内容。" };
+    stored = [unfilled];
+    await render();
+    const item = document.querySelector(".preset-item p")!;
+    expect(item.textContent).toBe("尚未填写提示词");
+    expect(item.classList.contains("preset-prompt-empty")).toBe(true);
+    const editor = document.querySelector<HTMLTextAreaElement>(".prompt-library-personal-editor textarea")!;
+    expect(editor.value).toBe("");
+    expect(editor.placeholder).toBe("请在此填写提示词内容。");
+    await act(async () => button("使用预设").click());
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(mocks.info).toHaveBeenCalled();
+  });
 });

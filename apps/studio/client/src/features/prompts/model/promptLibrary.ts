@@ -18,6 +18,11 @@ const priorityRank: Record<PromptPreset["priority"], number> = { pinned: 0, high
  */
 export const PROMPT_PRESET_PLACEHOLDER = "请在此填写提示词内容。";
 
+/** The prompt the user actually wrote: "" for an unfilled preset (empty or the stored placeholder). */
+export function promptPresetText(prompt: string) {
+  return prompt.trim() === PROMPT_PRESET_PLACEHOLDER ? "" : prompt;
+}
+
 export function buildPromptLibraryEntries(systemPrompts: readonly SystemPrompt[], personalPrompts: readonly PromptPreset[]) {
   const personal = personalPrompts.map<PromptLibraryEntry>((item) => ({
     id: `personal:${item.id}`,

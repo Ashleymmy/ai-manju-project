@@ -15,6 +15,7 @@ import { getPromptLibrary, type PromptPreset, type SystemPrompt } from "@/entiti
 import { getPreferences, updatePreferences } from "@/features/settings";
 import { publicApiError } from "@/shared/api/errors";
 import { MAX_PROMPT_PRESET_FILE_BYTES, mergePromptPresetImport, parsePromptPresetFile, serializePromptPresetFile } from "@/features/prompts/model/presetTransfer";
+import { PROMPT_PRESET_PLACEHOLDER, promptPresetText } from "@/features/prompts/model/promptLibrary";
 
 type PromptLibraryDialogProps = {
   open: boolean;
@@ -210,7 +211,13 @@ export default function PromptLibraryDialog({ open, onOpenChange, onSelect }: Pr
   };
 
   const usePreset = (preset: PromptPreset) => {
-    onSelect(preset.prompt);
+    // An unfilled preset only holds the placeholder; inserting it would put that hint in the prompt.
+    const text = promptPresetText(preset.prompt);
+    if (!text.trim()) {
+      toast.info("这个预设还没有填写提示词");
+      return;
+    }
+    onSelect(text);
     onOpenChange(false);
   };
 
@@ -313,7 +320,7 @@ export default function PromptLibraryDialog({ open, onOpenChange, onSelect }: Pr
                       <span className={`status-chip ${preset.priority === "pinned" ? "sand" : "blue"}`}>{priorityLabel(preset.priority)}</span>
                       <b>{preset.title}</b>
                     </div>
-                    <p>{preset.prompt || "未填写提示词"}</p>
+                    {promptPresetText(preset.prompt).trim() ? <p>{preset.prompt}</p> : <p className="preset-prompt-empty">尚未填写提示词</p>}
                     <div className="preset-item-actions">
                       <button title={preset.priority === "pinned" ? "取消置顶" : "置顶"} disabled={busy} onClick={(event) => { event.stopPropagation(); togglePin(preset); }}><Pin size={12} /></button>
                       <button title="使用此预设" disabled={busy} onClick={(event) => { event.stopPropagation(); usePreset(preset); }}>使用</button>
@@ -329,7 +336,7 @@ export default function PromptLibraryDialog({ open, onOpenChange, onSelect }: Pr
                   <label>标题<input disabled={busy} value={active.title} onChange={(event) => patchActive({ title: event.target.value })} /></label>
                   <label>标签<input disabled={busy} value={active.tags.join(", ")} onChange={(event) => patchActive({ tags: event.target.value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean) })} placeholder="标签，以逗号分隔" /></label>
                   <label>优先级<select disabled={busy} value={active.priority} onChange={(event) => patchActive({ priority: event.target.value as PromptPreset["priority"] })}>{priorityOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-                  <label>提示词正文<textarea disabled={busy} value={active.prompt} onChange={(event) => patchActive({ prompt: event.target.value })} placeholder="在此填写提示词内容…" /></label>
+                  <label>提示词正文<textarea disabled={busy} value={promptPresetText(active.prompt)} onChange={(event) => patchActive({ prompt: event.target.value || (active.prompt === PROMPT_PRESET_PLACEHOLDER ? PROMPT_PRESET_PLACEHOLDER : "") })} placeholder={PROMPT_PRESET_PLACEHOLDER} /></label>
                   <div className="prompt-library-personal-actions">
                     <button className="outline-button" disabled={busy} onClick={() => usePreset(active)}>使用预设</button>
                     <button className="vermilion-button" disabled={busy} onClick={saveActive}><Check size={15} /> {saving ? "保存中…" : "保存预设"}</button>
