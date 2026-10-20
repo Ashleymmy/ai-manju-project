@@ -324,8 +324,10 @@ export function SeedanceAssetsPanel({
                 ).padStart(2, "0")}
               </span>
               <div>
-                <b>{asset.name}</b>
-                <small>
+                <b title={asset.name}>{asset.name}</b>
+                <small
+                  title={`${asset.asset_type} · ${asset.volcano_asset_id || asset.source_url} · ${(asset.tags || []).map(tag => tag.name).join("/") || "无标签"}`}
+                >
                   {asset.asset_type} · {asset.volcano_asset_id || asset.source_url} · {" "}
                   {(asset.tags || []).map(tag => tag.name).join("/") || "无标签"}
                 </small>

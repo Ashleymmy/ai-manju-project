@@ -329,11 +329,14 @@ func (s *SupabaseStorage) Get(ctx context.Context, key string) (io.ReadCloser, S
 }
 
 func (s *SupabaseStorage) Delete(ctx context.Context, key string) error {
-	if _, err := s.target(key); err != nil {
+	target, err := s.target(key)
+	if err != nil {
 		return err
 	}
-	body, _ := json.Marshal(map[string][]string{"prefixes": {key}})
-	resp, err := s.request(ctx, http.MethodDelete, "object/"+url.PathEscape(s.bucket), bytes.NewReader(body), "application/json")
+	// Single-object route (DELETE /object/{bucket}/{key}): same path shape as upload,
+	// download and HEAD. The bulk route addresses the bare bucket path, which the
+	// production gateway answers with a 301 redirect instead of reaching Storage.
+	resp, err := s.request(ctx, http.MethodDelete, "object/"+target, nil, "")
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}

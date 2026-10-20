@@ -56,12 +56,8 @@ func TestSupabaseCRUDAndSignedURL(t *testing.T) {
 		case strings.Contains(r.URL.Path, "/bucket/"):
 			io.WriteString(w, `{"id":"studio-test-assets","public":false}`)
 		case r.Method == "DELETE":
-			var body struct {
-				Prefixes []string `json:"prefixes"`
-			}
-			json.NewDecoder(r.Body).Decode(&body)
-			if len(body.Prefixes) != 1 || body.Prefixes[0] != key {
-				t.Error("delete targets differ")
+			if r.URL.Path != "/storage/v1/object/studio-test-assets/"+key {
+				t.Errorf("delete must address the object itself, got %q", r.URL.Path)
 			}
 		case r.Method == "POST":
 			body, _ := io.ReadAll(r.Body)
@@ -253,6 +249,36 @@ func TestSupabasePublicProtocolSwitchDoesNotDowngradeCredentials(t *testing.T) {
 	for _, invalid := range []string{"ftp://media.invalid", "http://user:pass@media.invalid", "http://media.invalid/path", "http://media.invalid?token=x", "http://media.invalid#fragment"} {
 		if _, err := storagePublicOrigin(invalid); err == nil {
 			t.Fatal("invalid public origin accepted")
+		}
+	}
+}
+
+func TestSupabaseDeleteTreatsMissingObjectAsDeletedAndSurfacesRedirects(t *testing.T) {
+	var status int
+	s, _ := testSupabase(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/storage/v1/object/studio-test-assets/personal/u/a.png" {
+			t.Errorf("unexpected delete request %s %s", r.Method, r.URL.Path)
+		}
+		switch status {
+		case http.StatusBadRequest:
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"statusCode":"404","error":"not_found","message":"Object not found"}`)
+		case http.StatusMovedPermanently:
+			w.Header().Set("Location", "/elsewhere")
+			w.WriteHeader(http.StatusMovedPermanently)
+		default:
+			io.WriteString(w, `{"message":"Successfully deleted"}`)
+		}
+	})
+	ctx := context.Background()
+	for _, tc := range []struct {
+		status  int
+		wantErr bool
+	}{{http.StatusOK, false}, {http.StatusBadRequest, false}, {http.StatusMovedPermanently, true}} {
+		status = tc.status
+		err := s.Delete(ctx, "personal/u/a.png")
+		if (err != nil) != tc.wantErr {
+			t.Fatalf("status %d: err=%v wantErr=%v", tc.status, err, tc.wantErr)
 		}
 	}
 }
