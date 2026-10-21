@@ -45,6 +45,20 @@ export const miniMaxEmotionOptions = [
   { value: "calm", label: "平静 (calm)" },
 ] as const;
 
+// 复刻音色的下拉标签：有别名（用户克隆时取的名，支持中文）就突出别名，
+// 尾号 4 位用来区分同名音色；没有别名回退到完整 ID。
+export function clonedVoiceLabel(record: {
+  voice_id?: string;
+  alias?: string;
+}): string {
+  const id = (record.voice_id || "").trim();
+  const alias = (record.alias || "").trim();
+  if (alias) {
+    return id ? `${alias}（…${id.slice(-4)}）` : alias;
+  }
+  return id ? `复刻音色 · ${id}` : "复刻音色";
+}
+
 export function isCosyVoiceAudioModel(model: string | undefined): boolean {
   const value = (model || "").toLowerCase();
   return (
@@ -64,6 +78,24 @@ export function isMiniMaxAudioModel(model: string | undefined): boolean {
 }
 
 const voiceCloneExtensions = ["mp3", "wav", "m4a"];
+
+// 音色名称校验：名称是应用内的展示名（支持中文），长度限制即可。
+// 阿里云对 prefix 的硬性要求（仅字母数字 ≤10 位）由 deriveVoiceClonePrefix 处理，
+// 用户不需要接触。
+export function voiceCloneNameProblem(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "请填写音色名称";
+  if ([...trimmed].length > 30) return "音色名称最长 30 个字符";
+  return "";
+}
+
+// 从用户名称派生发给服务商的技术前缀：名称本身合规（字母数字 ≤10 位）就直接用，
+// 否则自动生成一个随机前缀；音色在应用内以别名展示，前缀只出现在服务商控制台。
+export function deriveVoiceClonePrefix(name: string): string {
+  const trimmed = name.trim();
+  if (/^[a-zA-Z0-9]{1,10}$/.test(trimmed)) return trimmed;
+  return `r${Date.now().toString(36).slice(-7)}`;
+}
 
 // Problems with the reference audio the user can fix before uploading; seconds is
 // undefined when the browser cannot read the duration.
@@ -109,7 +141,7 @@ export function isFunMusicAudioModel(model: string | undefined): boolean {
 
 export function audioVoiceOptionsForModel(
   model: string | undefined,
-  clonedVoices: ReadonlyArray<{ value: string; label: string }> = []
+  clonedVoices: ReadonlyArray<{ value: string; label: string; model?: string }> = []
 ): Array<{ value: string; label: string }> {
   const custom = clonedVoices.filter(item => item.value.trim());
   // Callers pass the OpenAI voice names too; CosyVoice/MiniMax would silently
@@ -119,22 +151,29 @@ export function audioVoiceOptionsForModel(
   );
   const cloned = custom.filter(item => !openAIVoices.has(item.value));
   if (isCosyVoiceAudioModel(model)) {
-    // A CosyVoice clone ID starts with its target model and only works with it.
+    // A CosyVoice clone only works with its target model.
     const bareModel = (model || "").split("::").pop()!.trim().toLowerCase();
     return [
-      ...cloned.filter(
-        item =>
-          !item.value.toLowerCase().startsWith("cosyvoice-") ||
-          item.value.toLowerCase().startsWith(`${bareModel}-`)
-      ),
+      ...cloned.filter(item => {
+        const itemModel = (item.model || "").trim().toLowerCase();
+        if (itemModel) return itemModel === bareModel;
+        // 无 target_model 的老数据：cosyvoice 音色 ID 里内嵌目标模型
+        const value = item.value.toLowerCase();
+        return (
+          !value.startsWith("cosyvoice-") || value.startsWith(`${bareModel}-`)
+        );
+      }),
       ...cosyVoiceSystemOptions,
     ];
   }
   if (isMiniMaxAudioModel(model)) {
     return [
-      ...cloned.filter(
-        item => !item.value.toLowerCase().startsWith("cosyvoice-")
-      ),
+      ...cloned.filter(item => {
+        const itemModel = (item.model || "").trim().toLowerCase();
+        if (itemModel) return isMiniMaxAudioModel(itemModel);
+        const value = item.value.toLowerCase();
+        return !value.startsWith("cosyvoice-") && !value.startsWith("cvoice-");
+      }),
       ...miniMaxVoiceSystemOptions,
     ];
   }
@@ -173,7 +212,8 @@ export function cosyVoiceInstructionMode(
   voice: string | undefined
 ): CosyVoiceInstructionMode {
   const value = (voice || "").trim().toLowerCase();
-  if (/^cosyvoice-|^qwen-audio-/.test(value)) return "free";
+  // cvoice- 是本地音色（cv3.5 复刻），支持指令
+  if (/^cosyvoice-|^qwen-audio-|^cvoice-/.test(value)) return "free";
   if (value === "longanhuan_v3") return "dialect";
   if (value === "longanyang" || value === "longanhuan") return "emotion";
   return "none";
@@ -222,7 +262,7 @@ export function normalizeAudioVoiceValue(
   if (
     trimmed &&
     (knownNonOpenAIVoiceValues.has(trimmed) ||
-      /^cosyvoice-|^qwen-audio-|^BailianVoice|^MiniMax/i.test(trimmed) ||
+      /^cosyvoice-|^qwen-audio-|^BailianVoice|^MiniMax|^cvoice-/i.test(trimmed) ||
       isCosyVoiceAudioModel(model) ||
       isMiniMaxAudioModel(model))
   ) {

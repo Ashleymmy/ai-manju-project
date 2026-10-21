@@ -9,10 +9,12 @@ import {
 import {
   createClonedVoice,
   createVideoUpscaleTask,
+  deleteClonedVoice,
   getVideoUpscaleTask,
   listClonedVoices,
   upscaleImage,
 } from "@/services/api/mediaTools";
+import { clonedVoiceLabel } from "@/shared/config/audio";
 import { CreditBalance } from "@/features/member";
 import {
   registrationProviderId,
@@ -24,6 +26,7 @@ import {
 import { useCanvasSeedanceRegistration } from "./controllers/useCanvasSeedanceRegistration";
 import {
   modelNickname,
+  modelOptions,
   pickDefaultImageModel,
   resolveModel,
 } from "@/shared/lib/modelSelection";
@@ -190,7 +193,14 @@ import { fetchAiModels } from "@/services/api/ai";
 import {
   audioFormatOptions,
   audioVoiceOptions,
+  audioVoiceOptionsForModel,
+  cosyVoiceSystemOptions,
+  deriveVoiceClonePrefix,
+  isCosyVoiceAudioModel,
+  isMiniMaxAudioModel,
+  miniMaxVoiceSystemOptions,
   voiceCloneFileProblem,
+  voiceCloneNameProblem,
 } from "@/services/api/audio";
 import type { SeedanceMaterialAsset } from "@/services/api/material";
 import {
@@ -876,7 +886,7 @@ export default function CanvasWorkspaceViewContent() {
   const [audioVoiceCloneModel, setAudioVoiceCloneModel] = useState(
     "cosyvoice-v3.5-plus"
   );
-  const [audioVoiceClonePrefix, setAudioVoiceClonePrefix] = useState("role01");
+  const [audioVoiceCloneName, setAudioVoiceCloneName] = useState("");
   const [audioVoiceCloneUrl, setAudioVoiceCloneUrl] = useState("");
   const [audioVoiceCloneFile, setAudioVoiceCloneFile] = useState<
     File | undefined
@@ -886,8 +896,87 @@ export default function CanvasWorkspaceViewContent() {
   const [audioVoiceCloneBusy, setAudioVoiceCloneBusy] = useState(false);
   const [audioVoiceCloneError, setAudioVoiceCloneError] = useState("");
   const [clonedAudioVoices, setClonedAudioVoices] = useState<
-    Array<{ value: string; label: string }>
+    Array<{ value: string; label: string; owner?: string; model?: string }>
   >([]);
+  const [audioVoiceCloneDeleting, setAudioVoiceCloneDeleting] = useState("");
+
+  // 克隆对话框的模型选项来自真实模型目录，只保留支持声音复刻的（CosyVoice / MiniMax）。
+  const cloneTargetModelOptions = useMemo(
+    () =>
+      modelOptions(
+        audioModels.filter(
+          value => isCosyVoiceAudioModel(value) || isMiniMaxAudioModel(value)
+        ),
+        audioVoiceCloneModel,
+        textModelLabels,
+        modelNicknames
+      ),
+    [audioModels, audioVoiceCloneModel, textModelLabels, modelNicknames]
+  );
+
+  const mergeClonedAudioVoices = (
+    items: Awaited<ReturnType<typeof listClonedVoices>>
+  ) => {
+    if (!items.length) return;
+    setClonedAudioVoices(prev => {
+      const map = new Map(prev.map(item => [item.value, item]));
+      for (const v of items) {
+        if (v.voice_id) {
+          map.set(v.voice_id, {
+            value: v.voice_id,
+            label: clonedVoiceLabel(v),
+            owner: v.owner_name,
+            model: v.target_model,
+          });
+        }
+      }
+      return Array.from(map.values());
+    });
+  };
+
+  // 系统音色不可删除，管理列表只保留复刻音色
+  const systemVoiceValues = new Set<string>([
+    ...cosyVoiceSystemOptions.map(item => item.value),
+    ...miniMaxVoiceSystemOptions.map(item => item.value),
+  ]);
+
+  const deleteClonedVoiceFromDialog = async (voiceId: string, label: string) => {
+    if (audioVoiceCloneDeleting) return;
+    if (
+      !window.confirm(
+        `确定删除音色「${label}」吗？删除后不可恢复。\n已生成的音频文件不受影响。`
+      )
+    ) {
+      return;
+    }
+    setAudioVoiceCloneDeleting(voiceId);
+    try {
+      await deleteClonedVoice(voiceId);
+      setClonedAudioVoices(prev =>
+        prev.filter(item => item.value !== voiceId)
+      );
+      toast.success("音色已删除");
+    } catch (error) {
+      toast.error(publicApiError(error, "删除音色失败"));
+    } finally {
+      setAudioVoiceCloneDeleting("");
+    }
+  };
+
+  // 进画布即拉取已有复刻音色，音色下拉无需先打开一次克隆对话框
+  useEffect(() => {
+    if (!audioModel) return;
+    let cancelled = false;
+    void listClonedVoices(audioModel)
+      .then(items => {
+        if (!cancelled) mergeClonedAudioVoices(items);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioModel]);
   const imageAnnotationNodeId = useCanvasStore(
     state => state.ui.imageAnnotationNodeId
   );
@@ -4671,33 +4760,24 @@ export default function CanvasWorkspaceViewContent() {
       ? rawModel.split("::")[1] || "cosyvoice-v3.5-plus"
       : rawModel || "cosyvoice-v3.5-plus";
     setAudioVoiceCloneNodeId(sourceNode.id);
+    // 只能选真实目录里存在的克隆模型；节点当前模型不在目录里时回落到第一个可用项。
+    const wanted = bareModel.toLowerCase().includes("minimax") ||
+      bareModel.toLowerCase().includes("speech-") ||
+      bareModel.toLowerCase().includes("cosyvoice")
+      ? bareModel
+      : "";
+    const optionValues = cloneTargetModelOptions.map(item => item.value);
     setAudioVoiceCloneModel(
-      bareModel.toLowerCase().includes("minimax") ||
-        bareModel.toLowerCase().includes("speech-") ||
-        bareModel.toLowerCase().includes("cosyvoice")
-        ? bareModel
-        : "cosyvoice-v3.5-plus"
+      wanted && optionValues.includes(wanted)
+        ? wanted
+        : cloneTargetModelOptions[0]?.value || wanted || "cosyvoice-v3.5-plus"
     );
-    setAudioVoiceClonePrefix("role01");
+    setAudioVoiceCloneName("");
     setAudioVoiceCloneUrl("");
     setAudioVoiceCloneFile(undefined);
     setAudioVoiceCloneError("");
     void listClonedVoices(rawModel)
-      .then(items => {
-        if (!items.length) return;
-        setClonedAudioVoices(prev => {
-          const map = new Map(prev.map(item => [item.value, item]));
-          for (const v of items) {
-            if (v.voice_id) {
-              map.set(v.voice_id, {
-                value: v.voice_id,
-                label: `复刻音色 · ${v.voice_id}`,
-              });
-            }
-          }
-          return Array.from(map.values());
-        });
-      })
+      .then(mergeClonedAudioVoices)
       .catch(() => undefined);
   };
 
@@ -4706,6 +4786,11 @@ export default function CanvasWorkspaceViewContent() {
       node => node.id === audioVoiceCloneNodeId
     );
     if (!targetNode || audioVoiceCloneBusy) return;
+    const nameProblem = voiceCloneNameProblem(audioVoiceCloneName);
+    if (nameProblem) {
+      setAudioVoiceCloneError(nameProblem);
+      return;
+    }
     if (!audioVoiceCloneFile && !audioVoiceCloneUrl.trim()) {
       setAudioVoiceCloneError(
         "请上传一段 10–20 秒参考音频文件，或填写音频公网 URL"
@@ -4735,10 +4820,13 @@ export default function CanvasWorkspaceViewContent() {
           reader.readAsDataURL(audioVoiceCloneFile);
         });
       }
+      // 名称是应用内展示名（支持中文）；发给服务商的技术前缀自动派生。
+      const prefix = deriveVoiceClonePrefix(audioVoiceCloneName);
       const created = await createClonedVoice({
         target_model: audioVoiceCloneModel,
-        prefix: audioVoiceClonePrefix.trim() || "role01",
-        voice_id: audioVoiceClonePrefix.trim() || undefined,
+        prefix,
+        voice_id: prefix,
+        alias: audioVoiceCloneName.trim(),
         audio_url: audioVoiceCloneUrl.trim() || undefined,
         data_url: dataUrl || undefined,
         scope: projectSessionController.canonicalScope || "personal",
@@ -4749,7 +4837,11 @@ export default function CanvasWorkspaceViewContent() {
       }
       const voiceOption = {
         value: created.voice_id,
-        label: `复刻音色 · ${created.voice_id}`,
+        label: clonedVoiceLabel({
+          voice_id: created.voice_id,
+          alias: audioVoiceCloneName.trim(),
+        }),
+        model: audioVoiceCloneModel,
       };
       setClonedAudioVoices(prev => [
         voiceOption,
@@ -8407,14 +8499,22 @@ export default function CanvasWorkspaceViewContent() {
               open: Boolean(audioVoiceCloneNodeId) && !projectActionDisabled,
               node: nodes.find(node => node.id === audioVoiceCloneNodeId),
               targetModel: audioVoiceCloneModel,
-              prefix: audioVoiceClonePrefix,
+              targetModelOptions: cloneTargetModelOptions,
               audioUrl: audioVoiceCloneUrl,
               fileName: audioVoiceCloneFile?.name || "",
               sampleText: audioVoiceCloneSampleText,
               busy: audioVoiceCloneBusy,
               error: audioVoiceCloneError,
               onTargetModelChange: setAudioVoiceCloneModel,
-              onPrefixChange: setAudioVoiceClonePrefix,
+              name: audioVoiceCloneName,
+              onNameChange: setAudioVoiceCloneName,
+              clonedVoices: audioVoiceOptionsForModel(
+                audioVoiceCloneModel,
+                clonedAudioVoices
+              ).filter(item => !systemVoiceValues.has(item.value)),
+              deletingVoice: audioVoiceCloneDeleting,
+              onDeleteVoice: (voiceId, label) =>
+                void deleteClonedVoiceFromDialog(voiceId, label),
               onAudioUrlChange: setAudioVoiceCloneUrl,
               onSelectFile: setAudioVoiceCloneFile,
               onSampleTextChange: setAudioVoiceCloneSampleText,

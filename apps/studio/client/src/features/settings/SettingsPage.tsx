@@ -29,7 +29,18 @@ import {
 } from "@/lib/canvas-hotkeys";
 import type { ModelCatalog } from "@/entities/model";
 import type { PromptPreset } from "@/entities/prompt";
+import { deleteClonedVoice, listClonedVoices } from "@/services/api/mediaTools";
 import { publicApiError } from "@/shared/api/errors";
+import {
+  audioFormatOptionsForModel,
+  audioVoiceOptions,
+  audioVoiceOptionsForModel,
+  clonedVoiceLabel,
+  isCosyVoiceAudioModel,
+  isMiniMaxAudioModel,
+  normalizeAudioFormatValue,
+  normalizeAudioVoiceValue,
+} from "@/shared/config/audio";
 import { IMAGE_GENERATION_COUNTS } from "@/shared/config/generation";
 import {
   CANVAS_IMAGE_DEFAULT_SIZE,
@@ -60,29 +71,25 @@ import {
 import { testWebdavConnection } from "./services/webdavSync";
 import "./styles.css";
 
-const audioVoiceOptions = [
-  { value: "alloy", label: "Alloy" },
-  { value: "ash", label: "Ash" },
-  { value: "ballad", label: "Ballad" },
-  { value: "coral", label: "Coral" },
-  { value: "echo", label: "Echo" },
-  { value: "fable", label: "Fable" },
-  { value: "nova", label: "Nova" },
-  { value: "onyx", label: "Onyx" },
-  { value: "sage", label: "Sage" },
-  { value: "shimmer", label: "Shimmer" },
-  { value: "verse", label: "Verse" },
-  { value: "marin", label: "Marin" },
-  { value: "cedar", label: "Cedar" },
-] as const;
+// 音色与格式选项不在这里硬编码：来自 shared/config/audio.ts 中按所选模型过滤的
+// audioVoiceOptionsForModel / audioFormatOptionsForModel（系统音色基于真实服务商
+// 音色列表），并叠加从 /api/ai/audio/voices 真实拉取的复刻音色。
 
-const audioFormatOptions = [
-  { value: "mp3", label: "MP3" },
-  { value: "wav", label: "WAV" },
-  { value: "opus", label: "Opus" },
-  { value: "aac", label: "AAC" },
-  { value: "flac", label: "FLAC" },
-] as const;
+const openAIBuiltinVoices = new Set<string>(
+  audioVoiceOptions.map(item => item.value)
+);
+
+// 早期版本把 OpenAI 内置音色（如 alloy）存进了偏好；对 CosyVoice/MiniMax 模型它们
+// 不可用（会被服务端静默替换），这里在加载/切换模型时清掉，避免下拉框出现无效项。
+function pruneForeignBuiltinVoice(voice: string, model: string): string {
+  if (
+    openAIBuiltinVoices.has(voice) &&
+    (isCosyVoiceAudioModel(model) || isMiniMaxAudioModel(model))
+  ) {
+    return normalizeAudioVoiceValue(undefined, model);
+  }
+  return voice;
+}
 
 function SurfaceTitle({
   eyebrow,
@@ -168,6 +175,10 @@ export function SettingsView() {
   const [audioFormat, setAudioFormat] = useState("mp3");
   const [audioSpeed, setAudioSpeed] = useState("1");
   const [audioInstructions, setAudioInstructions] = useState("");
+  const [clonedVoices, setClonedVoices] = useState<
+    Array<{ value: string; label: string; model?: string }>
+  >([]);
+  const [deletingVoice, setDeletingVoice] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [canvasImageCount, setCanvasImageCount] = useState<number>(
     IMAGE_GENERATION_COUNTS[0]
@@ -295,12 +306,19 @@ export function SettingsView() {
     setVideoQuality(generation.vquality || "720");
     setVideoGenerateAudio(generation.videoGenerateAudio !== "false");
     setVideoWatermark(generation.videoWatermark === "true");
-    setAudioModel(
+    const resolvedAudioModel =
       resolveModel(catalog.audioModels, generation.audioModel || "") ||
-        catalog.defaultAudioModel
+      catalog.defaultAudioModel;
+    setAudioModel(resolvedAudioModel);
+    setAudioVoice(
+      pruneForeignBuiltinVoice(
+        normalizeAudioVoiceValue(generation.audioVoice, resolvedAudioModel),
+        resolvedAudioModel
+      )
     );
-    setAudioVoice(generation.audioVoice || "alloy");
-    setAudioFormat(generation.audioFormat || "mp3");
+    setAudioFormat(
+      normalizeAudioFormatValue(generation.audioFormat, resolvedAudioModel)
+    );
     setAudioSpeed(generation.audioSpeed || "1");
     setAudioInstructions(generation.audioInstructions || "");
     setSystemPrompt(generation.systemPrompt || "");
@@ -320,8 +338,64 @@ export function SettingsView() {
   ]);
 
   useEffect(() => {
-    if (!recordingAction) return;
-    const handleKey = (event: KeyboardEvent) => {
+    if (!audioModel) {
+      setClonedVoices([]);
+      return;
+    }
+    let cancelled = false;
+    // 真实拉取当前模型下的复刻音色；服务商不支持列表接口时返回空数组。
+    void listClonedVoices(audioModel)
+      .then(items => {
+        if (cancelled) return;
+        setClonedVoices(
+          items
+            .filter(item => item.voice_id)
+            .map(item => ({
+              value: item.voice_id,
+              label: clonedVoiceLabel(item),
+              model: item.target_model,
+            }))
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setClonedVoices([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [audioModel]);
+
+  const deleteVoice = async (voiceId: string, label: string) => {
+    if (deletingVoice) return;
+    if (
+      !window.confirm(
+        `确定删除音色「${label}」吗？删除后不可恢复。\n已生成的音频文件不受影响。`
+      )
+    ) {
+      return;
+    }
+    setDeletingVoice(voiceId);
+    try {
+      await deleteClonedVoice(voiceId);
+      setClonedVoices(current =>
+        current.filter(item => item.value !== voiceId)
+      );
+      // 默认音色被删除时回落到当前模型的默认音色
+      setAudioVoice(current =>
+        current === voiceId
+          ? normalizeAudioVoiceValue(undefined, audioModel)
+          : current
+      );
+      toast.success("音色已删除");
+    } catch (error) {
+      toast.error(publicApiError(error, "删除音色失败"));
+    } finally {
+      setDeletingVoice("");
+    }
+  };
+
+  useEffect(() => {
+    if (!recordingAction) return;    const handleKey = (event: KeyboardEvent) => {
       event.preventDefault();
       event.stopPropagation();
       if (event.key === "Escape") {
@@ -415,9 +489,10 @@ export function SettingsView() {
     setVideoQuality("720");
     setVideoGenerateAudio(true);
     setVideoWatermark(false);
-    setAudioModel(aiCatalog?.defaultAudioModel || "");
-    setAudioVoice("alloy");
-    setAudioFormat("mp3");
+    const defaultAudioModel = aiCatalog?.defaultAudioModel || "";
+    setAudioModel(defaultAudioModel);
+    setAudioVoice(normalizeAudioVoiceValue(undefined, defaultAudioModel));
+    setAudioFormat(normalizeAudioFormatValue(undefined, defaultAudioModel));
     setAudioSpeed("1");
     setAudioInstructions("");
     setSystemPrompt("");
@@ -672,7 +747,20 @@ export function SettingsView() {
                   默认音频模型
                   <select
                     value={audioModel}
-                    onChange={event => setAudioModel(event.target.value)}
+                    onChange={event => {
+                      const nextModel = event.target.value;
+                      setAudioModel(nextModel);
+                      // 切换模型后，音色/格式必须落在该模型真实支持的范围内
+                      setAudioVoice(current =>
+                        pruneForeignBuiltinVoice(
+                          normalizeAudioVoiceValue(current, nextModel),
+                          nextModel
+                        )
+                      );
+                      setAudioFormat(current =>
+                        normalizeAudioFormatValue(current, nextModel)
+                      );
+                    }}
                   >
                     <option value="">未设置</option>
                     {/* [画布别名] */}
@@ -694,11 +782,21 @@ export function SettingsView() {
                     value={audioVoice}
                     onChange={event => setAudioVoice(event.target.value)}
                   >
-                    {audioVoiceOptions.map(item => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
+                    {audioVoiceOptionsForModel(audioModel, clonedVoices).map(
+                      item => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      )
+                    )}
+                    {audioVoice &&
+                    !audioVoiceOptionsForModel(audioModel, clonedVoices).some(
+                      item => item.value === audioVoice
+                    ) ? (
+                      <option value={audioVoice}>
+                        {`复刻/自定义音色 (${audioVoice})`}
                       </option>
-                    ))}
+                    ) : null}
                   </select>
                 </label>
                 <label>
@@ -707,7 +805,7 @@ export function SettingsView() {
                     value={audioFormat}
                     onChange={event => setAudioFormat(event.target.value)}
                   >
-                    {audioFormatOptions.map(item => (
+                    {audioFormatOptionsForModel(audioModel).map(item => (
                       <option key={item.value} value={item.value}>
                         {item.label}
                       </option>
@@ -736,6 +834,36 @@ export function SettingsView() {
                   />
                 </label>
               </div>
+              {clonedVoices.length > 0 && (
+                <div className="sync-result" style={{ marginTop: 12 }}>
+                  {clonedVoices.map(voice => (
+                    <div key={voice.value}>
+                      <b>{voice.label}</b>
+                      {/* 完整音色编号：仅供排查问题时复制，平时可以忽略 */}
+                      <small
+                        title="完整音色编号（排查问题时可复制给管理员）"
+                        style={{
+                          color: "#7c7c7c",
+                          fontSize: 11,
+                          fontFamily: "ui-monospace, SFMono-Regular, monospace",
+                          userSelect: "all",
+                          wordBreak: "break-all",
+                        }}
+                      >
+                        {voice.value}
+                      </small>
+                      <button
+                        className="outline-button small"
+                        style={{ marginLeft: "auto" }}
+                        disabled={deletingVoice === voice.value}
+                        onClick={() => void deleteVoice(voice.value, voice.label)}
+                      >
+                        {deletingVoice === voice.value ? "删除中…" : "删除"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <p className="settings-group-label">文本</p>
               <div className="settings-fields">
                 <label className="settings-fields-wide">

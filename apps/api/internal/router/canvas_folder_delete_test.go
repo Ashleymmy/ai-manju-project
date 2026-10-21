@@ -77,7 +77,7 @@ func TestCanvasFolderDeletionRequiresDeletedProjectThroughHTTP(t *testing.T) {
 		t.Fatalf("empty archive moved assets: %d", result.Moved)
 	}
 	request(http.MethodGet, "/api/asset-folders?scope=personal", "", http.StatusOK, &folders)
-	if len(folders) != 6 {
+	if len(folders) != 7 {
 		t.Fatalf("deleted archive descendants remain: %+v", folders)
 	}
 	request(http.MethodDelete, path, "", http.StatusNotFound, nil)

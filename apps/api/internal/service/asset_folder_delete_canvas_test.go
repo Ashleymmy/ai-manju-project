@@ -132,7 +132,7 @@ func TestDeleteCanvasAssetFolderParity(t *testing.T) {
 					}
 					// Refreshing the library must not recreate the deleted archive tree.
 					listed, err := svc.List(user, WorkspaceScopePersonal)
-					if err != nil || len(listed) != 6 {
+					if err != nil || len(listed) != 7 {
 						t.Fatalf("folders after refresh: %+v, err=%v", listed, err)
 					}
 					for _, id := range []string{linked.ID, category.ID, nested.ID, legacy.ID} {

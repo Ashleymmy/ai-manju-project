@@ -61,6 +61,8 @@ export type VoiceClonePayload = {
   scope?: string;
   text?: string;
   language_hints?: string[];
+  /** 展示名（支持中文），只存在我们服务端，不发给服务商 */
+  alias?: string;
 };
 
 export type VoiceCloneRecord = {
@@ -71,6 +73,8 @@ export type VoiceCloneRecord = {
   created_at?: string;
   request_id?: string;
   model?: string;
+  alias?: string;
+  owner_name?: string;
 };
 
 export async function upscaleImage(payload: ImageUpscalePayload) {
@@ -132,4 +136,12 @@ export async function listClonedVoices(model?: string, prefix?: string) {
     notice?: string;
   }>("/api/ai/audio/voices", Object.keys(query).length ? { query } : undefined);
   return result.voices || [];
+}
+
+// 删除会同时移除服务商账户里的音色（不可恢复）；已生成的音频资产不受影响。
+export async function deleteClonedVoice(voiceId: string) {
+  return request<{ voice_id: string; deleted: boolean }>(
+    `/api/ai/audio/voices/${encodeURIComponent(voiceId)}`,
+    { method: "DELETE" }
+  );
 }

@@ -54,6 +54,7 @@ type AssetDefaultFolders struct {
 	VideoWorkbench model.AssetFolder
 	Canvas         model.AssetFolder
 	Comic          model.AssetFolder
+	VoiceClone     model.AssetFolder
 }
 
 type AssetFolderView struct {
@@ -160,6 +161,7 @@ func (s *AssetFolderService) ensureDefaultsForWorkspace(userID string, workspace
 		{name: "画布工坊", key: model.AssetFolderSystemKeyCanvas, sort: 0},
 		{name: "资产助手", key: model.AssetFolderSystemKeyComic, sort: 50},
 		{name: "视频工作台", key: model.AssetFolderSystemKeyVideoWorkbench, sort: 40},
+		{name: "音色参考音频", key: model.AssetFolderSystemKeyVoiceClone, sort: 60},
 	}
 	created := make([]model.AssetFolder, 0, len(definitions))
 	for _, definition := range definitions {
@@ -180,7 +182,7 @@ func (s *AssetFolderService) ensureDefaultsForWorkspace(userID string, workspace
 		}
 		created = append(created, folder)
 	}
-	return AssetDefaultFolders{Root: root, Unsorted: created[0], ImageWorkbench: created[1], Canvas: created[2], Comic: created[3], VideoWorkbench: created[4]}, nil
+	return AssetDefaultFolders{Root: root, Unsorted: created[0], ImageWorkbench: created[1], Canvas: created[2], Comic: created[3], VideoWorkbench: created[4], VoiceClone: created[5]}, nil
 }
 
 func (s *AssetFolderService) List(userID string, scope string) ([]AssetFolderView, error) {

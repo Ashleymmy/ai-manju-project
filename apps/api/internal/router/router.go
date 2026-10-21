@@ -122,6 +122,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	}
 	assetService := service.NewAssetService(repos.assetRepo, assetStore)
 	assetService.SetReferenceRepository(repos.assetReferenceRepo)
+	assetService.SetClonedVoiceRepository(repos.clonedVoiceRepo)
 	assetFolderService := service.NewAssetFolderService(repos.assetFolderRepo, repos.assetRepo)
 	assetFolderService.SetProjectRepository(repos.projectRepo)
 	assetFolderService.SetAssetReferenceRepository(repos.assetReferenceRepo)
@@ -186,6 +187,8 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 	materialService := service.NewSeedanceMaterialService(repos.modelProviderRepo, secretBox)
 	seedanceAssetService := service.NewSeedanceAssetService(repos.modelProviderRepo, repos.seedanceAssetRepo, secretBox, assetStore, cfg.PublicAssetBaseURL)
 	aiHandler := handler.NewAIHandler(modelProviderHandler, jobService, repos.monitoringRepo)
+	aiHandler.SetClonedVoiceRepository(repos.clonedVoiceRepo)
+	aiHandler.SetAssetFolderService(assetFolderService)
 	generationReceipts := service.NewGenerationReceiptService(repos.generationReceiptRepo, assetStore, secretBox)
 	aiHandler.SetGenerationReceiptService(generationReceipts)
 	comicAssetService.SetAnalysisReceiptService(generationReceipts)
@@ -417,6 +420,7 @@ func NewWithConfig(cfg config.Config) *gin.Engine {
 			ai.POST("/audio/speech", aiHandler.WithGenerationReceipt(model.GenerationReceiptKindAudio, aiHandler.AudioSpeech))
 			ai.GET("/audio/voices", aiHandler.AudioVoiceCloneList)
 			ai.POST("/audio/voices", aiHandler.AudioVoiceCloneCreate)
+			ai.DELETE("/audio/voices/:voice_id", aiHandler.AudioVoiceCloneDelete)
 			ai.POST("/materials/visual-validate-sessions", materialHandler.CreateVisualValidateSession)
 			ai.POST("/materials/real-validate-h5", materialHandler.CreateRealValidateH5)
 			ai.GET("/materials/visual-validate-result", materialHandler.GetVisualValidateResult)
@@ -604,6 +608,7 @@ type repositories struct {
 	monitoringRepo        repository.MonitoringRepository
 	announcementRepo      repository.AnnouncementRepository
 	userPreferenceRepo    repository.UserPreferenceRepository
+	clonedVoiceRepo       repository.ClonedVoiceRepository
 	jobRepo               repository.JobRepository
 	seedanceAssetRepo     repository.SeedanceAssetRepository
 	comicAssetRepo        repository.ComicAssetRepository
@@ -654,6 +659,7 @@ func newRepositories(cfg config.Config) (repositories, string, string) {
 		monitoringRepo:        repository.NewGormMonitoringRepository(db),
 		announcementRepo:      repository.NewGormAnnouncementRepository(db),
 		userPreferenceRepo:    repository.NewGormUserPreferenceRepository(db),
+		clonedVoiceRepo:       repository.NewGormClonedVoiceRepository(db),
 		jobRepo:               repository.NewGormJobRepository(db),
 		seedanceAssetRepo:     repository.NewGormSeedanceAssetRepository(db),
 		comicAssetRepo:        repository.NewGormComicAssetRepository(db),
@@ -683,6 +689,7 @@ func newMemoryRepositories() repositories {
 		monitoringRepo:        repository.NewMemoryMonitoringRepository(),
 		announcementRepo:      repository.NewMemoryAnnouncementRepository(),
 		userPreferenceRepo:    repository.NewMemoryUserPreferenceRepository(),
+		clonedVoiceRepo:       repository.NewMemoryClonedVoiceRepository(),
 		jobRepo:               repository.NewMemoryJobRepository(),
 		seedanceAssetRepo:     repository.NewMemorySeedanceAssetRepository(),
 		comicAssetRepo:        repository.NewMemoryComicAssetRepository(),

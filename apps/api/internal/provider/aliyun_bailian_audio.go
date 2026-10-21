@@ -898,6 +898,8 @@ type VoiceCloneRequest struct {
 	Scope         string   `json:"scope,omitempty"`
 	Text          string   `json:"text,omitempty"`
 	LanguageHints []string `json:"language_hints,omitempty"`
+	// Alias 是应用侧的展示名（可中文），不发送给服务商；由 handler 存入本地元数据表。
+	Alias string `json:"alias,omitempty"`
 }
 
 type VoiceCloneRecord struct {
@@ -1124,6 +1126,53 @@ func (c *OpenAICompatibleClient) ListClonedVoices(
 		})
 	}
 	return records, nil
+}
+
+// DeleteClonedVoice removes a cloned voice from the provider account. Only CosyVoice
+// voices (voice-enrollment delete_voice) are supported; MiniMax voices must be
+// managed in the provider console.
+func (c *OpenAICompatibleClient) DeleteClonedVoice(ctx context.Context, voiceID string, secrets map[string]string) error {
+	trimmed := strings.TrimSpace(voiceID)
+	if trimmed == "" {
+		return errors.New("voice_id is required")
+	}
+	if !strings.HasPrefix(strings.ToLower(trimmed), "cosyvoice-") {
+		return errors.New("voice deletion is only supported for CosyVoice voices")
+	}
+	overrides := endpointOverridesFromConfig(c.config)
+	endpoint := firstNonEmpty(overrides["voice_clone_endpoint"], DefaultCosyVoiceCloneEndpoint)
+	hostBase := resolveBailianHostBaseURL(c.config.BaseURL, overrides, secrets, true)
+	targetURL := resolveEndpointURL(hostBase, endpoint)
+
+	body := map[string]any{
+		"model": "voice-enrollment",
+		"input": map[string]any{
+			"action":   "delete_voice",
+			"voice_id": trimmed,
+		},
+	}
+	raw, err := c.doCompatibleJSONRequest(ctx, http.MethodPost, targetURL, body)
+	if err != nil {
+		return err
+	}
+	var parsed struct {
+		Code      string `json:"code"`
+		Message   string `json:"message"`
+		RequestID string `json:"request_id"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return fmt.Errorf("invalid delete_voice response: %w", err)
+	}
+	if strings.TrimSpace(parsed.Code) != "" {
+		return &ProviderHTTPError{
+			RequestID:  parsed.RequestID,
+			Method:     http.MethodPost,
+			URL:        targetURL,
+			StatusCode: http.StatusBadGateway,
+			Body:       firstNonEmpty(parsed.Message, string(raw)),
+		}
+	}
+	return nil
 }
 
 func audioContentTypeForFormat(format string) string {

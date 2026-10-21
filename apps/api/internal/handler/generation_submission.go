@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/ai-manju/api/internal/provider"
 	"github.com/ai-manju/api/internal/service"
@@ -52,4 +53,29 @@ func generationPublicError(err error) string {
 		return errGenerationSubmissionUncertain.Error()
 	}
 	return errGenerationUnavailable.Error()
+}
+
+// audioSpeechPublicError 在通用生成错误之上识别"音色已被删除/不存在"，
+// 给用户一个可操作的提示而不是笼统的"生成失败"。
+func audioSpeechPublicError(err error) string {
+	if errors.Is(err, errLocalVoiceUnavailable) || deletedVoiceError(err) {
+		return "该音色不存在或已被删除，请重新选择音色"
+	}
+	return generationPublicError(err)
+}
+
+func deletedVoiceError(err error) bool {
+	var response *provider.ProviderHTTPError
+	if !errors.As(err, &response) {
+		return false
+	}
+	body := strings.ToLower(response.Body)
+	if !strings.Contains(body, "voice") {
+		return false
+	}
+	return strings.Contains(body, "not exist") ||
+		strings.Contains(body, "not found") ||
+		strings.Contains(body, "invalid") ||
+		strings.Contains(body, "不存在") ||
+		strings.Contains(body, "deleted")
 }

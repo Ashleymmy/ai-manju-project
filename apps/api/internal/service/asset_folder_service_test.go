@@ -40,8 +40,8 @@ func TestAssetFolderDefaultsAreIdempotentAndWorkspaceIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(personal) != 6 {
-		t.Fatalf("personal defaults = %d, want 6", len(personal))
+	if len(personal) != 7 {
+		t.Fatalf("personal defaults = %d, want 7", len(personal))
 	}
 	other, err := fx.service.List("user_b", WorkspaceScopePersonal)
 	if err != nil {
@@ -112,7 +112,7 @@ func assertAssetFolderPresentationUpgrade(t *testing.T, service *AssetFolderServ
 			topNames = append(topNames, view.Name)
 		}
 	}
-	if got := strings.Join(topNames, ","); got != "画布工坊,生图工作台,视频工作台,资产助手,待整理" {
+	if got := strings.Join(topNames, ","); got != "画布工坊,生图工作台,视频工作台,资产助手,音色参考音频,待整理" {
 		t.Fatalf("system folder order/labels = %q", got)
 	}
 	updated, err := repo.GetByWorkspace(legacy.ID, legacy.WorkspaceID)

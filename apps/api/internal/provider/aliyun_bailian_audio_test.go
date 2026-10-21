@@ -280,3 +280,49 @@ func TestSpecializedAudioRoutingLeavesOtherSuppliersOnStandardProxy(t *testing.T
 		}
 	}
 }
+
+func TestDeleteClonedVoice(t *testing.T) {
+	var gotVoiceID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != DefaultCosyVoiceCloneEndpoint {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		var req map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		input, _ := req["input"].(map[string]any)
+		if input["action"] != "delete_voice" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		gotVoiceID, _ = input["voice_id"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"request_id":"req-del","output":{}}`))
+	}))
+	defer server.Close()
+
+	cfg := model.ModelProviderConfig{
+		ID:           "bailian_audio_delete_test",
+		Name:         "阿里云百炼音频",
+		ProviderType: model.ModelProviderTypeAliyunBailian,
+		Mode:         model.ModelProviderModeOpenAICompatible,
+		BaseURL:      server.URL,
+		AuthType:     model.ModelProviderAuthTypeBearer,
+		TimeoutMS:    60000,
+	}
+	client, err := NewOpenAICompatibleClient(cfg, "test-key")
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleClient: %v", err)
+	}
+	if err := client.DeleteClonedVoice(context.Background(), "cosyvoice-v3.5-plus-role01-abc123", nil); err != nil {
+		t.Fatalf("DeleteClonedVoice: %v", err)
+	}
+	if gotVoiceID != "cosyvoice-v3.5-plus-role01-abc123" {
+		t.Fatalf("voice_id = %q", gotVoiceID)
+	}
+
+	// Non-CosyVoice voices are rejected before any HTTP call.
+	if err := client.DeleteClonedVoice(context.Background(), "BailianVoice1A2B3C4D", nil); err == nil {
+		t.Fatal("expected MiniMax voice deletion to be rejected")
+	}
+}

@@ -314,7 +314,7 @@ func TestOpeningLegacyCanvasEnsuresLibraryParity(t *testing.T) {
 				assertCanvasFolderTree(t, folders, loaded)
 			}
 			items, err := folders.ListByWorkspace(workspace)
-			if err != nil || len(items) != 11 {
+			if err != nil || len(items) != 12 {
 				t.Fatalf("idempotent legacy folders = %d, err=%v", len(items), err)
 			}
 			// A canvas created before the fallback category existed is upgraded

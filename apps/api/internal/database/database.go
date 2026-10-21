@@ -51,6 +51,7 @@ func openPostgres(dsn string, pool *PoolConfig) (*gorm.DB, error) {
 		&model.User{},
 		&model.Session{},
 		&model.UserPreference{},
+		&model.ClonedVoiceMeta{},
 		&model.Project{},
 		&model.AssetFolder{},
 		&model.Asset{},

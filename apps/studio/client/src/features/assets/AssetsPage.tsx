@@ -17,6 +17,7 @@ import {
   LayoutGrid,
   Library,
   Loader2,
+  Mic,
   Music2,
   Palette,
   Pencil,
@@ -43,6 +44,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
   type MouseEvent,
   type ReactNode,
 } from "react";
@@ -187,11 +189,26 @@ const smartViews: Array<{ value: SmartView; label: string; icon: LucideIcon }> =
   ];
 
 /** Built-in source folders get their own icon so they read apart from user folders. */
+// Mic 的字形在 24px 画布里偏窄（只有中间一条），同尺寸下视觉比其他图标小。
+// 用 transform 放大而不改变布局尺寸，避免把后面的文字往右挤。
+const MicFolderIcon = (({
+  size,
+  style,
+  ...props
+}: ComponentProps<typeof Mic>) => (
+  <Mic
+    size={size}
+    style={{ transform: "scale(1.3)", transformOrigin: "center", ...style }}
+    {...props}
+  />
+)) as unknown as LucideIcon;
+
 const SYSTEM_FOLDER_ICONS: Record<string, LucideIcon> = {
   canvas: Palette,
   image_workbench: ImageIcon,
   video_workbench: Clapperboard,
   comic: Sparkles,
+  voice_clone: MicFolderIcon,
   unsorted: Inbox,
 };
 
@@ -994,9 +1011,18 @@ export function AssetLibraryView() {
       toast.success(`已恢复 ${ids.length} 个资产`);
     } else {
       const preflight = await preflightAssetTrash(ids, scope);
+      const voiceRefs = preflight.voice_references || [];
+      const voiceNames = [
+        ...new Set(voiceRefs.map(item => item.alias || item.voice_id)),
+      ].slice(0, 3);
+      const voiceNote = voiceRefs.length
+        ? `\n其中包含音色「${voiceNames.join("」「")}」${
+            voiceRefs.length > 3 ? "等" : ""
+          }的参考音频，删除后对应音色将无法使用。`
+        : "";
       if (
         !window.confirm(
-          `将 ${preflight.total || ids.length} 个资产移入回收站，已有引用仍可读。继续？`
+          `将 ${preflight.total || ids.length} 个资产移入回收站，已有引用仍可读。${voiceNote}继续？`
         )
       )
         return;

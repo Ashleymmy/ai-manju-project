@@ -4,9 +4,12 @@ import {
   audioFileName,
   audioVoiceOptions,
   audioVoiceOptionsForModel,
+  clonedVoiceLabel,
   normalizeAudioGenerationConfig,
   requestAudioGeneration,
+  deriveVoiceClonePrefix,
   voiceCloneFileProblem,
+  voiceCloneNameProblem,
 } from "./audio";
 
 class MemoryStorage implements Storage {
@@ -306,5 +309,52 @@ describe("voiceCloneFileProblem", () => {
     expect(voiceCloneFileProblem({ name: "a.mp3", size: mb }, 8, model)).toContain("10 秒");
     expect(voiceCloneFileProblem({ name: "a.mp3", size: mb }, 120, model)).toBe("");
     expect(voiceCloneFileProblem({ name: "a.mp3", size: mb }, 301, model)).toContain("5 分钟");
+  });
+});
+
+describe("voiceCloneNameProblem", () => {
+  it("accepts Chinese and English names", () => {
+    expect(voiceCloneNameProblem("主角小满")).toBe("");
+    expect(voiceCloneNameProblem("role01")).toBe("");
+    expect(voiceCloneNameProblem("Hero-Voice 01")).toBe("");
+  });
+
+  it("rejects empty and overlong names", () => {
+    expect(voiceCloneNameProblem("   ")).toContain("请填写");
+    expect(voiceCloneNameProblem("名".repeat(31))).toContain("30");
+  });
+});
+
+describe("deriveVoiceClonePrefix", () => {
+  it("keeps provider-compliant names as the prefix", () => {
+    expect(deriveVoiceClonePrefix("role01")).toBe("role01");
+    expect(deriveVoiceClonePrefix(" HeroVoice0 ")).toBe("HeroVoice0");
+  });
+
+  it("derives an 8-char alphanumeric prefix from Chinese names", () => {
+    const prefix = deriveVoiceClonePrefix("主角小满");
+    expect(prefix).toMatch(/^[a-z][a-z0-9]{7}$/);
+    expect(deriveVoiceClonePrefix("too-long-english-name")).toMatch(
+      /^[a-z][a-z0-9]{7}$/
+    );
+  });
+});
+
+describe("clonedVoiceLabel", () => {
+  it("shows the Chinese alias with an id tail", () => {
+    expect(
+      clonedVoiceLabel({
+        voice_id: "cosyvoice-v3.5-plus-role01-3755faa2f683412cbbc9af9eea8737b8",
+        alias: "主角小满",
+      })
+    ).toBe("主角小满（…37b8）");
+  });
+
+  it("falls back to the full id when no alias was saved", () => {
+    expect(
+      clonedVoiceLabel({ voice_id: "cosyvoice-v3.5-plus-role01-abc123" })
+    ).toBe("复刻音色 · cosyvoice-v3.5-plus-role01-abc123");
+    expect(clonedVoiceLabel({})).toBe("复刻音色");
+    expect(clonedVoiceLabel({ alias: "  小满  " })).toBe("小满");
   });
 });

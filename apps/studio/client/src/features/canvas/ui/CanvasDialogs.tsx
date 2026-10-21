@@ -1,5 +1,6 @@
 import { GenerationPrice } from "@/features/member";
 import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
+import { voiceCloneNameProblem } from "@/shared/config/audio";
 import {
   Check,
   Image as ImageIcon,
@@ -9,7 +10,9 @@ import {
   X,
 } from "lucide-react";
 import {
+  useRef,
   useState,
+  type CSSProperties,
   type PointerEvent,
   type RefObject,
   type SetStateAction,
@@ -937,48 +940,98 @@ export type CanvasAudioVoiceCloneDialogProps = {
   open: boolean;
   node?: CanvasNodeData;
   targetModel: string;
-  prefix: string;
+  /** 真实模型目录里支持声音复刻的模型；为空表示当前供应商没配置可用的克隆模型 */
+  targetModelOptions?: Array<{ value: string; label: string }>;
+  name: string;
   audioUrl: string;
   fileName: string;
   sampleText: string;
   busy: boolean;
   error?: string;
   onTargetModelChange: (model: string) => void;
-  onPrefixChange: (prefix: string) => void;
+  onNameChange: (name: string) => void;
   onAudioUrlChange: (url: string) => void;
   onSelectFile: (file: File | undefined) => void;
   onSampleTextChange: (text: string) => void;
   onOpenChange: (open: boolean) => void;
   onCancel: () => void;
   onConfirm: () => void;
+  /** 已克隆音色（管理列表用），按当前目标模型过滤后传入 */
+  clonedVoices?: Array<{ value: string; label: string; owner?: string }>;
+  deletingVoice?: string;
+  onDeleteVoice?: (voiceId: string, label: string) => void;
+};
+
+// 声音克隆弹窗的样式按设计稿（voice-clone 对话框 mockup）照搬：
+// 深色容器 #12151b、输入框 #0d1015、描述文字 #8b8f98。
+// 声音克隆弹窗的样式按设计稿（voice-clone 对话框 mockup）照搬：
+// 深色容器 #12151b、输入框 #0d1015、描述文字 #8b8f98。
+const cloneDialogFieldLabel: CSSProperties = {
+  display: "block",
+  fontSize: 12.5,
+  color: "#a1a5ad",
+  marginBottom: 14,
+  minWidth: 0,
+};
+const cloneDialogLabelText: CSSProperties = { display: "block", marginBottom: 6 };
+const cloneDialogInput: CSSProperties = {
+  width: "100%",
+  minWidth: 0,
+  background: "#0d1015",
+  border: "1px solid #2a2f3a",
+  borderRadius: 8,
+  padding: "9px 12px",
+  fontSize: 13,
+  color: "#e4e4e7",
+  outline: "none",
 };
 
 export function CanvasAudioVoiceCloneDialog({
   open,
   targetModel,
-  prefix,
+  targetModelOptions,
+  name,
   audioUrl,
   fileName,
   sampleText,
   busy,
   error,
   onTargetModelChange,
-  onPrefixChange,
+  onNameChange,
   onAudioUrlChange,
   onSelectFile,
   onSampleTextChange,
   onOpenChange,
   onCancel,
   onConfirm,
+  clonedVoices,
+  deletingVoice,
+  onDeleteVoice,
 }: CanvasAudioVoiceCloneDialogProps) {
+  // 名称是应用内展示名（支持中文）；发给服务商的技术前缀自动派生，无需用户关心。
+  // 未输入时不提示（空是初始态），开始输入后才实时校验；提交时仍有兜底校验。
+  const nameProblem = name.trim() ? voiceCloneNameProblem(name) : "";
+  const [manageOpen, setManageOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isMiniMax =
     targetModel.toLowerCase().includes("minimax") ||
     targetModel.toLowerCase().includes("speech-");
+  const noCloneModel =
+    targetModelOptions !== undefined && targetModelOptions.length === 0;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-[500px] canvas-tool-dialog"
+        className="sm:max-w-[480px] canvas-tool-dialog"
         showCloseButton={!busy}
+        style={{
+          background: "#12151b",
+          border: "1px solid #262b36",
+          borderRadius: 14,
+          padding: "22px 24px",
+          boxShadow: "0 24px 60px rgba(0,0,0,.5)",
+          width: 480,
+          maxWidth: "calc(100vw - 32px)",
+        }}
         onEscapeKeyDown={event => {
           if (busy) event.preventDefault();
         }}
@@ -990,105 +1043,305 @@ export function CanvasAudioVoiceCloneDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>声音克隆（角色音色复刻）</DialogTitle>
-          <DialogDescription>
-            提供一段 10–20 秒清晰的单人参考音频（WAV / MP3 / M4A），即可为
-            CosyVoice 3.5 Plus 或 MiniMax Speech 2.8 HD 创建专属角色音色 ID。
+          <DialogTitle
+            style={{ fontSize: 17, fontWeight: 600, color: "#e4e4e7" }}
+          >
+            声音克隆（角色音色复刻）
+          </DialogTitle>
+          <DialogDescription
+            style={{ fontSize: 12, color: "#8b8f98", lineHeight: 1.6 }}
+          >
+            {isMiniMax
+              ? "提供一段 10 秒到 5 分钟的清晰单人参考音频（WAV / MP3 / M4A），即可创建专属角色音色。"
+              : "提供一段超过 5 秒、最长 60 秒的清晰单人参考音频（WAV / MP3 / M4A），即可创建专属角色音色。"}
           </DialogDescription>
         </DialogHeader>
         <div
-          className="canvas-image-tool-fields"
           style={{
             display: "flex",
             flexDirection: "column",
-            gap: 12,
-            padding: "6px 0",
+            padding: "12px 0 0",
+            minWidth: 0,
           }}
         >
-          <label>
-            目标语音模型
+          <label style={cloneDialogFieldLabel}>
+            <span style={cloneDialogLabelText}>目标语音模型</span>
             <select
               value={targetModel}
-              disabled={busy}
+              disabled={busy || noCloneModel}
+              style={cloneDialogInput}
               onChange={event => onTargetModelChange(event.target.value)}
             >
-              <option value="cosyvoice-v3.5-plus">
-                cosyvoice-v3.5-plus（主力 · 支持指令/方言控制）
-              </option>
-              <option value="cosyvoice-v3-plus">cosyvoice-v3-plus</option>
-              <option value="cosyvoice-v3-flash">cosyvoice-v3-flash</option>
-              <option value="MiniMax/speech-2.8-hd">
-                MiniMax/speech-2.8-hd（高保真配音）
-              </option>
-              <option value="MiniMax/speech-2.8-turbo">
-                MiniMax/speech-2.8-turbo
-              </option>
+              {targetModelOptions && targetModelOptions.length > 0 ? (
+                targetModelOptions.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))
+              ) : (
+                <option value={targetModel}>
+                  当前供应商未配置可用于克隆的语音模型
+                </option>
+              )}
             </select>
-          </label>
-          <label>
-            {isMiniMax
-              ? "自定义音色 ID（8位以上字母数字，首字符为字母）"
-              : "角色音色标识前缀（英文或数字，≤10字符）"}
-            <input
-              value={prefix}
-              disabled={busy}
-              placeholder={isMiniMax ? "例如 HeroVoice001" : "例如 hero01"}
-              onChange={event => onPrefixChange(event.target.value)}
-            />
-          </label>
-          <label>
-            上传本地参考音频文件（10–20秒 WAV / MP3 / M4A）
-            <input
-              type="file"
-              accept="audio/wav,audio/mpeg,audio/mp3,audio/mp4,audio/x-m4a,.wav,.mp3,.m4a"
-              disabled={busy}
-              onChange={event => onSelectFile(event.target.files?.[0])}
-            />
-            {fileName ? (
-              <small style={{ color: "var(--muted-foreground, #71717a)" }}>
-                已选择文件：{fileName}
+            {noCloneModel ? (
+              <small style={{ color: "#f07f7f" }}>
+                请先在后台配置 CosyVoice 或 MiniMax 语音模型后再来克隆音色。
               </small>
             ) : null}
           </label>
-          <label>
-            或直接填写公网参考音频 URL
+          <label style={cloneDialogFieldLabel}>
+            <span style={cloneDialogLabelText}>
+              角色音色名称（支持中文，将显示在音色列表中）
+            </span>
+            <input
+              value={name}
+              disabled={busy}
+              placeholder="例如：主角小满"
+              maxLength={30}
+              style={cloneDialogInput}
+              onChange={event => onNameChange(event.target.value)}
+            />
+            {nameProblem ? (
+              <small style={{ color: "#f07f7f" }}>{nameProblem}</small>
+            ) : null}
+          </label>
+          {clonedVoices && clonedVoices.length > 0 ? (
+            // 收起时只占一行；展开是浮层覆盖下方内容，弹窗整体尺寸不变。
+            <div style={{ position: "relative", marginBottom: 14, minWidth: 0 }}>
+              <button
+                type="button"
+                onClick={() => setManageOpen(open => !open)}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  width: "100%",
+                  padding: "9px 12px",
+                  border: "1px solid #233040",
+                  borderRadius: 10,
+                  background: "#0e1420",
+                  color: "#a1a5ad",
+                  fontSize: 12.5,
+                  cursor: "pointer",
+                }}
+              >
+                <span>已克隆音色</span>
+                <span
+                  style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                >
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: "#6b7280",
+                      background: "#1a2230",
+                      borderRadius: 99,
+                      padding: "2px 8px",
+                    }}
+                  >
+                    {clonedVoices.length}
+                  </span>
+                  <span style={{ color: "#71717a", fontSize: 11 }}>
+                    {manageOpen ? "▴" : "▾"}
+                  </span>
+                </span>
+              </button>
+              {manageOpen ? (
+                <>
+                  {/* 点击浮层外部（含弹窗其他位置）即收起 */}
+                  <div
+                    onClick={() => setManageOpen(false)}
+                    style={{ position: "fixed", inset: 0, zIndex: 40 }}
+                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 4px)",
+                      left: 0,
+                      right: 0,
+                      zIndex: 50,
+                      maxHeight: 6 * 35,
+                      overflowY: "auto",
+                      overscrollBehavior: "contain",
+                      border: "1px solid #233040",
+                      borderRadius: 10,
+                      background: "#0e1420",
+                      boxShadow: "0 16px 40px rgba(0,0,0,.55)",
+                      scrollbarWidth: "thin",
+                    }}
+                  >
+                    {clonedVoices.map((voice, index) => (
+                      <div
+                        key={voice.value}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          padding: "8px 12px",
+                          borderTop: index === 0 ? "none" : "1px solid #1b2432",
+                          fontSize: 12.5,
+                        }}
+                      >
+                        <span
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            color: "#e4e4e7",
+                          }}
+                          title={voice.value}
+                        >
+                          {voice.label}
+                        </span>
+                        {voice.owner ? (
+                          <small style={{ color: "#71717a", fontSize: 11 }}>
+                            {voice.owner}
+                          </small>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={busy || deletingVoice === voice.value}
+                          onClick={() => onDeleteVoice?.(voice.value, voice.label)}
+                          style={{
+                            fontSize: 11.5,
+                            padding: "3px 10px",
+                            borderRadius: 6,
+                            border: "1px solid #4a2b2b",
+                            background: "transparent",
+                            color: "#f07f7f",
+                            cursor: "pointer",
+                            opacity:
+                              busy || deletingVoice === voice.value ? 0.5 : 1,
+                          }}
+                        >
+                          {deletingVoice === voice.value ? "删除中…" : "删除"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          <label style={cloneDialogFieldLabel}>
+            <span style={cloneDialogLabelText}>
+              上传本地参考音频文件（
+              {isMiniMax ? "10 秒–5 分钟" : "超过 5 秒、最长 60 秒"} WAV / MP3 /
+              M4A）
+            </span>
+            <span style={{ display: "inline-flex", alignItems: "center" }}>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  background: "#1b202a",
+                  border: "1px solid #2a2f3a",
+                  borderRadius: 7,
+                  padding: "6px 12px",
+                  fontSize: 12.5,
+                  color: "#c9cdd4",
+                  cursor: "pointer",
+                }}
+              >
+                选择文件
+              </button>
+              <span style={{ fontSize: 12, color: "#71717a", marginLeft: 8 }}>
+                {fileName || "未选择任何文件"}
+              </span>
+            </span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="audio/wav,audio/mpeg,audio/mp3,audio/mp4,audio/x-m4a,.wav,.mp3,.m4a"
+              disabled={busy}
+              style={{ display: "none" }}
+              onChange={event => onSelectFile(event.target.files?.[0])}
+            />
+          </label>
+          <label style={cloneDialogFieldLabel}>
+            <span style={cloneDialogLabelText}>或直接填写公网参考音频 URL</span>
             <input
               type="url"
               value={audioUrl}
               disabled={busy}
               placeholder="https://example.com/sample-voice.wav"
+              style={cloneDialogInput}
               onChange={event => onAudioUrlChange(event.target.value)}
             />
           </label>
           {isMiniMax ? (
-            <label>
-              复刻试听文本（MiniMax 必填）
+            <label style={cloneDialogFieldLabel}>
+              <span style={cloneDialogLabelText}>
+                复刻试听文本（MiniMax 必填）
+              </span>
               <input
                 value={sampleText}
                 disabled={busy}
                 placeholder="你好，这是角色声音复刻试听音频。"
+                style={cloneDialogInput}
                 onChange={event => onSampleTextChange(event.target.value)}
               />
             </label>
           ) : null}
-          {error ? <p className="canvas-image-tool-error">{error}</p> : null}
+          {error ? (
+            <p
+              className="canvas-image-tool-error"
+              style={{ fontSize: 12.5, color: "#f07f7f" }}
+            >
+              {error}
+            </p>
+          ) : null}
         </div>
-        <DialogFooter>
+        <DialogFooter
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 10,
+            marginTop: 6,
+          }}
+        >
           <button
-            className="outline-button"
             type="button"
             onClick={onCancel}
             disabled={busy}
+            style={{
+              padding: "8px 18px",
+              borderRadius: 8,
+              fontSize: 13,
+              background: "transparent",
+              border: "1px solid #2a2f3a",
+              color: "#c9cdd4",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
           >
-            <X size={15} /> 取消
+            <X size={14} /> 取消
           </button>
           <button
-            className="vermilion-button"
             type="button"
             onClick={onConfirm}
-            disabled={busy}
+            disabled={busy || !!nameProblem || noCloneModel}
+            style={{
+              padding: "8px 18px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 500,
+              background: "#e8e9ea",
+              color: "#101216",
+              border: "none",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              opacity: busy || !!nameProblem || noCloneModel ? 0.5 : 1,
+            }}
           >
-            <Sparkles size={15} /> {busy ? "正在复刻音色…" : "创建角色音色"}
+            <Sparkles size={14} /> {busy ? "正在复刻音色…" : "创建角色音色"}
           </button>
         </DialogFooter>
       </DialogContent>

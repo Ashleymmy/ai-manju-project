@@ -70,6 +70,7 @@ type AssetService struct {
 	storage       storage.Storage
 	folders       *AssetFolderService
 	references    repository.AssetReferenceRepository
+	clonedVoices  repository.ClonedVoiceRepository
 	tagSyncer     AssetTagSyncer
 	tagFilterer   AssetTagFilterer
 	usageFilterer AssetUsageFilterer
@@ -104,6 +105,12 @@ func (s *AssetService) SetFolderService(folders *AssetFolderService) {
 
 func (s *AssetService) SetReferenceRepository(references repository.AssetReferenceRepository) {
 	s.references = references
+}
+
+// SetClonedVoiceRepository wires cloned-voice metadata so trashing a reference
+// audio can warn that a voice depends on it.
+func (s *AssetService) SetClonedVoiceRepository(clonedVoices repository.ClonedVoiceRepository) {
+	s.clonedVoices = clonedVoices
 }
 
 func (s *AssetService) SetTagSyncer(syncer AssetTagSyncer) {
@@ -200,6 +207,14 @@ type AssetTrashPreflight struct {
 	Count      int                    `json:"count"`
 	TotalBytes int64                  `json:"total_bytes"`
 	References []model.AssetReference `json:"references"`
+	// VoiceReferences 引用这些资产作为参考音频的复刻音色；删除资产后音色将不可用。
+	VoiceReferences []VoiceReferenceUsage `json:"voice_references,omitempty"`
+}
+
+type VoiceReferenceUsage struct {
+	AssetID string `json:"asset_id"`
+	VoiceID string `json:"voice_id"`
+	Alias   string `json:"alias"`
 }
 
 type AssetTrashMutationResult struct {
@@ -728,7 +743,21 @@ func (s *AssetService) TrashPreflight(ids []string, userID string, scope string)
 			return AssetTrashPreflight{}, err
 		}
 	}
-	return AssetTrashPreflight{Count: len(assets), TotalBytes: totalBytes, References: references}, nil
+	voiceReferences := []VoiceReferenceUsage{}
+	if s.clonedVoices != nil {
+		metas, err := s.clonedVoices.ListByReferenceAssetIDs(assetIDs(assets))
+		if err != nil {
+			return AssetTrashPreflight{}, err
+		}
+		for _, meta := range metas {
+			voiceReferences = append(voiceReferences, VoiceReferenceUsage{
+				AssetID: meta.ReferenceAssetID,
+				VoiceID: meta.VoiceID,
+				Alias:   meta.Alias,
+			})
+		}
+	}
+	return AssetTrashPreflight{Count: len(assets), TotalBytes: totalBytes, References: references, VoiceReferences: voiceReferences}, nil
 }
 
 func (s *AssetService) BulkTrash(ids []string, userID string, scope string) (AssetTrashMutationResult, error) {

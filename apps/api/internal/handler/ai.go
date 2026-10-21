@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ai-manju/api/internal/auth"
@@ -67,6 +68,11 @@ type AIHandler struct {
 	projects         *service.ProjectService
 	receipts         *service.GenerationReceiptService
 	comicOperations  *service.ComicAssetService
+	// clonedVoices 复刻音色的展示元数据（中文别名、属主），nil = 不启用。
+	clonedVoices repository.ClonedVoiceRepository
+	// tempClonedVoices 缓存即克隆即删模式下临时注册的音色（20 秒内连续生成复用，
+	// 到期自动从服务商删除），避免每次生成都重新克隆。
+	tempClonedVoices sync.Map
 	// entitlements Agent 模式门禁（WP-M6）：nil = 不启用（billing 关闭时）。
 	entitlements *service.EntitlementGate
 }
@@ -100,6 +106,11 @@ func (h *AIHandler) SetAssetService(assets *service.AssetService) {
 }
 
 func (h *AIHandler) SetProjectService(projects *service.ProjectService) { h.projects = projects }
+
+// SetClonedVoiceRepository wires the metadata store for cloned-voice aliases.
+func (h *AIHandler) SetClonedVoiceRepository(repo repository.ClonedVoiceRepository) {
+	h.clonedVoices = repo
+}
 
 // SetEntitlementGate wires the membership gate (WP-M6). Only called when
 // billing is enabled; nil keeps agent mode open (pre-billing behavior).
@@ -950,7 +961,49 @@ func (h *AIHandler) AudioSpeech(c *gin.Context) {
 				// Monitoring records the model actually called (CosyVoice v3.5 may fall back).
 				lastModel = client.SpecializedAudioUpstreamModel(body, candidate.Model)
 				secrets, _ := h.providerHandler.DecryptSecrets(config)
-				content, contentType, err = client.SynthesizeSpecializedAudio(c.Request.Context(), body, candidate.Model, secrets)
+				requestBody := body
+				voiceValue := stringFromAny(body["voice"])
+				var materializeErr error
+				if strings.HasPrefix(voiceValue, localClonedVoicePrefix) {
+					// 本地音色：参考音频临时注册为服务商音色（20 秒内复用，到期自动删除）。
+					if !provider.IsCosyVoiceModel(candidate.Model) {
+						materializeErr = errors.New("local cloned voice requires a CosyVoice model")
+					} else {
+						var tempVoiceID string
+						tempVoiceID, materializeErr = h.materializeLocalClonedVoice(c, voiceValue, client, secrets)
+						if materializeErr == nil {
+							requestBody = make(map[string]any, len(body)+1)
+							for key, value := range body {
+								requestBody[key] = value
+							}
+							requestBody["voice"] = tempVoiceID
+							lastModel = client.SpecializedAudioUpstreamModel(requestBody, candidate.Model)
+						}
+					}
+				}
+				if materializeErr == nil {
+					content, contentType, err = client.SynthesizeSpecializedAudio(c.Request.Context(), requestBody, candidate.Model, secrets)
+				}
+				if materializeErr != nil {
+					// 临时克隆（含参考音频解析）失败：请求尚未提交合成，直接报错是安全的，
+					// 不能走"结果不确定"流程，否则收据会卡在 409。
+					err = materializeErr
+					h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: config, Operation: "audio", Model: lastModel, InputCount: 1, Err: err})
+					switch {
+					case errors.Is(err, errLocalVoiceUnavailable):
+						response.Error(c, http.StatusBadRequest, "该音色不存在或已被删除，请重新选择音色")
+					case errors.Is(err, errVoiceReferenceMissing):
+						response.Error(c, http.StatusBadRequest, "该音色的参考音频已被删除，音色无法使用，请删除后重新克隆")
+					default:
+						logProviderError(c, err)
+						response.Error(c, http.StatusBadGateway, "音色准备失败，请重试")
+					}
+					return
+				}
+				if err != nil && strings.HasPrefix(voiceValue, localClonedVoicePrefix) {
+					// 合成失败时移除缓存的临时音色（可能已在服务商侧失效），下次生成重新克隆。
+					h.tempClonedVoices.Delete(voiceValue)
+				}
 			} else {
 				content, contentType, err = client.ProxyBlob(c.Request.Context(), http.MethodPost, providerProxyPath(config, "/audio/speech"), body, true)
 			}
@@ -966,7 +1019,7 @@ func (h *AIHandler) AudioSpeech(c *gin.Context) {
 			if !safeToRepeatGeneration(err) {
 				err = uncertainGeneration(err)
 				h.recordAIRequestAsync(c, aiRequestLogInput{StartedAt: startedAt, Config: config, Operation: "audio", Model: lastModel, InputCount: 1, Err: err})
-				response.Error(c, http.StatusBadGateway, generationPublicError(err))
+				response.Error(c, http.StatusBadGateway, audioSpeechPublicError(err))
 				return
 			}
 		}
@@ -2296,7 +2349,15 @@ func (h *AIHandler) resolveUpscaleInputURL(
 		if ext == "" {
 			ext = defaultExt
 		}
-		return client.UploadMediaToVIAPITempOSS(c.Request.Context(), opened.Reader, ext, secrets)
+		uploaded, upErr := client.UploadMediaToVIAPITempOSS(c.Request.Context(), opened.Reader, ext, secrets)
+		if upErr == nil {
+			return uploaded, nil
+		}
+		if !errors.Is(upErr, provider.ErrAliyunVIAPICredentialsMissing) {
+			return "", upErr
+		}
+		// 未配置 AK/SK 时回落到 DashScope 临时上传（与 data_url 路径一致）。
+		return client.UploadMediaToDashScopeTemp(c.Request.Context(), opened.Reader, ext, "voice-enrollment")
 	}
 	return rawURL, nil
 }
@@ -2375,6 +2436,12 @@ func (h *AIHandler) AudioVoiceCloneCreate(c *gin.Context) {
 		writeVoiceCloneFailure(c, fmt.Errorf("decrypt provider secrets: %w", err))
 		return
 	}
+	// 即克隆即删模式：CosyVoice 音色不在服务商侧常驻——参考音频存入资产库，
+	// 每次合成时临时克隆、用完即删，阿里云音色配额占用趋近于零。MiniMax 保持原路径。
+	if provider.IsCosyVoiceModel(modelID) && h.clonedVoices != nil && h.assets != nil {
+		h.createLocalClonedVoice(c, client, config, secrets, req, modelID, startedAt)
+		return
+	}
 	source := firstNonEmptyString(req.AudioURL, req.DataURL)
 	if strings.TrimSpace(source) == "" && strings.TrimSpace(req.AssetID) == "" {
 		response.Error(c, http.StatusBadRequest, "请先选择参考音频")
@@ -2432,6 +2499,24 @@ func (h *AIHandler) AudioVoiceCloneCreate(c *gin.Context) {
 		InputCount:  1,
 		OutputCount: 1,
 	})
+	alias := normalizeVoiceAlias(req.Alias)
+	if h.clonedVoices != nil {
+		var ownerID, ownerName string
+		if user, ok := auth.CurrentUser(c); ok {
+			ownerID = user.ID
+			ownerName = firstNonEmptyString(user.DisplayName, user.Username)
+		}
+		// 元数据保存失败不影响克隆结果：音色已在服务商侧创建成功。
+		if _, err := h.clonedVoices.Upsert(model.ClonedVoiceMeta{
+			VoiceID:     record.VoiceID,
+			Alias:       alias,
+			OwnerID:     ownerID,
+			OwnerName:   ownerName,
+			TargetModel: record.TargetModel,
+		}); err != nil {
+			log.Printf("save cloned voice meta %s: %v", record.VoiceID, err)
+		}
+	}
 	response.OK(c, gin.H{
 		"voice_id":     record.VoiceID,
 		"target_model": record.TargetModel,
@@ -2439,7 +2524,266 @@ func (h *AIHandler) AudioVoiceCloneCreate(c *gin.Context) {
 		"demo_audio":   record.DemoAudio,
 		"request_id":   record.RequestID,
 		"model":        encodeProviderModel(config.ID, modelID),
+		"alias":        alias,
 	})
+}
+
+// normalizeVoiceAlias 限制别名长度（按字符数），内容不限（支持中文）。
+func normalizeVoiceAlias(alias string) string {
+	trimmed := strings.TrimSpace(alias)
+	runes := []rune(trimmed)
+	if len(runes) > 30 {
+		return string(runes[:30])
+	}
+	return trimmed
+}
+
+// localClonedVoicePrefix 本地音色 ID 前缀：音色本体不存服务商，
+// 只有元数据 + 参考音频资产，合成时临时克隆。
+const localClonedVoicePrefix = "cvoice-"
+
+func newLocalClonedVoiceID() string {
+	return localClonedVoicePrefix + randomHexString(6)
+}
+
+// errLocalVoiceUnavailable 音色元数据不存在或无权使用：对用户统一报"已被删除"。
+var errLocalVoiceUnavailable = errors.New("local cloned voice unavailable")
+
+// errVoiceReferenceMissing 音色的参考音频资产已被删除/不可读，音色无法再临时克隆。
+var errVoiceReferenceMissing = errors.New("voice reference audio missing")
+
+// tempClonedVoiceTTL 临时音色在服务商侧的保留时间：连续生成在这段时间内复用同一个
+// 临时音色，省去重复克隆；到期后自动删除，阿里云账户不长期占用配额。
+const tempClonedVoiceTTL = 20 * time.Second
+
+type tempClonedVoiceEntry struct {
+	voiceID   string
+	expiresAt time.Time
+}
+
+// materializeLocalClonedVoice 将本地音色（仅存参考音频）临时注册到服务商；
+// 20 秒内的重复调用直接复用未过期的临时音色，到期由定时器删除。
+func (h *AIHandler) materializeLocalClonedVoice(c *gin.Context, voiceID string, client *provider.OpenAICompatibleClient, secrets map[string]string) (string, error) {
+	meta, err := h.clonedVoices.Get(voiceID)
+	if err != nil {
+		return "", errLocalVoiceUnavailable
+	}
+	user, _ := auth.CurrentUser(c)
+	// 他人音色一律报"不存在"，不暴露音色是否存在。
+	if meta.OwnerID != user.ID && user.Role != model.UserRoleSuperAdmin {
+		return "", errLocalVoiceUnavailable
+	}
+	if cached, ok := h.tempClonedVoices.Load(voiceID); ok {
+		if entry, ok := cached.(tempClonedVoiceEntry); ok && time.Now().Before(entry.expiresAt) {
+			return entry.voiceID, nil
+		}
+	}
+	audioURL, err := h.resolveUpscaleInputURL(c, client, secrets, "", meta.ReferenceAssetID, strings.TrimSpace(c.Query("scope")), ".mp3")
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", errVoiceReferenceMissing, err)
+	}
+	lower := strings.ToLower(strings.TrimSpace(audioURL))
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") && !strings.HasPrefix(lower, "oss://") {
+		return "", errors.New("reference audio has no public URL; configure Aliyun AK/SK for local uploads")
+	}
+	record, err := client.CreateClonedVoice(c.Request.Context(), provider.VoiceCloneRequest{
+		TargetModel: meta.TargetModel,
+		Prefix:      "tmp" + randomHexString(3),
+		AudioURL:    audioURL,
+	}, secrets)
+	if err != nil {
+		return "", err
+	}
+	entry := tempClonedVoiceEntry{voiceID: record.VoiceID, expiresAt: time.Now().Add(tempClonedVoiceTTL)}
+	h.tempClonedVoices.Store(voiceID, entry)
+	time.AfterFunc(time.Until(entry.expiresAt), func() {
+		h.tempClonedVoices.Delete(voiceID)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if derr := client.DeleteClonedVoice(ctx, record.VoiceID, secrets); derr != nil {
+			log.Printf("cleanup temp cloned voice %s: %v", record.VoiceID, derr)
+		}
+	})
+	return record.VoiceID, nil
+}
+
+// createLocalClonedVoice 即克隆即删模式下的"克隆"：参考音频存为资产，音色只登记元数据。
+// 保存前先在服务商侧临时克隆一次做质检（不合格当场报错），通过即删除临时音色。
+func (h *AIHandler) createLocalClonedVoice(c *gin.Context, client *provider.OpenAICompatibleClient, config model.ModelProviderConfig, secrets map[string]string, req provider.VoiceCloneRequest, modelID string, startedAt time.Time) {
+	user, _ := auth.CurrentUser(c)
+	alias := normalizeVoiceAlias(req.Alias)
+	if alias == "" {
+		response.Error(c, http.StatusBadRequest, "请填写音色名称")
+		return
+	}
+	scope := firstNonEmptyString(strings.TrimSpace(req.Scope), requestWorkspaceScope(c))
+	audioBytes, ext, err := h.resolveVoiceCloneReferenceBytes(c, client, req, user.ID, scope)
+	if err != nil {
+		log.Printf("voice clone reference read failed: %v", err)
+		response.Error(c, http.StatusBadRequest, voiceCloneAudioUnreadable)
+		return
+	}
+	assetInput := service.AssetUploadInput{
+		ID:          "voice_ref_" + randomHexString(8),
+		UserID:      user.ID,
+		Scope:       scope,
+		Type:        "audio",
+		Name:        alias + "（音色参考音频）",
+		Extension:   ext,
+		ContentType: audioAssetContentType(ext),
+		Reader:      bytes.NewReader(audioBytes),
+		Registration: service.AssetRegistrationContext{
+			Category:   "reference",
+			SourceType: model.AssetSourceManualUpload,
+		},
+	}
+	// 参考音频统一归档到"音色参考音频"系统文件夹，不随画布项目散落。
+	if h.assetFolders != nil {
+		if defaults, folderErr := h.assetFolders.EnsureDefaults(user.ID, scope); folderErr == nil {
+			assetInput.Registration.FolderID = defaults.VoiceClone.ID
+		}
+	}
+	asset, err := h.assets.Upload(c.Request.Context(), assetInput)
+	if err != nil {
+		writeVoiceCloneFailure(c, fmt.Errorf("save reference audio asset: %w", err))
+		return
+	}
+	// 质检：临时克隆一次并立即删除，参考音频不合格（无人声/噪音/过短等）当场拦截。
+	if err := h.validateVoiceCloneAudio(c, client, secrets, modelID, asset.ID, scope); err != nil {
+		if _, trashErr := h.assets.BulkTrash([]string{asset.ID}, user.ID, scope); trashErr != nil {
+			log.Printf("trash rejected voice reference asset %s: %v", asset.ID, trashErr)
+		}
+		h.recordAIRequestAsync(c, aiRequestLogInput{
+			StartedAt: startedAt,
+			Config:    config,
+			Operation: "audio_voice_clone",
+			Model:     modelID,
+			InputCount: 1,
+			Err:       err,
+		})
+		if message := voiceCloneAudioRejected(err); message != "" {
+			logProviderError(c, err)
+			response.Error(c, http.StatusBadRequest, message)
+			return
+		}
+		writeVoiceCloneFailure(c, err)
+		return
+	}
+	voiceID := newLocalClonedVoiceID()
+	if _, err := h.clonedVoices.Upsert(model.ClonedVoiceMeta{
+		VoiceID:          voiceID,
+		Alias:            alias,
+		OwnerID:          user.ID,
+		OwnerName:        firstNonEmptyString(user.DisplayName, user.Username),
+		TargetModel:      modelID,
+		ReferenceAssetID: asset.ID,
+	}); err != nil {
+		writeVoiceCloneFailure(c, fmt.Errorf("save cloned voice meta: %w", err))
+		return
+	}
+	h.recordAIRequestAsync(c, aiRequestLogInput{
+		StartedAt:   startedAt,
+		Config:      config,
+		Operation:   "audio_voice_clone",
+		Model:       modelID,
+		InputCount:  1,
+		OutputCount: 1,
+	})
+	response.OK(c, gin.H{
+		"voice_id":     voiceID,
+		"target_model": modelID,
+		"status":       "OK",
+		"model":        encodeProviderModel(config.ID, modelID),
+		"alias":        alias,
+	})
+}
+
+// validateVoiceCloneAudio 把参考音频临时克隆到服务商做质检，成功后立即删除临时音色。
+func (h *AIHandler) validateVoiceCloneAudio(c *gin.Context, client *provider.OpenAICompatibleClient, secrets map[string]string, modelID string, assetID string, scope string) error {
+	audioURL, err := h.resolveUpscaleInputURL(c, client, secrets, "", assetID, scope, ".mp3")
+	if err != nil {
+		return fmt.Errorf("resolve reference audio: %w", err)
+	}
+	record, err := client.CreateClonedVoice(c.Request.Context(), provider.VoiceCloneRequest{
+		TargetModel: modelID,
+		Prefix:      "chk" + randomHexString(3),
+		AudioURL:    audioURL,
+	}, secrets)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if derr := client.DeleteClonedVoice(ctx, record.VoiceID, secrets); derr != nil {
+		log.Printf("cleanup validation voice %s: %v", record.VoiceID, derr)
+	}
+	return nil
+}
+
+// resolveVoiceCloneReferenceBytes 读取参考音频的原始字节：data_url 解码 / 资产库读取 / 公网 URL 下载。
+func (h *AIHandler) resolveVoiceCloneReferenceBytes(c *gin.Context, client *provider.OpenAICompatibleClient, req provider.VoiceCloneRequest, userID string, scope string) ([]byte, string, error) {
+	if dataURL := strings.TrimSpace(req.DataURL); strings.HasPrefix(dataURL, "data:") {
+		comma := strings.Index(dataURL, ",")
+		if comma < 0 {
+			return nil, "", errors.New("invalid data_url format")
+		}
+		decoded, err := base64.StdEncoding.DecodeString(dataURL[comma+1:])
+		if err != nil {
+			return nil, "", fmt.Errorf("invalid base64 data_url: %w", err)
+		}
+		return decoded, audioExtFromMime(dataURL[:comma]), nil
+	}
+	if assetID := strings.TrimSpace(req.AssetID); assetID != "" && h.assets != nil {
+		content, err := h.assets.DescribeContent(c.Request.Context(), assetID, userID, scope)
+		if err != nil {
+			return nil, "", err
+		}
+		opened, err := h.assets.OpenResolvedContent(c.Request.Context(), content)
+		if err != nil {
+			return nil, "", err
+		}
+		defer opened.Reader.Close()
+		data, err := io.ReadAll(opened.Reader)
+		if err != nil {
+			return nil, "", err
+		}
+		ext := filepath.Ext(opened.Object.Key)
+		if ext == "" {
+			ext = ".mp3"
+		}
+		return data, ext, nil
+	}
+	if rawURL := strings.TrimSpace(req.AudioURL); rawURL != "" {
+		data, contentType, err := client.DownloadMediaBytes(c.Request.Context(), rawURL)
+		if err != nil {
+			return nil, "", err
+		}
+		return data, audioExtFromMime(contentType), nil
+	}
+	return nil, "", errors.New("reference audio missing")
+}
+
+func audioExtFromMime(header string) string {
+	lower := strings.ToLower(header)
+	switch {
+	case strings.Contains(lower, "wav"):
+		return ".wav"
+	case strings.Contains(lower, "m4a"), strings.Contains(lower, "mp4"):
+		return ".m4a"
+	default:
+		return ".mp3"
+	}
+}
+
+func audioAssetContentType(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".wav":
+		return "audio/wav"
+	case ".m4a":
+		return "audio/mp4"
+	default:
+		return "audio/mpeg"
+	}
 }
 
 const (
@@ -2499,6 +2843,32 @@ func voiceCloneAudioRejected(err error) string {
 func (h *AIHandler) AudioVoiceCloneList(c *gin.Context) {
 	requestedModel := strings.TrimSpace(c.Query("model"))
 	prefix := strings.TrimSpace(c.Query("prefix"))
+	// 用户隔离：本地元数据表是音色列表的唯一来源，普通用户只看到自己的，
+	// 超级管理员可见全部。阿里云账户的全量列表不再直接暴露给前端。
+	if h.clonedVoices != nil {
+		user, _ := auth.CurrentUser(c)
+		metas, err := h.clonedVoices.ListVisible(user.ID, user.Role == model.UserRoleSuperAdmin)
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, "读取音色列表失败")
+			return
+		}
+		items := make([]clonedVoiceListItem, 0, len(metas))
+		for _, meta := range metas {
+			items = append(items, clonedVoiceListItem{
+				VoiceCloneRecord: provider.VoiceCloneRecord{
+					VoiceID:     meta.VoiceID,
+					TargetModel: meta.TargetModel,
+					Status:      "OK",
+					CreatedAt:   meta.CreatedAt.UTC().Format(time.RFC3339),
+				},
+				Alias:     meta.Alias,
+				OwnerName: meta.OwnerName,
+			})
+		}
+		response.OK(c, gin.H{"voices": items})
+		return
+	}
+	// 兜底：未装配元数据仓储时保持旧行为（直接代理服务商列表）。
 	client, config, _, ok := h.providerHandler.LoadClientForModel(c, model.ModelCapabilityAudio, requestedModel)
 	if !ok {
 		return
@@ -2514,5 +2884,107 @@ func (h *AIHandler) AudioVoiceCloneList(c *gin.Context) {
 		response.OK(c, gin.H{"voices": []provider.VoiceCloneRecord{}, "notice": err.Error()})
 		return
 	}
-	response.OK(c, gin.H{"voices": voices})
+	response.OK(c, gin.H{"voices": h.attachVoiceAliases(voices)})
+}
+
+// AudioVoiceCloneDelete removes a cloned voice from the provider account and the
+// local alias metadata. Already-generated audio assets are unaffected; canvas
+// nodes that still reference the voice will fail on their next synthesis.
+func (h *AIHandler) AudioVoiceCloneDelete(c *gin.Context) {
+	startedAt := time.Now().UTC()
+	voiceID := strings.TrimSpace(c.Param("voice_id"))
+	if voiceID == "" {
+		response.Error(c, http.StatusBadRequest, "voice_id is required")
+		return
+	}
+	// 本地音色（cvoice-）：服务商侧没有本体，只删元数据；仅属主或超管可删。
+	if strings.HasPrefix(voiceID, localClonedVoicePrefix) {
+		if h.clonedVoices == nil {
+			response.Error(c, http.StatusNotFound, "该音色不存在或已被删除")
+			return
+		}
+		meta, err := h.clonedVoices.Get(voiceID)
+		if err != nil {
+			response.Error(c, http.StatusNotFound, "该音色不存在或已被删除")
+			return
+		}
+		user, _ := auth.CurrentUser(c)
+		if meta.OwnerID != user.ID && user.Role != model.UserRoleSuperAdmin {
+			response.Error(c, http.StatusForbidden, "只能删除自己的音色")
+			return
+		}
+		if err := h.clonedVoices.DeleteByVoiceID(voiceID); err != nil {
+			response.Error(c, http.StatusInternalServerError, "音色删除失败，请稍后重试")
+			return
+		}
+		response.OK(c, gin.H{"voice_id": voiceID, "deleted": true})
+		return
+	}
+	client, config, _, ok := h.providerHandler.LoadClientForModel(c, model.ModelCapabilityAudio, "")
+	if !ok {
+		return
+	}
+	secrets, err := h.providerHandler.DecryptSecrets(config)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "model provider secrets cannot be decrypted")
+		return
+	}
+	if err := client.DeleteClonedVoice(c.Request.Context(), voiceID, secrets); err != nil {
+		h.recordAIRequestAsync(c, aiRequestLogInput{
+			StartedAt: startedAt,
+			Config:    config,
+			Operation: "audio_voice_clone_delete",
+			Model:     voiceID,
+			Err:       err,
+		})
+		logProviderError(c, err)
+		response.Error(c, http.StatusBadGateway, "音色删除失败，请稍后重试；也可到服务商控制台删除")
+		return
+	}
+	if h.clonedVoices != nil {
+		if err := h.clonedVoices.DeleteByVoiceID(voiceID); err != nil {
+			log.Printf("delete cloned voice meta %s: %v", voiceID, err)
+		}
+	}
+	h.recordAIRequestAsync(c, aiRequestLogInput{
+		StartedAt:   startedAt,
+		Config:      config,
+		Operation:   "audio_voice_clone_delete",
+		Model:       voiceID,
+		InputCount:  1,
+		OutputCount: 1,
+	})
+	response.OK(c, gin.H{"voice_id": voiceID, "deleted": true})
+}
+
+// clonedVoiceListItem 在服务商返回的音色记录上叠加应用侧别名/属主信息。
+type clonedVoiceListItem struct {
+	provider.VoiceCloneRecord
+	Alias     string `json:"alias,omitempty"`
+	OwnerName string `json:"owner_name,omitempty"`
+}
+
+func (h *AIHandler) attachVoiceAliases(voices []provider.VoiceCloneRecord) []clonedVoiceListItem {
+	items := make([]clonedVoiceListItem, 0, len(voices))
+	var metas map[string]model.ClonedVoiceMeta
+	if h.clonedVoices != nil && len(voices) > 0 {
+		ids := make([]string, 0, len(voices))
+		for _, voice := range voices {
+			ids = append(ids, voice.VoiceID)
+		}
+		if found, err := h.clonedVoices.ListByVoiceIDs(ids); err == nil {
+			metas = found
+		} else {
+			log.Printf("list cloned voice metas: %v", err)
+		}
+	}
+	for _, voice := range voices {
+		item := clonedVoiceListItem{VoiceCloneRecord: voice}
+		if meta, ok := metas[voice.VoiceID]; ok {
+			item.Alias = meta.Alias
+			item.OwnerName = meta.OwnerName
+		}
+		items = append(items, item)
+	}
+	return items
 }

@@ -14,6 +14,8 @@ const (
 	AssetFolderSystemKeyVideoWorkbench      = "video_workbench"
 	AssetFolderSystemKeyCanvas              = "canvas"
 	AssetFolderSystemKeyCanvasProject       = "canvas_project"
+	// 音色克隆的参考音频统一归档到该系统文件夹（即克隆即删模式，音色本体不留服务商）。
+	AssetFolderSystemKeyVoiceClone = "voice_clone"
 	// Canvas categories have stable identities beneath their linked project folder.
 	AssetFolderSystemKeyCanvasCategory    = "canvas_category"
 	AssetFolderSystemKeyCanvasUnassigned  = "canvas_unassigned"

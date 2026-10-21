@@ -178,6 +178,8 @@ export type AssetTrashPreflight = {
   total: number;
   size: number;
   references: Array<{ asset_id: string; count: number; locations?: string[] }>;
+  /** 引用这些资产作为参考音频的复刻音色；删除资产后对应音色将无法使用 */
+  voice_references?: Array<{ asset_id: string; voice_id: string; alias: string }>;
 };
 
 export type AssetExportStatus =
