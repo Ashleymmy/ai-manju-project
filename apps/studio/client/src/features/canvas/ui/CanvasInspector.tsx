@@ -27,6 +27,7 @@ import {
   BookOpen,
   Bot,
   Camera,
+  Check,
   ChevronDown,
   Copy,
   Download,
@@ -53,6 +54,7 @@ import {
 } from "lucide-react";
 import {
   useRef,
+  useState,
   type CSSProperties,
   type PointerEvent,
   type RefObject,
@@ -166,6 +168,95 @@ function cosyVoiceInstructionDisabled(config: AudioConfigView) {
   return (
     isCosyVoiceAudioModel(config.model) &&
     cosyVoiceInstructionMode(config.voice) === "none"
+  );
+}
+
+/** 音色下拉的选项：目录音色 + 当前值不在目录时的兜底项。 */
+function audioVoiceSelectOptions(
+  config: AudioConfigView
+): Array<{ value: string; label: string }> {
+  const base = audioVoiceOptionsForModel(config.model, openAIAudioVoiceOptions);
+  if (!config.voice || base.some(item => item.value === config.voice)) {
+    return base;
+  }
+  const label = openAIAudioVoiceOptions.some(
+    item => item.value === config.voice
+  )
+    ? "默认音色"
+    : `复刻/自定义音色 (${config.voice})`;
+  return [...base, { value: config.voice, label }];
+}
+
+/**
+ * 音频参数弹层里的下拉框。原生 select 的展开列表由系统绘制（白底/蓝条），
+ * 与画布深色风格不一致，这里用自绘列表替代。
+ */
+function AudioSelect({
+  value,
+  options,
+  disabled,
+  title,
+  onChange,
+}: {
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  disabled?: boolean;
+  title?: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find(item => item.value === value);
+  return (
+    <div className={open ? "audio-select open" : "audio-select"}>
+      <button
+        type="button"
+        className="audio-control audio-select-trigger"
+        disabled={disabled}
+        title={title}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen(current => !current)}
+      >
+        <span className="audio-select-value">{selected?.label ?? value}</span>
+        <ChevronDown size={13} className="audio-select-chevron" />
+      </button>
+      {open ? (
+        <>
+          <div
+            className="audio-select-backdrop"
+            onClick={() => setOpen(false)}
+          />
+          <div className="audio-select-panel" role="listbox">
+            {options.map(option => {
+              const isSelected = option.value === value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  title={option.label}
+                  className={
+                    isSelected
+                      ? "audio-select-option active"
+                      : "audio-select-option"
+                  }
+                  onClick={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="audio-select-option-label">
+                    {option.label}
+                  </span>
+                  {isSelected ? <Check size={12} /> : null}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+    </div>
   );
 }
 
@@ -424,6 +515,8 @@ export function CanvasInspector({
 }: CanvasInspectorProps) {
   const upscaleAvailability = useCanvasUpscaleAvailability();
   const promptEditorRef = useRef<CanvasMentionEditorHandle>(null);
+  // 选用提示词预设前的原文，用于再次点击同一预设时恢复
+  const promptBeforePresetRef = useRef<string | null>(null);
   const {
     node: {
       openDirectorNode,
@@ -766,20 +859,48 @@ export function CanvasInspector({
               onPreviewReference={previewMentionReference}
               onLocateReference={locateMentionReference}
             />
+            {/* 音频节点的提示词是要朗读的文本，不是创作指令，因此不展示预设条 */}
             {editableNodeKind(selectedNode.kind) &&
+            selectedNode.kind !== "audio" &&
             visiblePromptPresets.length ? (
               <div className="canvas-preset-strip">
-                {visiblePromptPresets.map(preset => (
-                  <button
-                    key={preset.id}
-                    title={preset.prompt}
-                    onClick={() =>
-                      updateNodePrompt(selectedNode.id, preset.prompt)
-                    }
-                  >
-                    {presetPriorityLabel(preset.priority)} · {preset.title}
-                  </button>
-                ))}
+                {visiblePromptPresets.map(preset => {
+                  const currentPrompt = promptTextFromNode(selectedNode);
+                  const selected =
+                    Boolean(preset.prompt.trim()) &&
+                    currentPrompt.trim() === preset.prompt.trim();
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      aria-pressed={selected}
+                      title={`${presetPriorityLabel(preset.priority)} · ${preset.title}\n${preset.prompt}${selected ? "\n再次点击取消选用" : ""}`}
+                      onClick={() => {
+                        // 再次点击已选中的预设：恢复选用前的提示词
+                        if (selected) {
+                          updateNodePrompt(
+                            selectedNode.id,
+                            promptBeforePresetRef.current ?? ""
+                          );
+                          promptBeforePresetRef.current = null;
+                          return;
+                        }
+                        const fromPreset = visiblePromptPresets.some(
+                          item =>
+                            item.prompt.trim() &&
+                            item.prompt.trim() === currentPrompt.trim()
+                        );
+                        if (!fromPreset) {
+                          promptBeforePresetRef.current = currentPrompt;
+                        }
+                        updateNodePrompt(selectedNode.id, preset.prompt);
+                      }}
+                    >
+                      <span>{preset.title}</span>
+                      <Check size={12} aria-hidden="true" />
+                    </button>
+                  );
+                })}
               </div>
             ) : null}
             {!runningNodeIds.has(selectedNode.id) && (
@@ -909,7 +1030,7 @@ export function CanvasInspector({
                 </button>
               </PopoverTrigger>
               <PopoverContent
-                className="node-pop-card node-pop-params"
+                className={`node-pop-card node-pop-params${selectedAudioConfig ? " node-pop-params-audio" : ""}`}
                 align="start"
                 sideOffset={8}
               >
@@ -1340,118 +1461,89 @@ export function CanvasInspector({
                     </>
                   ) : (
                     <>
-                      <div className="parameter-row">
-                        <span>音色</span>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                            flex: 1,
-                            minWidth: 0,
-                          }}
-                        >
-                          <select
-                            style={{ flex: 1, minWidth: 0 }}
+                      <div className="audio-field">
+                        <span className="audio-field-label">音色</span>
+                        <div className="audio-voice-row">
+                          <AudioSelect
                             value={selectedAudioConfig.voice}
-                            onChange={event =>
+                            options={audioVoiceSelectOptions(selectedAudioConfig)}
+                            onChange={value =>
                               updateNode(selectedNode.id, {
                                 metadata: {
                                   ...(selectedNode.metadata || {}),
-                                  audioVoice: event.target.value,
+                                  audioVoice: value,
                                 },
                               })
                             }
-                          >
-                            {audioVoiceOptionsForModel(
-                              selectedAudioConfig.model,
-                              audioVoiceOptions
-                            ).map(item => (
-                              <option key={item.value} value={item.value}>
-                                {item.label}
-                              </option>
-                            ))}
-                            {!audioVoiceOptionsForModel(
-                              selectedAudioConfig.model,
-                              audioVoiceOptions
-                            ).some(
-                              item => item.value === selectedAudioConfig.voice
-                            ) && selectedAudioConfig.voice ? (
-                              <option value={selectedAudioConfig.voice}>
-                                {openAIAudioVoiceOptions.some(
-                                  item =>
-                                    item.value === selectedAudioConfig.voice
-                                )
-                                  ? "默认音色"
-                                  : `复刻/自定义音色 (${selectedAudioConfig.voice})`}
-                              </option>
-                            ) : null}
-                          </select>
+                          />
                           {openAudioVoiceCloneDialog ? (
                             <button
                               type="button"
-                              className="node-chip"
+                              className="audio-clone-button"
                               title="上传参考音频克隆角色专属音色"
                               onClick={() =>
                                 openAudioVoiceCloneDialog(selectedNode)
                               }
                             >
-                              + 克隆音色
+                              ＋ 克隆音色
                             </button>
                           ) : null}
                         </div>
                       </div>
                       {isMiniMaxAudioModel(selectedAudioConfig.model) ? (
-                        <div className="parameter-row">
-                          <span>情绪</span>
-                          <select
+                        <div className="audio-field">
+                          <span className="audio-field-label">情绪</span>
+                          <AudioSelect
                             value={selectedAudioConfig.emotion || ""}
-                            onChange={event =>
+                            options={miniMaxEmotionOptions.map(item => ({
+                              value: item.value,
+                              label: item.label,
+                            }))}
+                            onChange={value =>
                               updateNode(selectedNode.id, {
                                 metadata: {
                                   ...(selectedNode.metadata || {}),
-                                  audioEmotion: event.target.value,
+                                  audioEmotion: value,
                                 },
                               })
                             }
-                          >
-                            {miniMaxEmotionOptions.map(item => (
-                              <option key={item.value} value={item.value}>
-                                {item.label}
-                              </option>
-                            ))}
-                          </select>
+                          />
                         </div>
                       ) : null}
-                      <div className="parameter-row">
-                        <span>格式</span>
-                        <select
+                      <div className="audio-field">
+                        <span className="audio-field-label">格式</span>
+                        <AudioSelect
                           value={selectedAudioConfig.format}
-                          onChange={event =>
-                            updateNode(selectedNode.id, {
-                              metadata: {
-                                ...(selectedNode.metadata || {}),
-                                audioFormat: event.target.value,
-                              },
-                            })
-                          }
-                        >
-                          {audioFormatOptions
+                          options={audioFormatOptions
                             .filter(item =>
                               audioFormatOptionsForModel(
                                 selectedAudioConfig.model
                               ).some(option => option.value === item.value)
                             )
-                            .map(item => (
-                              <option key={item.value} value={item.value}>
-                                {item.label}
-                              </option>
-                            ))}
-                        </select>
+                            .map(item => ({
+                              value: item.value,
+                              label: item.label,
+                            }))}
+                          onChange={value =>
+                            updateNode(selectedNode.id, {
+                              metadata: {
+                                ...(selectedNode.metadata || {}),
+                                audioFormat: value,
+                              },
+                            })
+                          }
+                        />
                       </div>
-                      <label className="parameter-row audio-speed-row">
-                        <span>语速 {selectedAudioConfig.speed}x</span>
+                      <div className="audio-divider" />
+                      <div className="audio-field">
+                        <div className="audio-field-head">
+                          <span className="audio-field-label">语速</span>
+                          <span className="audio-field-value">
+                            {selectedAudioConfig.speed}x
+                          </span>
+                        </div>
                         <input
+                          className="audio-range"
                           type="range"
                           min={
                             isCosyVoiceAudioModel(selectedAudioConfig.model) ||
@@ -1476,15 +1568,21 @@ export function CanvasInspector({
                             })
                           }
                         />
-                      </label>
-                      <div className="audio-instructions">
-                        <span className="field-label">
+                        <p className="audio-field-hint">
+                          {isCosyVoiceAudioModel(selectedAudioConfig.model) ||
+                          isMiniMaxAudioModel(selectedAudioConfig.model)
+                            ? "0.5x — 2.0x"
+                            : "0.25x — 4.0x"}
+                        </p>
+                      </div>
+                      <div className="audio-field">
+                        <span className="audio-field-label">
                           {isCosyVoiceAudioModel(selectedAudioConfig.model)
-                            ? "风格 / 方言指令（Instruction）"
+                            ? "风格 / 方言指令"
                             : "朗读指令"}
                         </span>
                         <textarea
-                          className="prompt-copy"
+                          className="audio-control audio-textarea"
                           value={
                             cosyVoiceInstructionDisabled(selectedAudioConfig)
                               ? ""
@@ -1513,6 +1611,7 @@ export function CanvasInspector({
                             })
                           }
                         />
+                        <p className="audio-field-hint">对当前音色生效，可留空</p>
                       </div>
                     </>
                   )

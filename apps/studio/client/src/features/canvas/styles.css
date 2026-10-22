@@ -1874,26 +1874,49 @@
   right: 0;
   bottom: auto;
 }
+/* 提示词预设：与「图片生成」页同款样式（细描边 + 选中打勾） */
 .canvas-preset-strip {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
+  min-width: 0;
   margin-top: 10px;
 }
 .canvas-preset-strip button {
-  max-width: 100%;
-  min-height: 27px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  max-width: min(200px, 100%);
+  min-height: 28px;
   padding: 0 9px;
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  background: rgba(255, 255, 255, 0.08);
-  color: #dddddd;
+  border: 1px solid rgba(239, 235, 222, 0.1);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+  color: #d9ddd6;
   font-size: 11px;
+  line-height: 1.4;
   cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
+.canvas-preset-strip button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-preset-strip button > svg { flex: 0 0 auto; opacity: 0; }
 .canvas-preset-strip button:hover {
-  border-color: rgba(255, 255, 255, 0.75);
-  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(239, 235, 222, 0.24);
+  background: rgba(255, 255, 255, 0.065);
+  color: #f1efe6;
 }
+.canvas-preset-strip button[aria-pressed="true"] {
+  border-color: rgba(224, 218, 197, 0.36);
+  background: rgba(224, 218, 197, 0.09);
+  color: #f1ead7;
+}
+.canvas-preset-strip button[aria-pressed="true"] > svg { opacity: 1; }
 .real-canvas-page .inspector-block input {
   width: 100%;
   height: 34px;
@@ -8257,4 +8280,152 @@ button.canvas-seedance-registration.is-error {
 }
 .canvas-group-connection-handle.source {
   right: calc(-23px * var(--group-controls-scale) - 11px);
+}
+
+/* 音频节点「详细参数」弹层：标签在上、控件整行，音色与克隆入口同一行 */
+.node-pop-params-audio {
+  width: 300px;
+  max-width: 300px;
+  padding: 14px;
+  border-radius: 10px;
+}
+.audio-field { margin-bottom: 13px; }
+.audio-field:last-child { margin-bottom: 0; }
+.audio-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.audio-field-label {
+  display: block;
+  margin-bottom: 6px;
+  color: #9c9c94;
+  font-size: 11px;
+}
+.audio-field-head .audio-field-label { margin-bottom: 0; }
+.audio-field-value {
+  color: #e0ded5;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.audio-field-hint {
+  margin-top: 5px;
+  color: #6f6f68;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.audio-control {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #262626;
+  color: #e0e2da;
+  font-size: 11.5px;
+  outline: none;
+}
+.audio-textarea {
+  height: 64px;
+  padding: 8px 9px;
+  resize: vertical;
+  line-height: 1.5;
+  font-family: inherit;
+}
+.audio-voice-row { display: flex; gap: 8px; }
+.audio-voice-row .audio-select { flex: 1; }
+.audio-clone-button {
+  flex: none;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid #5a4a3a;
+  border-radius: 6px;
+  background: rgba(224, 150, 90, 0.12);
+  color: #e8b98a;
+  font-size: 11.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.audio-clone-button:hover {
+  border-color: #7a5f45;
+  background: rgba(224, 150, 90, 0.2);
+}
+.audio-divider {
+  height: 1px;
+  margin: 13px 0;
+  background: rgba(255, 255, 255, 0.06);
+}
+.audio-range { width: 100%; accent-color: #c9c9c2; }
+
+/* 音频参数弹层：自绘下拉（替代系统蓝白列表，保持深色风格） */
+.audio-select { position: relative; min-width: 0; }
+.audio-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+.audio-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.audio-select-chevron { flex: none; color: #9c9c94; }
+.audio-select-backdrop { position: fixed; inset: 0; z-index: 60; }
+.audio-select-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: auto;
+  width: 260px;
+  min-width: 100%;
+  max-width: calc(100vw - 32px);
+  z-index: 61;
+  max-height: 216px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid rgba(239, 235, 222, 0.16);
+  border-radius: 8px;
+  background: #1c1c1c;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(239, 235, 222, 0.22) transparent;
+}
+.audio-select-panel::-webkit-scrollbar { width: 6px; }
+.audio-select-panel::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: rgba(239, 235, 222, 0.22);
+}
+.audio-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #d9dbd3;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.audio-select-option:hover { background: rgba(255, 255, 255, 0.07); }
+.audio-select-option.active { background: rgba(224, 150, 90, 0.14); color: #fff; }
+.audio-select-option.active svg { color: #e8b98a; }
+.audio-select-option-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 检查器内的提示词输入：透明底、无可见边框，与图片节点的展示一致 */
+.inspector-floating .node-card-prompt {
+  border: 1px solid transparent;
+  background: transparent;
 }

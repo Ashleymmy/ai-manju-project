@@ -3,6 +3,7 @@ import { CanvasGenerationPrice } from "./CanvasGenerationPrice";
 import { voiceCloneNameProblem } from "@/shared/config/audio";
 import {
   Check,
+  ChevronDown,
   Image as ImageIcon,
   RotateCcw,
   Scan,
@@ -986,6 +987,84 @@ const cloneDialogInput: CSSProperties = {
   outline: "none",
 };
 
+
+/** 克隆弹窗的模型下拉：原生 select 展开是系统白底蓝条，这里用自绘列表对齐深色弹窗。 */
+function CloneModelSelect({
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find(option => option.value === value);
+  return (
+    <div className="audio-select">
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        style={{
+          ...cloneDialogInput,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 6,
+          textAlign: "left",
+          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.6 : 1,
+        }}
+        onClick={() => setOpen(current => !current)}
+      >
+        <span
+          style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+        >
+          {selected?.label ?? value}
+        </span>
+        <ChevronDown size={13} style={{ flex: "none", opacity: 0.6 }} />
+      </button>
+      {open ? (
+        <>
+          <div className="audio-select-backdrop" onClick={() => setOpen(false)} />
+          <div
+            className="audio-select-panel"
+            role="listbox"
+            style={{ width: "100%", right: 0, maxWidth: "100%" }}
+          >
+            {options.map(option => {
+              const isSelected = option.value === value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  title={option.label}
+                  className={
+                    isSelected ? "audio-select-option active" : "audio-select-option"
+                  }
+                  onClick={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="audio-select-option-label">{option.label}</span>
+                  {isSelected ? <Check size={12} /> : null}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 export function CanvasAudioVoiceCloneDialog({
   open,
   targetModel,
@@ -1066,24 +1145,21 @@ export function CanvasAudioVoiceCloneDialog({
         >
           <label style={cloneDialogFieldLabel}>
             <span style={cloneDialogLabelText}>目标语音模型</span>
-            <select
+            <CloneModelSelect
               value={targetModel}
               disabled={busy || noCloneModel}
-              style={cloneDialogInput}
-              onChange={event => onTargetModelChange(event.target.value)}
-            >
-              {targetModelOptions && targetModelOptions.length > 0 ? (
-                targetModelOptions.map(option => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))
-              ) : (
-                <option value={targetModel}>
-                  当前供应商未配置可用于克隆的语音模型
-                </option>
-              )}
-            </select>
+              options={
+                targetModelOptions && targetModelOptions.length > 0
+                  ? targetModelOptions
+                  : [
+                      {
+                        value: targetModel,
+                        label: "当前供应商未配置可用于克隆的语音模型",
+                      },
+                    ]
+              }
+              onChange={onTargetModelChange}
+            />
             {noCloneModel ? (
               <small style={{ color: "#f07f7f" }}>
                 请先在后台配置 CosyVoice 或 MiniMax 语音模型后再来克隆音色。
