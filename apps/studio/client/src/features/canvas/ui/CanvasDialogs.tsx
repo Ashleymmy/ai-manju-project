@@ -1011,6 +1011,9 @@ function CloneModelSelect({
         aria-expanded={open}
         style={{
           ...cloneDialogInput,
+          // 展开时抬到遮罩之上：再点触发框本身也能收起
+          position: "relative",
+          zIndex: open ? 61 : undefined,
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
